@@ -1,7 +1,8 @@
 import { createFileRoute, Outlet, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
-import { Loader2, ClipboardList, CalendarDays, FileText, Bell, Wallet, LogOut, Ship } from "lucide-react";
+import { Loader2, ClipboardList, CalendarDays, FileText, Bell, Wallet, LogOut } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app")({ component: AppLayout });
@@ -35,9 +36,8 @@ function AppLayout() {
     <div className="flex min-h-screen flex-col bg-background pb-20">
       <header className="sticky top-0 z-10 flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-foreground">
         <div className="flex items-center gap-2">
-          <div className="grid h-8 w-8 place-items-center rounded-md bg-accent text-accent-foreground"><Ship className="h-4 w-4" /></div>
+          <BrandLogo className="h-7 w-auto brightness-0 invert" />
           <div>
-            <div className="text-sm font-semibold">My Step Time</div>
             <div className="text-xs text-sidebar-foreground/70 truncate max-w-[180px]">{profile?.full_name ?? profile?.email}</div>
           </div>
         </div>

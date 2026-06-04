@@ -1,6 +1,7 @@
 @import "tailwindcss" source(none);
 @source "../src";
 @import "tw-animate-css";
+@import url("https://fonts.googleapis.com/css2?family=Barlow:wght@200;300;400;500;600;700;800;900&display=swap");
 
 @custom-variant dark (&:is(.dark *));
 
@@ -43,41 +44,50 @@
 }
 
 :root {
+  /* STEP Oil & Gas brand palette
+     #2a4f89 navy  | #0288d1 blue  | #049ce6 bright blue
+     #81cdf2 sky   | #e0ecf1 mist                              */
   --radius: 0.625rem;
-  --background: oklch(0.99 0.005 240);
-  --foreground: oklch(0.18 0.04 250);
+  --background: oklch(0.985 0.006 235);
+  --foreground: oklch(0.22 0.06 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.04 250);
+  --card-foreground: oklch(0.22 0.06 260);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.04 250);
-  --primary: oklch(0.32 0.08 245);
-  --primary-foreground: oklch(0.98 0.005 240);
-  --secondary: oklch(0.96 0.01 245);
-  --secondary-foreground: oklch(0.25 0.05 245);
-  --muted: oklch(0.96 0.01 245);
-  --muted-foreground: oklch(0.5 0.03 245);
-  --accent: oklch(0.78 0.16 70);
-  --accent-foreground: oklch(0.2 0.04 250);
+  --popover-foreground: oklch(0.22 0.06 260);
+  --primary: oklch(0.38 0.10 260);            /* #2a4f89 navy */
+  --primary-foreground: oklch(0.985 0.006 235);
+  --secondary: oklch(0.95 0.02 235);           /* near #e0ecf1 */
+  --secondary-foreground: oklch(0.32 0.08 260);
+  --muted: oklch(0.95 0.02 235);
+  --muted-foreground: oklch(0.5 0.04 250);
+  --accent: oklch(0.58 0.16 240);              /* #0288d1 */
+  --accent-foreground: oklch(0.99 0.005 235);
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.98 0.005 240);
   --success: oklch(0.62 0.15 150);
   --success-foreground: oklch(0.98 0.005 240);
   --warning: oklch(0.78 0.16 70);
   --warning-foreground: oklch(0.2 0.04 250);
-  --border: oklch(0.92 0.01 245);
-  --input: oklch(0.92 0.01 245);
-  --ring: oklch(0.32 0.08 245);
-  --sidebar: oklch(0.22 0.05 248);
-  --sidebar-foreground: oklch(0.95 0.01 240);
-  --sidebar-primary: oklch(0.78 0.16 70);
-  --sidebar-primary-foreground: oklch(0.2 0.04 250);
-  --sidebar-accent: oklch(0.28 0.06 248);
-  --sidebar-accent-foreground: oklch(0.95 0.01 240);
-  --sidebar-border: oklch(0.3 0.05 248);
-  --sidebar-ring: oklch(0.78 0.16 70);
+  --border: oklch(0.9 0.02 235);
+  --input: oklch(0.9 0.02 235);
+  --ring: oklch(0.58 0.16 240);
+  --sidebar: oklch(0.32 0.09 260);             /* navy gradient base */
+  --sidebar-foreground: oklch(0.96 0.015 235);
+  --sidebar-primary: oklch(0.66 0.17 235);     /* #049ce6 */
+  --sidebar-primary-foreground: oklch(0.18 0.05 260);
+  --sidebar-accent: oklch(0.38 0.10 260);
+  --sidebar-accent-foreground: oklch(0.96 0.015 235);
+  --sidebar-border: oklch(0.4 0.09 260);
+  --sidebar-ring: oklch(0.66 0.17 235);
 }
 
 @layer base {
   * { border-color: var(--color-border); }
-  body { background-color: var(--color-background); color: var(--color-foreground); font-feature-settings: "cv11", "ss01"; }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1, h2, h3, h4, h5, h6 { font-family: "Barlow", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
 }
