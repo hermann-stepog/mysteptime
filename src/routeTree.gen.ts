@@ -9,38 +9,310 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PendingRouteImport } from './routes/pending'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AppRouteRouteImport } from './routes/app/route'
+import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AppTimesheetRouteImport } from './routes/app/timesheet'
+import { Route as AppScheduleRouteImport } from './routes/app/schedule'
+import { Route as AppFinancialRouteImport } from './routes/app/financial'
+import { Route as AppDocumentsRouteImport } from './routes/app/documents'
+import { Route as AdminTransportRouteImport } from './routes/admin/transport'
+import { Route as AdminTimesheetsRouteImport } from './routes/admin/timesheets'
+import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminReportsRouteImport } from './routes/admin/reports'
+import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
+import { Route as AdminHotelRouteImport } from './routes/admin/hotel'
+import { Route as AdminEmbarkationsRouteImport } from './routes/admin/embarkations'
+import { Route as AdminDocumentsRouteImport } from './routes/admin/documents'
+import { Route as AdminCostsRouteImport } from './routes/admin/costs'
+import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
 
+const PendingRoute = PendingRouteImport.update({
+  id: '/pending',
+  path: '/pending',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRouteRoute = AppRouteRouteImport.update({
+  id: '/app',
+  path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRouteRoute = AdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AppTimesheetRoute = AppTimesheetRouteImport.update({
+  id: '/timesheet',
+  path: '/timesheet',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppScheduleRoute = AppScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppFinancialRoute = AppFinancialRouteImport.update({
+  id: '/financial',
+  path: '/financial',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppDocumentsRoute = AppDocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AdminTransportRoute = AdminTransportRouteImport.update({
+  id: '/transport',
+  path: '/transport',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminTimesheetsRoute = AdminTimesheetsRouteImport.update({
+  id: '/timesheets',
+  path: '/timesheets',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminReportsRoute = AdminReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminPayrollRoute = AdminPayrollRouteImport.update({
+  id: '/payroll',
+  path: '/payroll',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminHotelRoute = AdminHotelRouteImport.update({
+  id: '/hotel',
+  path: '/hotel',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminEmbarkationsRoute = AdminEmbarkationsRouteImport.update({
+  id: '/embarkations',
+  path: '/embarkations',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminDocumentsRoute = AdminDocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminCostsRoute = AdminCostsRouteImport.update({
+  id: '/costs',
+  path: '/costs',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
+  id: '/approvals',
+  path: '/approvals',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
+  '/app': typeof AppRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/pending': typeof PendingRoute
+  '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/costs': typeof AdminCostsRoute
+  '/admin/documents': typeof AdminDocumentsRoute
+  '/admin/embarkations': typeof AdminEmbarkationsRoute
+  '/admin/hotel': typeof AdminHotelRoute
+  '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/reports': typeof AdminReportsRoute
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/timesheets': typeof AdminTimesheetsRoute
+  '/admin/transport': typeof AdminTransportRoute
+  '/app/documents': typeof AppDocumentsRoute
+  '/app/financial': typeof AppFinancialRoute
+  '/app/schedule': typeof AppScheduleRoute
+  '/app/timesheet': typeof AppTimesheetRoute
+  '/admin/': typeof AdminIndexRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/pending': typeof PendingRoute
+  '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/costs': typeof AdminCostsRoute
+  '/admin/documents': typeof AdminDocumentsRoute
+  '/admin/embarkations': typeof AdminEmbarkationsRoute
+  '/admin/hotel': typeof AdminHotelRoute
+  '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/reports': typeof AdminReportsRoute
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/timesheets': typeof AdminTimesheetsRoute
+  '/admin/transport': typeof AdminTransportRoute
+  '/app/documents': typeof AppDocumentsRoute
+  '/app/financial': typeof AppFinancialRoute
+  '/app/schedule': typeof AppScheduleRoute
+  '/app/timesheet': typeof AppTimesheetRoute
+  '/admin': typeof AdminIndexRoute
+  '/app': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
+  '/app': typeof AppRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/pending': typeof PendingRoute
+  '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/costs': typeof AdminCostsRoute
+  '/admin/documents': typeof AdminDocumentsRoute
+  '/admin/embarkations': typeof AdminEmbarkationsRoute
+  '/admin/hotel': typeof AdminHotelRoute
+  '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/reports': typeof AdminReportsRoute
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/timesheets': typeof AdminTimesheetsRoute
+  '/admin/transport': typeof AdminTransportRoute
+  '/app/documents': typeof AppDocumentsRoute
+  '/app/financial': typeof AppFinancialRoute
+  '/app/schedule': typeof AppScheduleRoute
+  '/app/timesheet': typeof AppTimesheetRoute
+  '/admin/': typeof AdminIndexRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/app'
+    | '/auth'
+    | '/pending'
+    | '/admin/approvals'
+    | '/admin/costs'
+    | '/admin/documents'
+    | '/admin/embarkations'
+    | '/admin/hotel'
+    | '/admin/payroll'
+    | '/admin/reports'
+    | '/admin/settings'
+    | '/admin/timesheets'
+    | '/admin/transport'
+    | '/app/documents'
+    | '/app/financial'
+    | '/app/schedule'
+    | '/app/timesheet'
+    | '/admin/'
+    | '/app/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/pending'
+    | '/admin/approvals'
+    | '/admin/costs'
+    | '/admin/documents'
+    | '/admin/embarkations'
+    | '/admin/hotel'
+    | '/admin/payroll'
+    | '/admin/reports'
+    | '/admin/settings'
+    | '/admin/timesheets'
+    | '/admin/transport'
+    | '/app/documents'
+    | '/app/financial'
+    | '/app/schedule'
+    | '/app/timesheet'
+    | '/admin'
+    | '/app'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/app'
+    | '/auth'
+    | '/pending'
+    | '/admin/approvals'
+    | '/admin/costs'
+    | '/admin/documents'
+    | '/admin/embarkations'
+    | '/admin/hotel'
+    | '/admin/payroll'
+    | '/admin/reports'
+    | '/admin/settings'
+    | '/admin/timesheets'
+    | '/admin/transport'
+    | '/app/documents'
+    | '/app/financial'
+    | '/app/schedule'
+    | '/app/timesheet'
+    | '/admin/'
+    | '/app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRouteRoute: typeof AdminRouteRouteWithChildren
+  AppRouteRoute: typeof AppRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
+  PendingRoute: typeof PendingRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/pending': {
+      id: '/pending'
+      path: '/pending'
+      fullPath: '/pending'
+      preLoaderRoute: typeof PendingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,11 +320,179 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/': {
+      id: '/app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/app/timesheet': {
+      id: '/app/timesheet'
+      path: '/timesheet'
+      fullPath: '/app/timesheet'
+      preLoaderRoute: typeof AppTimesheetRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/schedule': {
+      id: '/app/schedule'
+      path: '/schedule'
+      fullPath: '/app/schedule'
+      preLoaderRoute: typeof AppScheduleRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/financial': {
+      id: '/app/financial'
+      path: '/financial'
+      fullPath: '/app/financial'
+      preLoaderRoute: typeof AppFinancialRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/documents': {
+      id: '/app/documents'
+      path: '/documents'
+      fullPath: '/app/documents'
+      preLoaderRoute: typeof AppDocumentsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/admin/transport': {
+      id: '/admin/transport'
+      path: '/transport'
+      fullPath: '/admin/transport'
+      preLoaderRoute: typeof AdminTransportRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/timesheets': {
+      id: '/admin/timesheets'
+      path: '/timesheets'
+      fullPath: '/admin/timesheets'
+      preLoaderRoute: typeof AdminTimesheetsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/reports': {
+      id: '/admin/reports'
+      path: '/reports'
+      fullPath: '/admin/reports'
+      preLoaderRoute: typeof AdminReportsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/payroll': {
+      id: '/admin/payroll'
+      path: '/payroll'
+      fullPath: '/admin/payroll'
+      preLoaderRoute: typeof AdminPayrollRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/hotel': {
+      id: '/admin/hotel'
+      path: '/hotel'
+      fullPath: '/admin/hotel'
+      preLoaderRoute: typeof AdminHotelRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/embarkations': {
+      id: '/admin/embarkations'
+      path: '/embarkations'
+      fullPath: '/admin/embarkations'
+      preLoaderRoute: typeof AdminEmbarkationsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/documents': {
+      id: '/admin/documents'
+      path: '/documents'
+      fullPath: '/admin/documents'
+      preLoaderRoute: typeof AdminDocumentsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/costs': {
+      id: '/admin/costs'
+      path: '/costs'
+      fullPath: '/admin/costs'
+      preLoaderRoute: typeof AdminCostsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/approvals': {
+      id: '/admin/approvals'
+      path: '/approvals'
+      fullPath: '/admin/approvals'
+      preLoaderRoute: typeof AdminApprovalsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
+interface AdminRouteRouteChildren {
+  AdminApprovalsRoute: typeof AdminApprovalsRoute
+  AdminCostsRoute: typeof AdminCostsRoute
+  AdminDocumentsRoute: typeof AdminDocumentsRoute
+  AdminEmbarkationsRoute: typeof AdminEmbarkationsRoute
+  AdminHotelRoute: typeof AdminHotelRoute
+  AdminPayrollRoute: typeof AdminPayrollRoute
+  AdminReportsRoute: typeof AdminReportsRoute
+  AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminTimesheetsRoute: typeof AdminTimesheetsRoute
+  AdminTransportRoute: typeof AdminTransportRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteRouteChildren: AdminRouteRouteChildren = {
+  AdminApprovalsRoute: AdminApprovalsRoute,
+  AdminCostsRoute: AdminCostsRoute,
+  AdminDocumentsRoute: AdminDocumentsRoute,
+  AdminEmbarkationsRoute: AdminEmbarkationsRoute,
+  AdminHotelRoute: AdminHotelRoute,
+  AdminPayrollRoute: AdminPayrollRoute,
+  AdminReportsRoute: AdminReportsRoute,
+  AdminSettingsRoute: AdminSettingsRoute,
+  AdminTimesheetsRoute: AdminTimesheetsRoute,
+  AdminTransportRoute: AdminTransportRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
+  AdminRouteRouteChildren,
+)
+
+interface AppRouteRouteChildren {
+  AppDocumentsRoute: typeof AppDocumentsRoute
+  AppFinancialRoute: typeof AppFinancialRoute
+  AppScheduleRoute: typeof AppScheduleRoute
+  AppTimesheetRoute: typeof AppTimesheetRoute
+  AppIndexRoute: typeof AppIndexRoute
+}
+
+const AppRouteRouteChildren: AppRouteRouteChildren = {
+  AppDocumentsRoute: AppDocumentsRoute,
+  AppFinancialRoute: AppFinancialRoute,
+  AppScheduleRoute: AppScheduleRoute,
+  AppTimesheetRoute: AppTimesheetRoute,
+  AppIndexRoute: AppIndexRoute,
+}
+
+const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
+  AppRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRouteRoute: AdminRouteRouteWithChildren,
+  AppRouteRoute: AppRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
+  PendingRoute: PendingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
