@@ -30,7 +30,7 @@ function AuthPage() {
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
         <div className="flex items-center gap-3">
-          <BrandLogo className="h-12 w-auto brightness-0 invert" />
+          <BrandLogo className="h-12 w-auto bg-white rounded-md p-2" />
         </div>
         <div>
           <h1 className="text-4xl font-semibold leading-tight">Logística de pessoal offshore, sem fricção.</h1>

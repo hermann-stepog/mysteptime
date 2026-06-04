@@ -36,7 +36,7 @@ function AppLayout() {
     <div className="flex min-h-screen flex-col bg-background pb-20">
       <header className="sticky top-0 z-10 flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-foreground">
         <div className="flex items-center gap-2">
-          <BrandLogo className="h-7 w-auto brightness-0 invert" />
+          <BrandLogo className="h-7 w-auto bg-white rounded p-1" />
           <div>
             <div className="text-xs text-sidebar-foreground/70 truncate max-w-[180px]">{profile?.full_name ?? profile?.email}</div>
           </div>
