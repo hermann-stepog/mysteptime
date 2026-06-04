@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, Ship } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 
 export const Route = createFileRoute("/auth")({ component: AuthPage });
 
@@ -29,14 +30,13 @@ function AuthPage() {
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
         <div className="flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-lg bg-accent text-accent-foreground"><Ship className="h-5 w-5" /></div>
-          <span className="text-lg font-semibold">My Step Time</span>
+          <BrandLogo className="h-12 w-auto brightness-0 invert" />
         </div>
         <div>
           <h1 className="text-4xl font-semibold leading-tight">Logística de pessoal offshore, sem fricção.</h1>
           <p className="mt-4 max-w-md text-sidebar-foreground/70">Embarques, transporte, documentação, timesheet e custos em um único painel para operações de óleo &amp; gás.</p>
         </div>
-        <p className="text-xs text-sidebar-foreground/50">© {new Date().getFullYear()} STEP O&amp;G</p>
+        <p className="text-xs text-sidebar-foreground/50">© {new Date().getFullYear()} STEP Oil &amp; Gas</p>
       </div>
       <div className="flex items-center justify-center bg-background p-6">
         <Card className="w-full max-w-md p-8">
