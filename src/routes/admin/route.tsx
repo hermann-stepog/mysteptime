@@ -42,7 +42,7 @@ function AdminLayout() {
     <div className="flex min-h-screen bg-background">
       <aside className="hidden w-64 flex-col bg-sidebar text-sidebar-foreground lg:flex">
         <div className="flex items-center gap-3 px-5 py-5 border-b border-sidebar-border">
-          <BrandLogo className="h-9 w-auto brightness-0 invert" />
+          <BrandLogo className="h-9 w-auto bg-white rounded-md p-1.5" />
           <div>
             <div className="text-xs text-sidebar-foreground/60">My Step Time · Operador</div>
           </div>
@@ -68,7 +68,7 @@ function AdminLayout() {
       {/* Mobile top bar */}
       <div className="flex w-full flex-col lg:hidden">
         <header className="sticky top-0 z-10 flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-foreground">
-          <BrandLogo className="h-7 w-auto brightness-0 invert" />
+          <BrandLogo className="h-7 w-auto bg-white rounded p-1" />
           <button onClick={async () => { await signOut(); navigate({ to: "/auth" }); }} className="text-sm"><LogOut className="h-4 w-4" /></button>
         </header>
         <nav className="flex gap-1 overflow-x-auto border-b bg-card px-2 py-2">
