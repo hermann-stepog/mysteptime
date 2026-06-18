@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
+import heroAsset from "@/assets/auth-hero.png.asset.json";
 
 export const Route = createFileRoute("/auth")({ component: AuthPage });
 
