@@ -28,11 +28,10 @@ export function useMaterialsQuery() {
 export function NewMaterialDialog({ children, onCreated }: { children?: React.ReactNode; onCreated?: (m: Material) => void }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ code: "", descricao: "", categoria: "" });
+  const [f, setF] = useState({ descricao: "", categoria: "" });
   const create = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.from("materials").insert({
-        code: f.code.trim(),
         descricao: f.descricao.trim(),
         categoria: f.categoria.trim() || null,
       }).select("*").single();
@@ -43,7 +42,7 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
       toast.success("Material adicionado");
       qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["materials-all"] });
-      setF({ code: "", descricao: "", categoria: "" });
+      setF({ descricao: "", categoria: "" });
       setOpen(false);
       onCreated?.(m);
     },
@@ -58,12 +57,11 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
       <DialogContent>
         <DialogHeader><DialogTitle>Novo material</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          <div><Label>Código</Label><Input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} /></div>
           <div><Label>Descrição</Label><Input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
-          <div><Label>Categoria</Label><Input value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} /></div>
+          <div><Label>Categoria <span className="text-xs text-muted-foreground">(opcional)</span></Label><Input value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} /></div>
         </div>
         <DialogFooter>
-          <Button disabled={!f.code.trim() || !f.descricao.trim() || create.isPending} onClick={() => create.mutate()}>Salvar</Button>
+          <Button disabled={!f.descricao.trim() || create.isPending} onClick={() => create.mutate()}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

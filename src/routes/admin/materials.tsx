@@ -133,9 +133,8 @@ function MaterialsPage() {
           <DialogHeader><DialogTitle>Editar material</DialogTitle></DialogHeader>
           {editing && (
             <div className="grid gap-3">
-              <div><Label>Código</Label><Input value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value })} /></div>
               <div><Label>Descrição</Label><Input value={editing.descricao} onChange={(e) => setEditing({ ...editing, descricao: e.target.value })} /></div>
-              <div><Label>Categoria</Label><Input value={editing.categoria ?? ""} onChange={(e) => setEditing({ ...editing, categoria: e.target.value })} /></div>
+              <div><Label>Categoria <span className="text-xs text-muted-foreground">(opcional)</span></Label><Input value={editing.categoria ?? ""} onChange={(e) => setEditing({ ...editing, categoria: e.target.value })} /></div>
               <div className="flex items-center gap-2">
                 <input id="active" type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} />
                 <Label htmlFor="active">Ativo</Label>
