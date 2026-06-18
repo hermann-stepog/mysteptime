@@ -88,7 +88,7 @@ function useTransportData() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("transport_trips")
-        .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id)")
+        .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
         .order("scheduled_at");
       if (error) throw error;
       return (data ?? []) as Trip[];
