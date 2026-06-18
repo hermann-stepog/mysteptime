@@ -12,7 +12,7 @@ import { Check, ChevronsUpDown, Plus, X, UserPlus, MapPin, Pencil } from "lucide
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-export type Collaborator = { id: string; full_name: string; role: string | null; city: string | null; active: boolean };
+export type Collaborator = { id: string; full_name: string; role: string | null; city: string | null; unit: string | null; active: boolean };
 
 export function useCollaboratorsQuery() {
   return useQuery({
