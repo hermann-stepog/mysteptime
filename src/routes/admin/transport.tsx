@@ -275,7 +275,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         scheduled_at: new Date(f.scheduled_at).toISOString(),
         origin: f.origin.trim(), destination: f.destination.trim(),
         notes: f.notes.trim() || null,
-        tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null,
+        tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null, unidade: f.unidade.trim() || null,
         status: f.status,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
       };
