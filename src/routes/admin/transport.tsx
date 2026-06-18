@@ -303,7 +303,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           {f.tipo === "pessoas" ? (
             <div><Label>Colaboradores</Label><CollaboratorMultiSelect value={f.collab_ids} onChange={(ids) => setF({ ...f, collab_ids: ids })} /></div>
           ) : (
-            <div><Label>Materiais</Label><MaterialMultiSelect value={f.material_ids} onChange={(ids) => setF({ ...f, material_ids: ids })} /></div>
+            <div><Label>Materiais</Label><MaterialQuantitySelect value={f.materials} onChange={(v) => setF({ ...f, materials: v })} /></div>
           )}
 
           <div><Label>Observações</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} /></div>
