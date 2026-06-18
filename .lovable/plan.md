@@ -1,32 +1,17 @@
 ## Objetivo
 
-Garantir que você consiga entrar imediatamente como admin (Operador de Logística) sem precisar passar pelo fluxo de "Criar conta".
+Usar a imagem social (plataforma offshore ao pôr do sol) como plano de fundo do painel esquerdo da página de login (`/auth`), substituindo o fundo navy sólido atual.
 
-## O que será feito
+## Mudanças
 
-1. **Criar/forçar a conta admin via migration** usando a Auth Admin API do backend:
-   - E-mail: `hermann.siqueira@step-og.com`
-   - Senha inicial: `StepAdmin@2026` (você troca depois em Configurações)
-   - E-mail já confirmado (sem necessidade de verificação)
-   - Nome completo: `Hermann Siqueira`
-
-2. **Garantir o papel `logistics_operator`** em `user_roles` (idempotente — se a conta já existir, apenas atualiza o papel e a senha).
-
-3. **Trigger `handle_new_user` permanece** como fallback para qualquer novo cadastro com esse e-mail.
-
-## Como acessar depois
-
-- URL: tela de login do app
-- Aba: **Entrar**
-- E-mail: `hermann.siqueira@step-og.com`
-- Senha: `StepAdmin@2026`
-- Recomendo trocar a senha no primeiro acesso.
-
-## Sobre Microsoft SSO
-
-O login via Microsoft / Azure AD requer SAML SSO (não está no fluxo OAuth gerenciado). Posso configurar em uma etapa separada quando você tiver os metadados do Azure AD em mãos (URL de metadata do tenant + domínios permitidos). Por enquanto, mantemos e-mail/senha conforme combinado na v1.
+1. **Upload da imagem** como Lovable Asset (`src/assets/auth-hero.jpg.asset.json`) a partir do arquivo enviado.
+2. **`src/routes/auth.tsx`** — no painel esquerdo (visível em `lg:`):
+   - Definir `background-image` com a imagem do asset, `cover` + `center`.
+   - Adicionar um overlay escuro com gradient do navy da marca (`from-sidebar/95 via-sidebar/80 to-sidebar/40`) para garantir contraste do logo e do texto.
+   - Logo, headline, parágrafo e copyright permanecem como estão, agora sobre a imagem.
+3. Nenhuma outra tela é alterada. O painel direito (formulário) permanece igual.
 
 ## Detalhes técnicos
 
-- Uma migration SQL idempotente chama funções do schema `auth` para criar o usuário se não existir, ou atualizar a senha se já existir, e em seguida garante a linha em `public.user_roles` com papel `logistics_operator` e a linha em `public.profiles`.
-- Nenhum código de aplicação muda — apenas dados de bootstrap.
+- Asset criado via `lovable-assets create` (sem deixar o binário no repo).
+- Imagem aplicada como `style={{ backgroundImage: \`url(${heroAsset.url})\` }}` no container `lg:flex` existente, com um `<div>` overlay absolutamente posicionado abaixo do conteúdo.
