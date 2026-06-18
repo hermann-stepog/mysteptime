@@ -28,13 +28,14 @@ export function useCollaboratorsQuery() {
 export function NewCollaboratorDialog({ children, onCreated }: { children?: React.ReactNode; onCreated?: (c: Collaborator) => void }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ full_name: "", role: "", city: "" });
+  const [f, setF] = useState({ full_name: "", role: "", city: "", unit: "" });
   const create = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.from("collaborators").insert({
         full_name: f.full_name.trim(),
         role: f.role.trim() || null,
         city: f.city.trim() || null,
+        unit: f.unit.trim() || null,
       }).select("*").single();
       if (error) throw error;
       return data as Collaborator;
@@ -43,7 +44,7 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
       toast.success("Colaborador adicionado");
       qc.invalidateQueries({ queryKey: ["collaborators"] });
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
-      setF({ full_name: "", role: "", city: "" });
+      setF({ full_name: "", role: "", city: "", unit: "" });
       setOpen(false);
       onCreated?.(c);
     },
@@ -61,6 +62,7 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
           <div><Label>Nome</Label><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></div>
           <div><Label>Função</Label><Input value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} /></div>
           <div><Label>Cidade de residência</Label><Input value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} /></div>
+          <div><Label>Unidade</Label><Input value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} /></div>
         </div>
         <DialogFooter>
           <Button disabled={!f.full_name.trim() || create.isPending} onClick={() => create.mutate()}>Salvar</Button>
