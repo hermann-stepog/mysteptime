@@ -377,7 +377,7 @@ function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: 
       Origem: t.origin,
       Destino: t.destination,
       Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
-      Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${m.code} ${m.descricao}` : null; }).filter(Boolean).join(", "),
+      Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${m.descricao} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
       Observações: t.notes ?? "",
       Status: STATUS_LABEL[t.status],
     }));
