@@ -1,109 +1,74 @@
+## Módulo Transporte & Rotas — Tipo de transporte, Materiais, BSP, Cliente e Status
 
-## Escopo
+### 1. Banco de dados (migração única)
 
-Reformular o módulo **Transporte & Rotas** como kanban, criar o módulo **Colaboradores** como fonte única de dados, conectá-lo a todos os módulos que usam nome de colaborador, e adicionar métricas no Dashboard.
+**Nova tabela `materials`:**
+- `code` (texto, único), `descricao` (texto), `categoria` (texto), `active` (bool)
+- GRANT para `authenticated` e `service_role`; RLS: leitura para autenticados, escrita para operador.
 
----
+**Nova tabela `transport_trip_materials`** (N:N entre `transport_trips` e `materials`):
+- `trip_id`, `material_id`, opcional `quantidade` (numeric).
+- RLS espelhando `transport_trip_collaborators`.
 
-## 1. Banco de dados (migração única)
+**Alterações em `transport_trips`:**
+- `tipo` (enum `pessoas` | `material`, default `pessoas`, NOT NULL)
+- `bsp` (texto, opcional)
+- `cliente` (texto, opcional — armazenado livre, mas selecionado de lista fixa na UI)
+- `status` (enum `em_andamento` | `realizado` | `cancelado`, default `em_andamento`)
+- Backfill: registros com `realizado=true` → `realizado`; `cancelado=true` → `cancelado`; demais → `em_andamento`.
+- Manter `realizado`/`cancelado` por compatibilidade (opcional remover depois).
 
-Novas tabelas / colunas:
+### 2. Novo módulo Materiais (`/admin/materials`)
 
-- **`collaborators`** — Nome, Função, Cidade de residência, ativo. Substitui (no nível de UI) o uso atual de `profiles` como lista de colaboradores. `profiles` continua existindo apenas para autenticação.
-- **`transport_columns`** — colunas kanban configuráveis. Seed: `Embarque`, `Desembarque`, `Viagem`. Campo `position` para ordenação.
-- **`transport_tags`** — etiquetas reutilizáveis (nome + cor), criáveis pelo usuário.
-- **`transport_trips`** — novo registro principal (substitui `transport_requests` na UI nova):
-  - `car_number` (texto, ex: "Carro 01")
-  - `column_id` → `transport_columns`
-  - `scheduled_at`, `origin`, `destination`, `notes`
-  - `realizado` (bool), `cancelado` (bool)
-- **`transport_trip_tags`** — N:N entre trip e tags.
-- **`transport_trip_collaborators`** — N:N entre trip e colaboradores.
+- Item no sidebar admin (`route.tsx`): "Materiais".
+- Página com tabela: Código, Descrição, Categoria, Status, ações (editar/desativar).
+- Botão "Adicionar material" abre dialog com Código, Descrição, Categoria.
+- Botão "Importar planilha .xlsx" (SheetJS, normaliza headers: Código/Codigo/code, Descrição/Descricao/description, Categoria/Category).
+- Mesma estética do módulo Colaboradores.
 
-Mantemos `transport_requests` no banco (não removemos dados), mas a UI nova trabalha com `transport_trips`. RLS: leitura por authenticated, escrita por operator. GRANTs completos.
+### 3. Novo componente `MaterialMultiSelect`
 
----
+- Espelha `CollaboratorMultiSelect`: popover com busca, multi-seleção, badges, botão "+ Cadastrar novo" abrindo dialog inline (mesmo do módulo Materiais) e auto-seleção do novo registro.
+- Hook `useMaterialsQuery` filtrando `active=true`.
 
-## 2. Módulo Colaboradores (`/admin/collaborators`)
+### 4. Atualizações no `/admin/transport`
 
-- Tabela com Nome, Função, Cidade, ações (editar/desativar).
-- Botão **"Adicionar colaborador"** → dialog com formulário (Nome, Função, Cidade).
-- Botão **"Importar planilha .xlsx"** → aceita colunas `Nome`, `Função`, `Cidade`. Parser via `xlsx` (SheetJS), preview antes de importar.
-- Item no menu lateral admin.
+**Dialog de edição/criação do trip:**
+- Campo **Tipo** (radio/segmented Pessoas | Material) — obrigatório.
+- Se Pessoas: mantém `CollaboratorMultiSelect` (esconde materiais).
+- Se Material: mostra `MaterialMultiSelect` (esconde colaboradores).
+- Campo **Cliente** (Select com opções fixas: SBM, Altera, PRIO, Perenco, Seadrill, Yinson, BW, Trident) — opcional, com opção "—".
+- Campo **BSP** (Input texto) — opcional.
+- Campo **Status** (Select: Em Andamento | Realizado | Cancelado) substitui os 2 checkboxes.
 
----
+**Cards do Kanban:**
+- Borda/badge de status colorida: azul (em_andamento), verde (realizado), vermelho (cancelado) — usando tokens semânticos existentes (primary/success/destructive).
+- Badge de Tipo (Pessoas/Material) com ícone.
+- Se BSP preenchido: badge destacado (chip com fundo `warning/20`, texto `warning-foreground`, rótulo "BSP: …").
+- Se Cliente preenchido: chip discreto com nome do cliente.
+- Lista de colaboradores OU lista de materiais conforme tipo.
+- Remover os checkboxes Realizado/Cancelado; trocar por Select compacto de status (ou menu) inline no card.
 
-## 3. Componente reutilizável `CollaboratorMultiSelect` / `CollaboratorSelect`
+**Demais abas (Painel do Dia, Quadro Detalhado, Linha do Tempo):**
+- Quadro Detalhado: nova coluna Tipo, Cliente, BSP, Status (badge colorido). Filtros adicionais por Tipo, Cliente e Status (substitui filtro de Realizado/Cancelado).
+- Exportação Excel: incluir colunas Tipo, Cliente, BSP, Status, Materiais.
 
-- Dropdown alimentado por `collaborators` ativos.
-- Busca por nome.
-- Botão **"+ Cadastrar novo"** dentro do dropdown que abre o mesmo dialog do módulo Colaboradores e seleciona automaticamente o novo registro.
-- Versão single e multi.
+### 5. Dashboard (`/admin/index.tsx`)
 
-Substituir nos módulos existentes que hoje selecionam colaborador a partir de `profiles`:
-- Transporte (novo kanban)
-- Qualificação / Avaliações / demais formulários que pedem colaborador (mapeio durante a implementação lendo os arquivos).
+- Card "Transportes realizados no mês" passa a contar `status = 'realizado'`.
+- Gráficos existentes seguem por etiqueta; sem novos cards (escopo dessa task é configuração dos cards atuais).
 
----
+### 6. Ordem de execução
 
-## 4. Transporte & Rotas — nova estrutura
+1. Migração (materials, trip_materials, novas colunas, backfill, RLS+GRANT).
+2. Regenerar types.
+3. Criar `MaterialMultiSelect` + dialog de novo material.
+4. Criar `/admin/materials` + entrada no sidebar.
+5. Refatorar `/admin/transport`: form do dialog, cards, filtros, exportação.
+6. Atualizar Dashboard para usar `status='realizado'`.
 
-Página com 4 abas:
+### Detalhes técnicos
 
-### Aba 1 — Kanban (padrão)
-- Colunas vindas de `transport_columns`. Botão **"+ Nova coluna"**.
-- Cada coluna lista cards de `transport_trips` daquela coluna.
-- Drag-and-drop entre colunas (dnd-kit, já leve).
-- Card mostra: número do carro, etiquetas coloridas, horário, origem → destino, avatares/nomes de colaboradores, checkboxes pequenos **Realizado** e **Cancelado**.
-- Clicar no card abre dialog de edição com todos os campos + Observações + multi-select de etiquetas (com "+ criar etiqueta") + multi-select de colaboradores.
-- Botão **"+ Nova viagem"** no topo.
-
-### Aba 2 — Painel do Dia
-- Seletor de data no topo (default = hoje), navegação ← / →.
-- Cards ordenados por horário, mesmo conteúdo visual do card kanban + status visível.
-
-### Aba 3 — Quadro Detalhado
-- Tabela: Data, Carro, Etiquetas, Horário, Origem, Destino, Colaboradores, Observações, Status.
-- Filtros: intervalo de datas, etiqueta, status (realizado/cancelado/pendente).
-
-### Aba 4 — Linha do Tempo
-- Timeline horizontal do dia (seletor de data), agrupada por carro (uma linha por carro), blocos posicionados pelo horário mostrando origem → destino e etiquetas.
-
-### Exportação
-- Botão **"Exportar Excel"** visível em todas as abas (header da página).
-- Dialog: período (data início → data fim) ou "toda a programação".
-- Gera `.xlsx` via SheetJS com colunas: Data, Carro, Etiquetas, Horário, Origem, Destino, Colaboradores, Observações, Status.
-
----
-
-## 5. Dashboard
-
-Adicionar ao `/admin`:
-- **Card "Transportes realizados no mês"** — count de `transport_trips` com `realizado = true` no mês atual. Clicável → vai para Quadro Detalhado já filtrado.
-- **Gráfico de transportes por etiqueta** — barras ou donut com quantidade e %, usando recharts (já no projeto). Cada fatia/barra clicável → Quadro Detalhado filtrado pela etiqueta.
-- Dados ao vivo via React Query.
-
----
-
-## 6. Detalhes técnicos
-
-- Dependências novas: `xlsx` (importação/exportação Excel) e `@dnd-kit/core` + `@dnd-kit/sortable` (drag and drop kanban).
-- Padrão visual mantido: `Card`, `Button`, `Dialog`, `Select`, `Badge`, tokens de cor já existentes (sidebar, primary, warning, success, destructive). Etiquetas usam `Badge` com cor custom da tag.
-- Realtime opcional desligado nesta etapa (React Query refetch já cobre).
-- Rotas novas:
-  - `/admin/collaborators`
-  - `/admin/transport` continua, mas o componente é totalmente reescrito.
-- O arquivo atual `transport_requests` permanece no banco intocado — apenas deixa de ser usado pela UI.
-
----
-
-## 7. Ordem de execução
-
-1. Migração (tabelas + GRANTs + RLS + seed das 3 colunas padrão).
-2. Aguardar regeneração dos tipos.
-3. Instalar `xlsx` e `@dnd-kit/*`.
-4. Criar `CollaboratorMultiSelect` + dialog "novo colaborador".
-5. Página `/admin/collaborators` (lista, manual, import xlsx).
-6. Reescrever `/admin/transport` com 4 abas + exportação.
-7. Substituir selects de colaborador nos demais módulos.
-8. Atualizar Dashboard com card + gráfico clicáveis.
+- Lista fixa de clientes em constante `CLIENTES = ['SBM','Altera','PRIO','Perenco','Seadrill','Yinson','BW','Trident']` num arquivo compartilhado (`src/lib/clientes.ts`).
+- Cores de status via classes condicionais com tokens (`border-primary`, `border-success`, `border-destructive`); sem cores hardcoded.
+- Compatibilidade: leitura ainda tolera `realizado`/`cancelado` antigos durante transição, mas UI grava sempre em `status`.
