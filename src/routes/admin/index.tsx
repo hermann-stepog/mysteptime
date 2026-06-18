@@ -23,9 +23,9 @@ function Dashboard() {
         supabase.from("embarkations").select("id", { count: "exact", head: true }).eq("disembark_date", today),
         supabase.from("embarkations").select("id", { count: "exact", head: true }).eq("status", "boarded"),
         supabase.from("documents").select("id", { count: "exact", head: true }).lte("expires_at", in30),
-        supabase.from("transport_trips").select("id", { count: "exact", head: true }).eq("realizado", false).eq("cancelado", false),
+        supabase.from("transport_trips").select("id", { count: "exact", head: true }).eq("status", "em_andamento"),
         supabase.from("embarkations").select("id, embark_date, status, updated_at, profiles!collaborator_id(full_name)").order("updated_at", { ascending: false }).limit(20),
-        supabase.from("transport_trips").select("id, realizado, scheduled_at, tags:transport_trip_tags(tag_id)").gte("scheduled_at", monthStart.toISOString()),
+        supabase.from("transport_trips").select("id, status, scheduled_at, tags:transport_trip_tags(tag_id)").gte("scheduled_at", monthStart.toISOString()),
       ]);
 
       return {
@@ -45,7 +45,7 @@ function Dashboard() {
     queryFn: async () => (await supabase.from("transport_tags").select("*")).data ?? [],
   });
 
-  const realizedThisMonth = (kpis?.tripsMonth ?? []).filter((t: any) => t.realizado).length;
+  const realizedThisMonth = (kpis?.tripsMonth ?? []).filter((t: any) => t.status === "realizado").length;
 
   const byTag = useMemo(() => {
     const counts = new Map<string, number>();
@@ -68,7 +68,7 @@ function Dashboard() {
     { label: "Embarques hoje", value: kpis?.embarksToday, icon: ArrowUpFromLine },
     { label: "Desembarques hoje", value: kpis?.disembarksToday, icon: ArrowDownToLine },
     { label: "Alertas de documento", value: kpis?.docAlerts, icon: FileWarning },
-    { label: "Transportes em aberto", value: kpis?.openTransport, icon: Truck, onClick: () => navigate({ to: "/admin/transport", search: { tab: "detail", status: "pendente" } }) },
+    { label: "Transportes em aberto", value: kpis?.openTransport, icon: Truck, onClick: () => navigate({ to: "/admin/transport", search: { tab: "detail", status: "em_andamento" } }) },
     { label: "Transportes realizados no mês", value: realizedThisMonth, icon: CheckCircle2, onClick: () => navigate({ to: "/admin/transport", search: { tab: "detail", status: "realizado" } }) },
   ];
 
