@@ -50,6 +50,7 @@ type Trip = {
   tipo: TripTipo;
   bsp: string | null;
   cliente: string | null;
+  unidade: string | null;
   status: TripStatus;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
