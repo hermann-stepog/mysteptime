@@ -191,7 +191,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
       origin: "", destination: "", notes: "",
       tipo: "pessoas", bsp: "", cliente: "", status: "em_andamento",
-      tag_ids: [], collab_ids: [], material_ids: [],
+      tag_ids: [], collab_ids: [], materials: [],
     };
   };
   const [f, setF] = useState<FormState>(() => init(trip, columns));
