@@ -74,10 +74,10 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
 
 export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { collaborator: Collaborator | null; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
-  const [f, setF] = useState<{ full_name: string; role: string; city: string }>({ full_name: "", role: "", city: "" });
+  const [f, setF] = useState<{ full_name: string; role: string; city: string; unit: string }>({ full_name: "", role: "", city: "", unit: "" });
   const [bound, setBound] = useState<string | null>(null);
   if (open && collaborator && bound !== collaborator.id) {
-    setF({ full_name: collaborator.full_name, role: collaborator.role ?? "", city: collaborator.city ?? "" });
+    setF({ full_name: collaborator.full_name, role: collaborator.role ?? "", city: collaborator.city ?? "", unit: collaborator.unit ?? "" });
     setBound(collaborator.id);
   }
   if (!open && bound !== null) setBound(null);
@@ -89,6 +89,7 @@ export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { c
         full_name: f.full_name.trim(),
         role: f.role.trim() || null,
         city: f.city.trim() || null,
+        unit: f.unit.trim() || null,
       }).eq("id", collaborator.id);
       if (error) throw error;
     },
@@ -109,6 +110,7 @@ export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { c
           <div><Label>Nome</Label><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></div>
           <div><Label>Função</Label><Input value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} /></div>
           <div><Label>Cidade de residência</Label><Input value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} /></div>
+          <div><Label>Unidade</Label><Input value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} /></div>
         </div>
         <DialogFooter>
           <Button disabled={!f.full_name.trim() || update.isPending} onClick={() => update.mutate()}>Salvar</Button>
