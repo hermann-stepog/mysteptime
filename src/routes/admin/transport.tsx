@@ -227,7 +227,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       await supabase.from("transport_trip_collaborators").delete().eq("trip_id", id);
       if (f.tipo === "pessoas" && f.collab_ids.length) await supabase.from("transport_trip_collaborators").insert(f.collab_ids.map((cid) => ({ trip_id: id!, collaborator_id: cid })));
       await supabase.from("transport_trip_materials").delete().eq("trip_id", id);
-      if (f.tipo === "material" && f.material_ids.length) await supabase.from("transport_trip_materials").insert(f.material_ids.map((mid) => ({ trip_id: id!, material_id: mid })));
+      if (f.tipo === "material" && f.materials.length) await supabase.from("transport_trip_materials").insert(f.materials.map((m) => ({ trip_id: id!, material_id: m.material_id, quantidade: m.quantidade })));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
