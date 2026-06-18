@@ -52,7 +52,7 @@ type Trip = {
   status: TripStatus;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
-  materials: { material_id: string }[];
+  materials: { material_id: string; quantidade: number | null }[];
 };
 
 const STATUS_LABEL: Record<TripStatus, string> = { em_andamento: "Em Andamento", realizado: "Realizado", cancelado: "Cancelado" };
