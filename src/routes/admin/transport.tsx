@@ -151,7 +151,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
       )}
       {trip.tipo === "material" && trip.materials.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground truncate">
-          {trip.materials.map((m) => materialsById.get(m.material_id)?.descricao).filter(Boolean).join(", ")}
+          {trip.materials.map((m) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
         </div>
       )}
 
