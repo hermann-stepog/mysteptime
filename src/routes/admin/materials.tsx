@@ -6,16 +6,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Upload, Trash2, Pencil } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import { NewMaterialDialog } from "@/components/MaterialMultiSelect";
+import { NewMaterialDialog, VOLUMES } from "@/components/MaterialMultiSelect";
 
 export const Route = createFileRoute("/admin/materials")({ component: MaterialsPage });
 
-type Row = { id: string; code: string; descricao: string; categoria: string | null; active: boolean };
+type Row = { id: string; code: string | null; descricao: string | null; categoria: string | null; volume: string | null; qtd: number | null; active: boolean };
+
+function normalizeVolume(raw: string): string {
+  const v = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  if (v.startsWith("caix")) return "Caixa";
+  if (v.startsWith("malet")) return "Maleta";
+  if (v.startsWith("bols")) return "Bolsa";
+  if (!v) return "Outros";
+  return "Outros";
+}
 
 function MaterialsPage() {
   const qc = useQueryClient();
@@ -25,7 +35,7 @@ function MaterialsPage() {
   const { data: rows = [] } = useQuery({
     queryKey: ["materials-all"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("materials").select("*").order("code");
+      const { data, error } = await supabase.from("materials").select("*").order("volume");
       if (error) throw error;
       return (data ?? []) as Row[];
     },
@@ -46,7 +56,13 @@ function MaterialsPage() {
 
   const update = useMutation({
     mutationFn: async (r: Row) => {
-      const { error } = await supabase.from("materials").update({ code: r.code, descricao: r.descricao, categoria: r.categoria, active: r.active }).eq("id", r.id);
+      const { error } = await supabase.from("materials").update({
+        volume: r.volume,
+        qtd: Math.max(1, r.qtd ?? 1),
+        descricao: r.volume ?? r.descricao,
+        categoria: r.categoria,
+        active: r.active,
+      }).eq("id", r.id);
       if (error) throw error;
     },
     onSuccess: () => { invalidate(); setEditing(null); toast.success("Atualizado"); },
@@ -61,36 +77,34 @@ function MaterialsPage() {
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
       if (!rows.length) { toast.error("Planilha vazia"); return; }
       const norm = (k: any) => String(k ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-      const headerWords = ["codigo", "code", "cod", "descricao", "description", "categoria", "category", "tipo", "nome", "name", "item", "material"];
+      const headerWords = ["volume", "tipo", "categoria", "category", "qtd", "quantidade", "quantity", "descricao", "description", "nome", "name", "item", "material"];
       const first = rows[0].map(norm);
       const hasHeader = first.some((c) => headerWords.includes(c));
-      let idxCode = -1, idxDesc = -1, idxCat = -1;
+      let idxVol = -1, idxQtd = -1, idxCat = -1;
       let dataRows = rows;
       if (hasHeader) {
         first.forEach((c, i) => {
-          if (idxCode < 0 && (c === "codigo" || c === "code" || c === "cod")) idxCode = i;
-          if (idxDesc < 0 && (c === "descricao" || c === "description" || c === "nome" || c === "name" || c === "item" || c === "material")) idxDesc = i;
-          if (idxCat < 0 && (c === "categoria" || c === "category" || c === "tipo")) idxCat = i;
+          if (idxVol < 0 && (c === "volume" || c === "tipo" || c === "descricao" || c === "description" || c === "nome" || c === "name" || c === "item" || c === "material")) idxVol = i;
+          if (idxQtd < 0 && (c === "qtd" || c === "quantidade" || c === "quantity")) idxQtd = i;
+          if (idxCat < 0 && (c === "categoria" || c === "category")) idxCat = i;
         });
         dataRows = rows.slice(1);
       }
-      if (idxDesc < 0) idxDesc = idxCode === 0 ? 1 : 0;
-      const records = dataRows.map((r) => ({
-        code: idxCode >= 0 ? (String(r[idxCode] ?? "").trim() || null) : null,
-        descricao: String(r[idxDesc] ?? "").trim(),
-        categoria: idxCat >= 0 ? (String(r[idxCat] ?? "").trim() || null) : null,
-      })).filter((r) => r.descricao);
-      if (!records.length) { toast.error("Nenhuma linha com descrição encontrada"); return; }
-      const withCode = records.filter((r) => r.code);
-      const withoutCode = records.filter((r) => !r.code);
-      if (withCode.length) {
-        const { error } = await supabase.from("materials").upsert(withCode, { onConflict: "code" });
-        if (error) throw error;
-      }
-      if (withoutCode.length) {
-        const { error } = await supabase.from("materials").insert(withoutCode);
-        if (error) throw error;
-      }
+      if (idxVol < 0) idxVol = 0;
+      const records = dataRows.map((r) => {
+        const raw = String(r[idxVol] ?? "").trim();
+        if (!raw) return null;
+        const qtdNum = idxQtd >= 0 ? parseInt(String(r[idxQtd]).trim(), 10) : 1;
+        return {
+          volume: normalizeVolume(raw),
+          qtd: Number.isFinite(qtdNum) && qtdNum > 0 ? qtdNum : 1,
+          descricao: raw,
+          categoria: idxCat >= 0 ? (String(r[idxCat] ?? "").trim() || null) : null,
+        };
+      }).filter(Boolean) as any[];
+      if (!records.length) { toast.error("Nenhuma linha válida encontrada"); return; }
+      const { error } = await supabase.from("materials").insert(records);
+      if (error) throw error;
       invalidate();
       toast.success(`${records.length} materiais importados`);
     } catch (e: any) {
@@ -105,7 +119,7 @@ function MaterialsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Materiais</h1>
-          <p className="text-sm text-muted-foreground">Cadastro central de materiais usado no Transporte.</p>
+          <p className="text-sm text-muted-foreground">Cadastro central de volumes usado no Transporte.</p>
         </div>
         <div className="flex gap-2">
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
@@ -120,8 +134,8 @@ function MaterialsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Código</TableHead>
-              <TableHead>Descrição</TableHead>
+              <TableHead>Volume</TableHead>
+              <TableHead>Qtd</TableHead>
               <TableHead>Categoria</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-24"></TableHead>
@@ -130,8 +144,8 @@ function MaterialsPage() {
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.id}>
-                <TableCell className="font-mono text-xs">{r.code}</TableCell>
-                <TableCell className="font-medium">{r.descricao}</TableCell>
+                <TableCell className="font-medium">{r.volume ?? r.descricao ?? "—"}</TableCell>
+                <TableCell>{r.qtd ?? 1}</TableCell>
                 <TableCell>{r.categoria || "—"}</TableCell>
                 <TableCell>{r.active ? <span className="text-success">Ativo</span> : <span className="text-muted-foreground">Inativo</span>}</TableCell>
                 <TableCell>
@@ -152,7 +166,21 @@ function MaterialsPage() {
           <DialogHeader><DialogTitle>Editar material</DialogTitle></DialogHeader>
           {editing && (
             <div className="grid gap-3">
-              <div><Label>Descrição</Label><Input value={editing.descricao} onChange={(e) => setEditing({ ...editing, descricao: e.target.value })} /></div>
+              <div className="grid grid-cols-[1fr_120px] gap-3">
+                <div>
+                  <Label>Volume</Label>
+                  <Select value={editing.volume ?? "Outros"} onValueChange={(v) => setEditing({ ...editing, volume: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {VOLUMES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Qtd</Label>
+                  <Input type="number" min={1} value={editing.qtd ?? 1} onChange={(e) => setEditing({ ...editing, qtd: parseInt(e.target.value, 10) || 1 })} />
+                </div>
+              </div>
               <div><Label>Categoria <span className="text-xs text-muted-foreground">(opcional)</span></Label><Input value={editing.categoria ?? ""} onChange={(e) => setEditing({ ...editing, categoria: e.target.value })} /></div>
               <div className="flex items-center gap-2">
                 <input id="active" type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} />

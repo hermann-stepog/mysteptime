@@ -395,27 +395,33 @@ export type Database = {
           categoria: string | null
           code: string | null
           created_at: string
-          descricao: string
+          descricao: string | null
           id: string
+          qtd: number
           updated_at: string
+          volume: string | null
         }
         Insert: {
           active?: boolean
           categoria?: string | null
           code?: string | null
           created_at?: string
-          descricao: string
+          descricao?: string | null
           id?: string
+          qtd?: number
           updated_at?: string
+          volume?: string | null
         }
         Update: {
           active?: boolean
           categoria?: string | null
           code?: string | null
           created_at?: string
-          descricao?: string
+          descricao?: string | null
           id?: string
+          qtd?: number
           updated_at?: string
+          volume?: string | null
         }
         Relationships: []
       }

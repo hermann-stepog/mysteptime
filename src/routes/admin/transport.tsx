@@ -10,16 +10,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package } from "lucide-react";
+import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
-import { MaterialQuantitySelect, useMaterialsQuery, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
+import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { CLIENTES } from "@/lib/clientes";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
 
 type TripStatus = "em_andamento" | "realizado" | "cancelado";
 type TripTipo = "pessoas" | "material";
@@ -151,7 +152,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
       )}
       {trip.tipo === "material" && trip.materials.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground truncate">
-          {trip.materials.map((m) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
+          {trip.materials.map((m) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
         </div>
       )}
 
@@ -166,6 +167,69 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </Select>
       </div>
     </Card>
+  );
+}
+
+type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string };
+
+function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; setF: (v: T) => void }) {
+  const { data: collaborators = [] } = useCollaboratorsQuery();
+  const selectedCollabs = f.collab_ids
+    .map((id) => collaborators.find((c) => c.id === id))
+    .filter((c): c is Collaborator => !!c);
+  const citiesAvailable = selectedCollabs.filter((c) => c.city).length;
+
+  const autoTrajeto = () => {
+    const cities: string[] = [];
+    for (const c of selectedCollabs) {
+      const city = (c.city ?? "").trim();
+      if (city && cities[cities.length - 1] !== city) cities.push(city);
+    }
+    if (cities.length === 0) { toast.error("Nenhum colaborador com cidade cadastrada"); return; }
+    if (cities.length === 1) {
+      setF({ ...f, origin: cities[0], destination: cities[0] });
+      toast.success("Trajeto sugerido aplicado");
+      return;
+    }
+    const origin = cities[0];
+    const destination = cities[cities.length - 1];
+    const stops = cities.slice(1, -1);
+    const stopsLine = stops.length ? `Paradas: ${stops.join(" → ")}` : "";
+    const baseNotes = (f.notes ?? "").replace(/\n?Paradas: .*/g, "").trim();
+    const notes = [baseNotes, stopsLine].filter(Boolean).join("\n");
+    setF({ ...f, origin, destination, notes });
+    toast.success("Trajeto sugerido aplicado");
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <Label>Colaboradores</Label>
+        {selectedCollabs.length >= 2 && citiesAvailable >= 1 && (
+          <Button type="button" variant="ghost" size="sm" onClick={autoTrajeto} className="h-7 text-xs">
+            <Wand2 className="mr-1 h-3 w-3" />Montar trajeto automaticamente
+          </Button>
+        )}
+      </div>
+      <CollaboratorMultiSelect
+        value={f.collab_ids}
+        onChange={(ids) => {
+          const prev = f.collab_ids;
+          const added = ids.find((id) => !prev.includes(id));
+          let next: T = { ...f, collab_ids: ids };
+          if (added) {
+            const c = collaborators.find((x) => x.id === added);
+            if (c?.city) {
+              if (!f.origin.trim()) next = { ...next, origin: c.city };
+              else if (!f.destination.trim()) next = { ...next, destination: c.city };
+            }
+          }
+          setF(next);
+        }}
+        onUseAsOrigin={(c) => c.city && setF({ ...f, origin: c.city })}
+        onUseAsDestination={(c) => c.city && setF({ ...f, destination: c.city })}
+      />
+    </div>
   );
 }
 
@@ -301,7 +365,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           <div><Label>Etiquetas</Label><TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} /></div>
 
           {f.tipo === "pessoas" ? (
-            <div><Label>Colaboradores</Label><CollaboratorMultiSelect value={f.collab_ids} onChange={(ids) => setF({ ...f, collab_ids: ids })} /></div>
+            <CollaboratorsSection f={f} setF={setF} />
           ) : (
             <div><Label>Materiais</Label><MaterialQuantitySelect value={f.materials} onChange={(v) => setF({ ...f, materials: v })} /></div>
           )}
@@ -377,7 +441,7 @@ function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: 
       Origem: t.origin,
       Destino: t.destination,
       Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
-      Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${m.descricao} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
+      Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
       Observações: t.notes ?? "",
       Status: STATUS_LABEL[t.status],
     }));
@@ -546,7 +610,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
             {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
             <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
             {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
-            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
+            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
           </Card>
         ))}
         {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">Nenhuma viagem para esta data.</Card>}
@@ -656,7 +720,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell className="max-w-[200px] truncate">
                   {t.tipo === "pessoas"
                     ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
-                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
+                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
               </TableRow>
