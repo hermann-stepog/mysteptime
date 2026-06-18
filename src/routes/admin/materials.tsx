@@ -52,34 +52,6 @@ function MaterialsPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const onImport = async (file: File) => {
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf);
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
-      const norm = (k: string) => k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-      const records = json.map((r) => {
-        const out: Record<string, string> = {};
-        for (const k of Object.keys(r)) out[norm(k)] = String(r[k] ?? "").trim();
-        return {
-          code: out["codigo"] || out["código"] || out["code"] || "",
-          descricao: out["descricao"] || out["descrição"] || out["description"] || "",
-          categoria: out["categoria"] || out["category"] || null,
-        };
-      }).filter((r) => r.code && r.descricao);
-      if (!records.length) { toast.error("Nenhuma linha válida (colunas: Código, Descrição, Categoria)"); return; }
-      const { error } = await supabase.from("materials").upsert(records, { onConflict: "code" });
-      if (error) throw error;
-      invalidate();
-      toast.success(`${records.length} materiais importados`);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -88,13 +60,13 @@ function MaterialsPage() {
           <p className="text-sm text-muted-foreground">Cadastro central de materiais usado no Transporte.</p>
         </div>
         <div className="flex gap-2">
-          <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
-          <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Importar planilha</Button>
+          <ImportMaterialsDialog />
           <NewMaterialDialog>
             <Button><Plus className="mr-2 h-4 w-4" />Adicionar material</Button>
           </NewMaterialDialog>
         </div>
       </div>
+
 
       <Card>
         <Table>
