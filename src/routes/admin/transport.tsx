@@ -175,7 +175,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     origin: string; destination: string; notes: string;
     tipo: TripTipo; bsp: string; cliente: string; status: TripStatus;
-    tag_ids: string[]; collab_ids: string[]; material_ids: string[];
+    tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
     if (t) return {
