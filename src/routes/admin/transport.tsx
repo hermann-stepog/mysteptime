@@ -50,6 +50,7 @@ type Trip = {
   tipo: TripTipo;
   bsp: string | null;
   cliente: string | null;
+  unidade: string | null;
   status: TripStatus;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
@@ -170,7 +171,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
   );
 }
 
-type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string };
+type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string; unidade: string };
 
 function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; setF: (v: T) => void }) {
   const { data: collaborators = [] } = useCollaboratorsQuery();
@@ -223,6 +224,7 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
               if (!f.origin.trim()) next = { ...next, origin: c.city };
               else if (!f.destination.trim()) next = { ...next, destination: c.city };
             }
+            if (c?.unit && !f.unidade.trim()) next = { ...next, unidade: c.unit };
           }
           setF(next);
         }}
@@ -238,7 +240,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   type FormState = {
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     origin: string; destination: string; notes: string;
-    tipo: TripTipo; bsp: string; cliente: string; status: TripStatus;
+    tipo: TripTipo; bsp: string; cliente: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -246,7 +248,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
       scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 16),
       origin: t.origin, destination: t.destination, notes: t.notes ?? "",
-      tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", status: t.status,
+      tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", unidade: t.unidade ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -254,7 +256,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
       origin: "", destination: "", notes: "",
-      tipo: "pessoas", bsp: "", cliente: "", status: "em_andamento",
+      tipo: "pessoas", bsp: "", cliente: "", unidade: "", status: "em_andamento",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
@@ -273,7 +275,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         scheduled_at: new Date(f.scheduled_at).toISOString(),
         origin: f.origin.trim(), destination: f.destination.trim(),
         notes: f.notes.trim() || null,
-        tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null,
+        tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null, unidade: f.unidade.trim() || null,
         status: f.status,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
       };
@@ -362,6 +364,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div><Label>BSP (opcional)</Label><Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Número do BSP" /></div>
           </div>
 
+          <div><Label>Unidade</Label><Input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value })} placeholder="Preenchido automaticamente ao selecionar colaborador" /></div>
+
           <div><Label>Etiquetas</Label><TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} /></div>
 
           {f.tipo === "pessoas" ? (
@@ -436,6 +440,7 @@ function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: 
       Tipo: t.tipo === "material" ? "Material" : "Pessoas",
       Cliente: t.cliente ?? "",
       BSP: t.bsp ?? "",
+      Unidade: t.unidade ?? "",
       Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
       Horário: fmtTime(t.scheduled_at),
       Origem: t.origin,
