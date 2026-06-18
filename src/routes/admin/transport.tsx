@@ -365,10 +365,10 @@ function TransportPage() {
         </TabsList>
 
         <TabsContent value="kanban" className="mt-4">
-          <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} onEdit={openEdit} onToggle={(id, patch) => toggle.mutate({ id, patch })} />
+          <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} onEdit={openEdit} onToggle={(id: string, patch: { realizado?: boolean; cancelado?: boolean }) => toggle.mutate({ id, patch })} />
         </TabsContent>
         <TabsContent value="day" className="mt-4">
-          <DayView trips={allTrips} tagsById={tagsById} collabsById={collabsById} onEdit={openEdit} onToggle={(id, patch) => toggle.mutate({ id, patch })} />
+          <DayView trips={allTrips} tagsById={tagsById} collabsById={collabsById} onEdit={openEdit} onToggle={(id: string, patch: { realizado?: boolean; cancelado?: boolean }) => toggle.mutate({ id, patch })} />
         </TabsContent>
         <TabsContent value="detail" className="mt-4">
           <DetailView trips={allTrips} tags={tags} tagsById={tagsById} collabsById={collabsById} onEdit={openEdit} initialTag={search.tag} initialStatus={search.status} />
