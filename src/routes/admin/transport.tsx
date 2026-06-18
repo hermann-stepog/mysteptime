@@ -656,7 +656,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell className="max-w-[200px] truncate">
                   {t.tipo === "pessoas"
                     ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
-                    : t.materials.map((m: any) => materialsById.get(m.material_id)?.descricao).filter(Boolean).join(", ")}
+                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
               </TableRow>
