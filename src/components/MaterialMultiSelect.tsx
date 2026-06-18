@@ -120,3 +120,74 @@ export function MaterialMultiSelect({ value, onChange, placeholder = "Selecionar
     </div>
   );
 }
+
+export type MaterialQty = { material_id: string; quantidade: number };
+
+export function MaterialQuantitySelect({ value, onChange, placeholder = "Selecionar materiais" }: { value: MaterialQty[]; onChange: (v: MaterialQty[]) => void; placeholder?: string }) {
+  const { data: materials = [] } = useMaterialsQuery();
+  const [open, setOpen] = useState(false);
+  const selectedIds = value.map((v) => v.material_id);
+  const toggle = (id: string) => {
+    if (selectedIds.includes(id)) onChange(value.filter((v) => v.material_id !== id));
+    else onChange([...value, { material_id: id, quantidade: 1 }]);
+  };
+  const setQty = (id: string, q: number) => onChange(value.map((v) => v.material_id === id ? { ...v, quantidade: Math.max(1, q || 1) } : v));
+  const remove = (id: string) => onChange(value.filter((v) => v.material_id !== id));
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+            <span className="truncate text-muted-foreground">{value.length ? `${value.length} selecionado(s)` : placeholder}</span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0 pointer-events-auto" align="start">
+          <Command>
+            <CommandInput placeholder="Buscar material..." />
+            <CommandList>
+              <CommandEmpty>Nenhum encontrado.</CommandEmpty>
+              <CommandGroup>
+                {materials.map((m) => (
+                  <CommandItem key={m.id} value={`${m.code ?? ""} ${m.descricao}`} onSelect={() => toggle(m.id)}>
+                    <Check className={cn("mr-2 h-4 w-4", selectedIds.includes(m.id) ? "opacity-100" : "opacity-0")} />
+                    <span className="flex-1">{m.descricao}</span>
+                    {m.categoria && <span className="text-xs text-muted-foreground">{m.categoria}</span>}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+            <div className="border-t p-1">
+              <NewMaterialDialog onCreated={(m) => onChange([...value, { material_id: m.id, quantidade: 1 }])}>
+                <Button variant="ghost" size="sm" className="w-full justify-start"><Plus className="mr-2 h-4 w-4" />Cadastrar novo</Button>
+              </NewMaterialDialog>
+            </div>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {value.length > 0 && (
+        <div className="space-y-1.5 rounded-md border bg-muted/30 p-2">
+          {value.map((v) => {
+            const m = materials.find((x) => x.id === v.material_id);
+            return (
+              <div key={v.material_id} className="flex items-center gap-2">
+                <span className="flex-1 text-sm truncate">{m?.descricao ?? "—"}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={v.quantidade}
+                  onChange={(e) => setQty(v.material_id, parseInt(e.target.value, 10))}
+                  className="h-8 w-20"
+                />
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => remove(v.material_id)}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

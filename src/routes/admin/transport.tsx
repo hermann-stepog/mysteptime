@@ -15,7 +15,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
-import { MaterialMultiSelect, useMaterialsQuery, type Material } from "@/components/MaterialMultiSelect";
+import { MaterialQuantitySelect, useMaterialsQuery, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { CLIENTES } from "@/lib/clientes";
 import { fmtDate } from "@/lib/format";
@@ -52,7 +52,7 @@ type Trip = {
   status: TripStatus;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
-  materials: { material_id: string }[];
+  materials: { material_id: string; quantidade: number | null }[];
 };
 
 const STATUS_LABEL: Record<TripStatus, string> = { em_andamento: "Em Andamento", realizado: "Realizado", cancelado: "Cancelado" };
@@ -88,7 +88,7 @@ function useTransportData() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("transport_trips")
-        .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id)")
+        .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
         .order("scheduled_at");
       if (error) throw error;
       return (data ?? []) as Trip[];
@@ -151,7 +151,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
       )}
       {trip.tipo === "material" && trip.materials.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground truncate">
-          {trip.materials.map((m) => materialsById.get(m.material_id)?.descricao).filter(Boolean).join(", ")}
+          {trip.materials.map((m) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
         </div>
       )}
 
@@ -175,7 +175,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     origin: string; destination: string; notes: string;
     tipo: TripTipo; bsp: string; cliente: string; status: TripStatus;
-    tag_ids: string[]; collab_ids: string[]; material_ids: string[];
+    tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
     if (t) return {
@@ -185,13 +185,13 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
-      material_ids: t.materials.map((x) => x.material_id),
+      materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
     };
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
       origin: "", destination: "", notes: "",
       tipo: "pessoas", bsp: "", cliente: "", status: "em_andamento",
-      tag_ids: [], collab_ids: [], material_ids: [],
+      tag_ids: [], collab_ids: [], materials: [],
     };
   };
   const [f, setF] = useState<FormState>(() => init(trip, columns));
@@ -227,7 +227,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       await supabase.from("transport_trip_collaborators").delete().eq("trip_id", id);
       if (f.tipo === "pessoas" && f.collab_ids.length) await supabase.from("transport_trip_collaborators").insert(f.collab_ids.map((cid) => ({ trip_id: id!, collaborator_id: cid })));
       await supabase.from("transport_trip_materials").delete().eq("trip_id", id);
-      if (f.tipo === "material" && f.material_ids.length) await supabase.from("transport_trip_materials").insert(f.material_ids.map((mid) => ({ trip_id: id!, material_id: mid })));
+      if (f.tipo === "material" && f.materials.length) await supabase.from("transport_trip_materials").insert(f.materials.map((m) => ({ trip_id: id!, material_id: m.material_id, quantidade: m.quantidade })));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
@@ -303,7 +303,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           {f.tipo === "pessoas" ? (
             <div><Label>Colaboradores</Label><CollaboratorMultiSelect value={f.collab_ids} onChange={(ids) => setF({ ...f, collab_ids: ids })} /></div>
           ) : (
-            <div><Label>Materiais</Label><MaterialMultiSelect value={f.material_ids} onChange={(ids) => setF({ ...f, material_ids: ids })} /></div>
+            <div><Label>Materiais</Label><MaterialQuantitySelect value={f.materials} onChange={(v) => setF({ ...f, materials: v })} /></div>
           )}
 
           <div><Label>Observações</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} /></div>
@@ -377,7 +377,7 @@ function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: 
       Origem: t.origin,
       Destino: t.destination,
       Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
-      Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${m.code} ${m.descricao}` : null; }).filter(Boolean).join(", "),
+      Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${m.descricao} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
       Observações: t.notes ?? "",
       Status: STATUS_LABEL[t.status],
     }));
@@ -546,7 +546,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
             {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
             <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
             {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
-            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => materialsById.get(m.material_id)?.descricao).filter(Boolean).join(", ")}</div>}
+            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
           </Card>
         ))}
         {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">Nenhuma viagem para esta data.</Card>}
@@ -656,7 +656,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell className="max-w-[200px] truncate">
                   {t.tipo === "pessoas"
                     ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
-                    : t.materials.map((m: any) => materialsById.get(m.material_id)?.descricao).filter(Boolean).join(", ")}
+                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
               </TableRow>
