@@ -62,14 +62,31 @@ function CollaboratorsPage() {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf);
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
-      const norm = (k: string) => k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-      const records = json.map((r) => {
-        const out: Record<string, string> = {};
-        for (const k of Object.keys(r)) out[norm(k)] = String(r[k] ?? "").trim();
-        return { full_name: out["nome"] || out["full_name"] || "", role: out["funcao"] || out["função"] || out["role"] || null, city: out["cidade"] || out["city"] || null };
-      }).filter((r) => r.full_name);
-      if (!records.length) { toast.error("Nenhuma linha válida (colunas: Nome, Função, Cidade)"); return; }
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
+      if (!rows.length) { toast.error("Planilha vazia"); return; }
+      const norm = (k: any) => String(k ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const headerWords = ["nome", "name", "full_name", "colaborador", "funcao", "role", "cargo", "cidade", "city"];
+      const first = rows[0].map(norm);
+      const hasHeader = first.some((c) => headerWords.includes(c));
+      let idxName = -1, idxRole = -1, idxCity = -1;
+      let dataRows = rows;
+      if (hasHeader) {
+        first.forEach((c, i) => {
+          if (idxName < 0 && (c === "nome" || c === "name" || c === "full_name" || c === "colaborador")) idxName = i;
+          if (idxRole < 0 && (c === "funcao" || c === "role" || c === "cargo")) idxRole = i;
+          if (idxCity < 0 && (c === "cidade" || c === "city")) idxCity = i;
+        });
+        dataRows = rows.slice(1);
+      }
+      if (idxName < 0) idxName = 0;
+      if (idxRole < 0) idxRole = idxName === 1 ? 2 : 1;
+      if (idxCity < 0) idxCity = idxRole + 1;
+      const records = dataRows.map((r) => ({
+        full_name: String(r[idxName] ?? "").trim(),
+        role: r[idxRole] != null ? (String(r[idxRole]).trim() || null) : null,
+        city: r[idxCity] != null ? (String(r[idxCity]).trim() || null) : null,
+      })).filter((r) => r.full_name);
+      if (!records.length) { toast.error("Nenhuma linha com nome encontrada"); return; }
       const { error } = await supabase.from("collaborators").insert(records);
       if (error) throw error;
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });

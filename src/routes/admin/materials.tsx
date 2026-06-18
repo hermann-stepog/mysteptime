@@ -58,20 +58,39 @@ function MaterialsPage() {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf);
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
-      const norm = (k: string) => k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-      const records = json.map((r) => {
-        const out: Record<string, string> = {};
-        for (const k of Object.keys(r)) out[norm(k)] = String(r[k] ?? "").trim();
-        return {
-          code: out["codigo"] || out["código"] || out["code"] || "",
-          descricao: out["descricao"] || out["descrição"] || out["description"] || "",
-          categoria: out["categoria"] || out["category"] || null,
-        };
-      }).filter((r) => r.code && r.descricao);
-      if (!records.length) { toast.error("Nenhuma linha válida (colunas: Código, Descrição, Categoria)"); return; }
-      const { error } = await supabase.from("materials").upsert(records, { onConflict: "code" });
-      if (error) throw error;
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
+      if (!rows.length) { toast.error("Planilha vazia"); return; }
+      const norm = (k: any) => String(k ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const headerWords = ["codigo", "code", "cod", "descricao", "description", "categoria", "category", "tipo", "nome", "name", "item", "material"];
+      const first = rows[0].map(norm);
+      const hasHeader = first.some((c) => headerWords.includes(c));
+      let idxCode = -1, idxDesc = -1, idxCat = -1;
+      let dataRows = rows;
+      if (hasHeader) {
+        first.forEach((c, i) => {
+          if (idxCode < 0 && (c === "codigo" || c === "code" || c === "cod")) idxCode = i;
+          if (idxDesc < 0 && (c === "descricao" || c === "description" || c === "nome" || c === "name" || c === "item" || c === "material")) idxDesc = i;
+          if (idxCat < 0 && (c === "categoria" || c === "category" || c === "tipo")) idxCat = i;
+        });
+        dataRows = rows.slice(1);
+      }
+      if (idxDesc < 0) idxDesc = idxCode === 0 ? 1 : 0;
+      const records = dataRows.map((r) => ({
+        code: idxCode >= 0 ? (String(r[idxCode] ?? "").trim() || null) : null,
+        descricao: String(r[idxDesc] ?? "").trim(),
+        categoria: idxCat >= 0 ? (String(r[idxCat] ?? "").trim() || null) : null,
+      })).filter((r) => r.descricao);
+      if (!records.length) { toast.error("Nenhuma linha com descrição encontrada"); return; }
+      const withCode = records.filter((r) => r.code);
+      const withoutCode = records.filter((r) => !r.code);
+      if (withCode.length) {
+        const { error } = await supabase.from("materials").upsert(withCode, { onConflict: "code" });
+        if (error) throw error;
+      }
+      if (withoutCode.length) {
+        const { error } = await supabase.from("materials").insert(withoutCode);
+        if (error) throw error;
+      }
       invalidate();
       toast.success(`${records.length} materiais importados`);
     } catch (e: any) {
