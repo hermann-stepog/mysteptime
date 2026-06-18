@@ -19,7 +19,6 @@ type Row = { id: string; code: string; descricao: string; categoria: string | nu
 
 function MaterialsPage() {
   const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Row | null>(null);
 
   const { data: rows = [] } = useQuery({
