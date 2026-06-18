@@ -240,7 +240,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   type FormState = {
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     origin: string; destination: string; notes: string;
-    tipo: TripTipo; bsp: string; cliente: string; status: TripStatus;
+    tipo: TripTipo; bsp: string; cliente: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -248,7 +248,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
       scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 16),
       origin: t.origin, destination: t.destination, notes: t.notes ?? "",
-      tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", status: t.status,
+      tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", unidade: t.unidade ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -256,7 +256,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
       origin: "", destination: "", notes: "",
-      tipo: "pessoas", bsp: "", cliente: "", status: "em_andamento",
+      tipo: "pessoas", bsp: "", cliente: "", unidade: "", status: "em_andamento",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
