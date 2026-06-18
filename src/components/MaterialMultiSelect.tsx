@@ -57,12 +57,11 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
       <DialogContent>
         <DialogHeader><DialogTitle>Novo material</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          <div><Label>Código</Label><Input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} /></div>
           <div><Label>Descrição</Label><Input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
-          <div><Label>Categoria</Label><Input value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} /></div>
+          <div><Label>Categoria <span className="text-xs text-muted-foreground">(opcional)</span></Label><Input value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} /></div>
         </div>
         <DialogFooter>
-          <Button disabled={!f.code.trim() || !f.descricao.trim() || create.isPending} onClick={() => create.mutate()}>Salvar</Button>
+          <Button disabled={!f.descricao.trim() || create.isPending} onClick={() => create.mutate()}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
