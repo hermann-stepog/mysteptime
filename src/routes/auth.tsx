@@ -8,7 +8,6 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import { BrandLogo } from "@/components/BrandLogo";
 import heroAsset from "@/assets/auth-hero.png.asset.json";
 
 export const Route = createFileRoute("/auth")({ component: AuthPage });
@@ -34,9 +33,7 @@ function AuthPage() {
         style={{ backgroundImage: `url(${heroAsset.url})`, backgroundSize: "cover", backgroundPosition: "center" }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-sidebar/95 via-sidebar/80 to-sidebar/30" aria-hidden />
-        <div className="relative flex items-center gap-3">
-          <BrandLogo className="h-12 w-auto bg-white rounded-md p-2" />
-        </div>
+        <div className="relative" />
         <div className="relative">
           <h1 className="text-4xl font-semibold leading-tight">Logística de pessoal offshore, sem fricção.</h1>
           <p className="mt-4 max-w-md text-sidebar-foreground/80">Embarques, transporte, documentação, timesheet e custos em um único painel para operações de óleo &amp; gás.</p>
