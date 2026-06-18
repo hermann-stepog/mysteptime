@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
-import { Loader2, LayoutDashboard, Ship, Truck, Hotel, FileCheck2, ClipboardList, Receipt, CalendarClock, BadgeCheck, BarChart3, Settings, LogOut } from "lucide-react";
+import { Loader2, LayoutDashboard, Ship, Truck, Hotel, FileCheck2, ClipboardList, Receipt, CalendarClock, BadgeCheck, BarChart3, Settings, LogOut, Users } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const nav: NavItem[] = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/admin/embarkations", label: "Embarques", icon: Ship },
   { to: "/admin/transport", label: "Transporte", icon: Truck },
+  { to: "/admin/collaborators", label: "Colaboradores", icon: Users },
   { to: "/admin/hotel", label: "Hospedagem", icon: Hotel },
   { to: "/admin/documents", label: "Documentos", icon: FileCheck2 },
   { to: "/admin/timesheets", label: "Timesheets", icon: ClipboardList },
