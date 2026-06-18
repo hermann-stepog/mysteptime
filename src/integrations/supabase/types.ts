@@ -389,6 +389,36 @@ export type Database = {
           },
         ]
       }
+      materials: {
+        Row: {
+          active: boolean
+          categoria: string | null
+          code: string
+          created_at: string
+          descricao: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          categoria?: string | null
+          code: string
+          created_at?: string
+          descricao: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          categoria?: string | null
+          code?: string
+          created_at?: string
+          descricao?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           body: string | null
@@ -799,6 +829,39 @@ export type Database = {
           },
         ]
       }
+      transport_trip_materials: {
+        Row: {
+          material_id: string
+          quantidade: number | null
+          trip_id: string
+        }
+        Insert: {
+          material_id: string
+          quantidade?: number | null
+          trip_id: string
+        }
+        Update: {
+          material_id?: string
+          quantidade?: number | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transport_trip_materials_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transport_trip_materials_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "transport_trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transport_trip_tags: {
         Row: {
           tag_id: string
@@ -831,8 +894,10 @@ export type Database = {
       }
       transport_trips: {
         Row: {
+          bsp: string | null
           cancelado: boolean
           car_number: string
+          cliente: string | null
           column_id: string | null
           created_at: string
           destination: string
@@ -841,11 +906,15 @@ export type Database = {
           origin: string
           realizado: boolean
           scheduled_at: string
+          status: Database["public"]["Enums"]["transport_trip_status"]
+          tipo: Database["public"]["Enums"]["transport_tipo"]
           updated_at: string
         }
         Insert: {
+          bsp?: string | null
           cancelado?: boolean
           car_number: string
+          cliente?: string | null
           column_id?: string | null
           created_at?: string
           destination: string
@@ -854,11 +923,15 @@ export type Database = {
           origin: string
           realizado?: boolean
           scheduled_at: string
+          status?: Database["public"]["Enums"]["transport_trip_status"]
+          tipo?: Database["public"]["Enums"]["transport_tipo"]
           updated_at?: string
         }
         Update: {
+          bsp?: string | null
           cancelado?: boolean
           car_number?: string
+          cliente?: string | null
           column_id?: string | null
           created_at?: string
           destination?: string
@@ -867,6 +940,8 @@ export type Database = {
           origin?: string
           realizado?: boolean
           scheduled_at?: string
+          status?: Database["public"]["Enums"]["transport_trip_status"]
+          tipo?: Database["public"]["Enums"]["transport_tipo"]
           updated_at?: string
         }
         Relationships: [
@@ -974,6 +1049,8 @@ export type Database = {
         | "em_transito"
         | "concluido"
         | "cancelado"
+      transport_tipo: "pessoas" | "material"
+      transport_trip_status: "em_andamento" | "realizado" | "cancelado"
       transport_type: "carro" | "van" | "voo" | "onibus"
     }
     CompositeTypes: {
@@ -1134,6 +1211,8 @@ export const Constants = {
         "concluido",
         "cancelado",
       ],
+      transport_tipo: ["pessoas", "material"],
+      transport_trip_status: ["em_andamento", "realizado", "cancelado"],
       transport_type: ["carro", "van", "voo", "onibus"],
     },
   },

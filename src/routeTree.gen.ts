@@ -25,6 +25,7 @@ import { Route as AdminTimesheetsRouteImport } from './routes/admin/timesheets'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
+import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
 import { Route as AdminHotelRouteImport } from './routes/admin/hotel'
 import { Route as AdminEmbarkationsRouteImport } from './routes/admin/embarkations'
 import { Route as AdminDocumentsRouteImport } from './routes/admin/documents'
@@ -112,6 +113,11 @@ const AdminPayrollRoute = AdminPayrollRouteImport.update({
   path: '/payroll',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminMaterialsRoute = AdminMaterialsRouteImport.update({
+  id: '/materials',
+  path: '/materials',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminHotelRoute = AdminHotelRouteImport.update({
   id: '/hotel',
   path: '/hotel',
@@ -155,6 +161,7 @@ export interface FileRoutesByFullPath {
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/hotel': typeof AdminHotelRoute
+  '/admin/materials': typeof AdminMaterialsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -177,6 +184,7 @@ export interface FileRoutesByTo {
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/hotel': typeof AdminHotelRoute
+  '/admin/materials': typeof AdminMaterialsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -202,6 +210,7 @@ export interface FileRoutesById {
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/hotel': typeof AdminHotelRoute
+  '/admin/materials': typeof AdminMaterialsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -228,6 +237,7 @@ export interface FileRouteTypes {
     | '/admin/documents'
     | '/admin/embarkations'
     | '/admin/hotel'
+    | '/admin/materials'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
@@ -250,6 +260,7 @@ export interface FileRouteTypes {
     | '/admin/documents'
     | '/admin/embarkations'
     | '/admin/hotel'
+    | '/admin/materials'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
@@ -274,6 +285,7 @@ export interface FileRouteTypes {
     | '/admin/documents'
     | '/admin/embarkations'
     | '/admin/hotel'
+    | '/admin/materials'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
@@ -409,6 +421,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPayrollRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/materials': {
+      id: '/admin/materials'
+      path: '/materials'
+      fullPath: '/admin/materials'
+      preLoaderRoute: typeof AdminMaterialsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/hotel': {
       id: '/admin/hotel'
       path: '/hotel'
@@ -461,6 +480,7 @@ interface AdminRouteRouteChildren {
   AdminDocumentsRoute: typeof AdminDocumentsRoute
   AdminEmbarkationsRoute: typeof AdminEmbarkationsRoute
   AdminHotelRoute: typeof AdminHotelRoute
+  AdminMaterialsRoute: typeof AdminMaterialsRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
@@ -476,6 +496,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminDocumentsRoute: AdminDocumentsRoute,
   AdminEmbarkationsRoute: AdminEmbarkationsRoute,
   AdminHotelRoute: AdminHotelRoute,
+  AdminMaterialsRoute: AdminMaterialsRoute,
   AdminPayrollRoute: AdminPayrollRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
@@ -518,13 +539,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
