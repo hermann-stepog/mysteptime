@@ -328,7 +328,7 @@ function TransportPage() {
 
   const qc = useQueryClient();
   const toggle = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<Trip> }) => {
+    mutationFn: async ({ id, patch }: { id: string; patch: { realizado?: boolean; cancelado?: boolean } }) => {
       const { error } = await supabase.from("transport_trips").update(patch).eq("id", id);
       if (error) throw error;
     },
