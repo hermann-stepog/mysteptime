@@ -28,11 +28,10 @@ export function useMaterialsQuery() {
 export function NewMaterialDialog({ children, onCreated }: { children?: React.ReactNode; onCreated?: (m: Material) => void }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ code: "", descricao: "", categoria: "" });
+  const [f, setF] = useState({ descricao: "", categoria: "" });
   const create = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.from("materials").insert({
-        code: f.code.trim(),
         descricao: f.descricao.trim(),
         categoria: f.categoria.trim() || null,
       }).select("*").single();
@@ -43,7 +42,7 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
       toast.success("Material adicionado");
       qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["materials-all"] });
-      setF({ code: "", descricao: "", categoria: "" });
+      setF({ descricao: "", categoria: "" });
       setOpen(false);
       onCreated?.(m);
     },
