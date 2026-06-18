@@ -7,11 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Pencil } from "lucide-react";
-import { useState } from "react";
+import { Plus, Upload, Trash2, Pencil } from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import { NewMaterialDialog } from "@/components/MaterialMultiSelect";
-import { ImportMaterialsDialog } from "@/components/ImportMaterialsDialog";
 
 export const Route = createFileRoute("/admin/materials")({ component: MaterialsPage });
 
@@ -19,6 +19,7 @@ type Row = { id: string; code: string; descricao: string; categoria: string | nu
 
 function MaterialsPage() {
   const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Row | null>(null);
 
   const { data: rows = [] } = useQuery({
@@ -52,6 +53,34 @@ function MaterialsPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const onImport = async (file: File) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const norm = (k: string) => k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const records = json.map((r) => {
+        const out: Record<string, string> = {};
+        for (const k of Object.keys(r)) out[norm(k)] = String(r[k] ?? "").trim();
+        return {
+          code: out["codigo"] || out["código"] || out["code"] || "",
+          descricao: out["descricao"] || out["descrição"] || out["description"] || "",
+          categoria: out["categoria"] || out["category"] || null,
+        };
+      }).filter((r) => r.code && r.descricao);
+      if (!records.length) { toast.error("Nenhuma linha válida (colunas: Código, Descrição, Categoria)"); return; }
+      const { error } = await supabase.from("materials").upsert(records, { onConflict: "code" });
+      if (error) throw error;
+      invalidate();
+      toast.success(`${records.length} materiais importados`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -60,13 +89,13 @@ function MaterialsPage() {
           <p className="text-sm text-muted-foreground">Cadastro central de materiais usado no Transporte.</p>
         </div>
         <div className="flex gap-2">
-          <ImportMaterialsDialog />
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
+          <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Importar planilha</Button>
           <NewMaterialDialog>
             <Button><Plus className="mr-2 h-4 w-4" />Adicionar material</Button>
           </NewMaterialDialog>
         </div>
       </div>
-
 
       <Card>
         <Table>
