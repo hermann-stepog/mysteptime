@@ -127,6 +127,7 @@ export type Database = {
           full_name: string
           id: string
           role: string | null
+          unit: string | null
           updated_at: string
         }
         Insert: {
@@ -136,6 +137,7 @@ export type Database = {
           full_name: string
           id?: string
           role?: string | null
+          unit?: string | null
           updated_at?: string
         }
         Update: {
@@ -145,6 +147,7 @@ export type Database = {
           full_name?: string
           id?: string
           role?: string | null
+          unit?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -914,6 +917,7 @@ export type Database = {
           scheduled_at: string
           status: Database["public"]["Enums"]["transport_trip_status"]
           tipo: Database["public"]["Enums"]["transport_tipo"]
+          unidade: string | null
           updated_at: string
         }
         Insert: {
@@ -931,6 +935,7 @@ export type Database = {
           scheduled_at: string
           status?: Database["public"]["Enums"]["transport_trip_status"]
           tipo?: Database["public"]["Enums"]["transport_tipo"]
+          unidade?: string | null
           updated_at?: string
         }
         Update: {
@@ -948,6 +953,7 @@ export type Database = {
           scheduled_at?: string
           status?: Database["public"]["Enums"]["transport_trip_status"]
           tipo?: Database["public"]["Enums"]["transport_tipo"]
+          unidade?: string | null
           updated_at?: string
         }
         Relationships: [
