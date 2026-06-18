@@ -15,7 +15,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
-import { MaterialMultiSelect, useMaterialsQuery, type Material } from "@/components/MaterialMultiSelect";
+import { MaterialQuantitySelect, useMaterialsQuery, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { CLIENTES } from "@/lib/clientes";
 import { fmtDate } from "@/lib/format";
