@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
+import heroAsset from "@/assets/auth-hero.png.asset.json";
 
 export const Route = createFileRoute("/auth")({ component: AuthPage });
 
@@ -28,15 +29,19 @@ function AuthPage() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
-        <div className="flex items-center gap-3">
+      <div
+        className="relative hidden overflow-hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between"
+        style={{ backgroundImage: `url(${heroAsset.url})`, backgroundSize: "cover", backgroundPosition: "center" }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-sidebar/95 via-sidebar/80 to-sidebar/30" aria-hidden />
+        <div className="relative flex items-center gap-3">
           <BrandLogo className="h-12 w-auto bg-white rounded-md p-2" />
         </div>
-        <div>
+        <div className="relative">
           <h1 className="text-4xl font-semibold leading-tight">Logística de pessoal offshore, sem fricção.</h1>
-          <p className="mt-4 max-w-md text-sidebar-foreground/70">Embarques, transporte, documentação, timesheet e custos em um único painel para operações de óleo &amp; gás.</p>
+          <p className="mt-4 max-w-md text-sidebar-foreground/80">Embarques, transporte, documentação, timesheet e custos em um único painel para operações de óleo &amp; gás.</p>
         </div>
-        <p className="text-xs text-sidebar-foreground/50">© {new Date().getFullYear()} STEP Oil &amp; Gas</p>
+        <p className="relative text-xs text-sidebar-foreground/60">© {new Date().getFullYear()} STEP Oil &amp; Gas</p>
       </div>
       <div className="flex items-center justify-center bg-background p-6">
         <Card className="w-full max-w-md p-8">
