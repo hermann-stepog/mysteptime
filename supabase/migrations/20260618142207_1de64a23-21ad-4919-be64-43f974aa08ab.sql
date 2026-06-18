@@ -1,0 +1,1 @@
+ALTER TABLE public.materials ALTER COLUMN code DROP NOT NULL;
