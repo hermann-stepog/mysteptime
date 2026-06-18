@@ -152,7 +152,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
       )}
       {trip.tipo === "material" && trip.materials.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground truncate">
-          {trip.materials.map((m) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
+          {trip.materials.map((m) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
         </div>
       )}
 
@@ -610,7 +610,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
             {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
             <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
             {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
-            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
+            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
           </Card>
         ))}
         {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">Nenhuma viagem para esta data.</Card>}
@@ -720,7 +720,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell className="max-w-[200px] truncate">
                   {t.tipo === "pessoas"
                     ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
-                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${mat.descricao} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
+                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
               </TableRow>
