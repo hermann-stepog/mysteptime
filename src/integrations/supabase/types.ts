@@ -119,6 +119,36 @@ export type Database = {
         }
         Relationships: []
       }
+      collaborators: {
+        Row: {
+          active: boolean
+          city: string | null
+          created_at: string
+          full_name: string
+          id: string
+          role: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          city?: string | null
+          created_at?: string
+          full_name: string
+          id?: string
+          role?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          city?: string | null
+          created_at?: string
+          full_name?: string
+          id?: string
+          role?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cost_logs: {
         Row: {
           amount: number
@@ -624,6 +654,27 @@ export type Database = {
           },
         ]
       }
+      transport_columns: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          position: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          position?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          position?: number
+        }
+        Relationships: []
+      }
       transport_requests: {
         Row: {
           collaborator_id: string
@@ -693,6 +744,137 @@ export type Database = {
             columns: ["vendor_id"]
             isOneToOne: false
             referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transport_tags: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      transport_trip_collaborators: {
+        Row: {
+          collaborator_id: string
+          trip_id: string
+        }
+        Insert: {
+          collaborator_id: string
+          trip_id: string
+        }
+        Update: {
+          collaborator_id?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transport_trip_collaborators_collaborator_id_fkey"
+            columns: ["collaborator_id"]
+            isOneToOne: false
+            referencedRelation: "collaborators"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transport_trip_collaborators_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "transport_trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transport_trip_tags: {
+        Row: {
+          tag_id: string
+          trip_id: string
+        }
+        Insert: {
+          tag_id: string
+          trip_id: string
+        }
+        Update: {
+          tag_id?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transport_trip_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "transport_tags"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transport_trip_tags_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "transport_trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transport_trips: {
+        Row: {
+          cancelado: boolean
+          car_number: string
+          column_id: string | null
+          created_at: string
+          destination: string
+          id: string
+          notes: string | null
+          origin: string
+          realizado: boolean
+          scheduled_at: string
+          updated_at: string
+        }
+        Insert: {
+          cancelado?: boolean
+          car_number: string
+          column_id?: string | null
+          created_at?: string
+          destination: string
+          id?: string
+          notes?: string | null
+          origin: string
+          realizado?: boolean
+          scheduled_at: string
+          updated_at?: string
+        }
+        Update: {
+          cancelado?: boolean
+          car_number?: string
+          column_id?: string | null
+          created_at?: string
+          destination?: string
+          id?: string
+          notes?: string | null
+          origin?: string
+          realizado?: boolean
+          scheduled_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transport_trips_column_id_fkey"
+            columns: ["column_id"]
+            isOneToOne: false
+            referencedRelation: "transport_columns"
             referencedColumns: ["id"]
           },
         ]

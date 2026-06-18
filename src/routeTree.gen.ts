@@ -29,6 +29,7 @@ import { Route as AdminHotelRouteImport } from './routes/admin/hotel'
 import { Route as AdminEmbarkationsRouteImport } from './routes/admin/embarkations'
 import { Route as AdminDocumentsRouteImport } from './routes/admin/documents'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
+import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
 
 const PendingRoute = PendingRouteImport.update({
@@ -131,6 +132,11 @@ const AdminCostsRoute = AdminCostsRouteImport.update({
   path: '/costs',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminCollaboratorsRoute = AdminCollaboratorsRouteImport.update({
+  id: '/collaborators',
+  path: '/collaborators',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
   id: '/approvals',
   path: '/approvals',
@@ -144,6 +150,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
@@ -165,6 +172,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
@@ -189,6 +197,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
@@ -214,6 +223,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/documents'
     | '/admin/embarkations'
@@ -235,6 +245,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/documents'
     | '/admin/embarkations'
@@ -258,6 +269,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/documents'
     | '/admin/embarkations'
@@ -425,6 +437,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCostsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/collaborators': {
+      id: '/admin/collaborators'
+      path: '/collaborators'
+      fullPath: '/admin/collaborators'
+      preLoaderRoute: typeof AdminCollaboratorsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/approvals': {
       id: '/admin/approvals'
       path: '/approvals'
@@ -437,6 +456,7 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteRouteChildren {
   AdminApprovalsRoute: typeof AdminApprovalsRoute
+  AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
   AdminCostsRoute: typeof AdminCostsRoute
   AdminDocumentsRoute: typeof AdminDocumentsRoute
   AdminEmbarkationsRoute: typeof AdminEmbarkationsRoute
@@ -451,6 +471,7 @@ interface AdminRouteRouteChildren {
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminApprovalsRoute: AdminApprovalsRoute,
+  AdminCollaboratorsRoute: AdminCollaboratorsRoute,
   AdminCostsRoute: AdminCostsRoute,
   AdminDocumentsRoute: AdminDocumentsRoute,
   AdminEmbarkationsRoute: AdminEmbarkationsRoute,
