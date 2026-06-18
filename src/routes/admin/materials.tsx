@@ -7,11 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Upload, Trash2, Pencil } from "lucide-react";
-import { useRef, useState } from "react";
+import { Plus, Trash2, Pencil } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
-import * as XLSX from "xlsx";
 import { NewMaterialDialog } from "@/components/MaterialMultiSelect";
+import { ImportMaterialsDialog } from "@/components/ImportMaterialsDialog";
 
 export const Route = createFileRoute("/admin/materials")({ component: MaterialsPage });
 
