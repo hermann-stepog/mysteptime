@@ -170,6 +170,69 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
   );
 }
 
+type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string };
+
+function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; setF: (v: T) => void }) {
+  const { data: collaborators = [] } = useCollaboratorsQuery();
+  const selectedCollabs = f.collab_ids
+    .map((id) => collaborators.find((c) => c.id === id))
+    .filter((c): c is Collaborator => !!c);
+  const citiesAvailable = selectedCollabs.filter((c) => c.city).length;
+
+  const autoTrajeto = () => {
+    const cities: string[] = [];
+    for (const c of selectedCollabs) {
+      const city = (c.city ?? "").trim();
+      if (city && cities[cities.length - 1] !== city) cities.push(city);
+    }
+    if (cities.length === 0) { toast.error("Nenhum colaborador com cidade cadastrada"); return; }
+    if (cities.length === 1) {
+      setF({ ...f, origin: cities[0], destination: cities[0] });
+      toast.success("Trajeto sugerido aplicado");
+      return;
+    }
+    const origin = cities[0];
+    const destination = cities[cities.length - 1];
+    const stops = cities.slice(1, -1);
+    const stopsLine = stops.length ? `Paradas: ${stops.join(" → ")}` : "";
+    const baseNotes = (f.notes ?? "").replace(/\n?Paradas: .*/g, "").trim();
+    const notes = [baseNotes, stopsLine].filter(Boolean).join("\n");
+    setF({ ...f, origin, destination, notes });
+    toast.success("Trajeto sugerido aplicado");
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <Label>Colaboradores</Label>
+        {selectedCollabs.length >= 2 && citiesAvailable >= 1 && (
+          <Button type="button" variant="ghost" size="sm" onClick={autoTrajeto} className="h-7 text-xs">
+            <Wand2 className="mr-1 h-3 w-3" />Montar trajeto automaticamente
+          </Button>
+        )}
+      </div>
+      <CollaboratorMultiSelect
+        value={f.collab_ids}
+        onChange={(ids) => {
+          const prev = f.collab_ids;
+          const added = ids.find((id) => !prev.includes(id));
+          let next: T = { ...f, collab_ids: ids };
+          if (added) {
+            const c = collaborators.find((x) => x.id === added);
+            if (c?.city) {
+              if (!f.origin.trim()) next = { ...next, origin: c.city };
+              else if (!f.destination.trim()) next = { ...next, destination: c.city };
+            }
+          }
+          setF(next);
+        }}
+        onUseAsOrigin={(c) => c.city && setF({ ...f, origin: c.city })}
+        onUseAsDestination={(c) => c.city && setF({ ...f, destination: c.city })}
+      />
+    </div>
+  );
+}
+
 function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; columns: Column[]; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   type FormState = {
