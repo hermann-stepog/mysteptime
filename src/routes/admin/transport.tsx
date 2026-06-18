@@ -185,7 +185,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
-      material_ids: t.materials.map((x) => x.material_id),
+      materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
     };
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
