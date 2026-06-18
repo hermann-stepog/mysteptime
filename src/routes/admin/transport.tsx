@@ -440,6 +440,7 @@ function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: 
       Tipo: t.tipo === "material" ? "Material" : "Pessoas",
       Cliente: t.cliente ?? "",
       BSP: t.bsp ?? "",
+      Unidade: t.unidade ?? "",
       Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
       Horário: fmtTime(t.scheduled_at),
       Origem: t.origin,
