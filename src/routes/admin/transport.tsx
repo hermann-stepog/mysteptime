@@ -171,7 +171,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
   );
 }
 
-type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string };
+type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string; unidade: string };
 
 function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; setF: (v: T) => void }) {
   const { data: collaborators = [] } = useCollaboratorsQuery();
