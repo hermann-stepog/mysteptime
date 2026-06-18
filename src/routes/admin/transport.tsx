@@ -224,6 +224,7 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
               if (!f.origin.trim()) next = { ...next, origin: c.city };
               else if (!f.destination.trim()) next = { ...next, destination: c.city };
             }
+            if (c?.unit && !f.unidade.trim()) next = { ...next, unidade: c.unit };
           }
           setF(next);
         }}
