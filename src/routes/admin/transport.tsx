@@ -51,6 +51,8 @@ type Trip = {
   bsp: string | null;
   cliente: string | null;
   unidade: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
   status: TripStatus;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
