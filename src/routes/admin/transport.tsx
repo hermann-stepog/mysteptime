@@ -250,6 +250,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   const qc = useQueryClient();
   type FormState = {
     id?: string; car_number: string; column_id: string; scheduled_at: string;
+    departure_time: string; arrival_time: string;
     origin: string; destination: string; notes: string;
     tipo: TripTipo; bsp: string; cliente: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
@@ -258,6 +259,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     if (t) return {
       id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
       scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 16),
+      departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
       origin: t.origin, destination: t.destination, notes: t.notes ?? "",
       tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", unidade: t.unidade ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
@@ -266,6 +268,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     };
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
+      departure_time: "", arrival_time: "",
       origin: "", destination: "", notes: "",
       tipo: "pessoas", bsp: "", cliente: "", unidade: "", status: "em_andamento",
       tag_ids: [], collab_ids: [], materials: [],
