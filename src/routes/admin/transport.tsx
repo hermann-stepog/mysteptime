@@ -643,7 +643,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
                     <div className="font-semibold">{t.car_number}</div>
                     <StatusBadge status={t.status} />
                   </div>
-                  <div className="text-xs text-muted-foreground">{fmtTime(t.scheduled_at)} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
+                  <div className="text-xs text-muted-foreground">{new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(t.scheduled_at))} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
                   {(t.departure_time || t.arrival_time) && (
                     <div className="text-[11px] text-muted-foreground">
                       {t.departure_time && <span>Partida: {t.departure_time}</span>}
