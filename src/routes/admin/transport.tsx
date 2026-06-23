@@ -124,7 +124,16 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"><UsersIcon className="h-3 w-3" />Pessoas</span>
           )}
         </div>
-        <div className="text-xs text-muted-foreground">{fmtTime(trip.scheduled_at)}</div>
+        <div className="text-right text-xs text-muted-foreground">
+          <div>{fmtTime(trip.scheduled_at)}</div>
+          {(trip.departure_time || trip.arrival_time) && (
+            <div className="mt-0.5 text-[10px]">
+              {trip.departure_time && <span>Part.: {trip.departure_time}</span>}
+              {trip.departure_time && trip.arrival_time && <span> · </span>}
+              {trip.arrival_time && <span>Dest.: {trip.arrival_time}</span>}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-1 flex flex-wrap gap-1">
