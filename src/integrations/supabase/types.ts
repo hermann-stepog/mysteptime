@@ -903,12 +903,14 @@ export type Database = {
       }
       transport_trips: {
         Row: {
+          arrival_time: string | null
           bsp: string | null
           cancelado: boolean
           car_number: string
           cliente: string | null
           column_id: string | null
           created_at: string
+          departure_time: string | null
           destination: string
           id: string
           notes: string | null
@@ -921,12 +923,14 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          arrival_time?: string | null
           bsp?: string | null
           cancelado?: boolean
           car_number: string
           cliente?: string | null
           column_id?: string | null
           created_at?: string
+          departure_time?: string | null
           destination: string
           id?: string
           notes?: string | null
@@ -939,12 +943,14 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          arrival_time?: string | null
           bsp?: string | null
           cancelado?: boolean
           car_number?: string
           cliente?: string | null
           column_id?: string | null
           created_at?: string
+          departure_time?: string | null
           destination?: string
           id?: string
           notes?: string | null
