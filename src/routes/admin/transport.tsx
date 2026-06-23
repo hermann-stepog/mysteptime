@@ -606,6 +606,14 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
 function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
   const [date, setDate] = useState(todayISO());
   const dayTrips = useMemo(() => (trips as Trip[]).filter((t) => t.scheduled_at.slice(0, 10) === date).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, date]);
+  const groupedByCar = useMemo(() => {
+    const m = new Map<string, Trip[]>();
+    for (const t of dayTrips) {
+      if (!m.has(t.car_number)) m.set(t.car_number, []);
+      m.get(t.car_number)!.push(t);
+    }
+    return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [dayTrips]);
   const shift = (n: number) => {
     const d = new Date(date + "T00:00:00"); d.setDate(d.getDate() + n);
     setDate(d.toISOString().slice(0, 10));
@@ -619,26 +627,43 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="pl-9 w-44" />
         </div>
         <Button variant="outline" size="icon" onClick={() => shift(1)}><ChevronRight className="h-4 w-4" /></Button>
-        <span className="ml-2 text-sm text-muted-foreground">{fmtDate(date)} · {dayTrips.length} viagem(ns)</span>
+        <span className="ml-2 text-sm text-muted-foreground">{fmtDate(date)} · {dayTrips.length} viagem(ns) · {groupedByCar.length} carro(s)</span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {dayTrips.map((t) => (
-          <Card key={t.id} className={cn("p-3 cursor-pointer hover:border-primary/40 border-l-4", STATUS_BORDER[t.status])} onClick={() => onEdit(t)}>
-            <div className="flex items-start justify-between">
-              <div className="font-semibold">{t.car_number}</div>
-              <StatusBadge status={t.status} />
+      <div className="space-y-6">
+        {groupedByCar.map(([car, list]) => (
+          <div key={car} className="space-y-2">
+            <div className="flex items-center gap-2 border-b pb-1">
+              <h3 className="text-sm font-semibold">{car}</h3>
+              <span className="text-xs text-muted-foreground">{list.length} viagem(ns)</span>
             </div>
-            <div className="text-xs text-muted-foreground">{fmtTime(t.scheduled_at)} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {list.map((t) => (
+                <Card key={t.id} className={cn("p-3 cursor-pointer hover:border-primary/40 border-l-4", STATUS_BORDER[t.status])} onClick={() => onEdit(t)}>
+                  <div className="flex items-start justify-between">
+                    <div className="font-semibold">{t.car_number}</div>
+                    <StatusBadge status={t.status} />
+                  </div>
+                  <div className="text-xs text-muted-foreground">{fmtTime(t.scheduled_at)} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
+                  {(t.departure_time || t.arrival_time) && (
+                    <div className="text-[11px] text-muted-foreground">
+                      {t.departure_time && <span>Partida: {t.departure_time}</span>}
+                      {t.departure_time && t.arrival_time && <span> · </span>}
+                      {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
+                    </div>
+                  )}
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
+                  </div>
+                  {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
+                  <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
+                  {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
+                  {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
+                </Card>
+              ))}
             </div>
-            {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
-            <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
-            {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
-            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
-          </Card>
+          </div>
         ))}
-        {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">Nenhuma viagem para esta data.</Card>}
+        {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground">Nenhuma viagem para esta data.</Card>}
       </div>
     </div>
   );
