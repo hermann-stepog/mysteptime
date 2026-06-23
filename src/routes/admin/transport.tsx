@@ -51,6 +51,8 @@ type Trip = {
   bsp: string | null;
   cliente: string | null;
   unidade: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
   status: TripStatus;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
@@ -122,7 +124,16 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"><UsersIcon className="h-3 w-3" />Pessoas</span>
           )}
         </div>
-        <div className="text-xs text-muted-foreground">{fmtTime(trip.scheduled_at)}</div>
+        <div className="text-right text-xs text-muted-foreground">
+          <div>{fmtTime(trip.scheduled_at)}</div>
+          {(trip.departure_time || trip.arrival_time) && (
+            <div className="mt-0.5 text-[10px]">
+              {trip.departure_time && <span>Part.: {trip.departure_time}</span>}
+              {trip.departure_time && trip.arrival_time && <span> · </span>}
+              {trip.arrival_time && <span>Dest.: {trip.arrival_time}</span>}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-1 flex flex-wrap gap-1">
@@ -239,6 +250,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   const qc = useQueryClient();
   type FormState = {
     id?: string; car_number: string; column_id: string; scheduled_at: string;
+    departure_time: string; arrival_time: string;
     origin: string; destination: string; notes: string;
     tipo: TripTipo; bsp: string; cliente: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
@@ -247,6 +259,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     if (t) return {
       id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
       scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 16),
+      departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
       origin: t.origin, destination: t.destination, notes: t.notes ?? "",
       tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", unidade: t.unidade ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
@@ -255,6 +268,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     };
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
+      departure_time: "", arrival_time: "",
       origin: "", destination: "", notes: "",
       tipo: "pessoas", bsp: "", cliente: "", unidade: "", status: "em_andamento",
       tag_ids: [], collab_ids: [], materials: [],
@@ -273,6 +287,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       const payload = {
         car_number: f.car_number.trim(), column_id: f.column_id || null,
         scheduled_at: new Date(f.scheduled_at).toISOString(),
+        departure_time: f.departure_time || null,
+        arrival_time: f.arrival_time || null,
         origin: f.origin.trim(), destination: f.destination.trim(),
         notes: f.notes.trim() || null,
         tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null, unidade: f.unidade.trim() || null,
@@ -344,7 +360,11 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             </div>
           </div>
 
-          <div><Label>Data/hora</Label><Input type="datetime-local" value={f.scheduled_at} onChange={(e) => setF({ ...f, scheduled_at: e.target.value })} /></div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><Label>Data/hora</Label><Input type="datetime-local" value={f.scheduled_at} onChange={(e) => setF({ ...f, scheduled_at: e.target.value })} /></div>
+            <div><Label>Horário de Partida</Label><Input type="time" value={f.departure_time} onChange={(e) => setF({ ...f, departure_time: e.target.value })} /></div>
+            <div><Label>Horário de Destino</Label><Input type="time" value={f.arrival_time} onChange={(e) => setF({ ...f, arrival_time: e.target.value })} /></div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div><Label>Origem</Label><Input value={f.origin} onChange={(e) => setF({ ...f, origin: e.target.value })} /></div>
             <div><Label>Destino</Label><Input value={f.destination} onChange={(e) => setF({ ...f, destination: e.target.value })} /></div>
@@ -586,6 +606,14 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
 function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
   const [date, setDate] = useState(todayISO());
   const dayTrips = useMemo(() => (trips as Trip[]).filter((t) => t.scheduled_at.slice(0, 10) === date).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, date]);
+  const groupedByCar = useMemo(() => {
+    const m = new Map<string, Trip[]>();
+    for (const t of dayTrips) {
+      if (!m.has(t.car_number)) m.set(t.car_number, []);
+      m.get(t.car_number)!.push(t);
+    }
+    return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [dayTrips]);
   const shift = (n: number) => {
     const d = new Date(date + "T00:00:00"); d.setDate(d.getDate() + n);
     setDate(d.toISOString().slice(0, 10));
@@ -599,26 +627,43 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="pl-9 w-44" />
         </div>
         <Button variant="outline" size="icon" onClick={() => shift(1)}><ChevronRight className="h-4 w-4" /></Button>
-        <span className="ml-2 text-sm text-muted-foreground">{fmtDate(date)} · {dayTrips.length} viagem(ns)</span>
+        <span className="ml-2 text-sm text-muted-foreground">{fmtDate(date)} · {dayTrips.length} viagem(ns) · {groupedByCar.length} carro(s)</span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {dayTrips.map((t) => (
-          <Card key={t.id} className={cn("p-3 cursor-pointer hover:border-primary/40 border-l-4", STATUS_BORDER[t.status])} onClick={() => onEdit(t)}>
-            <div className="flex items-start justify-between">
-              <div className="font-semibold">{t.car_number}</div>
-              <StatusBadge status={t.status} />
+      <div className="space-y-6">
+        {groupedByCar.map(([car, list]) => (
+          <div key={car} className="space-y-2">
+            <div className="flex items-center gap-2 border-b pb-1">
+              <h3 className="text-sm font-semibold">{car}</h3>
+              <span className="text-xs text-muted-foreground">{list.length} viagem(ns)</span>
             </div>
-            <div className="text-xs text-muted-foreground">{fmtTime(t.scheduled_at)} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {list.map((t) => (
+                <Card key={t.id} className={cn("p-3 cursor-pointer hover:border-primary/40 border-l-4", STATUS_BORDER[t.status])} onClick={() => onEdit(t)}>
+                  <div className="flex items-start justify-between">
+                    <div className="font-semibold">{t.car_number}</div>
+                    <StatusBadge status={t.status} />
+                  </div>
+                  <div className="text-xs text-muted-foreground">{fmtTime(t.scheduled_at)} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
+                  {(t.departure_time || t.arrival_time) && (
+                    <div className="text-[11px] text-muted-foreground">
+                      {t.departure_time && <span>Partida: {t.departure_time}</span>}
+                      {t.departure_time && t.arrival_time && <span> · </span>}
+                      {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
+                    </div>
+                  )}
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
+                  </div>
+                  {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
+                  <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
+                  {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
+                  {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
+                </Card>
+              ))}
             </div>
-            {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
-            <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
-            {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
-            {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
-          </Card>
+          </div>
         ))}
-        {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">Nenhuma viagem para esta data.</Card>}
+        {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground">Nenhuma viagem para esta data.</Card>}
       </div>
     </div>
   );
