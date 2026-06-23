@@ -287,6 +287,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       const payload = {
         car_number: f.car_number.trim(), column_id: f.column_id || null,
         scheduled_at: new Date(f.scheduled_at).toISOString(),
+        departure_time: f.departure_time || null,
+        arrival_time: f.arrival_time || null,
         origin: f.origin.trim(), destination: f.destination.trim(),
         notes: f.notes.trim() || null,
         tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null, unidade: f.unidade.trim() || null,
