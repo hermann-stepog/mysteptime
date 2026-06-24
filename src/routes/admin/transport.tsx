@@ -851,8 +851,8 @@ const STATUS_COLOR: Record<TripStatus, string> = {
   cancelado: "hsl(var(--destructive))",
 };
 
-const BLUES = ["#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#7dd3fc", "#0ea5e9", "#0284c7", "#0369a1", "#38bdf8"];
-const STATUS_BLUES: Record<string, string> = { realizado: "#1d4ed8", em_andamento: "#38bdf8", cancelado: "#94a3b8" };
+const BLUES = ["#1e3a8a", "#1d4ed8", "#1e40af", "#2563eb", "#475569", "#64748b", "#0369a1", "#334155", "#0284c7", "#94a3b8"];
+const STATUS_BLUES: Record<string, string> = { realizado: "#1d4ed8", em_andamento: "#2563eb", cancelado: "#94a3b8" };
 
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
@@ -877,6 +877,19 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const realizados = filtered.filter((t) => t.status === "realizado").length;
   const emAndamento = filtered.filter((t) => t.status === "em_andamento").length;
   const cancelados = filtered.filter((t) => t.status === "cancelado").length;
+
+  const avgCarsPerDay = useMemo(() => {
+    const byDay = new Map<string, Set<string>>();
+    for (const t of filtered) {
+      const day = t.scheduled_at.slice(0, 10);
+      if (!byDay.has(day)) byDay.set(day, new Set());
+      byDay.get(day)!.add(t.car_number);
+    }
+    if (byDay.size === 0) return 0;
+    let sum = 0;
+    for (const s of byDay.values()) sum += s.size;
+    return Math.round((sum / byDay.size) * 10) / 10;
+  }, [filtered]);
 
   const statusData = [
     { name: "Realizado", value: realizados, color: STATUS_BLUES.realizado },
@@ -916,48 +929,14 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
     return Array.from(m.values());
   }, [filtered, tagsById]);
 
-  // Custos por cliente (via cost_logs) — período do filtro
-  const { data: costsByClient = [] } = useQuery({
-    queryKey: ["kpi_costs_by_client", from, to],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("cost_logs")
-        .select("amount, clients(name)")
-        .gte("created_at", `${from}T00:00:00`)
-        .lte("created_at", `${to}T23:59:59`);
-      if (error) throw error;
-      const m = new Map<string, number>();
-      for (const r of (data ?? []) as any[]) {
-        const name = r.clients?.name ?? "—";
-        m.set(name, (m.get(name) ?? 0) + Number(r.amount ?? 0));
-      }
-      return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).map(([cliente, total]) => ({ cliente, total }));
-    },
-  });
-
-  // Custo por rota — proxy via cliente (cost_logs não tem trip_id):
-  // soma do cliente é rateada igualmente entre as viagens do cliente no período por rota.
-  const costsByRoute = useMemo(() => {
-    const clientCost = new Map<string, number>();
-    for (const c of costsByClient) clientCost.set(c.cliente, c.total);
-    const clientTrips = new Map<string, Trip[]>();
-    for (const t of filtered) {
-      if (!t.cliente) continue;
-      if (!clientTrips.has(t.cliente)) clientTrips.set(t.cliente, []);
-      clientTrips.get(t.cliente)!.push(t);
-    }
+  const tripsByClient = useMemo(() => {
     const m = new Map<string, number>();
-    for (const [cli, list] of clientTrips) {
-      const tot = clientCost.get(cli) ?? 0;
-      if (!tot || !list.length) continue;
-      const per = tot / list.length;
-      for (const t of list) {
-        const k = `${t.origin} → ${t.destination}`;
-        m.set(k, (m.get(k) ?? 0) + per);
-      }
+    for (const t of filtered) {
+      const k = t.cliente?.trim() || "—";
+      m.set(k, (m.get(k) ?? 0) + 1);
     }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([rota, total]) => ({ rota, total: Math.round(total * 100) / 100 }));
-  }, [costsByClient, filtered]);
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([cliente, count]) => ({ cliente, count }));
+  }, [filtered]);
 
   return (
     <div className="space-y-4">
@@ -989,7 +968,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1e3a8a", background: "linear-gradient(135deg, rgba(30,58,138,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
@@ -1004,12 +983,19 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           </div>
           <div className="mt-2 text-3xl font-semibold" style={{ color: "#1d4ed8" }}>{realizados}</div>
         </Card>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#38bdf8", background: "linear-gradient(135deg, rgba(56,189,248,0.10), transparent)" }}>
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#2563eb", background: "linear-gradient(135deg, rgba(37,99,235,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
-            <Activity className="h-4 w-4" style={{ color: "#0ea5e9" }} />
+            <Activity className="h-4 w-4" style={{ color: "#2563eb" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#0ea5e9" }}>{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#2563eb" }}>{emAndamento}</div>
+        </Card>
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#475569", background: "linear-gradient(135deg, rgba(71,85,105,0.08), transparent)" }}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Média de carros/dia</span>
+            <TrendingUp className="h-4 w-4" style={{ color: "#475569" }} />
+          </div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#475569" }}>{avgCarsPerDay}</div>
         </Card>
       </div>
 
@@ -1079,45 +1065,25 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="pessoas" name="Pessoas" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="material" name="Material" fill="#7dd3fc" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="material" name="Material" fill="#64748b" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
         </Card>
 
-        <Card className="p-5">
-          <h2 className="text-base font-semibold">Custo por rota</h2>
-          <p className="text-[11px] text-muted-foreground">Rateio do custo do cliente pelas viagens do período.</p>
+        <Card className="p-5 lg:col-span-2">
+          <h2 className="text-base font-semibold">Quantidade de viagens por cliente</h2>
           <div className="mt-3 h-72">
-            {costsByRoute.length === 0 ? <p className="text-sm text-muted-foreground">Sem custos no período.</p> : (
+            {tripsByClient.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={costsByRoute} layout="vertical" margin={{ left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis type="number" fontSize={11} />
-                  <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
-                  <Tooltip formatter={(v: any) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} />
-                  <Bar dataKey="total" radius={[0, 4, 4, 0]}>
-                    {costsByRoute.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <h2 className="text-base font-semibold">Custo por cliente</h2>
-          <div className="mt-3 h-72">
-            {costsByClient.length === 0 ? <p className="text-sm text-muted-foreground">Sem custos no período.</p> : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={costsByClient.slice(0, 10)}>
+                <BarChart data={tripsByClient}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                   <XAxis dataKey="cliente" fontSize={11} />
-                  <YAxis fontSize={11} />
-                  <Tooltip formatter={(v: any) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} />
-                  <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                    {costsByClient.slice(0, 10).map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                  <YAxis fontSize={11} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="Viagens" radius={[4, 4, 0, 0]}>
+                    {tripsByClient.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
