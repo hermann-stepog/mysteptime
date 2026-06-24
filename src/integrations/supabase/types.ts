@@ -905,9 +905,13 @@ export type Database = {
         Row: {
           arrival_time: string | null
           bsp: string | null
+          bsp_2: string | null
+          bsp_3: string | null
           cancelado: boolean
           car_number: string
           cliente: string | null
+          cliente_2: string | null
+          cliente_3: string | null
           column_id: string | null
           created_at: string
           departure_time: string | null
@@ -925,9 +929,13 @@ export type Database = {
         Insert: {
           arrival_time?: string | null
           bsp?: string | null
+          bsp_2?: string | null
+          bsp_3?: string | null
           cancelado?: boolean
           car_number: string
           cliente?: string | null
+          cliente_2?: string | null
+          cliente_3?: string | null
           column_id?: string | null
           created_at?: string
           departure_time?: string | null
@@ -945,9 +953,13 @@ export type Database = {
         Update: {
           arrival_time?: string | null
           bsp?: string | null
+          bsp_2?: string | null
+          bsp_3?: string | null
           cancelado?: boolean
           car_number?: string
           cliente?: string | null
+          cliente_2?: string | null
+          cliente_3?: string | null
           column_id?: string | null
           created_at?: string
           departure_time?: string | null
