@@ -851,6 +851,9 @@ const STATUS_COLOR: Record<TripStatus, string> = {
   cancelado: "hsl(var(--destructive))",
 };
 
+const BLUES = ["#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#7dd3fc", "#0ea5e9", "#0284c7", "#0369a1", "#38bdf8"];
+const STATUS_BLUES: Record<string, string> = { realizado: "#1d4ed8", em_andamento: "#38bdf8", cancelado: "#94a3b8" };
+
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
   const [from, setFrom] = useState(firstOfMonth);
