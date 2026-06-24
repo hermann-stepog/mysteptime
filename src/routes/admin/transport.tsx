@@ -1006,7 +1006,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             {statusData.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50}>
+                  <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} label={(e: any) => `${e.name}: ${e.value}`}>
                     {statusData.map((e) => <Cell key={e.name} fill={e.color} />)}
                   </Pie>
                   <Tooltip />
