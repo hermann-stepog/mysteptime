@@ -824,8 +824,8 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
                 <TableCell>{t.car_number}</TableCell>
                 <TableCell>{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
-                <TableCell>{t.cliente ?? "—"}</TableCell>
-                <TableCell>{t.bsp ?? "—"}</TableCell>
+                <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
+                <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
                 <TableCell>{fmtTime(t.scheduled_at)}</TableCell>
                 <TableCell>{t.origin}</TableCell>
