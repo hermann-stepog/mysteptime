@@ -1065,8 +1065,12 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <YAxis fontSize={11} allowDecimals={false} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="pessoas" name="Pessoas" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="material" name="Material" fill="#64748b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="pessoas" name="Pessoas" fill="#1d4ed8" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="pessoas" position="top" fontSize={11} fill="hsl(var(--foreground))" />
+                  </Bar>
+                  <Bar dataKey="material" name="Material" fill="#64748b" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="material" position="top" fontSize={11} fill="hsl(var(--foreground))" />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
