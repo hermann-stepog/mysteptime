@@ -406,6 +406,57 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div><Label>Destino</Label><Input value={f.destination} onChange={(e) => setF({ ...f, destination: e.target.value })} /></div>
           </div>
 
+          {f.origens_extras.map((_, i) => (
+            <div key={`extra-${i}`} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+              <div>
+                <Label>Origem {i + 2}</Label>
+                <Input
+                  value={f.origens_extras[i] ?? ""}
+                  onChange={(e) => {
+                    const next = [...f.origens_extras];
+                    next[i] = e.target.value;
+                    setF({ ...f, origens_extras: next });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Destino {i + 2}</Label>
+                <Input
+                  value={f.destinos_extras[i] ?? ""}
+                  onChange={(e) => {
+                    const next = [...f.destinos_extras];
+                    next[i] = e.target.value;
+                    setF({ ...f, destinos_extras: next });
+                  }}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  const o = [...f.origens_extras]; o.splice(i, 1);
+                  const d = [...f.destinos_extras]; d.splice(i, 1);
+                  setF({ ...f, origens_extras: o, destinos_extras: d });
+                }}
+                aria-label="Remover par"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setF({ ...f, origens_extras: [...f.origens_extras, ""], destinos_extras: [...f.destinos_extras, ""] })}
+            >
+              <Plus className="mr-1 h-3 w-3" />Adicionar origem/destino
+            </Button>
+          </div>
+
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>Cliente</Label>
