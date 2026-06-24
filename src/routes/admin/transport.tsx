@@ -844,3 +844,278 @@ function TimelineView({ trips, tagsById }: { trips: Trip[]; tagsById: Map<string
     </div>
   );
 }
+
+const STATUS_COLOR: Record<TripStatus, string> = {
+  em_andamento: "hsl(var(--primary))",
+  realizado: "hsl(var(--success))",
+  cancelado: "hsl(var(--destructive))",
+};
+
+function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
+  const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
+  const [from, setFrom] = useState(firstOfMonth);
+  const [to, setTo] = useState(todayISO());
+  const [tagId, setTagId] = useState<string>("all");
+  const [tipo, setTipo] = useState<string>("all");
+
+  const filtered = useMemo(() => {
+    const a = new Date(`${from}T00:00:00`).getTime();
+    const b = new Date(`${to}T23:59:59`).getTime();
+    return trips.filter((t) => {
+      const ts = new Date(t.scheduled_at).getTime();
+      if (ts < a || ts > b) return false;
+      if (tagId !== "all" && !t.tags.some((x) => x.tag_id === tagId)) return false;
+      if (tipo !== "all" && t.tipo !== tipo) return false;
+      return true;
+    });
+  }, [trips, from, to, tagId, tipo]);
+
+  const total = filtered.length;
+  const realizados = filtered.filter((t) => t.status === "realizado").length;
+  const emAndamento = filtered.filter((t) => t.status === "em_andamento").length;
+  const cancelados = filtered.filter((t) => t.status === "cancelado").length;
+
+  const statusData = [
+    { name: "Realizado", value: realizados, color: STATUS_COLOR.realizado },
+    { name: "Em Andamento", value: emAndamento, color: STATUS_COLOR.em_andamento },
+    { name: "Cancelado", value: cancelados, color: STATUS_COLOR.cancelado },
+  ].filter((d) => d.value > 0);
+
+  const monthlyData = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of filtered) {
+      const k = t.scheduled_at.slice(0, 7);
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count }));
+  }, [filtered]);
+
+  const topRoutes = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of filtered) {
+      const k = `${t.origin} → ${t.destination}`;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([rota, count]) => ({ rota, count }));
+  }, [filtered]);
+
+  const tagComparison = useMemo(() => {
+    const m = new Map<string, { name: string; pessoas: number; material: number }>();
+    for (const t of filtered) {
+      for (const x of t.tags) {
+        const tag = tagsById.get(x.tag_id);
+        if (!tag) continue;
+        const entry = m.get(tag.id) ?? { name: tag.name, pessoas: 0, material: 0 };
+        if (t.tipo === "material") entry.material++; else entry.pessoas++;
+        m.set(tag.id, entry);
+      }
+    }
+    return Array.from(m.values());
+  }, [filtered, tagsById]);
+
+  // Custos por cliente (via cost_logs) — período do filtro
+  const { data: costsByClient = [] } = useQuery({
+    queryKey: ["kpi_costs_by_client", from, to],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cost_logs")
+        .select("amount, clients(name)")
+        .gte("created_at", `${from}T00:00:00`)
+        .lte("created_at", `${to}T23:59:59`);
+      if (error) throw error;
+      const m = new Map<string, number>();
+      for (const r of (data ?? []) as any[]) {
+        const name = r.clients?.name ?? "—";
+        m.set(name, (m.get(name) ?? 0) + Number(r.amount ?? 0));
+      }
+      return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).map(([cliente, total]) => ({ cliente, total }));
+    },
+  });
+
+  // Custo por rota — proxy via cliente (cost_logs não tem trip_id):
+  // soma do cliente é rateada igualmente entre as viagens do cliente no período por rota.
+  const costsByRoute = useMemo(() => {
+    const clientCost = new Map<string, number>();
+    for (const c of costsByClient) clientCost.set(c.cliente, c.total);
+    const clientTrips = new Map<string, Trip[]>();
+    for (const t of filtered) {
+      if (!t.cliente) continue;
+      if (!clientTrips.has(t.cliente)) clientTrips.set(t.cliente, []);
+      clientTrips.get(t.cliente)!.push(t);
+    }
+    const m = new Map<string, number>();
+    for (const [cli, list] of clientTrips) {
+      const tot = clientCost.get(cli) ?? 0;
+      if (!tot || !list.length) continue;
+      const per = tot / list.length;
+      for (const t of list) {
+        const k = `${t.origin} → ${t.destination}`;
+        m.set(k, (m.get(k) ?? 0) + per);
+      }
+    }
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([rota, total]) => ({ rota, total: Math.round(total * 100) / 100 }));
+  }, [costsByClient, filtered]);
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div><Label className="text-xs">De</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+          <div><Label className="text-xs">Até</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+          <div>
+            <Label className="text-xs">Etiqueta</Label>
+            <Select value={tagId} onValueChange={setTagId}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {tags.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Tipo</Label>
+            <Select value={tipo} onValueChange={setTipo}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="pessoas">Pessoas</SelectItem>
+                <SelectItem value="material">Material</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-2 text-3xl font-semibold">{total}</div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
+            <CheckCircle2 className="h-4 w-4 text-success" />
+          </div>
+          <div className="mt-2 text-3xl font-semibold">{realizados}</div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
+            <Activity className="h-4 w-4 text-primary" />
+          </div>
+          <div className="mt-2 text-3xl font-semibold">{emAndamento}</div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Distribuição por status</h2>
+          <div className="mt-3 h-64">
+            {statusData.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50}>
+                    {statusData.map((e) => <Cell key={e.name} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Evolução mensal</h2>
+          <div className="mt-3 h-64">
+            {monthlyData.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="month" fontSize={11} />
+                  <YAxis fontSize={11} allowDecimals={false} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Top rotas por volume</h2>
+          <div className="mt-3 h-72">
+            {topRoutes.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topRoutes} layout="vertical" margin={{ left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis type="number" fontSize={11} allowDecimals={false} />
+                  <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Comparativo por etiqueta</h2>
+          <div className="mt-3 h-72">
+            {tagComparison.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={tagComparison}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="name" fontSize={11} />
+                  <YAxis fontSize={11} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="pessoas" name="Pessoas" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="material" name="Material" fill="hsl(var(--warning))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Custo por rota</h2>
+          <p className="text-[11px] text-muted-foreground">Rateio do custo do cliente pelas viagens do período.</p>
+          <div className="mt-3 h-72">
+            {costsByRoute.length === 0 ? <p className="text-sm text-muted-foreground">Sem custos no período.</p> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={costsByRoute} layout="vertical" margin={{ left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis type="number" fontSize={11} />
+                  <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
+                  <Tooltip formatter={(v: any) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} />
+                  <Bar dataKey="total" fill="hsl(var(--success))" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Custo por cliente</h2>
+          <div className="mt-3 h-72">
+            {costsByClient.length === 0 ? <p className="text-sm text-muted-foreground">Sem custos no período.</p> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={costsByClient.slice(0, 10)}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="cliente" fontSize={11} />
+                  <YAxis fontSize={11} />
+                  <Tooltip formatter={(v: any) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} />
+                  <Bar dataKey="total" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
