@@ -321,6 +321,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         departure_time: f.departure_time || null,
         arrival_time: f.arrival_time || null,
         origin: f.origin.trim(), destination: f.destination.trim(),
+        origens_extras: f.origens_extras.map((s) => s.trim()).filter((_, i) => f.origens_extras[i].trim() || (f.destinos_extras[i] ?? "").trim()),
+        destinos_extras: f.destinos_extras.map((s) => s.trim()).filter((_, i) => (f.origens_extras[i] ?? "").trim() || f.destinos_extras[i].trim()),
         notes: f.notes.trim() || null,
         tipo: f.tipo,
         bsp: f.bsp.trim() || null, bsp_2: f.bsp_2.trim() || null, bsp_3: f.bsp_3.trim() || null,
