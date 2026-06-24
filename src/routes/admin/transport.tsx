@@ -50,7 +50,11 @@ type Trip = {
   notes: string | null;
   tipo: TripTipo;
   bsp: string | null;
+  bsp_2: string | null;
+  bsp_3: string | null;
   cliente: string | null;
+  cliente_2: string | null;
+  cliente_3: string | null;
   unidade: string | null;
   departure_time: string | null;
   arrival_time: string | null;
