@@ -1097,7 +1097,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <XAxis type="number" fontSize={11} />
                   <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
                   <Tooltip formatter={(v: any) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} />
-                  <Bar dataKey="total" fill="hsl(var(--success))" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+                    {costsByRoute.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
