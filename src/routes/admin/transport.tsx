@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity } from "lucide-react";
+import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -47,6 +47,8 @@ type Trip = {
   scheduled_at: string;
   origin: string;
   destination: string;
+  origens_extras: string[] | null;
+  destinos_extras: string[] | null;
   notes: string | null;
   tipo: TripTipo;
   bsp: string | null;
@@ -168,10 +170,23 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </div>
       )}
 
-      <div className="mt-2 text-sm">
-        <span className="text-muted-foreground">{trip.origin}</span>
-        <ArrowRight className="inline mx-1 h-3 w-3 text-muted-foreground" />
-        <span>{trip.destination}</span>
+      <div className="mt-2 text-sm space-y-0.5">
+        <div>
+          <span className="text-muted-foreground">{trip.origin}</span>
+          <ArrowRight className="inline mx-1 h-3 w-3 text-muted-foreground" />
+          <span>{trip.destination}</span>
+        </div>
+        {(trip.origens_extras ?? []).map((o, i) => {
+          const d = (trip.destinos_extras ?? [])[i] ?? "";
+          if (!o && !d) return null;
+          return (
+            <div key={`xtr-${i}`}>
+              <span className="text-muted-foreground">{o || "—"}</span>
+              <ArrowRight className="inline mx-1 h-3 w-3 text-muted-foreground" />
+              <span>{d || "—"}</span>
+            </div>
+          );
+        })}
       </div>
 
       {trip.tipo === "pessoas" && trip.collabs.length > 0 && (
@@ -268,7 +283,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   type FormState = {
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     departure_time: string; arrival_time: string;
-    origin: string; destination: string; notes: string;
+    origin: string; destination: string;
+    origens_extras: string[]; destinos_extras: string[];
+    notes: string;
     tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
@@ -277,7 +294,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
       scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 10),
       departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
-      origin: t.origin, destination: t.destination, notes: t.notes ?? "",
+      origin: t.origin, destination: t.destination,
+      origens_extras: t.origens_extras ?? [], destinos_extras: t.destinos_extras ?? [],
+      notes: t.notes ?? "",
       tipo: t.tipo,
       bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
       cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
@@ -289,7 +308,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "", arrival_time: "",
-      origin: "", destination: "", notes: "",
+      origin: "", destination: "",
+      origens_extras: [], destinos_extras: [],
+      notes: "",
       tipo: "pessoas",
       bsp: "", bsp_2: "", bsp_3: "",
       cliente: "", cliente_2: "", cliente_3: "",
@@ -313,6 +334,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         departure_time: f.departure_time || null,
         arrival_time: f.arrival_time || null,
         origin: f.origin.trim(), destination: f.destination.trim(),
+        origens_extras: f.origens_extras.map((s) => s.trim()).filter((_, i) => f.origens_extras[i].trim() || (f.destinos_extras[i] ?? "").trim()),
+        destinos_extras: f.destinos_extras.map((s) => s.trim()).filter((_, i) => (f.origens_extras[i] ?? "").trim() || f.destinos_extras[i].trim()),
         notes: f.notes.trim() || null,
         tipo: f.tipo,
         bsp: f.bsp.trim() || null, bsp_2: f.bsp_2.trim() || null, bsp_3: f.bsp_3.trim() || null,
@@ -395,6 +418,57 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div><Label>Origem</Label><Input value={f.origin} onChange={(e) => setF({ ...f, origin: e.target.value })} /></div>
             <div><Label>Destino</Label><Input value={f.destination} onChange={(e) => setF({ ...f, destination: e.target.value })} /></div>
           </div>
+
+          {f.origens_extras.map((_, i) => (
+            <div key={`extra-${i}`} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+              <div>
+                <Label>Origem {i + 2}</Label>
+                <Input
+                  value={f.origens_extras[i] ?? ""}
+                  onChange={(e) => {
+                    const next = [...f.origens_extras];
+                    next[i] = e.target.value;
+                    setF({ ...f, origens_extras: next });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Destino {i + 2}</Label>
+                <Input
+                  value={f.destinos_extras[i] ?? ""}
+                  onChange={(e) => {
+                    const next = [...f.destinos_extras];
+                    next[i] = e.target.value;
+                    setF({ ...f, destinos_extras: next });
+                  }}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  const o = [...f.origens_extras]; o.splice(i, 1);
+                  const d = [...f.destinos_extras]; d.splice(i, 1);
+                  setF({ ...f, origens_extras: o, destinos_extras: d });
+                }}
+                aria-label="Remover par"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setF({ ...f, origens_extras: [...f.origens_extras, ""], destinos_extras: [...f.destinos_extras, ""] })}
+            >
+              <Plus className="mr-1 h-3 w-3" />Adicionar origem/destino
+            </Button>
+          </div>
+
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -521,8 +595,8 @@ function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: 
       Unidade: t.unidade ?? "",
       Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
       Horário: fmtTime(t.scheduled_at),
-      Origem: t.origin,
-      Destino: t.destination,
+      Origem: [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; "),
+      Destino: [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; "),
       Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
       Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
       Observações: t.notes ?? "",
@@ -718,7 +792,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
                     {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
                   </div>
                   {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
-                  <div className="mt-2 text-sm">{t.origin} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {t.destination}</div>
+                  <div className="mt-2 text-sm">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}</div>
                   {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
                   {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
                 </Card>
@@ -828,8 +902,8 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
                 <TableCell>{fmtTime(t.scheduled_at)}</TableCell>
-                <TableCell>{t.origin}</TableCell>
-                <TableCell>{t.destination}</TableCell>
+                <TableCell>{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
+                <TableCell>{[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
                 <TableCell className="max-w-[200px] truncate">
                   {t.tipo === "pessoas"
                     ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")

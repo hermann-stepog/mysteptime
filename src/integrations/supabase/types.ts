@@ -916,8 +916,10 @@ export type Database = {
           created_at: string
           departure_time: string | null
           destination: string
+          destinos_extras: string[]
           id: string
           notes: string | null
+          origens_extras: string[]
           origin: string
           realizado: boolean
           scheduled_at: string
@@ -940,8 +942,10 @@ export type Database = {
           created_at?: string
           departure_time?: string | null
           destination: string
+          destinos_extras?: string[]
           id?: string
           notes?: string | null
+          origens_extras?: string[]
           origin: string
           realizado?: boolean
           scheduled_at: string
@@ -964,8 +968,10 @@ export type Database = {
           created_at?: string
           departure_time?: string | null
           destination?: string
+          destinos_extras?: string[]
           id?: string
           notes?: string | null
+          origens_extras?: string[]
           origin?: string
           realizado?: boolean
           scheduled_at?: string
