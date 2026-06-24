@@ -554,11 +554,12 @@ function TransportPage() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="flex w-full flex-wrap gap-1 h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
           <TabsTrigger value="kanban">Kanban</TabsTrigger>
           <TabsTrigger value="day">Painel do Dia</TabsTrigger>
           <TabsTrigger value="detail">Quadro Detalhado</TabsTrigger>
           <TabsTrigger value="timeline">Linha do Tempo</TabsTrigger>
+          <TabsTrigger value="kpi">Dashboard KPI</TabsTrigger>
         </TabsList>
 
         <TabsContent value="kanban" className="mt-4">
@@ -572,6 +573,9 @@ function TransportPage() {
         </TabsContent>
         <TabsContent value="timeline" className="mt-4">
           <TimelineView trips={allTrips} tagsById={tagsById} />
+        </TabsContent>
+        <TabsContent value="kpi" className="mt-4">
+          <KpiDashboard trips={allTrips} tags={tags} tagsById={tagsById} />
         </TabsContent>
       </Tabs>
 
