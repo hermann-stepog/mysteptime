@@ -132,7 +132,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
           )}
         </div>
         <div className="text-right text-xs text-muted-foreground">
-          <div>{fmtTime(trip.scheduled_at)}</div>
+          <div>{fmtDate(trip.scheduled_at)}</div>
           {(trip.departure_time || trip.arrival_time) && (
             <div className="mt-0.5 text-[10px]">
               {trip.departure_time && <span>Part.: {trip.departure_time}</span>}
