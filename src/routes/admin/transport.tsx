@@ -620,7 +620,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
       if (!m.has(t.car_number)) m.set(t.car_number, []);
       m.get(t.car_number)!.push(t);
     }
-    return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(m.entries()).sort(([a], [b]) => compareCarNumber(a, b));
   }, [dayTrips]);
   const shift = (n: number) => {
     const d = new Date(date + "T00:00:00"); d.setDate(d.getDate() + n);
