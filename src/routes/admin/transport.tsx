@@ -367,8 +367,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div><Label>Data/hora</Label><Input type="datetime-local" value={f.scheduled_at} onChange={(e) => setF({ ...f, scheduled_at: e.target.value })} /></div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div><Label>Data</Label><Input type="date" value={f.scheduled_at} onChange={(e) => setF({ ...f, scheduled_at: e.target.value })} /></div>
             <div><Label>Horário de Partida</Label><Input type="time" value={f.departure_time} onChange={(e) => setF({ ...f, departure_time: e.target.value })} /></div>
             <div><Label>Horário de Destino</Label><Input type="time" value={f.arrival_time} onChange={(e) => setF({ ...f, arrival_time: e.target.value })} /></div>
           </div>
