@@ -879,9 +879,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const cancelados = filtered.filter((t) => t.status === "cancelado").length;
 
   const statusData = [
-    { name: "Realizado", value: realizados, color: STATUS_COLOR.realizado },
-    { name: "Em Andamento", value: emAndamento, color: STATUS_COLOR.em_andamento },
-    { name: "Cancelado", value: cancelados, color: STATUS_COLOR.cancelado },
+    { name: "Realizado", value: realizados, color: STATUS_BLUES.realizado },
+    { name: "Em Andamento", value: emAndamento, color: STATUS_BLUES.em_andamento },
+    { name: "Cancelado", value: cancelados, color: STATUS_BLUES.cancelado },
   ].filter((d) => d.value > 0);
 
   const monthlyData = useMemo(() => {
