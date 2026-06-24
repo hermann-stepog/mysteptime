@@ -797,7 +797,7 @@ function TimelineView({ trips, tagsById }: { trips: Trip[]; tagsById: Map<string
   const byCar = useMemo(() => {
     const m = new Map<string, Trip[]>();
     for (const t of dayTrips) { if (!m.has(t.car_number)) m.set(t.car_number, []); m.get(t.car_number)!.push(t); }
-    return Array.from(m.entries());
+    return Array.from(m.entries()).sort(([a], [b]) => compareCarNumber(a, b));
   }, [dayTrips]);
 
   const hours = Array.from({ length: 24 }, (_, i) => i);
