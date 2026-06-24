@@ -295,7 +295,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     return {
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "", arrival_time: "",
-      origin: "", destination: "", notes: "",
+      origin: "", destination: "",
+      origens_extras: [], destinos_extras: [],
+      notes: "",
       tipo: "pessoas",
       bsp: "", bsp_2: "", bsp_3: "",
       cliente: "", cliente_2: "", cliente_3: "",
