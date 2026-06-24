@@ -976,19 +976,19 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           </div>
           <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}>{total}</div>
         </Card>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1d4ed8", background: "linear-gradient(135deg, rgba(29,78,216,0.08), transparent)" }}>
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1a5c2a", background: "linear-gradient(135deg, rgba(26,92,42,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
-            <CheckCircle2 className="h-4 w-4" style={{ color: "#1d4ed8" }} />
+            <CheckCircle2 className="h-4 w-4" style={{ color: "#1a5c2a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1d4ed8" }}>{realizados}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1a5c2a" }}>{realizados}</div>
         </Card>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#2563eb", background: "linear-gradient(135deg, rgba(37,99,235,0.08), transparent)" }}>
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#b8860b", background: "linear-gradient(135deg, rgba(184,134,11,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
-            <Activity className="h-4 w-4" style={{ color: "#2563eb" }} />
+            <Activity className="h-4 w-4" style={{ color: "#b8860b" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#2563eb" }}>{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#b8860b" }}>{emAndamento}</div>
         </Card>
         <Card className="p-4 border-l-4" style={{ borderLeftColor: "#475569", background: "linear-gradient(135deg, rgba(71,85,105,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
