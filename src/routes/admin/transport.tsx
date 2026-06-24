@@ -1046,6 +1046,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <Tooltip />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                     {topRoutes.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                    <LabelList dataKey="count" position="right" fontSize={11} fill="hsl(var(--foreground))" />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
