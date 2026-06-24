@@ -404,6 +404,34 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div><Label>BSP (opcional)</Label><Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Número do BSP" /></div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Cliente 2 (opcional)</Label>
+              <Select value={f.cliente_2 || "__none__"} onValueChange={(v) => setF({ ...f, cliente_2: v === "__none__" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>BSP 2 (opcional)</Label><Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Número do BSP" /></div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Cliente 3 (opcional)</Label>
+              <Select value={f.cliente_3 || "__none__"} onValueChange={(v) => setF({ ...f, cliente_3: v === "__none__" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>BSP 3 (opcional)</Label><Input value={f.bsp_3} onChange={(e) => setF({ ...f, bsp_3: e.target.value })} placeholder="Número do BSP" /></div>
+          </div>
+
           <div><Label>Unidade</Label><Input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value })} placeholder="Preenchido automaticamente ao selecionar colaborador" /></div>
 
           <div><Label>Etiquetas</Label><TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} /></div>
