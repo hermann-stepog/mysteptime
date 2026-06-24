@@ -50,7 +50,11 @@ type Trip = {
   notes: string | null;
   tipo: TripTipo;
   bsp: string | null;
+  bsp_2: string | null;
+  bsp_3: string | null;
   cliente: string | null;
+  cliente_2: string | null;
+  cliente_3: string | null;
   unidade: string | null;
   departure_time: string | null;
   arrival_time: string | null;
@@ -149,12 +153,18 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
           if (!tag) return null;
           return <span key={t.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>;
         })}
-        {trip.cliente && <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">{trip.cliente}</span>}
+        {[trip.cliente, trip.cliente_2, trip.cliente_3].filter(Boolean).map((c, i) => (
+          <span key={`cli-${i}`} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">{c}</span>
+        ))}
       </div>
 
-      {trip.bsp && (
-        <div className="mt-2 inline-flex items-center rounded-md border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">
-          BSP: {trip.bsp}
+      {[trip.bsp, trip.bsp_2, trip.bsp_3].some(Boolean) && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {[trip.bsp, trip.bsp_2, trip.bsp_3].filter(Boolean).map((b, i) => (
+            <span key={`bsp-${i}`} className="inline-flex items-center rounded-md border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">
+              BSP: {b}
+            </span>
+          ))}
         </div>
       )}
 
@@ -259,7 +269,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     departure_time: string; arrival_time: string;
     origin: string; destination: string; notes: string;
-    tipo: TripTipo; bsp: string; cliente: string; unidade: string; status: TripStatus;
+    tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -268,7 +278,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 10),
       departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
       origin: t.origin, destination: t.destination, notes: t.notes ?? "",
-      tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", unidade: t.unidade ?? "", status: t.status,
+      tipo: t.tipo,
+      bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
+      cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
+      unidade: t.unidade ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -277,7 +290,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "", arrival_time: "",
       origin: "", destination: "", notes: "",
-      tipo: "pessoas", bsp: "", cliente: "", unidade: "", status: "em_andamento",
+      tipo: "pessoas",
+      bsp: "", bsp_2: "", bsp_3: "",
+      cliente: "", cliente_2: "", cliente_3: "",
+      unidade: "", status: "em_andamento",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
@@ -298,7 +314,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         arrival_time: f.arrival_time || null,
         origin: f.origin.trim(), destination: f.destination.trim(),
         notes: f.notes.trim() || null,
-        tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null, unidade: f.unidade.trim() || null,
+        tipo: f.tipo,
+        bsp: f.bsp.trim() || null, bsp_2: f.bsp_2.trim() || null, bsp_3: f.bsp_3.trim() || null,
+        cliente: f.cliente || null, cliente_2: f.cliente_2 || null, cliente_3: f.cliente_3 || null,
+        unidade: f.unidade.trim() || null,
         status: f.status,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
       };
@@ -391,6 +410,34 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div><Label>BSP (opcional)</Label><Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Número do BSP" /></div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Cliente 2 (opcional)</Label>
+              <Select value={f.cliente_2 || "__none__"} onValueChange={(v) => setF({ ...f, cliente_2: v === "__none__" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>BSP 2 (opcional)</Label><Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Número do BSP" /></div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Cliente 3 (opcional)</Label>
+              <Select value={f.cliente_3 || "__none__"} onValueChange={(v) => setF({ ...f, cliente_3: v === "__none__" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>BSP 3 (opcional)</Label><Input value={f.bsp_3} onChange={(e) => setF({ ...f, bsp_3: e.target.value })} placeholder="Número do BSP" /></div>
+          </div>
+
           <div><Label>Unidade</Label><Input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value })} placeholder="Preenchido automaticamente ao selecionar colaborador" /></div>
 
           <div><Label>Etiquetas</Label><TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} /></div>
@@ -466,7 +513,11 @@ function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: 
       Carro: t.car_number,
       Tipo: t.tipo === "material" ? "Material" : "Pessoas",
       Cliente: t.cliente ?? "",
+      "Cliente 2": t.cliente_2 ?? "",
+      "Cliente 3": t.cliente_3 ?? "",
       BSP: t.bsp ?? "",
+      "BSP 2": t.bsp_2 ?? "",
+      "BSP 3": t.bsp_3 ?? "",
       Unidade: t.unidade ?? "",
       Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
       Horário: fmtTime(t.scheduled_at),
@@ -773,8 +824,8 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
                 <TableCell>{t.car_number}</TableCell>
                 <TableCell>{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
-                <TableCell>{t.cliente ?? "—"}</TableCell>
-                <TableCell>{t.bsp ?? "—"}</TableCell>
+                <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
+                <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
                 <TableCell>{fmtTime(t.scheduled_at)}</TableCell>
                 <TableCell>{t.origin}</TableCell>
