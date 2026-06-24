@@ -47,6 +47,8 @@ type Trip = {
   scheduled_at: string;
   origin: string;
   destination: string;
+  origens_extras: string[] | null;
+  destinos_extras: string[] | null;
   notes: string | null;
   tipo: TripTipo;
   bsp: string | null;
