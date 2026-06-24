@@ -78,6 +78,12 @@ function todayISO() {
 function fmtTime(iso: string) {
   return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
+function compareCarNumber(a: string, b: string) {
+  const na = parseInt((a.match(/\d+/) ?? ["0"])[0], 10);
+  const nb = parseInt((b.match(/\d+/) ?? ["0"])[0], 10);
+  if (na !== nb) return na - nb;
+  return a.localeCompare(b);
+}
 
 function useTransportData() {
   const columns = useQuery({
