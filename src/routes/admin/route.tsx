@@ -49,7 +49,7 @@ function AdminLayout() {
             <div className="text-xs text-sidebar-foreground/60">My Step Time · Operador</div>
           </div>
         </div>
-        <nav className="flex-1 space-y-0.5 p-3">
+        <nav className="flex-1 space-y-0.5 p-3 overflow-y-auto">
           {nav.map((n) => {
             const active = n.exact ? pathname === n.to : pathname.startsWith(n.to);
             return (
@@ -67,23 +67,25 @@ function AdminLayout() {
         </div>
       </aside>
 
-      {/* Mobile top bar */}
-      <div className="flex w-full flex-col lg:hidden">
-        <header className="sticky top-0 z-10 flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-foreground">
-          <BrandLogo className="h-7 w-auto bg-white rounded p-1" />
-          <button onClick={async () => { await signOut(); navigate({ to: "/auth" }); }} className="text-sm"><LogOut className="h-4 w-4" /></button>
-        </header>
-        <nav className="flex gap-1 overflow-x-auto border-b bg-card px-2 py-2">
-          {nav.map((n) => {
-            const active = n.exact ? pathname === n.to : pathname.startsWith(n.to);
-            return (
-              <Link key={n.to} to={n.to} className={cn("flex-shrink-0 rounded-md px-3 py-1.5 text-xs font-medium", active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>{n.label}</Link>
-            );
-          })}
-        </nav>
-      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile top bar */}
+        <div className="lg:hidden">
+          <header className="sticky top-0 z-10 flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-foreground">
+            <BrandLogo className="h-7 w-auto bg-white rounded p-1" />
+            <button onClick={async () => { await signOut(); navigate({ to: "/auth" }); }} className="text-sm"><LogOut className="h-4 w-4" /></button>
+          </header>
+          <nav className="flex gap-1 overflow-x-auto border-b bg-card px-2 py-2">
+            {nav.map((n) => {
+              const active = n.exact ? pathname === n.to : pathname.startsWith(n.to);
+              return (
+                <Link key={n.to} to={n.to} className={cn("flex-shrink-0 rounded-md px-3 py-1.5 text-xs font-medium", active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>{n.label}</Link>
+              );
+            })}
+          </nav>
+        </div>
 
-      <main className="flex-1 overflow-auto p-4 lg:p-8"><Outlet /></main>
+        <main className="flex-1 overflow-auto p-4 lg:p-8"><Outlet /></main>
+      </div>
     </div>
   );
 }
