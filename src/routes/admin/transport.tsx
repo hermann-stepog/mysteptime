@@ -585,6 +585,7 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
     const m = new Map<string, Trip[]>();
     for (const c of columns as Column[]) m.set(c.id, []);
     for (const t of trips as Trip[]) if (t.column_id && m.has(t.column_id)) m.get(t.column_id)!.push(t);
+    for (const list of m.values()) list.sort((a, b) => compareCarNumber(a.car_number, b.car_number));
     return m;
   }, [columns, trips]);
 
