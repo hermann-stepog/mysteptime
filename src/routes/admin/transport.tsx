@@ -292,7 +292,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   const init = (t: Trip | null, cols: Column[]): FormState => {
     if (t) return {
       id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
-      scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 10),
+      scheduled_at: (t.scheduled_at ?? "").slice(0, 10),
       departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
       origin: t.origin, destination: t.destination,
       origens_extras: t.origens_extras ?? [], destinos_extras: t.destinos_extras ?? [],
