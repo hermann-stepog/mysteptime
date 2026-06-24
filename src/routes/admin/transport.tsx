@@ -901,7 +901,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
-                <TableCell>{fmtTime(t.scheduled_at)}</TableCell>
+                <TableCell>{t.departure_time ? t.departure_time.slice(0, 5) : "—"}</TableCell>
                 <TableCell>{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
                 <TableCell>{[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
                 <TableCell className="max-w-[200px] truncate">
