@@ -1041,7 +1041,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <XAxis dataKey="month" fontSize={11} />
                   <YAxis fontSize={11} allowDecimals={false} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="count" stroke="#1d4ed8" strokeWidth={2.5} dot={{ r: 3, fill: "#1d4ed8" }} activeDot={{ r: 5, fill: "#1e3a8a" }} />
                 </LineChart>
               </ResponsiveContainer>
             )}
