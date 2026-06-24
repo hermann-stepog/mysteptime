@@ -153,12 +153,18 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
           if (!tag) return null;
           return <span key={t.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>;
         })}
-        {trip.cliente && <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">{trip.cliente}</span>}
+        {[trip.cliente, trip.cliente_2, trip.cliente_3].filter(Boolean).map((c, i) => (
+          <span key={`cli-${i}`} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">{c}</span>
+        ))}
       </div>
 
-      {trip.bsp && (
-        <div className="mt-2 inline-flex items-center rounded-md border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">
-          BSP: {trip.bsp}
+      {[trip.bsp, trip.bsp_2, trip.bsp_3].some(Boolean) && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {[trip.bsp, trip.bsp_2, trip.bsp_3].filter(Boolean).map((b, i) => (
+            <span key={`bsp-${i}`} className="inline-flex items-center rounded-md border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">
+              BSP: {b}
+            </span>
+          ))}
         </div>
       )}
 
