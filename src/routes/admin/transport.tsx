@@ -20,7 +20,7 @@ import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSel
 import { CLIENTES } from "@/lib/clientes";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 
 
 type TripStatus = "em_andamento" | "realizado" | "cancelado";
