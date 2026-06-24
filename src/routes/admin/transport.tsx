@@ -293,7 +293,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     mutationFn: async () => {
       const payload = {
         car_number: f.car_number.trim(), column_id: f.column_id || null,
-        scheduled_at: new Date(f.scheduled_at).toISOString(),
+        scheduled_at: new Date(`${f.scheduled_at}T00:00:00`).toISOString(),
         departure_time: f.departure_time || null,
         arrival_time: f.arrival_time || null,
         origin: f.origin.trim(), destination: f.destination.trim(),
