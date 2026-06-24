@@ -990,26 +990,26 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="p-4">
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1e3a8a", background: "linear-gradient(135deg, rgba(30,58,138,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-4 w-4" style={{ color: "#1e3a8a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold">{total}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}>{total}</div>
         </Card>
-        <Card className="p-4">
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1d4ed8", background: "linear-gradient(135deg, rgba(29,78,216,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
-            <CheckCircle2 className="h-4 w-4 text-success" />
+            <CheckCircle2 className="h-4 w-4" style={{ color: "#1d4ed8" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold">{realizados}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1d4ed8" }}>{realizados}</div>
         </Card>
-        <Card className="p-4">
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#38bdf8", background: "linear-gradient(135deg, rgba(56,189,248,0.10), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
-            <Activity className="h-4 w-4 text-primary" />
+            <Activity className="h-4 w-4" style={{ color: "#0ea5e9" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold">{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#0ea5e9" }}>{emAndamento}</div>
         </Card>
       </div>
 
