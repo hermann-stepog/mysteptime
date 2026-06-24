@@ -170,10 +170,23 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </div>
       )}
 
-      <div className="mt-2 text-sm">
-        <span className="text-muted-foreground">{trip.origin}</span>
-        <ArrowRight className="inline mx-1 h-3 w-3 text-muted-foreground" />
-        <span>{trip.destination}</span>
+      <div className="mt-2 text-sm space-y-0.5">
+        <div>
+          <span className="text-muted-foreground">{trip.origin}</span>
+          <ArrowRight className="inline mx-1 h-3 w-3 text-muted-foreground" />
+          <span>{trip.destination}</span>
+        </div>
+        {(trip.origens_extras ?? []).map((o, i) => {
+          const d = (trip.destinos_extras ?? [])[i] ?? "";
+          if (!o && !d) return null;
+          return (
+            <div key={`xtr-${i}`}>
+              <span className="text-muted-foreground">{o || "—"}</span>
+              <ArrowRight className="inline mx-1 h-3 w-3 text-muted-foreground" />
+              <span>{d || "—"}</span>
+            </div>
+          );
+        })}
       </div>
 
       {trip.tipo === "pessoas" && trip.collabs.length > 0 && (
