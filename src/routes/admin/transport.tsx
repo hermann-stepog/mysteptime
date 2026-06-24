@@ -263,7 +263,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     departure_time: string; arrival_time: string;
     origin: string; destination: string; notes: string;
-    tipo: TripTipo; bsp: string; cliente: string; unidade: string; status: TripStatus;
+    tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -272,7 +272,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 10),
       departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
       origin: t.origin, destination: t.destination, notes: t.notes ?? "",
-      tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", unidade: t.unidade ?? "", status: t.status,
+      tipo: t.tipo,
+      bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
+      cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
+      unidade: t.unidade ?? "", status: t.status,
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -281,7 +284,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "", arrival_time: "",
       origin: "", destination: "", notes: "",
-      tipo: "pessoas", bsp: "", cliente: "", unidade: "", status: "em_andamento",
+      tipo: "pessoas",
+      bsp: "", bsp_2: "", bsp_3: "",
+      cliente: "", cliente_2: "", cliente_3: "",
+      unidade: "", status: "em_andamento",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
