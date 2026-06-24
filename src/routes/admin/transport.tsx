@@ -694,7 +694,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
       return true;
-    });
+    }).sort((a, b) => compareCarNumber(a.car_number, b.car_number));
   }, [trips, from, to, tagId, status, cliente, tipo]);
 
   return (
