@@ -932,7 +932,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const tripsByClient = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of filtered) {
-      const k = t.cliente?.trim() || "—";
+      const k = t.cliente?.trim() || "Step";
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([cliente, count]) => ({ cliente, count }));
