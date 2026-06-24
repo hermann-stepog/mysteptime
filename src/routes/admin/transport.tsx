@@ -1058,7 +1058,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <XAxis type="number" fontSize={11} allowDecimals={false} />
                   <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
                   <Tooltip />
-                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                    {topRoutes.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
