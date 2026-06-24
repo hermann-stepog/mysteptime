@@ -308,7 +308,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         arrival_time: f.arrival_time || null,
         origin: f.origin.trim(), destination: f.destination.trim(),
         notes: f.notes.trim() || null,
-        tipo: f.tipo, bsp: f.bsp.trim() || null, cliente: f.cliente || null, unidade: f.unidade.trim() || null,
+        tipo: f.tipo,
+        bsp: f.bsp.trim() || null, bsp_2: f.bsp_2.trim() || null, bsp_3: f.bsp_3.trim() || null,
+        cliente: f.cliente || null, cliente_2: f.cliente_2 || null, cliente_3: f.cliente_3 || null,
+        unidade: f.unidade.trim() || null,
         status: f.status,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
       };
