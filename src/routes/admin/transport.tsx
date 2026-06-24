@@ -265,7 +265,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   const init = (t: Trip | null, cols: Column[]): FormState => {
     if (t) return {
       id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
-      scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 16),
+      scheduled_at: new Date(t.scheduled_at).toISOString().slice(0, 10),
       departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
       origin: t.origin, destination: t.destination, notes: t.notes ?? "",
       tipo: t.tipo, bsp: t.bsp ?? "", cliente: t.cliente ?? "", unidade: t.unidade ?? "", status: t.status,
@@ -274,7 +274,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
     };
     return {
-      car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 16),
+      car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "", arrival_time: "",
       origin: "", destination: "", notes: "",
       tipo: "pessoas", bsp: "", cliente: "", unidade: "", status: "em_andamento",
