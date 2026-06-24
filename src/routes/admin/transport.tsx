@@ -851,6 +851,9 @@ const STATUS_COLOR: Record<TripStatus, string> = {
   cancelado: "hsl(var(--destructive))",
 };
 
+const BLUES = ["#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#7dd3fc", "#0ea5e9", "#0284c7", "#0369a1", "#38bdf8"];
+const STATUS_BLUES: Record<string, string> = { realizado: "#1d4ed8", em_andamento: "#38bdf8", cancelado: "#94a3b8" };
+
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
   const [from, setFrom] = useState(firstOfMonth);
@@ -876,9 +879,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const cancelados = filtered.filter((t) => t.status === "cancelado").length;
 
   const statusData = [
-    { name: "Realizado", value: realizados, color: STATUS_COLOR.realizado },
-    { name: "Em Andamento", value: emAndamento, color: STATUS_COLOR.em_andamento },
-    { name: "Cancelado", value: cancelados, color: STATUS_COLOR.cancelado },
+    { name: "Realizado", value: realizados, color: STATUS_BLUES.realizado },
+    { name: "Em Andamento", value: emAndamento, color: STATUS_BLUES.em_andamento },
+    { name: "Cancelado", value: cancelados, color: STATUS_BLUES.cancelado },
   ].filter((d) => d.value > 0);
 
   const monthlyData = useMemo(() => {
@@ -987,26 +990,26 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="p-4">
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1e3a8a", background: "linear-gradient(135deg, rgba(30,58,138,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-4 w-4" style={{ color: "#1e3a8a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold">{total}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}>{total}</div>
         </Card>
-        <Card className="p-4">
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1d4ed8", background: "linear-gradient(135deg, rgba(29,78,216,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
-            <CheckCircle2 className="h-4 w-4 text-success" />
+            <CheckCircle2 className="h-4 w-4" style={{ color: "#1d4ed8" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold">{realizados}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1d4ed8" }}>{realizados}</div>
         </Card>
-        <Card className="p-4">
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#38bdf8", background: "linear-gradient(135deg, rgba(56,189,248,0.10), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
-            <Activity className="h-4 w-4 text-primary" />
+            <Activity className="h-4 w-4" style={{ color: "#0ea5e9" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold">{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#0ea5e9" }}>{emAndamento}</div>
         </Card>
       </div>
 
@@ -1038,7 +1041,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <XAxis dataKey="month" fontSize={11} />
                   <YAxis fontSize={11} allowDecimals={false} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="count" stroke="#1d4ed8" strokeWidth={2.5} dot={{ r: 3, fill: "#1d4ed8" }} activeDot={{ r: 5, fill: "#1e3a8a" }} />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -1055,7 +1058,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <XAxis type="number" fontSize={11} allowDecimals={false} />
                   <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
                   <Tooltip />
-                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                    {topRoutes.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -1073,8 +1078,8 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <YAxis fontSize={11} allowDecimals={false} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="pessoas" name="Pessoas" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="material" name="Material" fill="hsl(var(--warning))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="pessoas" name="Pessoas" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="material" name="Material" fill="#7dd3fc" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -1092,7 +1097,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <XAxis type="number" fontSize={11} />
                   <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
                   <Tooltip formatter={(v: any) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} />
-                  <Bar dataKey="total" fill="hsl(var(--success))" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+                    {costsByRoute.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -1109,7 +1116,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <XAxis dataKey="cliente" fontSize={11} />
                   <YAxis fontSize={11} />
                   <Tooltip formatter={(v: any) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} />
-                  <Bar dataKey="total" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                    {costsByClient.slice(0, 10).map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
