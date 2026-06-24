@@ -20,7 +20,7 @@ import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSel
 import { CLIENTES } from "@/lib/clientes";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 
 
 type TripStatus = "em_andamento" | "realizado" | "cancelado";
@@ -852,7 +852,7 @@ const STATUS_COLOR: Record<TripStatus, string> = {
 };
 
 const BLUES = ["#1e3a8a", "#1d4ed8", "#1e40af", "#2563eb", "#475569", "#64748b", "#0369a1", "#334155", "#0284c7", "#94a3b8"];
-const STATUS_BLUES: Record<string, string> = { realizado: "#1d4ed8", em_andamento: "#2563eb", cancelado: "#94a3b8" };
+const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", cancelado: "#c00000" };
 
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
@@ -932,7 +932,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const tripsByClient = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of filtered) {
-      const k = t.cliente?.trim() || "—";
+      const k = t.cliente?.trim() || "Step";
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([cliente, count]) => ({ cliente, count }));
@@ -976,19 +976,19 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           </div>
           <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}>{total}</div>
         </Card>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1d4ed8", background: "linear-gradient(135deg, rgba(29,78,216,0.08), transparent)" }}>
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1a5c2a", background: "linear-gradient(135deg, rgba(26,92,42,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
-            <CheckCircle2 className="h-4 w-4" style={{ color: "#1d4ed8" }} />
+            <CheckCircle2 className="h-4 w-4" style={{ color: "#1a5c2a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1d4ed8" }}>{realizados}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1a5c2a" }}>{realizados}</div>
         </Card>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#2563eb", background: "linear-gradient(135deg, rgba(37,99,235,0.08), transparent)" }}>
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#b8860b", background: "linear-gradient(135deg, rgba(184,134,11,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
-            <Activity className="h-4 w-4" style={{ color: "#2563eb" }} />
+            <Activity className="h-4 w-4" style={{ color: "#b8860b" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#2563eb" }}>{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#b8860b" }}>{emAndamento}</div>
         </Card>
         <Card className="p-4 border-l-4" style={{ borderLeftColor: "#475569", background: "linear-gradient(135deg, rgba(71,85,105,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
@@ -1006,7 +1006,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             {statusData.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50}>
+                  <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} label={(e: any) => `${e.name}: ${e.value}`}>
                     {statusData.map((e) => <Cell key={e.name} fill={e.color} />)}
                   </Pie>
                   <Tooltip />
@@ -1046,6 +1046,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <Tooltip />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                     {topRoutes.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                    <LabelList dataKey="count" position="right" fontSize={11} fill="hsl(var(--foreground))" />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -1064,8 +1065,12 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <YAxis fontSize={11} allowDecimals={false} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="pessoas" name="Pessoas" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="material" name="Material" fill="#64748b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="pessoas" name="Pessoas" fill="#1d4ed8" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="pessoas" position="top" fontSize={11} fill="hsl(var(--foreground))" />
+                  </Bar>
+                  <Bar dataKey="material" name="Material" fill="#64748b" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="material" position="top" fontSize={11} fill="hsl(var(--foreground))" />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -1084,6 +1089,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
                   <Tooltip />
                   <Bar dataKey="count" name="Viagens" radius={[4, 4, 0, 0]}>
                     {tripsByClient.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
+                    <LabelList dataKey="count" position="top" fontSize={11} fill="hsl(var(--foreground))" />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
