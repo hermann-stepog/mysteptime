@@ -852,7 +852,7 @@ const STATUS_COLOR: Record<TripStatus, string> = {
 };
 
 const BLUES = ["#1e3a8a", "#1d4ed8", "#1e40af", "#2563eb", "#475569", "#64748b", "#0369a1", "#334155", "#0284c7", "#94a3b8"];
-const STATUS_BLUES: Record<string, string> = { realizado: "#1d4ed8", em_andamento: "#2563eb", cancelado: "#94a3b8" };
+const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", cancelado: "#c00000" };
 
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
