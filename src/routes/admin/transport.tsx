@@ -750,7 +750,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
           </Select>
         </div>
       </div>
-      <Card>
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
