@@ -1,26 +1,30 @@
-## Objetivo
-Permitir até 3 Clientes e 3 BSPs por viagem no formulário "Nova Viagem" do módulo Transporte.
+## Origens e Destinos extras (ilimitados) — Nova Viagem
 
-## Mudanças no banco
-Adicionar colunas opcionais na tabela `transport_trips`:
-- `cliente_2 text`, `cliente_3 text`
-- `bsp_2 text`, `bsp_3 text`
+Adicionar a possibilidade de incluir múltiplos pares de **Origem** e **Destino** no formulário de Nova/Editar Viagem, de forma independente dos campos de Cliente/BSP.
 
-Os campos existentes `cliente` e `bsp` permanecem como o primeiro/principal. Tudo opcional, sem mudança de policies/grants.
+### Comportamento
+- Manter os campos atuais `origem` e `destino` como principais (1º par).
+- Abaixo deles, exibir uma lista dinâmica de pares extras (Origem + Destino lado a lado), cada um com botão **Remover**.
+- Botão **+ Adicionar origem/destino** ao final, sem limite de quantidade.
+- Todos os pares extras são opcionais; pares totalmente vazios são descartados ao salvar.
+- Mesmo padrão visual dos campos atuais (mesmos `Input`/labels/spacing).
 
-## Mudanças no formulário (`src/routes/admin/transport.tsx`)
-- No diálogo "Nova/Editar Viagem", abaixo dos campos atuais de Cliente e BSP, adicionar:
-  - Cliente 2 (opcional) + BSP 2 (opcional)
-  - Cliente 3 (opcional) + BSP 3 (opcional)
-- Mesmo componente visual: `Select` (com lista `CLIENTES`) para Cliente, `Input` para BSP.
-- Labels: "Cliente 2 (opcional)", "BSP 2 (opcional)", "Cliente 3 (opcional)", "BSP 3 (opcional)".
-- Estendido o estado `f` do form e o payload do insert/update para incluir `cliente_2`, `cliente_3`, `bsp_2`, `bsp_3` (convertendo string vazia em `null`).
-- Carregar os valores existentes no modo edição.
+### Persistência
+- Novas colunas em `transport_trips`:
+  - `origens_extras text[]` (default `'{}'`)
+  - `destinos_extras text[]` (default `'{}'`)
+- Arrays alinhados por índice (posição N de origens_extras corresponde à posição N de destinos_extras). Strings vazias permitidas para preservar alinhamento quando só um lado for preenchido.
 
-## Exibição (mínimo necessário)
-- Nos cards de viagem e na tabela "Detalhe", quando existir, mostrar os clientes/BSPs adicionais como chips/linhas adicionais, no mesmo estilo dos atuais (sem alterar layout geral).
-- Exportação CSV: incluir colunas `Cliente 2`, `Cliente 3`, `BSP 2`, `BSP 3`.
+### UI
+Em `src/routes/admin/transport.tsx`:
+- `FormState`: adicionar `origens_extras: string[]` e `destinos_extras: string[]`.
+- `init`: ler arrays do `Trip` (fallback `[]`).
+- Form: após o par principal de origem/destino, renderizar `origens_extras.map(...)` com inputs controlados, botão remover (X) por linha e botão "Adicionar origem/destino".
+- Submit: filtrar pares totalmente vazios antes do upsert.
+- **TripCard**: mostrar origens/destinos extras como linhas adicionais no mesmo bloco de rota (formato `origem → destino`), abaixo do par principal.
+- **DetailView (tabela)**: juntar todos os pares no formato `o1 → d1; o2 → d2` na coluna de rota.
+- **CSV**: novas colunas `origens_extras` e `destinos_extras` (join por `;`).
 
-## Fora do escopo
-- Sem mudanças no Dashboard KPI (continua agrupando pelo cliente principal).
-- Sem mudanças em filtros existentes.
+### Fora de escopo
+- Sem alterações em dashboard/KPIs, filtros, agrupamentos por rota (continuam usando origem/destino principais).
+- Sem vínculo com Cliente/BSP (independente, conforme decisão).
