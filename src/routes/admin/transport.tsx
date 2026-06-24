@@ -270,7 +270,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   type FormState = {
     id?: string; car_number: string; column_id: string; scheduled_at: string;
     departure_time: string; arrival_time: string;
-    origin: string; destination: string; notes: string;
+    origin: string; destination: string;
+    origens_extras: string[]; destinos_extras: string[];
+    notes: string;
     tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
