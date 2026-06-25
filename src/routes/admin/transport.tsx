@@ -118,13 +118,14 @@ function StatusBadge({ status }: { status: TripStatus }) {
   return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", STATUS_BADGE[status])}>{STATUS_LABEL[status]}</span>;
 }
 
-function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatus }: {
+function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatus, onDuplicate }: {
   trip: Trip;
   tagsById: Map<string, Tag>;
   collabsById: Map<string, Collaborator>;
   materialsById: Map<string, Material>;
   onClick: () => void;
   onStatus: (s: TripStatus) => void;
+  onDuplicate?: () => void;
 }) {
   return (
     <Card className={cn("cursor-pointer p-3 hover:border-primary/40 transition border-l-4", STATUS_BORDER[trip.status])} onClick={onClick}>
