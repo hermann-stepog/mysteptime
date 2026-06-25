@@ -744,7 +744,7 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
             </div>
             <div className="space-y-2 rounded-lg bg-muted/30 p-2 min-h-[200px]">
               {(byCol.get(c.id) ?? []).map((t) => (
-                <TripCard key={t.id} trip={t} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onClick={() => onEdit(t)} onStatus={(s) => onStatus(t.id, s)} />
+                <TripCard key={t.id} trip={t} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onClick={() => onEdit(t)} onStatus={(s) => onStatus(t.id, s)} onDuplicate={onDuplicate ? () => onDuplicate(t) : undefined} />
               ))}
             </div>
           </div>
