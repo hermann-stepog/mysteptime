@@ -33,14 +33,15 @@ function CollaboratorsPage() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("collaborators").update({ active: false }).eq("id", id);
+      const { error } = await supabase.from("collaborators").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       qc.invalidateQueries({ queryKey: ["collaborators"] });
-      toast.success("Colaborador desativado");
+      toast.success("Colaborador excluído");
     },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const update = useMutation({
