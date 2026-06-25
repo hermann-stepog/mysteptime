@@ -33,14 +33,15 @@ function CollaboratorsPage() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("collaborators").update({ active: false }).eq("id", id);
+      const { error } = await supabase.from("collaborators").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       qc.invalidateQueries({ queryKey: ["collaborators"] });
-      toast.success("Colaborador desativado");
+      toast.success("Colaborador excluído");
     },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const update = useMutation({
@@ -136,7 +137,7 @@ function CollaboratorsPage() {
                 <TableCell>
                   <div className="flex gap-1">
                     <Button size="icon" variant="ghost" onClick={() => setEditing(r)}><Pencil className="h-4 w-4" /></Button>
-                    {r.active && <Button size="icon" variant="ghost" onClick={() => remove.mutate(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                    <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Excluir definitivamente "${r.full_name}"? Esta ação não pode ser desfeita.`)) remove.mutate(r.id); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </div>
                 </TableCell>
               </TableRow>
