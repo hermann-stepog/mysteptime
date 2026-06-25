@@ -201,15 +201,20 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </div>
       )}
 
-      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+      <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         <Select value={trip.status} onValueChange={(v) => onStatus(v as TripStatus)}>
-          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-7 text-xs flex-1"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="em_andamento">Em Andamento</SelectItem>
             <SelectItem value="realizado">Realizado</SelectItem>
             <SelectItem value="cancelado">Cancelado</SelectItem>
           </SelectContent>
         </Select>
+        {onDuplicate && (
+          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={onDuplicate} title="Duplicar viagem">
+            <Copy className="mr-1 h-3 w-3" />Duplicar
+          </Button>
+        )}
       </div>
     </Card>
   );
