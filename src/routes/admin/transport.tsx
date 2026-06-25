@@ -932,9 +932,16 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                     : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  {onDuplicate && (
+                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
+                      <Copy className="mr-1 h-3 w-3" />Duplicar
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <TableRow><TableCell colSpan={11} className="py-8 text-center text-muted-foreground">Sem viagens.</TableCell></TableRow>}
+            {filtered.length === 0 && <TableRow><TableCell colSpan={12} className="py-8 text-center text-muted-foreground">Sem viagens.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Card>
