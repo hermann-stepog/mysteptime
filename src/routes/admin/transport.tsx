@@ -702,13 +702,13 @@ function TransportPage() {
         </TabsList>
 
         <TabsContent value="kanban" className="mt-4">
-          <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onStatus={(id: string, status: TripStatus) => setStatus.mutate({ id, status })} />
+          <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} onStatus={(id: string, status: TripStatus) => setStatus.mutate({ id, status })} />
         </TabsContent>
         <TabsContent value="day" className="mt-4">
-          <DayView trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} />
+          <DayView trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} />
         </TabsContent>
         <TabsContent value="detail" className="mt-4">
-          <DetailView trips={allTrips} tags={tags} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} initialTag={search.tag} initialStatus={search.status} initialCliente={search.cliente} initialTipo={search.tipo} />
+          <DetailView trips={allTrips} tags={tags} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} initialTag={search.tag} initialStatus={search.status} initialCliente={search.cliente} initialTipo={search.tipo} />
         </TabsContent>
         <TabsContent value="timeline" className="mt-4">
           <TimelineView trips={allTrips} tagsById={tagsById} />
