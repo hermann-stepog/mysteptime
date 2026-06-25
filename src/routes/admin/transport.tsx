@@ -651,6 +651,7 @@ function TransportPage() {
 
   const [editing, setEditing] = useState<Trip | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [instanceKey, setInstanceKey] = useState(0);
 
   const qc = useQueryClient();
   const setStatus = useMutation({
@@ -663,7 +664,14 @@ function TransportPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["transport_trips"] }),
   });
 
-  const openEdit = (t: Trip | null) => { setEditing(t); setDialogOpen(true); };
+  const openEdit = (t: Trip | null) => { setEditing(t); setInstanceKey((k) => k + 1); setDialogOpen(true); };
+  const openDuplicate = (t: Trip) => {
+    const clone: Trip = { ...t, id: "" };
+    setEditing(clone);
+    setInstanceKey((k) => k + 1);
+    setDialogOpen(true);
+    toast.info("Duplicando viagem — ajuste os campos e salve");
+  };
 
   const allTrips = trips.data ?? [];
   const cols = columns.data ?? [];
