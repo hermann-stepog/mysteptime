@@ -809,6 +809,13 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                   <div className="mt-2 text-sm">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}</div>
                   {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
                   {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
+                  {onDuplicate && (
+                    <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                      <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
+                        <Copy className="mr-1 h-3 w-3" />Duplicar
+                      </Button>
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>
