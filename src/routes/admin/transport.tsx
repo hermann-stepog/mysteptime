@@ -911,6 +911,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <TableHead>Destino</TableHead>
               <TableHead>Pessoas/Materiais</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="w-[1%]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
