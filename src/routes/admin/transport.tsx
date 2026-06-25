@@ -820,7 +820,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
   );
 }
 
-function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, initialTag, initialStatus, initialCliente, initialTipo }: any) {
+function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [tagId, setTagId] = useState(initialTag ?? "all");
