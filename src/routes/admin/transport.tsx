@@ -718,7 +718,7 @@ function TransportPage() {
         </TabsContent>
       </Tabs>
 
-      <TripDialog trip={editing} columns={cols} open={dialogOpen} onOpenChange={setDialogOpen} />
+      <TripDialog key={instanceKey} trip={editing} columns={cols} open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );
 }
