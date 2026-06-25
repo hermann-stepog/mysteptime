@@ -723,7 +723,7 @@ function TransportPage() {
   );
 }
 
-function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEdit, onStatus }: any) {
+function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEdit, onStatus, onDuplicate }: any) {
   const byCol = useMemo(() => {
     const m = new Map<string, Trip[]>();
     for (const c of columns as Column[]) m.set(c.id, []);
