@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X } from "lucide-react";
+import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -118,13 +118,14 @@ function StatusBadge({ status }: { status: TripStatus }) {
   return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", STATUS_BADGE[status])}>{STATUS_LABEL[status]}</span>;
 }
 
-function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatus }: {
+function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatus, onDuplicate }: {
   trip: Trip;
   tagsById: Map<string, Tag>;
   collabsById: Map<string, Collaborator>;
   materialsById: Map<string, Material>;
   onClick: () => void;
   onStatus: (s: TripStatus) => void;
+  onDuplicate?: () => void;
 }) {
   return (
     <Card className={cn("cursor-pointer p-3 hover:border-primary/40 transition border-l-4", STATUS_BORDER[trip.status])} onClick={onClick}>
@@ -200,15 +201,20 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </div>
       )}
 
-      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+      <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         <Select value={trip.status} onValueChange={(v) => onStatus(v as TripStatus)}>
-          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-7 text-xs flex-1"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="em_andamento">Em Andamento</SelectItem>
             <SelectItem value="realizado">Realizado</SelectItem>
             <SelectItem value="cancelado">Cancelado</SelectItem>
           </SelectContent>
         </Select>
+        {onDuplicate && (
+          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={onDuplicate} title="Duplicar viagem">
+            <Copy className="mr-1 h-3 w-3" />Duplicar
+          </Button>
+        )}
       </div>
     </Card>
   );
@@ -645,6 +651,7 @@ function TransportPage() {
 
   const [editing, setEditing] = useState<Trip | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [instanceKey, setInstanceKey] = useState(0);
 
   const qc = useQueryClient();
   const setStatus = useMutation({
@@ -657,7 +664,14 @@ function TransportPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["transport_trips"] }),
   });
 
-  const openEdit = (t: Trip | null) => { setEditing(t); setDialogOpen(true); };
+  const openEdit = (t: Trip | null) => { setEditing(t); setInstanceKey((k) => k + 1); setDialogOpen(true); };
+  const openDuplicate = (t: Trip) => {
+    const clone: Trip = { ...t, id: "" };
+    setEditing(clone);
+    setInstanceKey((k) => k + 1);
+    setDialogOpen(true);
+    toast.info("Duplicando viagem — ajuste os campos e salve");
+  };
 
   const allTrips = trips.data ?? [];
   const cols = columns.data ?? [];
@@ -688,13 +702,13 @@ function TransportPage() {
         </TabsList>
 
         <TabsContent value="kanban" className="mt-4">
-          <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onStatus={(id: string, status: TripStatus) => setStatus.mutate({ id, status })} />
+          <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} onStatus={(id: string, status: TripStatus) => setStatus.mutate({ id, status })} />
         </TabsContent>
         <TabsContent value="day" className="mt-4">
-          <DayView trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} />
+          <DayView trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} />
         </TabsContent>
         <TabsContent value="detail" className="mt-4">
-          <DetailView trips={allTrips} tags={tags} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} initialTag={search.tag} initialStatus={search.status} initialCliente={search.cliente} initialTipo={search.tipo} />
+          <DetailView trips={allTrips} tags={tags} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} initialTag={search.tag} initialStatus={search.status} initialCliente={search.cliente} initialTipo={search.tipo} />
         </TabsContent>
         <TabsContent value="timeline" className="mt-4">
           <TimelineView trips={allTrips} tagsById={tagsById} />
@@ -704,12 +718,12 @@ function TransportPage() {
         </TabsContent>
       </Tabs>
 
-      <TripDialog trip={editing} columns={cols} open={dialogOpen} onOpenChange={setDialogOpen} />
+      <TripDialog key={instanceKey} trip={editing} columns={cols} open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );
 }
 
-function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEdit, onStatus }: any) {
+function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEdit, onStatus, onDuplicate }: any) {
   const byCol = useMemo(() => {
     const m = new Map<string, Trip[]>();
     for (const c of columns as Column[]) m.set(c.id, []);
@@ -730,7 +744,7 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
             </div>
             <div className="space-y-2 rounded-lg bg-muted/30 p-2 min-h-[200px]">
               {(byCol.get(c.id) ?? []).map((t) => (
-                <TripCard key={t.id} trip={t} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onClick={() => onEdit(t)} onStatus={(s) => onStatus(t.id, s)} />
+                <TripCard key={t.id} trip={t} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onClick={() => onEdit(t)} onStatus={(s) => onStatus(t.id, s)} onDuplicate={onDuplicate ? () => onDuplicate(t) : undefined} />
               ))}
             </div>
           </div>
@@ -740,7 +754,7 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
   );
 }
 
-function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
+function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplicate }: any) {
   const [date, setDate] = useState(todayISO());
   const dayTrips = useMemo(() => (trips as Trip[]).filter((t) => t.scheduled_at.slice(0, 10) === date).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, date]);
   const groupedByCar = useMemo(() => {
@@ -795,6 +809,13 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
                   <div className="mt-2 text-sm">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}</div>
                   {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
                   {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
+                  {onDuplicate && (
+                    <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                      <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
+                        <Copy className="mr-1 h-3 w-3" />Duplicar
+                      </Button>
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>
@@ -806,7 +827,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
   );
 }
 
-function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, initialTag, initialStatus, initialCliente, initialTipo }: any) {
+function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [tagId, setTagId] = useState(initialTag ?? "all");
@@ -890,6 +911,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <TableHead>Destino</TableHead>
               <TableHead>Pessoas/Materiais</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="w-[1%]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -910,9 +932,16 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                     : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  {onDuplicate && (
+                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
+                      <Copy className="mr-1 h-3 w-3" />Duplicar
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <TableRow><TableCell colSpan={11} className="py-8 text-center text-muted-foreground">Sem viagens.</TableCell></TableRow>}
+            {filtered.length === 0 && <TableRow><TableCell colSpan={12} className="py-8 text-center text-muted-foreground">Sem viagens.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Card>
