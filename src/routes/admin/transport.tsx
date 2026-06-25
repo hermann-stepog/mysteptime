@@ -754,7 +754,7 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
   );
 }
 
-function DayView({ trips, tagsById, collabsById, materialsById, onEdit }: any) {
+function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplicate }: any) {
   const [date, setDate] = useState(todayISO());
   const dayTrips = useMemo(() => (trips as Trip[]).filter((t) => t.scheduled_at.slice(0, 10) === date).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, date]);
   const groupedByCar = useMemo(() => {
