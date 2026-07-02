@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import heroAsset from "@/assets/auth-hero.png.asset.json";
+import heroUrl from "@/assets/ChatGPT Image 18 de jun. de 2026, 09_16_55.png";
 
 export const Route = createFileRoute("/auth")({ component: AuthPage });
 
@@ -22,6 +22,7 @@ function AuthPage() {
     if (user) {
       if (!role || role === "pending") navigate({ to: "/pending" });
       else if (role === "logistics_operator") navigate({ to: "/admin" });
+      else if (role === "pm") navigate({ to: "/pm" });
       else navigate({ to: "/app" });
     }
   }, [user, role, loading, navigate]);
@@ -30,13 +31,12 @@ function AuthPage() {
     <div className="grid min-h-screen lg:grid-cols-2">
       <div
         className="relative hidden overflow-hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between"
-        style={{ backgroundImage: `url(${heroAsset.url})`, backgroundSize: "cover", backgroundPosition: "center" }}
+        style={{ backgroundImage: `url(${heroUrl})`, backgroundSize: "cover", backgroundPosition: "center" }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-sidebar/95 via-sidebar/80 to-sidebar/30" aria-hidden />
         <div className="relative" />
         <div className="relative">
-          <h1 className="text-4xl font-semibold leading-tight">Logística de pessoal offshore, sem fricção.</h1>
-          <p className="mt-4 max-w-md text-sidebar-foreground/80">Embarques, transporte, documentação, timesheet e custos em um único painel para operações de óleo &amp; gás.</p>
+          <h1 className="text-4xl font-semibold leading-tight">Logistica de Pessoal - STEP</h1>
         </div>
         <p className="relative text-xs text-sidebar-foreground/60">© {new Date().getFullYear()} STEP Oil &amp; Gas</p>
       </div>

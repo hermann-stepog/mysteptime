@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy } from "lucide-react";
+import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -18,7 +18,7 @@ import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } fro
 import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { CLIENTES } from "@/lib/clientes";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 
@@ -694,13 +694,17 @@ function TransportPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex w-full flex-wrap gap-1 h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+          <TabsTrigger value="solicitacoes">Solicitações</TabsTrigger>
           <TabsTrigger value="kanban">Kanban</TabsTrigger>
-          <TabsTrigger value="day">Painel do Dia</TabsTrigger>
+          <TabsTrigger value="day">Programado</TabsTrigger>
           <TabsTrigger value="detail">Quadro Detalhado</TabsTrigger>
           <TabsTrigger value="timeline">Linha do Tempo</TabsTrigger>
           <TabsTrigger value="kpi">Dashboard KPI</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="solicitacoes" className="mt-4">
+          <SolicitacoesTab />
+        </TabsContent>
         <TabsContent value="kanban" className="mt-4">
           <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} onStatus={(id: string, status: TripStatus) => setStatus.mutate({ id, status })} />
         </TabsContent>
@@ -719,6 +723,291 @@ function TransportPage() {
       </Tabs>
 
       <TripDialog key={instanceKey} trip={editing} columns={cols} open={dialogOpen} onOpenChange={setDialogOpen} />
+    </div>
+  );
+}
+
+// ── Tipos de transporte ───────────────────────────────────────────────────────
+
+const TIPO_LABELS: Record<string, string> = {
+  uber:         "Uber",
+  veiculo_step: "Veículo STEP",
+  locacao_carro:"Locação de Carro",
+  future:       "Future",
+};
+
+// ── Solicitações tab ──────────────────────────────────────────────────────────
+
+type Solicitacao = {
+  id: string;
+  created_at: string;
+  solicitante: string;
+  setor: string;
+  centro_custo: string;
+  data_hora: string;
+  origem: string | null;
+  destino: string | null;
+  tipos_transporte: string[];
+  status: string;
+  notes: string | null;
+};
+
+function SolicitacaoCard({ s, onUpdate }: { s: Solicitacao; onUpdate: (args: { id: string; status: string }) => void }) {
+  const borderColor = s.status === "programado" ? "border-l-green-500" : s.status === "cancelado" ? "border-l-destructive" : "border-l-amber-400";
+  return (
+    <Card className={`p-4 border-l-4 ${borderColor}`}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="space-y-1 min-w-0">
+          <p className="font-semibold text-sm">{s.solicitante}</p>
+          <p className="text-xs text-muted-foreground">
+            {s.setor} &bull; CC: {s.centro_custo}
+          </p>
+          <p className="text-xs text-muted-foreground">{fmtDateTime(s.data_hora)}</p>
+          {(s.origem || s.destino) && (
+            <p className="text-xs text-muted-foreground">
+              {s.origem || "—"} <ArrowRight className="inline h-3 w-3 mx-0.5" /> {s.destino || "—"}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {(s.tipos_transporte ?? []).map((t) => (
+              <span key={t} className="text-[11px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-800 font-medium">
+                {TIPO_LABELS[t] ?? t}
+              </span>
+            ))}
+          </div>
+          {s.notes && <p className="text-xs text-muted-foreground italic">{s.notes}</p>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {s.status === "pendente" && (
+            <>
+              <Button size="sm" onClick={() => onUpdate({ id: s.id, status: "programado" })}>Programar</Button>
+              <Button size="sm" variant="outline" onClick={() => onUpdate({ id: s.id, status: "cancelado" })}>Cancelar</Button>
+            </>
+          )}
+          {s.status === "programado" && (
+            <span className="text-xs text-green-700 font-semibold">&#10003; Programado</span>
+          )}
+          {s.status === "cancelado" && (
+            <span className="text-xs text-destructive">Cancelado</span>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+const TIPOS_TRANSP = [
+  { id: "uber",          label: "Uber" },
+  { id: "veiculo_step",  label: "Veículo STEP" },
+  { id: "locacao_carro", label: "Locação de Carro" },
+  { id: "future",        label: "Future" },
+] as const;
+
+function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const qc = useQueryClient();
+  const [solicitante, setSolicitante] = useState("");
+  const [setor, setSetor]             = useState("");
+  const [centroCusto, setCentroCusto] = useState("");
+  const [dataHora, setDataHora]       = useState("");
+  const [origem, setOrigem]           = useState("");
+  const [destino, setDestino]         = useState("");
+  const [tipos, setTipos]             = useState<string[]>([]);
+  const [notes, setNotes]             = useState("");
+
+  const toggle = (id: string) =>
+    setTipos((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]);
+
+  const create = useMutation({
+    mutationFn: async () => {
+      if (!solicitante.trim() || !setor.trim() || !centroCusto.trim() || !dataHora)
+        throw new Error("Preencha todos os campos obrigatórios.");
+      if (tipos.length === 0) throw new Error("Selecione ao menos um tipo de transporte.");
+      const { error } = await supabase.from("transport_solicitations").insert({
+        solicitante: solicitante.trim(),
+        setor: setor.trim(),
+        centro_custo: centroCusto.trim(),
+        data_hora: dataHora,
+        origem: origem.trim() || null,
+        destino: destino.trim() || null,
+        tipos_transporte: tipos,
+        notes: notes.trim() || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Solicitação criada.");
+      qc.invalidateQueries({ queryKey: ["transport-solicitations"] });
+      setSolicitante(""); setSetor(""); setCentroCusto(""); setDataHora("");
+      setOrigem(""); setDestino(""); setTipos([]); setNotes("");
+      onSaved();
+    },
+    onError: (err: Error) => toast.error(err.message || "Erro ao criar."),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Nova Solicitação de Transporte</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1">
+            <Label className="text-xs">Solicitante *</Label>
+            <Input placeholder="Nome do solicitante" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Setor *</Label>
+              <Input placeholder="Ex.: Operações" value={setor} onChange={(e) => setSetor(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Centro de Custo *</Label>
+              <Input placeholder="Ex.: CC-001" value={centroCusto} onChange={(e) => setCentroCusto(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Data / Hora de programação *</Label>
+            <Input type="datetime-local" value={dataHora} onChange={(e) => setDataHora(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Origem</Label>
+              <Input placeholder="Ex.: Macaé" value={origem} onChange={(e) => setOrigem(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Destino</Label>
+              <Input placeholder="Ex.: Rio de Janeiro" value={destino} onChange={(e) => setDestino(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Tipo de transporte *</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {TIPOS_TRANSP.map(({ id, label }) => (
+                <label key={id} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border accent-primary cursor-pointer"
+                    checked={tipos.includes(id)}
+                    onChange={() => toggle(id)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Observações</Label>
+            <Input placeholder="Opcional" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => create.mutate()} disabled={create.isPending}>
+            {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Criar solicitação
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SolicitacoesTab() {
+  const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+
+  const { data: solicitations = [], isLoading } = useQuery<Solicitacao[]>({
+    queryKey: ["transport-solicitations"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("transport_solicitations")
+        .select("*")
+        .order("data_hora");
+      if (error) throw error;
+      return (data ?? []) as Solicitacao[];
+    },
+  });
+
+  const updateStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const { error } = await supabase
+        .from("transport_solicitations")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transport-solicitations"] });
+      toast.success("Status atualizado.");
+    },
+    onError: () => toast.error("Erro ao atualizar."),
+  });
+
+  const pending    = solicitations.filter((s) => s.status === "pendente");
+  const programmed = solicitations.filter((s) => s.status === "programado");
+  const cancelled  = solicitations.filter((s) => s.status === "cancelado");
+
+  if (isLoading) return <div className="flex justify-center py-12"><Plus className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Header com botão criar */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {solicitations.length === 0
+            ? "Nenhuma solicitação recebida ainda."
+            : `${pending.length} pendente${pending.length !== 1 ? "s" : ""}`}
+        </p>
+        <Button size="sm" onClick={() => setShowCreate(true)}>
+          <Plus className="mr-1.5 h-4 w-4" /> Nova solicitação
+        </Button>
+      </div>
+
+      {solicitations.length === 0 ? (
+        <Card className="p-10 text-center text-muted-foreground text-sm">
+          Clique em "Nova solicitação" para registrar manualmente, ou aguarde pedidos dos colaboradores.
+        </Card>
+      ) : (
+        <div className="space-y-6">
+          {pending.length > 0 && (
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-amber-700 flex items-center gap-2">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-xs font-bold">{pending.length}</span>
+                Pendentes
+              </h3>
+              <div className="space-y-2">
+                {pending.map((s) => (
+                  <SolicitacaoCard key={s.id} s={s} onUpdate={(args) => updateStatus.mutate(args)} />
+                ))}
+              </div>
+            </div>
+          )}
+          {programmed.length > 0 && (
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-green-700">Programadas ({programmed.length})</h3>
+              <div className="space-y-2">
+                {programmed.map((s) => (
+                  <SolicitacaoCard key={s.id} s={s} onUpdate={(args) => updateStatus.mutate(args)} />
+                ))}
+              </div>
+            </div>
+          )}
+          {cancelled.length > 0 && (
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">Canceladas ({cancelled.length})</h3>
+              <div className="space-y-2">
+                {cancelled.map((s) => (
+                  <SolicitacaoCard key={s.id} s={s} onUpdate={(args) => updateStatus.mutate(args)} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <CriarSolicitacaoDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onSaved={() => setShowCreate(false)}
+      />
     </div>
   );
 }

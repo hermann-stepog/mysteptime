@@ -1,0 +1,342 @@
+import { useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  type Nomination, type NominationStatusHistory, type WeldTypeConfig,
+  STATUS_LABELS, STATUS_COLORS, ALL_STATUSES,
+  fmtDate, fmtDatetime, isSoldador,
+} from "@/lib/nominations";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Plus, CalendarDays, ChevronRight, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
+export const Route = createFileRoute("/pm/")({ component: PmHome });
+
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const label = STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status;
+  const color = STATUS_COLORS[status as keyof typeof STATUS_COLORS] ?? "bg-slate-100 text-slate-700";
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${color}`}>
+      {label}
+    </span>
+  );
+}
+
+// ── Status timeline (simplified for PM view) ──────────────────────────────────
+
+function NominationDetail({ nom }: { nom: Nomination }) {
+  const { data: history = [] } = useQuery<NominationStatusHistory[]>({
+    queryKey: ["pm-nomination-history", nom.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("nomination_status_history")
+        .select("*")
+        .eq("nomination_id", nom.id)
+        .order("changed_at");
+      return (data ?? []) as NominationStatusHistory[];
+    },
+  });
+
+  return (
+    <Dialog open>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{nom.function_requested}</DialogTitle>
+          <StatusBadge status={nom.current_status} />
+        </DialogHeader>
+
+        <div className="space-y-4 text-sm">
+          <div className="grid grid-cols-2 gap-2">
+            <div><span className="text-muted-foreground">Período:</span> {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}</div>
+            {nom.client && <div><span className="text-muted-foreground">Cliente:</span> {nom.client}</div>}
+            {nom.project && <div><span className="text-muted-foreground">Projeto:</span> {nom.project}</div>}
+            {nom.weld_type && <div><span className="text-muted-foreground">Tipo de solda:</span> {nom.weld_type}</div>}
+            {nom.approved_collaborator_name && (
+              <div className="col-span-2 text-green-700 font-medium">
+                ✓ Colaborador aprovado: {nom.approved_collaborator_name}
+              </div>
+            )}
+            {nom.notes && <div className="col-span-2 text-muted-foreground italic">{nom.notes}</div>}
+          </div>
+
+          {history.length > 0 && (
+            <>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Histórico</p>
+              <ol className="relative border-l border-slate-200 ml-3 space-y-3">
+                {[...history].reverse().map((h) => (
+                  <li key={h.id} className="ml-4">
+                    <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border border-white bg-slate-400" />
+                    <StatusBadge status={h.status} />
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {fmtDatetime(h.changed_at)}
+                    </p>
+                    {h.notes && <p className="text-xs text-muted-foreground italic">"{h.notes}"</p>}
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Create dialog ─────────────────────────────────────────────────────────────
+
+function CreateDialog({ onClose }: { onClose: () => void }) {
+  const { user, profile } = useAuth();
+  const qc = useQueryClient();
+
+  const [fn, setFn]             = useState("");
+  const [weldType, setWeldType] = useState("");
+  const [start, setStart]       = useState("");
+  const [end, setEnd]           = useState("");
+  const [project, setProject]   = useState("");
+  const [client, setClient]     = useState("");
+  const [notes, setNotes]       = useState("");
+
+  const { data: weldConfig = [] } = useQuery<WeldTypeConfig[]>({
+    queryKey: ["weld-type-config"],
+    queryFn: async () => {
+      const { data } = await supabase.from("weld_type_config").select("*").order("weld_type_name");
+      return (data ?? []) as WeldTypeConfig[];
+    },
+  });
+
+  const showWeld = isSoldador(fn);
+  const requiresQuality = showWeld
+    ? weldConfig.find((w) => w.weld_type_name === weldType)?.requires_quality_validation ?? false
+    : false;
+
+  const create = useMutation({
+    mutationFn: async () => {
+      if (!fn.trim() || !start || !end) throw new Error("Preencha função e período.");
+      const pmName = profile?.full_name ?? profile?.email ?? "PM";
+
+      const { data, error } = await supabase
+        .from("nominations")
+        .insert({
+          pm_user_id:                 user!.id,
+          pm_name:                    pmName,
+          function_requested:         fn.trim(),
+          weld_type:                  showWeld ? weldType || null : null,
+          period_start:               start,
+          period_end:                 end,
+          project:                    project.trim() || null,
+          client:                     client.trim() || null,
+          notes:                      notes.trim() || null,
+          requires_quality_validation: requiresQuality,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      await supabase.from("nomination_status_history").insert({
+        nomination_id:   data.id,
+        status:          "triagem_pendente",
+        changed_by_name: pmName,
+        notes:           "Solicitação criada pelo PM",
+      });
+    },
+    onSuccess: () => {
+      toast.success("Solicitação enviada.");
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      onClose();
+    },
+    onError: (err: Error) => toast.error(err.message || "Erro ao criar solicitação."),
+  });
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Nova Solicitação de Nomeação</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          <div className="space-y-1">
+            <Label>Função necessária *</Label>
+            <Input
+              placeholder="Ex.: Soldador, Mecânico, Eletricista"
+              value={fn}
+              onChange={(e) => setFn(e.target.value)}
+            />
+          </div>
+          {showWeld && (
+            <div className="space-y-1">
+              <Label>Tipo de solda</Label>
+              {weldConfig.length > 0 ? (
+                <Select value={weldType} onValueChange={setWeldType}>
+                  <SelectTrigger><SelectValue placeholder="Selecione o tipo de solda" /></SelectTrigger>
+                  <SelectContent>
+                    {weldConfig.map((w) => (
+                      <SelectItem key={w.id} value={w.weld_type_name}>{w.weld_type_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input placeholder="Tipo de solda" value={weldType} onChange={(e) => setWeldType(e.target.value)} />
+              )}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Data início *</Label>
+              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Data fim *</Label>
+              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Projeto</Label>
+              <Input placeholder="Nome do projeto" value={project} onChange={(e) => setProject(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Cliente</Label>
+              <Input placeholder="Ex.: SBM" value={client} onChange={(e) => setClient(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Observações</Label>
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => create.mutate()} disabled={create.isPending}>
+            {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Enviar solicitação
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── PM home ───────────────────────────────────────────────────────────────────
+
+function PmHome() {
+  const { user, profile } = useAuth();
+  const [showCreate, setShowCreate] = useState(false);
+  const [selected, setSelected]     = useState<Nomination | null>(null);
+  const [filterStatus, setFilter]   = useState("todos");
+
+  const { data: nominations = [], isLoading } = useQuery<Nomination[]>({
+    queryKey: ["pm-nominations", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("nominations")
+        .select("*")
+        .eq("pm_user_id", user!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Nomination[];
+    },
+    enabled: !!user,
+  });
+
+  const visible = filterStatus === "todos"
+    ? nominations
+    : nominations.filter((n) => n.current_status === filterStatus);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Minhas Solicitações</h1>
+          <p className="text-sm text-muted-foreground">
+            Olá, {profile?.full_name?.split(" ")[0] ?? "PM"} — acompanhe o status de cada solicitação abaixo.
+          </p>
+        </div>
+        <Button onClick={() => setShowCreate(true)}>
+          <Plus className="mr-2 h-4 w-4" /> Nova solicitação
+        </Button>
+      </div>
+
+      <div className="flex gap-2">
+        <select
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          value={filterStatus}
+          onChange={(e) => setFilter(e.target.value)}
+        >
+          <option value="todos">Todos os status</option>
+          {ALL_STATUSES.map((s) => (
+            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+          ))}
+        </select>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : visible.length === 0 ? (
+        <Card className="p-10 text-center text-muted-foreground text-sm">
+          {nominations.length === 0
+            ? "Você ainda não tem solicitações. Clique em \"Nova solicitação\" para começar."
+            : "Nenhuma solicitação com este status."}
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {visible.map((nom) => (
+            <Card
+              key={nom.id}
+              className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => setSelected(nom)}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1 min-w-0">
+                  <p className="font-semibold text-sm">{nom.function_requested}</p>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <CalendarDays className="h-3 w-3" />
+                      {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}
+                    </span>
+                    {nom.client && <span>{nom.client}</span>}
+                    {nom.project && <span>{nom.project}</span>}
+                  </div>
+                  {nom.approved_collaborator_name && (
+                    <p className="text-xs text-green-700 font-medium">
+                      ✓ Aprovado: {nom.approved_collaborator_name}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <StatusBadge status={nom.current_status} />
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {showCreate && <CreateDialog onClose={() => setShowCreate(false)} />}
+      {selected && (
+        <div onClick={() => setSelected(null)}>
+          <NominationDetail nom={selected} />
+        </div>
+      )}
+    </div>
+  );
+}

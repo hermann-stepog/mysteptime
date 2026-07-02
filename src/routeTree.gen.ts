@@ -11,11 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PendingRouteImport } from './routes/pending'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as PmRouteRouteImport } from './routes/pm/route'
 import { Route as AppRouteRouteImport } from './routes/app/route'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PmIndexRouteImport } from './routes/pm/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AppTransportRouteImport } from './routes/app/transport'
 import { Route as AppTimesheetRouteImport } from './routes/app/timesheet'
 import { Route as AppScheduleRouteImport } from './routes/app/schedule'
 import { Route as AppFinancialRouteImport } from './routes/app/financial'
@@ -25,6 +28,7 @@ import { Route as AdminTimesheetsRouteImport } from './routes/admin/timesheets'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
+import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
 import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
 import { Route as AdminHotelRouteImport } from './routes/admin/hotel'
 import { Route as AdminEmbarkationsRouteImport } from './routes/admin/embarkations'
@@ -43,6 +47,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PmRouteRoute = PmRouteRouteImport.update({
+  id: '/pm',
+  path: '/pm',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppRouteRoute = AppRouteRouteImport.update({
   id: '/app',
   path: '/app',
@@ -58,6 +67,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PmIndexRoute = PmIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PmRouteRoute,
+} as any)
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -67,6 +81,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AdminRouteRoute,
+} as any)
+const AppTransportRoute = AppTransportRouteImport.update({
+  id: '/transport',
+  path: '/transport',
+  getParentRoute: () => AppRouteRoute,
 } as any)
 const AppTimesheetRoute = AppTimesheetRouteImport.update({
   id: '/timesheet',
@@ -113,6 +132,11 @@ const AdminPayrollRoute = AdminPayrollRouteImport.update({
   path: '/payroll',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminNominationsRoute = AdminNominationsRouteImport.update({
+  id: '/nominations',
+  path: '/nominations',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminMaterialsRoute = AdminMaterialsRouteImport.update({
   id: '/materials',
   path: '/materials',
@@ -153,6 +177,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
   '/app': typeof AppRouteRouteWithChildren
+  '/pm': typeof PmRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
@@ -162,6 +187,7 @@ export interface FileRoutesByFullPath {
   '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/hotel': typeof AdminHotelRoute
   '/admin/materials': typeof AdminMaterialsRoute
+  '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -171,8 +197,10 @@ export interface FileRoutesByFullPath {
   '/app/financial': typeof AppFinancialRoute
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
+  '/app/transport': typeof AppTransportRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
+  '/pm/': typeof PmIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -185,6 +213,7 @@ export interface FileRoutesByTo {
   '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/hotel': typeof AdminHotelRoute
   '/admin/materials': typeof AdminMaterialsRoute
+  '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -194,14 +223,17 @@ export interface FileRoutesByTo {
   '/app/financial': typeof AppFinancialRoute
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
+  '/app/transport': typeof AppTransportRoute
   '/admin': typeof AdminIndexRoute
   '/app': typeof AppIndexRoute
+  '/pm': typeof PmIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
   '/app': typeof AppRouteRouteWithChildren
+  '/pm': typeof PmRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
@@ -211,6 +243,7 @@ export interface FileRoutesById {
   '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/hotel': typeof AdminHotelRoute
   '/admin/materials': typeof AdminMaterialsRoute
+  '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -220,8 +253,10 @@ export interface FileRoutesById {
   '/app/financial': typeof AppFinancialRoute
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
+  '/app/transport': typeof AppTransportRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
+  '/pm/': typeof PmIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -229,6 +264,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/app'
+    | '/pm'
     | '/auth'
     | '/pending'
     | '/admin/approvals'
@@ -238,6 +274,7 @@ export interface FileRouteTypes {
     | '/admin/embarkations'
     | '/admin/hotel'
     | '/admin/materials'
+    | '/admin/nominations'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
@@ -247,8 +284,10 @@ export interface FileRouteTypes {
     | '/app/financial'
     | '/app/schedule'
     | '/app/timesheet'
+    | '/app/transport'
     | '/admin/'
     | '/app/'
+    | '/pm/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -261,6 +300,7 @@ export interface FileRouteTypes {
     | '/admin/embarkations'
     | '/admin/hotel'
     | '/admin/materials'
+    | '/admin/nominations'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
@@ -270,13 +310,16 @@ export interface FileRouteTypes {
     | '/app/financial'
     | '/app/schedule'
     | '/app/timesheet'
+    | '/app/transport'
     | '/admin'
     | '/app'
+    | '/pm'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/app'
+    | '/pm'
     | '/auth'
     | '/pending'
     | '/admin/approvals'
@@ -286,6 +329,7 @@ export interface FileRouteTypes {
     | '/admin/embarkations'
     | '/admin/hotel'
     | '/admin/materials'
+    | '/admin/nominations'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
@@ -295,14 +339,17 @@ export interface FileRouteTypes {
     | '/app/financial'
     | '/app/schedule'
     | '/app/timesheet'
+    | '/app/transport'
     | '/admin/'
     | '/app/'
+    | '/pm/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
   AppRouteRoute: typeof AppRouteRouteWithChildren
+  PmRouteRoute: typeof PmRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
 }
@@ -321,6 +368,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pm': {
+      id: '/pm'
+      path: '/pm'
+      fullPath: '/pm'
+      preLoaderRoute: typeof PmRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app': {
@@ -344,6 +398,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pm/': {
+      id: '/pm/'
+      path: '/'
+      fullPath: '/pm/'
+      preLoaderRoute: typeof PmIndexRouteImport
+      parentRoute: typeof PmRouteRoute
+    }
     '/app/': {
       id: '/app/'
       path: '/'
@@ -357,6 +418,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRouteRoute
+    }
+    '/app/transport': {
+      id: '/app/transport'
+      path: '/transport'
+      fullPath: '/app/transport'
+      preLoaderRoute: typeof AppTransportRouteImport
+      parentRoute: typeof AppRouteRoute
     }
     '/app/timesheet': {
       id: '/app/timesheet'
@@ -421,6 +489,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPayrollRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/nominations': {
+      id: '/admin/nominations'
+      path: '/nominations'
+      fullPath: '/admin/nominations'
+      preLoaderRoute: typeof AdminNominationsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/materials': {
       id: '/admin/materials'
       path: '/materials'
@@ -481,6 +556,7 @@ interface AdminRouteRouteChildren {
   AdminEmbarkationsRoute: typeof AdminEmbarkationsRoute
   AdminHotelRoute: typeof AdminHotelRoute
   AdminMaterialsRoute: typeof AdminMaterialsRoute
+  AdminNominationsRoute: typeof AdminNominationsRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
@@ -497,6 +573,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminEmbarkationsRoute: AdminEmbarkationsRoute,
   AdminHotelRoute: AdminHotelRoute,
   AdminMaterialsRoute: AdminMaterialsRoute,
+  AdminNominationsRoute: AdminNominationsRoute,
   AdminPayrollRoute: AdminPayrollRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
@@ -514,6 +591,7 @@ interface AppRouteRouteChildren {
   AppFinancialRoute: typeof AppFinancialRoute
   AppScheduleRoute: typeof AppScheduleRoute
   AppTimesheetRoute: typeof AppTimesheetRoute
+  AppTransportRoute: typeof AppTransportRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -522,6 +600,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppFinancialRoute: AppFinancialRoute,
   AppScheduleRoute: AppScheduleRoute,
   AppTimesheetRoute: AppTimesheetRoute,
+  AppTransportRoute: AppTransportRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
@@ -529,13 +608,35 @@ const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
   AppRouteRouteChildren,
 )
 
+interface PmRouteRouteChildren {
+  PmIndexRoute: typeof PmIndexRoute
+}
+
+const PmRouteRouteChildren: PmRouteRouteChildren = {
+  PmIndexRoute: PmIndexRoute,
+}
+
+const PmRouteRouteWithChildren =
+  PmRouteRoute._addFileChildren(PmRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRouteRoute: AdminRouteRouteWithChildren,
   AppRouteRoute: AppRouteRouteWithChildren,
+  PmRouteRoute: PmRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

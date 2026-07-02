@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
-import { Loader2, ClipboardList, CalendarDays, FileText, Bell, Wallet, LogOut } from "lucide-react";
+import { Loader2, ClipboardList, CalendarDays, FileText, Bell, Wallet, LogOut, Truck } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ type T = { to: string; label: string; icon: typeof ClipboardList; exact?: boolea
 const tabs: T[] = [
   { to: "/app", label: "RDO", icon: ClipboardList, exact: true },
   { to: "/app/timesheet", label: "Timesheet", icon: CalendarDays },
+  { to: "/app/transport", label: "Transporte", icon: Truck },
   { to: "/app/documents", label: "Docs", icon: FileText },
   { to: "/app/schedule", label: "Agenda", icon: Bell },
   { to: "/app/financial", label: "Financeiro", icon: Wallet },
@@ -44,7 +45,7 @@ function AppLayout() {
         <button onClick={async () => { await signOut(); navigate({ to: "/auth" }); }}><LogOut className="h-5 w-5" /></button>
       </header>
       <main className="flex-1 p-4"><Outlet /></main>
-      <nav className="fixed bottom-0 left-0 right-0 z-20 grid grid-cols-5 border-t bg-card">
+      <nav className="fixed bottom-0 left-0 right-0 z-20 grid grid-cols-6 border-t bg-card">
         {tabs.map((t) => {
           const active = t.exact ? pathname === t.to : pathname.startsWith(t.to);
           return (
