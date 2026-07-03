@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+// Tabelas ainda não migradas (transport_solicitations/nominations/weld_type_config); cast local.
+const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import {
   type Nomination, type NominationStatusHistory, type WeldTypeConfig,
