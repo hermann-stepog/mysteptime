@@ -200,7 +200,7 @@ function getDisplayStatus(p: OffshorePerson, d: string, today: string): DayStatu
   if (raw === "E") {
     const inPeriod1 = !!(p.embark && p.disembark && d >= p.embark && d < p.disembark);
     const relevantEmbark = inPeriod1 ? p.embark : p.embark2;
-    if (relevantEmbark && relevantEmbark >= today) return "P";
+    if (relevantEmbark && relevantEmbark >= today && d === relevantEmbark) return "P";
   }
   return raw;
 }
