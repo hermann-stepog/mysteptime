@@ -682,21 +682,75 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
 function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]; dateStart: string; dateEnd: string }) {
   const today = todayStr();
   const dates = useMemo(() => generateDateRange(new Date(dateStart), new Date(dateEnd)), [dateStart, dateEnd]);
+  const [activeStatuses, setActiveStatuses] = useState<Set<DayStatus>>(new Set());
+
+  const toggleStatus = (s: DayStatus) => {
+    setActiveStatuses((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+  };
+
+  const visiblePeople = useMemo(() => {
+    if (activeStatuses.size === 0) return people;
+    return people.filter((p) => dates.some((d) => activeStatuses.has(getDisplayStatus(p, d, today))));
+  }, [people, dates, activeStatuses, today]);
+
+  const STATUS_LABELS: Record<DayStatus, string> = {
+    E: "Embarcado (confirmado)", P: "Programado (futuro)", D: "Desembarque",
+    B: "Base", FO: "Folga", F: "Férias",
+  };
+  const FILTERABLE: DayStatus[] = ["E", "P", "D", "FO", "F"];
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-3 text-xs">
-        {(["E", "P", "D", "B", "FO", "F"] as DayStatus[]).map((s) => (
-          <span key={s} className="flex items-center gap-1">
-            <span
-              className="inline-flex h-4 w-7 items-center justify-center rounded text-[10px] font-bold"
-              style={{ backgroundColor: DAY_STATUS_COLOR[s], color: s === "B" ? "#94a3b8" : "#1e293b" }}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {FILTERABLE.map((s) => {
+          const active = activeStatuses.has(s);
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => toggleStatus(s)}
+              className="flex items-center gap-1.5 rounded px-2 py-1 transition-all cursor-pointer"
+              style={{
+                backgroundColor: DAY_STATUS_COLOR[s] + (active ? "55" : "20"),
+                border: `${active ? "2px" : "1px"} solid ${DAY_STATUS_COLOR[s] + (active ? "dd" : "55")}`,
+                boxShadow: active ? `0 0 0 2px ${DAY_STATUS_COLOR[s]}44` : "none",
+              }}
+              title={active ? `Remover filtro ${s}` : `Filtrar por ${s}`}
             >
-              {s}
-            </span>
-            {{ E: "Embarcado (confirmado)", P: "Programado (futuro)", D: "Desembarque", B: "Base", FO: "Folga", F: "Férias" }[s]}
+              <span
+                className="inline-flex h-4 w-7 items-center justify-center rounded text-[10px] font-bold"
+                style={{ backgroundColor: DAY_STATUS_COLOR[s], color: "#1e293b" }}
+              >
+                {s}
+              </span>
+              <span className="text-foreground/80">{STATUS_LABELS[s]}</span>
+            </button>
+          );
+        })}
+        <span key="B" className="flex items-center gap-1 px-2 py-1">
+          <span
+            className="inline-flex h-4 w-7 items-center justify-center rounded text-[10px] font-bold"
+            style={{ backgroundColor: DAY_STATUS_COLOR.B, color: "#94a3b8" }}
+          >
+            B
           </span>
-        ))}
+          <span className="text-muted-foreground">Base</span>
+        </span>
+        {activeStatuses.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveStatuses(new Set())}
+            className="flex items-center gap-1 rounded px-2 py-1 text-muted-foreground hover:text-foreground border border-border"
+            title="Limpar filtros"
+          >
+            <X className="h-3 w-3" /> Limpar
+          </button>
+        )}
       </div>
 
       <div className="rounded-lg border border-border overflow-auto max-h-[70vh]">
