@@ -774,7 +774,7 @@ function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[
             </tr>
           </thead>
           <tbody>
-            {people.map((p, i) => (
+            {visiblePeople.map((p, i) => (
               <tr key={p.id || p.name + i} className="hover:bg-muted/40">
                 <td className="sticky left-0 z-10 bg-background border border-border px-2 py-1 font-medium truncate max-w-[150px]">{p.name}</td>
                 <td className="sticky left-[150px] z-10 bg-background border border-border px-2 py-1 truncate max-w-[110px] text-muted-foreground">{p.function}</td>
@@ -799,7 +799,7 @@ function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[
                 })}
               </tr>
             ))}
-            {people.length === 0 && (
+            {visiblePeople.length === 0 && (
               <tr>
                 <td colSpan={4 + dates.length} className="py-10 text-center text-sm text-muted-foreground">
                   Nenhum colaborador encontrado.
@@ -810,7 +810,7 @@ function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[
         </table>
       </div>
 
-      <p className="text-xs text-muted-foreground">{people.length} colaboradores · {dates.length} dias</p>
+      <p className="text-xs text-muted-foreground">{visiblePeople.length} colaboradores · {dates.length} dias{activeStatuses.size > 0 ? ` · filtrado por ${Array.from(activeStatuses).join(", ")}` : ""}</p>
     </div>
   );
 }
