@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { parseSmartsheetRow, getDayStatus, type OffshorePerson } from "../smartsheet";
+import { parseSmartsheetRow, getDayStatus, todayStr, type OffshorePerson } from "../smartsheet";
 
 // Escolhe o valor "melhor" (não-nulo, mais recente/maior) para uma data ISO
 function pickDate(a: string | null, b: string | null, mode: "min" | "max"): string | null {
@@ -65,7 +65,7 @@ function mergePerson(base: OffshorePerson, extra: OffshorePerson): OffshorePerso
 
 // Deriva status efetivo a partir das datas (hoje), sobrepondo o texto cru da planilha
 function effectiveStatus(p: OffshorePerson): string {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayStr();
   const s = getDayStatus(p, today);
   switch (s) {
     case "E": return "Embarcado";

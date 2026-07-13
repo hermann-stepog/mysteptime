@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo, type ElementType } from "react";
 import { getOffshoreData } from "@/lib/api/smartsheet.functions";
 import {
-  getDayStatus, generateDateRange, DAY_STATUS_COLOR, WEEKDAY_ABBR,
+  getDayStatus, generateDateRange, DAY_STATUS_COLOR, WEEKDAY_ABBR, todayStr,
   type OffshorePerson, type DayStatus,
 } from "@/lib/smartsheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -20,11 +20,6 @@ import {
 } from "recharts";
 
 export const Route = createFileRoute("/admin/embarkations")({ component: HistogramaOffshore });
-
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function defaultStart() {
   const d = new Date();
@@ -386,7 +381,7 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
     const outros = kpis.total - kpis.embarcados - kpis.disponiveis;
     return [
       { name: "Embarcados",  value: kpis.embarcados,  color: "#1e3a5f" },
-      { name: "Disponíveis", value: kpis.disponiveis, color: "#93c5fd" },
+      { name: "Disponíveis", value: kpis.disponiveis, color: "#3b82f6" },
       ...(outros > 0 ? [{ name: "Outros", value: outros, color: "#e2e8f0" }] : []),
     ].filter((d) => d.value > 0);
   }, [kpis]);
@@ -582,7 +577,7 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
             <Bar dataKey="Total"          fill="#1e3a5f" name="Total">         <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#1e3a5f" }} /></Bar>
             <Bar dataKey="Embarcado"      fill="#f97316" name="Embarcado">     <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#f97316" }} /></Bar>
             <Bar dataKey="Disponível"     fill="#22c55e" name="Disponível">    <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#22c55e" }} /></Bar>
-            <Bar dataKey="Programado"     fill="#eab308" name="Programado">    <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#854d0e" }} /></Bar>
+            <Bar dataKey="Programado"     fill="#d1d5db" name="Programado">    <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#475569" }} /></Bar>
             <Bar dataKey="Não Disponível" fill="#8b5cf6" name="Não Disponível"><LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#8b5cf6" }} /></Bar>
             <Bar dataKey="Folga"          fill="#ef4444" name="Folga">         <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#ef4444" }} /></Bar>
           </BarChart>
@@ -602,7 +597,7 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
             <Legend iconSize={9} wrapperStyle={{ fontSize: 10 }} />
             <Bar dataKey="Embarcado"    stackId="a" fill="#1e3a5f"><LabelList position="insideTop" style={{ fill: "white",   fontSize: 10, fontWeight: 700 }} /></Bar>
             <Bar dataKey="Folga/Férias" stackId="a" fill="#94a3b8"><LabelList position="insideTop" style={{ fill: "white",   fontSize: 10, fontWeight: 700 }} /></Bar>
-            <Bar dataKey="Disponível"   stackId="a" fill="#93c5fd" radius={[3, 3, 0, 0]}><LabelList position="insideTop" style={{ fill: "#1e293b", fontSize: 10, fontWeight: 700 }} /></Bar>
+            <Bar dataKey="Disponível"   stackId="a" fill="#3b82f6" radius={[3, 3, 0, 0]}><LabelList position="insideTop" style={{ fill: "white", fontSize: 10, fontWeight: 700 }} /></Bar>
           </BarChart>
         </ResponsiveContainer>
       </Card>

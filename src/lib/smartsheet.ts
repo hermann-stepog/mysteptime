@@ -68,12 +68,12 @@ export function generateDateRange(start: Date, end: Date): string[] {
 }
 
 export const DAY_STATUS_COLOR: Record<DayStatus, string> = {
-  E: "#22c55e",
-  P: "#fdba74",
-  D: "#f59e0b",
-  B: "#e2e8f0",
-  FO: "#93c5fd",
-  F: "#fbbf24",
+  E: "#22c55e",   // embarcado — verde
+  P: "#d1d5db",   // programado — cinza claro
+  D: "#f59e0b",   // desembarque (transitório) — âmbar
+  B: "#3b82f6",   // disponível — azul fechado
+  FO: "#93c5fd",  // folga — azul claro
+  F: "#f472b6",   // férias — rosa
 };
 
 export const DAY_STATUS_LABEL: Record<DayStatus, string> = {
@@ -86,3 +86,14 @@ export const DAY_STATUS_LABEL: Record<DayStatus, string> = {
 };
 
 export const WEEKDAY_ABBR = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+// Data de "hoje" no fuso local (não UTC) — usar toISOString() aqui faria a data virar
+// o dia seguinte durante a noite em fusos negativos (ex.: Brasil, UTC-3), fazendo o
+// status "hoje" divergir da coluna "hoje" exibida na grade.
+export function todayStr(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
