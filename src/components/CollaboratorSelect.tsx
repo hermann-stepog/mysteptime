@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Badge } from "@/components/ui/badge";
 import { Check, ChevronsUpDown, Plus, X, UserPlus, MapPin, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
 
 export type Collaborator = { id: string; full_name: string; role: string | null; city: string | null; unit: string | null; active: boolean };
 
@@ -41,14 +41,14 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
       return data as Collaborator;
     },
     onSuccess: (c) => {
-      toast.success("Colaborador adicionado");
+      notify.success("Colaborador adicionado");
       qc.invalidateQueries({ queryKey: ["collaborators"] });
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       setF({ full_name: "", role: "", city: "", unit: "" });
       setOpen(false);
       onCreated?.(c);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => notify.error(e.message),
   });
 
   return (
@@ -65,7 +65,7 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
           <div><Label>Unidade</Label><Input value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} /></div>
         </div>
         <DialogFooter>
-          <Button disabled={!f.full_name.trim() || create.isPending} onClick={() => create.mutate()}>Salvar</Button>
+          <Button disabled={!f.full_name.trim()} loading={create.isPending} onClick={() => create.mutate()}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -94,12 +94,12 @@ export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { c
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Atualizado");
+      notify.success("Atualizado");
       qc.invalidateQueries({ queryKey: ["collaborators"] });
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       onOpenChange(false);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => notify.error(e.message),
   });
 
   return (
@@ -113,7 +113,7 @@ export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { c
           <div><Label>Unidade</Label><Input value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} /></div>
         </div>
         <DialogFooter>
-          <Button disabled={!f.full_name.trim() || update.isPending} onClick={() => update.mutate()}>Salvar</Button>
+          <Button disabled={!f.full_name.trim()} loading={update.isPending} onClick={() => update.mutate()}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

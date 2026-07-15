@@ -8,13 +8,15 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Upload, Trash2, Pencil } from "lucide-react";
+import { Plus, Upload, Trash2, Pencil, Package } from "lucide-react";
 import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
 import * as XLSX from "xlsx";
+import { EmptyStateRow } from "@/components/EmptyState";
 import { NewMaterialDialog, VOLUMES } from "@/components/MaterialMultiSelect";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/materials")({ component: MaterialsPage });
+export const Route = createFileRoute("/admin/materials")({ head: () => pageTitle("Materiais"), component: MaterialsPage });
 
 type Row = { id: string; code: string | null; descricao: string | null; categoria: string | null; volume: string | null; qtd: number | null; active: boolean };
 
@@ -31,6 +33,7 @@ function MaterialsPage() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const { data: rows = [] } = useQuery({
     queryKey: ["materials-all"],
@@ -51,7 +54,7 @@ function MaterialsPage() {
       const { error } = await supabase.from("materials").update({ active: false }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { invalidate(); toast.success("Material desativado"); },
+    onSuccess: () => { invalidate(); notify.success("Material desativado"); },
   });
 
   const update = useMutation({
@@ -65,17 +68,18 @@ function MaterialsPage() {
       }).eq("id", r.id);
       if (error) throw error;
     },
-    onSuccess: () => { invalidate(); setEditing(null); toast.success("Atualizado"); },
-    onError: (e: any) => toast.error(e.message),
+    onSuccess: () => { invalidate(); setEditing(null); notify.success("Atualizado"); },
+    onError: (e: any) => notify.error(e.message),
   });
 
   const onImport = async (file: File) => {
+    setImporting(true);
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf);
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
-      if (!rows.length) { toast.error("Planilha vazia"); return; }
+      if (!rows.length) { notify.error("Planilha vazia"); return; }
       const norm = (k: any) => String(k ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
       const headerWords = ["volume", "tipo", "categoria", "category", "qtd", "quantidade", "quantity", "descricao", "description", "nome", "name", "item", "material"];
       const first = rows[0].map(norm);
@@ -102,14 +106,15 @@ function MaterialsPage() {
           categoria: idxCat >= 0 ? (String(r[idxCat] ?? "").trim() || null) : null,
         };
       }).filter(Boolean) as any[];
-      if (!records.length) { toast.error("Nenhuma linha válida encontrada"); return; }
+      if (!records.length) { notify.error("Nenhuma linha válida encontrada"); return; }
       const { error } = await supabase.from("materials").insert(records);
       if (error) throw error;
       invalidate();
-      toast.success(`${records.length} materiais importados`);
+      notify.success(`${records.length} materiais importados`);
     } catch (e: any) {
-      toast.error(e.message);
+      notify.error(e.message);
     } finally {
+      setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -123,7 +128,7 @@ function MaterialsPage() {
         </div>
         <div className="flex gap-2">
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
-          <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Importar planilha</Button>
+          <Button variant="outline" onClick={() => fileRef.current?.click()} loading={importing}><Upload className="mr-2 h-4 w-4" />Importar planilha</Button>
           <NewMaterialDialog>
             <Button><Plus className="mr-2 h-4 w-4" />Adicionar material</Button>
           </NewMaterialDialog>
@@ -151,12 +156,12 @@ function MaterialsPage() {
                 <TableCell>
                   <div className="flex gap-1">
                     <Button size="icon" variant="ghost" onClick={() => setEditing(r)}><Pencil className="h-4 w-4" /></Button>
-                    {r.active && <Button size="icon" variant="ghost" onClick={() => remove.mutate(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                    {r.active && <Button size="icon" variant="ghost" onClick={() => remove.mutate(r.id)} loading={remove.isPending && remove.variables === r.id}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
                   </div>
                 </TableCell>
               </TableRow>
             ))}
-            {rows.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Nenhum material cadastrado.</TableCell></TableRow>}
+            {rows.length === 0 && <EmptyStateRow colSpan={5} icon={Package} title="Nenhum material cadastrado" />}
           </TableBody>
         </Table>
       </Card>
@@ -188,7 +193,7 @@ function MaterialsPage() {
               </div>
             </div>
           )}
-          <DialogFooter><Button onClick={() => editing && update.mutate(editing)}>Salvar</Button></DialogFooter>
+          <DialogFooter><Button onClick={() => editing && update.mutate(editing)} loading={update.isPending}>Salvar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

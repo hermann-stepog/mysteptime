@@ -334,6 +334,86 @@ export type Database = {
           },
         ]
       }
+      hist_novo_colaboradores: {
+        Row: {
+          created_at: string
+          empresa: string | null
+          funcao: string | null
+          funcao_operacao: string | null
+          id: string
+          matricula: string
+          nome: string
+        }
+        Insert: {
+          created_at?: string
+          empresa?: string | null
+          funcao?: string | null
+          funcao_operacao?: string | null
+          id?: string
+          matricula: string
+          nome: string
+        }
+        Update: {
+          created_at?: string
+          empresa?: string | null
+          funcao?: string | null
+          funcao_operacao?: string | null
+          id?: string
+          matricula?: string
+          nome?: string
+        }
+        Relationships: []
+      }
+      hist_novo_periodos: {
+        Row: {
+          bsp: string | null
+          centro_de_custo: string | null
+          colaborador_id: string
+          created_at: string
+          data_fim: string
+          data_inicio: string
+          dias: number | null
+          id: string
+          origem: string | null
+          tipo: string
+          unidade_operacional: string | null
+        }
+        Insert: {
+          bsp?: string | null
+          centro_de_custo?: string | null
+          colaborador_id: string
+          created_at?: string
+          data_fim: string
+          data_inicio: string
+          dias?: number | null
+          id?: string
+          origem?: string | null
+          tipo: string
+          unidade_operacional?: string | null
+        }
+        Update: {
+          bsp?: string | null
+          centro_de_custo?: string | null
+          colaborador_id?: string
+          created_at?: string
+          data_fim?: string
+          data_inicio?: string
+          dias?: number | null
+          id?: string
+          origem?: string | null
+          tipo?: string
+          unidade_operacional?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hist_novo_periodos_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hotel_bookings: {
         Row: {
           check_in: string
@@ -548,24 +628,27 @@ export type Database = {
         Row: {
           active: boolean
           client_id: string
-          code: string
+          code: string | null
           created_at: string
+          email: string | null
           id: string
           name: string
         }
         Insert: {
           active?: boolean
           client_id: string
-          code: string
+          code?: string | null
           created_at?: string
+          email?: string | null
           id?: string
           name: string
         }
         Update: {
           active?: boolean
           client_id?: string
-          code?: string
+          code?: string | null
           created_at?: string
+          email?: string | null
           id?: string
           name?: string
         }
@@ -629,6 +712,166 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      timesheet_embarques: {
+        Row: {
+          bsp: string | null
+          colaborador_id: string
+          criado_em: string
+          data_fim_embarque: string
+          data_inicio_embarque: string
+          funcao_embarque: string
+          id: string
+          periodo_id: string | null
+          status_entrega: string
+          unidade_operacional: string | null
+        }
+        Insert: {
+          bsp?: string | null
+          colaborador_id: string
+          criado_em?: string
+          data_fim_embarque: string
+          data_inicio_embarque: string
+          funcao_embarque: string
+          id?: string
+          periodo_id?: string | null
+          status_entrega?: string
+          unidade_operacional?: string | null
+        }
+        Update: {
+          bsp?: string | null
+          colaborador_id?: string
+          criado_em?: string
+          data_fim_embarque?: string
+          data_inicio_embarque?: string
+          funcao_embarque?: string
+          id?: string
+          periodo_id?: string | null
+          status_entrega?: string
+          unidade_operacional?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timesheet_embarques_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "timesheet_embarques_periodo_id_fkey"
+            columns: ["periodo_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_periodos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      timesheet_semanas: {
+        Row: {
+          criado_em: string
+          data_fim_semana: string
+          data_inicio_semana: string
+          data_recebimento: string | null
+          embarque_id: string
+          id: string
+          recebido_fisico: boolean
+        }
+        Insert: {
+          criado_em?: string
+          data_fim_semana: string
+          data_inicio_semana: string
+          data_recebimento?: string | null
+          embarque_id: string
+          id?: string
+          recebido_fisico?: boolean
+        }
+        Update: {
+          criado_em?: string
+          data_fim_semana?: string
+          data_inicio_semana?: string
+          data_recebimento?: string | null
+          embarque_id?: string
+          id?: string
+          recebido_fisico?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timesheet_semanas_embarque_id_fkey"
+            columns: ["embarque_id"]
+            isOneToOne: false
+            referencedRelation: "timesheet_embarques"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      timesheet_dias: {
+        Row: {
+          adicional_noturno: boolean
+          criado_em: string
+          data: string
+          descricao_tarefa: string | null
+          dia_semana: string
+          evento: string | null
+          feriado: boolean
+          hora_entrada: string | null
+          hora_entrada_extra: string | null
+          hora_saida: string | null
+          hora_saida_extra: string | null
+          horas_extras: number | null
+          horas_normais: number | null
+          id: string
+          numero_tarefa: string | null
+          semana_id: string
+          total_horas: number | null
+        }
+        Insert: {
+          adicional_noturno?: boolean
+          criado_em?: string
+          data: string
+          descricao_tarefa?: string | null
+          dia_semana: string
+          evento?: string | null
+          feriado?: boolean
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          semana_id: string
+          total_horas?: number | null
+        }
+        Update: {
+          adicional_noturno?: boolean
+          criado_em?: string
+          data?: string
+          descricao_tarefa?: string | null
+          dia_semana?: string
+          evento?: string | null
+          feriado?: boolean
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          semana_id?: string
+          total_horas?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timesheet_dias_semana_id_fkey"
+            columns: ["semana_id"]
+            isOneToOne: false
+            referencedRelation: "timesheet_semanas"
             referencedColumns: ["id"]
           },
         ]

@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo, type ElementType } from "react";
 import { getOffshoreData } from "@/lib/api/smartsheet.functions";
 import {
-  getDayStatus, generateDateRange, DAY_STATUS_COLOR, WEEKDAY_ABBR,
-  type OffshorePerson, type DayStatus,
+  getDayStatus, generateDateRange, DAY_STATUS_COLOR, DAY_STATUS_LABEL, DAY_STATUS_FULL_LABEL, WEEKDAY_ABBR,
+  getDisplayStatus, getTodayDisplayStatus, todayStr,
+  type OffshorePerson,
 } from "@/lib/smartsheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
@@ -13,18 +14,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { Loader2, Users, Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Check, ChevronsUpDown, X } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
+import { FadeInView } from "@/components/FadeInView";
 import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList,
   PieChart, Pie, Cell,
 } from "recharts";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/embarkations")({ component: HistogramaOffshore });
-
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
+export const Route = createFileRoute("/admin/embarkations")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshore });
 
 function defaultStart() {
   const d = new Date();
@@ -79,7 +78,7 @@ function HistogramaOffshore() {
 
   const statusSummary = useMemo(() => {
     const today = todayStr();
-    const counts: Record<string, number> = { E: 0, P: 0, D: 0, FO: 0, F: 0, B: 0 };
+    const counts: Record<string, number> = { E: 0, P: 0, D: 0, FO: 0, FE: 0, TE: 0, IND: 0, B: 0 };
     people.filter(
       (p) =>
         (filterUnit.length === 0 || filterUnit.includes(p.unit)) &&
@@ -142,10 +141,11 @@ function HistogramaOffshore() {
 
           {/* Status summary chips — clicáveis */}
           <div className="ml-auto flex items-end pb-0.5 gap-1.5">
-            {(["E", "P", "FO", "F", "B"] as const).map((s) => {
+            {(["E", "P", "FO", "FE", "TE", "IND", "B"] as const).map((s) => {
               const count = statusSummary[s] ?? 0;
               if (count === 0) return null;
-              const labels: Record<string, string> = { E: "Emb", P: "Prog", FO: "Folga", F: "Férias", B: "Base" };
+              const labels: Record<string, string> = { E: "Emb", P: "Prog", FO: "Folga", FE: "Férias", TE: "Trab. Externo", IND: "Indisp.", B: "Base" };
+              const chipColor = DAY_STATUS_COLOR[s] === "transparent" ? "#2563eb" : DAY_STATUS_COLOR[s];
               const active = filterDayStatus === s;
               return (
                 <button
@@ -154,9 +154,9 @@ function HistogramaOffshore() {
                   onClick={() => setFilterDayStatus(active ? "" : s)}
                   className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-all cursor-pointer"
                   style={{
-                    backgroundColor: DAY_STATUS_COLOR[s] + (active ? "55" : "25"),
-                    border: `${active ? "2px" : "1px"} solid ${DAY_STATUS_COLOR[s] + (active ? "dd" : "55")}`,
-                    boxShadow: active ? `0 0 0 2px ${DAY_STATUS_COLOR[s]}44` : "none",
+                    backgroundColor: chipColor + (active ? "55" : "25"),
+                    border: `${active ? "2px" : "1px"} solid ${chipColor + (active ? "dd" : "55")}`,
+                    boxShadow: active ? `0 0 0 2px ${chipColor}44` : "none",
                   }}
                   title={active ? `Limpar filtro ${labels[s]}` : `Filtrar por ${labels[s]} (${count})`}
                 >
@@ -187,29 +187,17 @@ function HistogramaOffshore() {
           <DashboardTab people={filtered} dateStart={dateStart} dateEnd={dateEnd} />
         </TabsContent>
         <TabsContent value="histograma" className="mt-4">
-          <HistogramaTab people={filtered} dateStart={dateStart} dateEnd={dateEnd} />
+          <HistogramaTab
+            people={filtered}
+            dateStart={dateStart}
+            dateEnd={dateEnd}
+            filterDayStatus={filterDayStatus}
+            onFilterDayStatus={setFilterDayStatus}
+          />
         </TabsContent>
       </Tabs>
     </div>
   );
-}
-
-// Retorna o status visual: se a data de embarque do período for >= hoje, exibe P (programado) em vez de E
-function getDisplayStatus(p: OffshorePerson, d: string, today: string): DayStatus {
-  const raw = getDayStatus(p, d);
-  if (raw === "E") {
-    const inPeriod1 = !!(p.embark && p.disembark && d >= p.embark && d < p.disembark);
-    const relevantEmbark = inPeriod1 ? p.embark : p.embark2;
-    if (relevantEmbark && relevantEmbark >= today) return "P";
-  }
-  return raw;
-}
-
-// Inclui pessoas na base com embarque futuro como P
-function getTodayDisplayStatus(p: OffshorePerson, today: string): DayStatus {
-  const display = getDisplayStatus(p, today, today);
-  if (display === "B" && ((p.embark && p.embark > today) || (p.embark2 && p.embark2 > today))) return "P";
-  return display;
 }
 
 // ─── Filter select helper ───────────────────────────────────────────────────
@@ -350,8 +338,8 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
     const total        = people.length;
     const embarcados   = people.filter((p) => getTodayDisplayStatus(p, today) === "E").length;
     const programados  = people.filter((p) => getTodayDisplayStatus(p, today) === "P").length;
-    const disponiveis  = people.filter((p) => getTodayDisplayStatus(p, today) === "B").length;
-    const naoDisp      = people.filter((p) => { const s = getTodayDisplayStatus(p, today); return s === "FO" || s === "F"; }).length;
+    const disponiveis  = people.filter((p) => { const s = getTodayDisplayStatus(p, today); return s === "B" || s === "FO"; }).length;
+    const naoDisp      = people.filter((p) => { const s = getTodayDisplayStatus(p, today); return s === "FE" || s === "IND"; }).length;
     const utilizacao   = total > 0 ? Math.round((embarcados / total) * 100) : 0;
     return { total, embarcados, programados, disponiveis, naoDisp, utilizacao };
   }, [people, today]);
@@ -386,7 +374,7 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
     const outros = kpis.total - kpis.embarcados - kpis.disponiveis;
     return [
       { name: "Embarcados",  value: kpis.embarcados,  color: "#1e3a5f" },
-      { name: "Disponíveis", value: kpis.disponiveis, color: "#93c5fd" },
+      { name: "Disponíveis", value: kpis.disponiveis, color: "#2563eb" },
       ...(outros > 0 ? [{ name: "Outros", value: outros, color: "#e2e8f0" }] : []),
     ].filter((d) => d.value > 0);
   }, [kpis]);
@@ -406,17 +394,20 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
 
   // Status por função — snapshot de hoje
   const byFunctionStatus = useMemo(() => {
-    const m: Record<string, { total: number; E: number; P: number; B: number; FO: number; F: number; D: number }> = {};
+    const m: Record<string, { total: number; E: number; P: number; B: number; FO: number; FE: number; TE: number; IND: number; D: number }> = {};
     people.forEach((p) => {
       const fn = p.function;
       if (!fn) return;
-      if (!m[fn]) m[fn] = { total: 0, E: 0, P: 0, B: 0, FO: 0, F: 0, D: 0 };
+      if (!m[fn]) m[fn] = { total: 0, E: 0, P: 0, B: 0, FO: 0, FE: 0, TE: 0, IND: 0, D: 0 };
       m[fn].total++;
       const s = getTodayDisplayStatus(p, today);
       m[fn][s as keyof (typeof m)[string]]++;
     });
     return Object.entries(m)
-      .map(([name, c]) => ({ name, Total: c.total, Embarcado: c.E + c.D, Disponível: c.B, Programado: c.P, "Não Disponível": c.F, Folga: c.FO }))
+      .map(([name, c]) => ({
+        name, Total: c.total, Embarcado: c.E + c.D, Disponível: c.B + c.FO, Programado: c.P,
+        "Não Disponível": c.FE + c.IND, "Trabalho Externo": c.TE,
+      }))
       .sort((a, b) => b.Total - a.Total);
   }, [people, today]);
 
@@ -445,8 +436,8 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
       wd.forEach((d) => {
         people.forEach((p) => {
           const s = getDisplayStatus(p, d, today);
-          if (s === "E" || s === "D") emb++;
-          else if (s === "FO" || s === "F") folga++;
+          if (s === "E" || s === "D" || s === "TE") emb++;
+          else if (s === "FO" || s === "FE" || s === "IND") folga++;
           else if (s === "B") disp++;
         });
       });
@@ -492,14 +483,18 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
           { label: "Disponíveis",      value: kpis.disponiveis,          icon: CheckCircle2 },
           { label: "Não Disponíveis",  value: kpis.naoDisp,              icon: AlertCircle  },
           { label: "Utilização",       value: `${kpis.utilizacao}%`,     icon: TrendingUp   },
-        ] as { label: string; value: string | number; icon: ElementType }[]).map((k) => (
-          <Card key={k.label} className="p-4">
+        ] as { label: string; value: string | number; icon: ElementType }[]).map((k, i) => (
+          <FadeInView key={k.label} delay={i * 0.05}>
+          <Card className="bg-gradient-to-br from-white to-slate-50 p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
               <k.icon className="h-4 w-4 text-muted-foreground" />
             </div>
-            <div className="mt-2 text-3xl font-semibold">{k.value}</div>
+            <div className="mt-2 bg-gradient-to-br from-slate-800 to-slate-500 bg-clip-text text-3xl font-semibold text-transparent">
+              {k.value}
+            </div>
           </Card>
+          </FadeInView>
         ))}
       </div>
 
@@ -517,7 +512,7 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
               <Tooltip formatter={(v: number, n: string) => [`${v} pessoas`, n]} />
             </PieChart>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-2xl font-bold text-[#1e3a5f]">{kpis.utilizacao}%</span>
+              <span className="bg-gradient-to-br from-[#1e3a5f] to-[#4a7bb5] bg-clip-text text-2xl font-bold text-transparent">{kpis.utilizacao}%</span>
               <span className="text-[10px] text-muted-foreground">ocupação</span>
             </div>
           </div>
@@ -535,13 +530,13 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
             <div className="border-t pt-4 grid grid-cols-2 gap-4">
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio Offshore</p>
-                <p className="mt-1 text-2xl font-bold text-[#1e3a5f]">
+                <p className="mt-1 bg-gradient-to-br from-[#1e3a5f] to-[#4a7bb5] bg-clip-text text-2xl font-bold text-transparent">
                   {avgMetrics.avgOffshore}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
                 </p>
               </div>
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio de Folga</p>
-                <p className="mt-1 text-2xl font-bold text-sky-500">
+                <p className="mt-1 bg-gradient-to-br from-sky-500 to-sky-300 bg-clip-text text-2xl font-bold text-transparent">
                   {avgMetrics.avgTimeOff}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
                 </p>
               </div>
@@ -582,9 +577,9 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
             <Bar dataKey="Total"          fill="#1e3a5f" name="Total">         <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#1e3a5f" }} /></Bar>
             <Bar dataKey="Embarcado"      fill="#f97316" name="Embarcado">     <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#f97316" }} /></Bar>
             <Bar dataKey="Disponível"     fill="#22c55e" name="Disponível">    <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#22c55e" }} /></Bar>
-            <Bar dataKey="Programado"     fill="#eab308" name="Programado">    <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#854d0e" }} /></Bar>
+            <Bar dataKey="Programado"     fill="#d1d5db" name="Programado">    <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#475569" }} /></Bar>
             <Bar dataKey="Não Disponível" fill="#8b5cf6" name="Não Disponível"><LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#8b5cf6" }} /></Bar>
-            <Bar dataKey="Folga"          fill="#ef4444" name="Folga">         <LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#ef4444" }} /></Bar>
+            <Bar dataKey="Trabalho Externo" fill="#eab308" name="Trabalho Externo"><LabelList position="top" style={{ fontSize: 8, fontWeight: 700, fill: "#854d0e" }} /></Bar>
           </BarChart>
         </ResponsiveContainer>
       </Card>
@@ -602,7 +597,7 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
             <Legend iconSize={9} wrapperStyle={{ fontSize: 10 }} />
             <Bar dataKey="Embarcado"    stackId="a" fill="#1e3a5f"><LabelList position="insideTop" style={{ fill: "white",   fontSize: 10, fontWeight: 700 }} /></Bar>
             <Bar dataKey="Folga/Férias" stackId="a" fill="#94a3b8"><LabelList position="insideTop" style={{ fill: "white",   fontSize: 10, fontWeight: 700 }} /></Bar>
-            <Bar dataKey="Disponível"   stackId="a" fill="#93c5fd" radius={[3, 3, 0, 0]}><LabelList position="insideTop" style={{ fill: "#1e293b", fontSize: 10, fontWeight: 700 }} /></Bar>
+            <Bar dataKey="Disponível"   stackId="a" fill="#2563eb" radius={[3, 3, 0, 0]}><LabelList position="insideTop" style={{ fill: "white", fontSize: 10, fontWeight: 700 }} /></Bar>
           </BarChart>
         </ResponsiveContainer>
       </Card>
@@ -679,24 +674,46 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
 
 // ─── Histograma tab ─────────────────────────────────────────────────────────
 
-function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]; dateStart: string; dateEnd: string }) {
+function HistogramaTab({ people, dateStart, dateEnd, filterDayStatus, onFilterDayStatus }: {
+  people: OffshorePerson[]; dateStart: string; dateEnd: string;
+  filterDayStatus: string; onFilterDayStatus: (v: string) => void;
+}) {
   const today = todayStr();
   const dates = useMemo(() => generateDateRange(new Date(dateStart), new Date(dateEnd)), [dateStart, dateEnd]);
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3 text-xs">
-        {(["E", "P", "D", "B", "FO", "F"] as DayStatus[]).map((s) => (
-          <span key={s} className="flex items-center gap-1">
-            <span
-              className="inline-flex h-4 w-7 items-center justify-center rounded text-[10px] font-bold"
-              style={{ backgroundColor: DAY_STATUS_COLOR[s], color: s === "B" ? "#94a3b8" : "#1e293b" }}
+        {(["E", "P", "D", "FO", "FE", "TE", "IND", "B"] as const).map((s) => {
+          const label = {
+            E: "Embarcado", P: "Programado", D: "Desembarque", FO: "Folga",
+            FE: "Férias", TE: "Trabalho Externo", IND: "Indisponível (Base/Casa)", B: "Disponível",
+          }[s];
+          const active = filterDayStatus === s;
+          const chipColor = DAY_STATUS_COLOR[s] === "transparent" ? "#2563eb" : DAY_STATUS_COLOR[s];
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onFilterDayStatus(active ? "" : s)}
+              className="flex items-center gap-1 rounded px-1 py-0.5 transition-all cursor-pointer"
+              style={{
+                backgroundColor: active ? chipColor + "33" : "transparent",
+                boxShadow: active ? `0 0 0 1.5px ${chipColor}` : "none",
+              }}
+              title={active ? `Limpar filtro ${label}` : `Filtrar por ${label} (hoje)`}
             >
-              {s}
-            </span>
-            {{ E: "Embarcado (confirmado)", P: "Programado (futuro)", D: "Desembarque", B: "Base", FO: "Folga", F: "Férias" }[s]}
-          </span>
-        ))}
+              <span
+                className="inline-flex h-4 w-7 items-center justify-center rounded text-[10px] font-bold border border-border/60"
+                style={{ backgroundColor: chipColor, color: s === "B" ? "white" : "#1e293b" }}
+              >
+                {DAY_STATUS_LABEL[s]}
+              </span>
+              {label}
+              {active && <X className="h-2.5 w-2.5 ml-0.5 text-muted-foreground" />}
+            </button>
+          );
+        })}
       </div>
 
       <div className="rounded-lg border border-border overflow-auto max-h-[70vh]">
@@ -721,7 +738,7 @@ function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[
           </thead>
           <tbody>
             {people.map((p, i) => (
-              <tr key={p.id || p.name + i} className="hover:bg-muted/40">
+              <tr key={`${p.id}-${p.name}-${i}`} className="hover:bg-muted/40">
                 <td className="sticky left-0 z-10 bg-background border border-border px-2 py-1 font-medium truncate max-w-[150px]">{p.name}</td>
                 <td className="sticky left-[150px] z-10 bg-background border border-border px-2 py-1 truncate max-w-[110px] text-muted-foreground">{p.function}</td>
                 <td className="sticky left-[260px] z-10 bg-background border border-border px-1.5 py-1 text-muted-foreground">{p.unit}</td>
@@ -729,16 +746,17 @@ function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[
                 {dates.map((d) => {
                   const status = getDisplayStatus(p, d, today);
                   const isWeekend = [0, 6].includes(new Date(d + "T12:00:00").getDay());
+                  const isEmpty = status === "B";
                   return (
-                    <td key={d} className="border border-border p-0" title={`${p.name} · ${d} · ${status === "E" ? "Embarcado" : status === "P" ? "Programado" : status === "D" ? "Desembarque" : status === "FO" ? "Folga" : status === "F" ? "Férias" : "Base"}`}>
+                    <td key={d} className="border border-border p-0" title={`${p.name} · ${d} · ${DAY_STATUS_FULL_LABEL[status]}`}>
                       <div
                         className="h-6 w-[30px] flex items-center justify-center text-[10px] font-bold"
                         style={{
-                          backgroundColor: status === "B" && isWeekend ? "#f1f5f9" : DAY_STATUS_COLOR[status],
-                          color: status === "B" ? "#cbd5e1" : "#1e293b",
+                          backgroundColor: isEmpty && isWeekend ? "#f1f5f9" : DAY_STATUS_COLOR[status],
+                          color: isEmpty ? "#cbd5e1" : "#1e293b",
                         }}
                       >
-                        {status === "B" ? "" : status}
+                        {DAY_STATUS_LABEL[status]}
                       </div>
                     </td>
                   );
@@ -747,8 +765,8 @@ function HistogramaTab({ people, dateStart, dateEnd }: { people: OffshorePerson[
             ))}
             {people.length === 0 && (
               <tr>
-                <td colSpan={4 + dates.length} className="py-10 text-center text-sm text-muted-foreground">
-                  Nenhum colaborador encontrado.
+                <td colSpan={4 + dates.length}>
+                  <EmptyState icon={Users} title="Nenhum colaborador encontrado" />
                 </td>
               </tr>
             )}

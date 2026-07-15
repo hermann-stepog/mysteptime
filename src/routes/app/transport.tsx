@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, CheckCircle2, Clock, X } from "lucide-react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
 import { fmtDateTime } from "@/lib/format";
+import { EmptyState } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/app/transport")({ component: AppTransportPage });
+export const Route = createFileRoute("/app/transport")({ head: () => pageTitle("Transporte"), component: AppTransportPage });
 
 // ── Tipos de transporte ───────────────────────────────────────────────────────
 
@@ -104,11 +106,11 @@ function SolicitarTab({ solicitations }: { solicitations: Solicitacao[] }) {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Solicitação enviada com sucesso.");
+      notify.success("Solicitação enviada com sucesso.");
       qc.invalidateQueries({ queryKey: ["app-solicitations", user?.id] });
       setSetor(""); setCentroCusto(""); setDataHora(""); setOrigem(""); setDestino(""); setTipos([]); setNotes("");
     },
-    onError: (err: Error) => toast.error(err.message || "Erro ao enviar solicitação."),
+    onError: (err: Error) => notify.error(err.message || "Erro ao enviar solicitação."),
   });
 
   return (
@@ -181,9 +183,8 @@ function SolicitarTab({ solicitations }: { solicitations: Solicitacao[] }) {
         <Button
           className="w-full"
           onClick={() => create.mutate()}
-          disabled={create.isPending}
+          loading={create.isPending}
         >
-          {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Enviar solicitação
         </Button>
       </Card>
@@ -228,10 +229,8 @@ function ProgramadoTab({ solicitations }: { solicitations: Solicitacao[] }) {
 
   if (programmed.length === 0) {
     return (
-      <Card className="p-10 text-center text-sm text-muted-foreground">
-        Nenhuma solicitação programada ainda.
-        <br />
-        A logística irá confirmar sua solicitação em breve.
+      <Card className="p-4">
+        <EmptyState icon={Clock} title="Nenhuma solicitação programada ainda" description="A logística irá confirmar sua solicitação em breve." />
       </Card>
     );
   }

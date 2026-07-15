@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
 import { Loader2 } from "lucide-react";
 import heroUrl from "@/assets/ChatGPT Image 18 de jun. de 2026, 09_16_55.png";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/auth")({ component: AuthPage });
+export const Route = createFileRoute("/auth")({ head: () => pageTitle("Login"), component: AuthPage });
 
 function AuthPage() {
   const { user, role, signIn, signUp, loading } = useAuth();
@@ -21,7 +22,7 @@ function AuthPage() {
     if (loading) return;
     if (user) {
       if (!role || role === "pending") navigate({ to: "/pending" });
-      else if (role === "logistics_operator") navigate({ to: "/admin" });
+      else if (role === "logistics_operator") navigate({ to: "/admin/embarkations" });
       else if (role === "pm") navigate({ to: "/pm" });
       else navigate({ to: "/app" });
     }
@@ -36,7 +37,7 @@ function AuthPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-sidebar/95 via-sidebar/80 to-sidebar/30" aria-hidden />
         <div className="relative" />
         <div className="relative">
-          <h1 className="text-4xl font-semibold leading-tight">Logistica de Pessoal - STEP</h1>
+          <h1 className="text-4xl font-medium leading-tight" style={{ fontFamily: "'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif" }}>Logistica de Pessoal</h1>
         </div>
         <p className="relative text-xs text-sidebar-foreground/60">© {new Date().getFullYear()} STEP Oil &amp; Gas</p>
       </div>
@@ -52,14 +53,14 @@ function AuthPage() {
             <TabsContent value="signin">
               <Form busy={busy} setBusy={setBusy} onSubmit={async (email, password) => {
                 const { error } = await signIn(email, password);
-                if (error) toast.error(error);
+                if (error) notify.error(error);
               }} />
             </TabsContent>
             <TabsContent value="signup">
               <Form busy={busy} setBusy={setBusy} withName onSubmit={async (email, password, name) => {
                 const { error } = await signUp(email, password, name ?? email);
-                if (error) toast.error(error);
-                else toast.success("Conta criada. Aguarde liberação do acesso.");
+                if (error) notify.error(error);
+                else notify.success("Conta criada. Aguarde liberação do acesso.");
               }} />
             </TabsContent>
           </Tabs>

@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { getOffshoreData } from "@/lib/api/smartsheet.functions";
+import { sendNominationPhaseEmail } from "@/lib/api/email.functions";
+import type { OffshorePerson } from "@/lib/smartsheet";
 import {
   type Nomination, type NominationStatusHistory, type WeldTypeConfig,
   STATUS_LABELS, STATUS_COLORS, ALL_STATUSES, NEXT_ACTION_LABELS,
@@ -29,9 +31,11 @@ import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, Pencil,
 } from "lucide-react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
+import { EmptyState } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/nominations")({ component: NominationsPage });
+export const Route = createFileRoute("/admin/nominations")({ head: () => pageTitle("Nomeações"), component: NominationsPage });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,7 +69,15 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
 
 // ── Available collaborators from Smartsheet ───────────────────────────────────
 
+// Normaliza acentos/caixa para comparar com os valores da coluna "Status" do Smartsheet.
+const DIACRITICS_RE = new RegExp(String.fromCharCode(0x5b, 0x300, 0x2d, 0x36f, 0x5d), "g");
+const normalizeStatus = (s: string) => s.trim().toUpperCase().normalize("NFD").replace(DIACRITICS_RE, "");
+const AVAILABLE_STATUSES = new Set(["DISPONIVEL", "FOLGA"]);
+
 function AvailableCollabs({ nomination }: { nomination: Nomination }) {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+
   const { data: people = [], isLoading } = useQuery({
     queryKey: ["offshore-data"],
     queryFn: () => getOffshoreData(),
@@ -76,6 +88,7 @@ function AvailableCollabs({ nomination }: { nomination: Nomination }) {
     const fn = nomination.function_requested.toLowerCase();
     return people
       .filter((p) => p.function?.toLowerCase().includes(fn))
+      .filter((p) => p.status && AVAILABLE_STATUSES.has(normalizeStatus(p.status)))
       .filter((p) => {
         // Available if no conflicting embarkation in the period
         const start = nomination.period_start;
@@ -87,17 +100,83 @@ function AvailableCollabs({ nomination }: { nomination: Nomination }) {
       .slice(0, 15);
   }, [people, nomination]);
 
+  const select = useMutation({
+    mutationFn: async (p: OffshorePerson) => {
+      const { error: e1 } = await supabase
+        .from("nominations")
+        .update({ approved_collaborator_name: p.name })
+        .eq("id", nomination.id);
+      if (e1) throw e1;
+
+      await supabase.from("nomination_status_history").insert({
+        nomination_id:   nomination.id,
+        status:          nomination.current_status,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes:           `Colaborador selecionado: ${p.name}`,
+      });
+
+      const { data: proj } = await supabase
+        .from("projects")
+        .select("email")
+        .eq("name", nomination.pm_name)
+        .maybeSingle();
+
+      if (!proj?.email) return { emailed: false };
+
+      await sendNominationPhaseEmail({
+        data: {
+          to:      proj.email,
+          subject: `Nomeação — ${nomination.function_requested}: ${STATUS_LABELS[nomination.current_status]}`,
+          text:
+            `Olá ${nomination.pm_name},\n\n` +
+            `Sua solicitação de ${nomination.function_requested} ` +
+            `(período ${fmtDate(nomination.period_start)} a ${fmtDate(nomination.period_end)}) ` +
+            `está na fase: ${STATUS_LABELS[nomination.current_status]}.\n\n` +
+            `Colaborador selecionado: ${p.name}.\n\n` +
+            `Equipe de Logística de Pessoal.`,
+        },
+      });
+      return { emailed: true };
+    },
+    onSuccess: ({ emailed }) => {
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "history"] });
+      notify.success(
+        emailed
+          ? "Colaborador selecionado e PM notificado por e-mail."
+          : "Colaborador selecionado. PM sem e-mail cadastrado em Configurações → Projetos — e-mail não enviado.",
+      );
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao selecionar colaborador."),
+  });
+
   if (isLoading) return <p className="text-xs text-muted-foreground">Carregando...</p>;
   if (matches.length === 0) return <p className="text-xs text-muted-foreground">Nenhum colaborador disponível encontrado para esta função e período.</p>;
 
   return (
     <ul className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-      {matches.map((p) => (
-        <li key={p.id} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-sm">
-          <span className="font-medium">{p.name}</span>
-          <span className="text-xs text-muted-foreground">{p.unit || "—"}</span>
-        </li>
-      ))}
+      {matches.map((p) => {
+        const isSelected = nomination.approved_collaborator_name === p.name;
+        return (
+          <li
+            key={p.id}
+            onClick={() => !select.isPending && select.mutate(p)}
+            className={`flex items-center justify-between rounded-md border px-3 py-1.5 text-sm cursor-pointer transition-colors ${
+              isSelected ? "border-primary bg-primary/5" : "hover:bg-muted"
+            }`}
+          >
+            <span className="font-medium">
+              {isSelected && <CheckCircle2 className="mr-1.5 inline h-3.5 w-3.5 text-primary" />}
+              {p.name}
+            </span>
+            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+              {select.isPending && select.variables?.id === p.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {p.status}
+              <span className="text-muted-foreground/70">· {p.unit || "—"}</span>
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -146,7 +225,7 @@ function ManageDialog({
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations"] }),
-    onError: () => toast.error("Erro ao atualizar."),
+    onError: () => notify.error("Erro ao atualizar."),
   });
 
   const advanceStatus = useMutation({
@@ -178,13 +257,26 @@ function ManageDialog({
       if (e2) throw e2;
     },
     onSuccess: () => {
-      toast.success("Status atualizado.");
+      notify.success("Status atualizado.");
       qc.invalidateQueries({ queryKey: ["nominations"] });
       qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "history"] });
       setNotes("");
       onClose();
     },
-    onError: (err: Error) => toast.error(err.message || "Erro ao avançar status."),
+    onError: (err: Error) => notify.error(err.message || "Erro ao avançar status."),
+  });
+
+  const remove = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("nominations").delete().eq("id", nomination.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      notify.success("Solicitação excluída.");
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      onClose();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao excluir solicitação."),
   });
 
   const handleSuperiorToggle = (val: boolean) => {
@@ -196,9 +288,25 @@ function ManageDialog({
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-base">
-            Nomeação — <span className="text-muted-foreground">{nomination.function_requested}</span>
-          </DialogTitle>
+          <div className="flex items-start justify-between gap-2 pr-6">
+            <DialogTitle className="text-base">
+              Nomeação — <span className="text-muted-foreground">{nomination.function_requested}</span>
+            </DialogTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+              onClick={() => {
+                if (confirm("Excluir definitivamente esta solicitação de nomeação? Esta ação não pode ser desfeita.")) {
+                  remove.mutate();
+                }
+              }}
+              loading={remove.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
           <div className="flex items-center gap-2 pt-1">
             <StatusBadge status={nomination.current_status} />
             {nomination.current_status === "embarcado" && (
@@ -293,9 +401,8 @@ function ManageDialog({
                   <Button
                     className="w-full"
                     onClick={() => advanceStatus.mutate()}
-                    disabled={advanceStatus.isPending}
+                    loading={advanceStatus.isPending}
                   >
-                    {advanceStatus.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {actionLabel}
                     <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -307,7 +414,7 @@ function ManageDialog({
           {/* ── Histórico ── */}
           <TabsContent value="historico" className="pt-2">
             {history.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum histórico ainda.</p>
+              <EmptyState icon={Clock} title="Nenhum histórico ainda" />
             ) : (
               <HistoryTimeline items={history} />
             )}
@@ -338,56 +445,88 @@ function CreateDialog({
   const { profile } = useAuth();
   const qc = useQueryClient();
 
+  const { data: pmOptions = [] } = useQuery({
+    queryKey: ["projects-pm-list"],
+    queryFn: async () =>
+      (await supabase.from("projects").select("*, clients(name)").eq("active", true).order("name")).data ?? [],
+  });
+
+  const { data: sheetPeople = [] } = useQuery({
+    queryKey: ["offshore-data"],
+    queryFn: () => getOffshoreData(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const smartsheetFunctions = useMemo(
+    () => Array.from(new Set(sheetPeople.map((p) => p.function).filter(Boolean))).sort(),
+    [sheetPeople],
+  );
+
+  type FnRow = { id: string; fn: string; weldType: string; manual: boolean };
+  const newRow = (): FnRow => ({ id: crypto.randomUUID(), fn: "", weldType: "", manual: false });
+
   const [pmName, setPmName]         = useState("");
-  const [fn, setFn]                 = useState("");
-  const [weldType, setWeldType]     = useState("");
+  const [rows, setRows]             = useState<FnRow[]>([newRow()]);
   const [start, setStart]           = useState("");
   const [end, setEnd]               = useState("");
   const [project, setProject]       = useState("");
   const [client, setClient]         = useState("");
   const [notes, setNotes]           = useState("");
 
-  const showWeld = isSoldador(fn);
-  const requiresQuality = showWeld
-    ? weldConfig.find((w) => w.weld_type_name === weldType)?.requires_quality_validation ?? false
-    : false;
+  const addRow = () => setRows((r) => [...r, newRow()]);
+  const removeRow = (id: string) => setRows((r) => r.filter((row) => row.id !== id));
+  const updateRow = (id: string, patch: Partial<FnRow>) =>
+    setRows((r) => r.map((row) => (row.id === id ? { ...row, ...patch } : row)));
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!pmName.trim() || !fn.trim() || !start || !end) {
-        throw new Error("Preencha PM, função e período.");
+      if (!pmName.trim() || !start || !end) {
+        throw new Error("Preencha PM e período.");
       }
-      const { data, error } = await supabase
-        .from("nominations")
-        .insert({
-          pm_name:                    pmName.trim(),
-          function_requested:         fn.trim(),
-          weld_type:                  showWeld ? weldType || null : null,
-          period_start:               start,
-          period_end:                 end,
-          project:                    project.trim() || null,
-          client:                     client.trim() || null,
-          notes:                      notes.trim() || null,
-          requires_quality_validation: requiresQuality,
-        })
-        .select()
-        .single();
-      if (error) throw error;
+      const validRows = rows.filter((r) => r.fn.trim());
+      if (validRows.length === 0) {
+        throw new Error("Informe ao menos uma função solicitada.");
+      }
 
-      // Initial history entry
-      await supabase.from("nomination_status_history").insert({
-        nomination_id:   data.id,
-        status:          "triagem_pendente",
-        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-        notes:           "Solicitação criada",
-      });
+      for (const r of validRows) {
+        const rowShowWeld = isSoldador(r.fn);
+        const rowRequiresQuality = rowShowWeld
+          ? weldConfig.find((w) => w.weld_type_name === r.weldType)?.requires_quality_validation ?? false
+          : false;
+
+        const { data, error } = await supabase
+          .from("nominations")
+          .insert({
+            pm_name:                    pmName.trim(),
+            function_requested:         r.fn.trim(),
+            weld_type:                  rowShowWeld ? r.weldType || null : null,
+            period_start:               start,
+            period_end:                 end,
+            project:                    project.trim() || null,
+            client:                     client.trim() || null,
+            notes:                      notes.trim() || null,
+            requires_quality_validation: rowRequiresQuality,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+
+        // Initial history entry
+        await supabase.from("nomination_status_history").insert({
+          nomination_id:   data.id,
+          status:          "triagem_pendente",
+          changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+          notes:           "Solicitação criada",
+        });
+      }
+
+      return validRows.length;
     },
-    onSuccess: () => {
-      toast.success("Nomeação criada.");
+    onSuccess: (count) => {
+      notify.success(count > 1 ? `${count} nomeações criadas.` : "Nomeação criada.");
       qc.invalidateQueries({ queryKey: ["nominations"] });
       onClose();
     },
-    onError: (err: Error) => toast.error(err.message || "Erro ao criar."),
+    onError: (err: Error) => notify.error(err.message || "Erro ao criar."),
   });
 
   return (
@@ -400,41 +539,105 @@ function CreateDialog({
         <div className="space-y-3 py-2">
           <div className="space-y-1">
             <Label>PM solicitante *</Label>
-            <Input placeholder="Nome do PM" value={pmName} onChange={(e) => setPmName(e.target.value)} />
+            {pmOptions.length > 0 ? (
+              <Select value={pmName} onValueChange={setPmName}>
+                <SelectTrigger><SelectValue placeholder="Selecione o PM/Responsável" /></SelectTrigger>
+                <SelectContent>
+                  {pmOptions.map((p: any) => (
+                    <SelectItem key={p.id} value={p.name}>
+                      {p.name}{p.clients?.name ? ` — ${p.clients.name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input placeholder="Nome do PM" value={pmName} onChange={(e) => setPmName(e.target.value)} />
+            )}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             <Label>Função solicitada *</Label>
-            <Input placeholder="Ex.: Soldador, Mecânico, Eletricista" value={fn} onChange={(e) => setFn(e.target.value)} />
+            {rows.map((r) => {
+              const rowShowWeld = isSoldador(r.fn);
+              const rowRequiresQuality = rowShowWeld
+                ? weldConfig.find((w) => w.weld_type_name === r.weldType)?.requires_quality_validation ?? false
+                : false;
+              return (
+                <div key={r.id} className="space-y-2 rounded-md border p-3">
+                  <div className="flex items-center gap-2">
+                    {smartsheetFunctions.length > 0 && !r.manual ? (
+                      <Select
+                        value={r.fn}
+                        onValueChange={(v) => v === "__custom__" ? updateRow(r.id, { manual: true, fn: "" }) : updateRow(r.id, { fn: v })}
+                      >
+                        <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione a função" /></SelectTrigger>
+                        <SelectContent>
+                          {smartsheetFunctions.map((sf) => <SelectItem key={sf} value={sf}>{sf}</SelectItem>)}
+                          <SelectItem value="__custom__">Outra (digitar)...</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="flex flex-1 gap-2">
+                        <Input
+                          placeholder="Ex.: Soldador, Mecânico, Eletricista"
+                          value={r.fn}
+                          onChange={(e) => updateRow(r.id, { fn: e.target.value })}
+                          className="flex-1"
+                        />
+                        {smartsheetFunctions.length > 0 && (
+                          <Button type="button" variant="outline" size="sm" onClick={() => updateRow(r.id, { manual: false, fn: "" })}>
+                            Lista
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {rows.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeRow(r.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  {rowShowWeld && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Tipo de solda</Label>
+                      {weldConfig.length > 0 ? (
+                        <Select value={r.weldType} onValueChange={(v) => updateRow(r.id, { weldType: v })}>
+                          <SelectTrigger><SelectValue placeholder="Selecione o tipo de solda" /></SelectTrigger>
+                          <SelectContent>
+                            {weldConfig.map((w) => (
+                              <SelectItem key={w.id} value={w.weld_type_name}>
+                                {w.weld_type_name}
+                                {w.requires_quality_validation && " (requer qualidade)"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          placeholder="Tipo de solda (nenhum configurado ainda)"
+                          value={r.weldType}
+                          onChange={(e) => updateRow(r.id, { weldType: e.target.value })}
+                        />
+                      )}
+                      {rowRequiresQuality && (
+                        <p className="text-xs text-amber-700 font-medium">
+                          Este tipo de solda exige validação da qualidade.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <Button type="button" variant="outline" size="sm" onClick={addRow} className="gap-1">
+              <Plus className="h-3.5 w-3.5" /> Adicionar função
+            </Button>
           </div>
-          {showWeld && (
-            <div className="space-y-1">
-              <Label>Tipo de solda</Label>
-              {weldConfig.length > 0 ? (
-                <Select value={weldType} onValueChange={setWeldType}>
-                  <SelectTrigger><SelectValue placeholder="Selecione o tipo de solda" /></SelectTrigger>
-                  <SelectContent>
-                    {weldConfig.map((w) => (
-                      <SelectItem key={w.id} value={w.weld_type_name}>
-                        {w.weld_type_name}
-                        {w.requires_quality_validation && " (requer qualidade)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  placeholder="Tipo de solda (nenhum configurado ainda)"
-                  value={weldType}
-                  onChange={(e) => setWeldType(e.target.value)}
-                />
-              )}
-              {requiresQuality && (
-                <p className="text-xs text-amber-700 font-medium">
-                  Este tipo de solda exige validação da qualidade.
-                </p>
-              )}
-            </div>
-          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label>Período — início *</Label>
@@ -463,9 +666,8 @@ function CreateDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => create.mutate()} disabled={create.isPending}>
-            {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Criar nomeação
+          <Button onClick={() => create.mutate()} loading={create.isPending}>
+            {rows.filter((r) => r.fn.trim()).length > 1 ? "Criar nomeações" : "Criar nomeação"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -497,7 +699,7 @@ function WeldConfigPanel() {
       setNewName("");
       qc.invalidateQueries({ queryKey: ["weld-type-config"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => notify.error(err.message),
   });
 
   const toggleQuality = useMutation({
@@ -509,7 +711,7 @@ function WeldConfigPanel() {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-type-config"] }),
-    onError: () => toast.error("Erro ao atualizar."),
+    onError: () => notify.error("Erro ao atualizar."),
   });
 
   const removeWeld = useMutation({
@@ -518,7 +720,7 @@ function WeldConfigPanel() {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-type-config"] }),
-    onError: () => toast.error("Erro ao remover."),
+    onError: () => notify.error("Erro ao remover."),
   });
 
   return (
@@ -535,13 +737,13 @@ function WeldConfigPanel() {
           onKeyDown={(e) => e.key === "Enter" && addWeld.mutate()}
           className="max-w-xs"
         />
-        <Button onClick={() => addWeld.mutate()} disabled={addWeld.isPending}>
+        <Button onClick={() => addWeld.mutate()} loading={addWeld.isPending}>
           <Plus className="h-4 w-4 mr-1" /> Adicionar
         </Button>
       </div>
 
       {weldConfig.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhum tipo de solda configurado.</p>
+        <EmptyState icon={Settings} title="Nenhum tipo de solda configurado" description="Adicione um tipo acima pra começar." />
       ) : (
         <div className="divide-y rounded-md border">
           {weldConfig.map((w) => (
@@ -562,6 +764,7 @@ function WeldConfigPanel() {
                   size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-destructive"
                   onClick={() => removeWeld.mutate(w.id)}
+                  loading={removeWeld.isPending && removeWeld.variables === w.id}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -670,8 +873,8 @@ function NominationsPage() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : filtered.length === 0 ? (
-            <Card className="p-8 text-center text-muted-foreground text-sm">
-              Nenhuma nomeação encontrada.
+            <Card className="p-4">
+              <EmptyState icon={User} title="Nenhuma nomeação encontrada" description="Ajuste os filtros acima ou crie uma nova solicitação." />
             </Card>
           ) : (
             <div className="space-y-2">

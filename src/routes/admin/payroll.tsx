@@ -10,11 +10,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate, downloadCSV } from "@/lib/format";
-import { toast } from "sonner";
-import { Plus, Download } from "lucide-react";
+import { notify } from "@/lib/notify";
+import { Plus, FileText } from "lucide-react";
 import { useState } from "react";
+import { EmptyStateRow } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/payroll")({ component: PayrollPage });
+export const Route = createFileRoute("/admin/payroll")({ head: () => pageTitle("Folha de Pagamento"), component: PayrollPage });
+
+// Exportação da folha — usada pelo módulo de Relatórios (card "Folha de Pagamento").
+export async function generateFolhaPagamento(): Promise<void> {
+  const { data: rows, error } = await supabase
+    .from("payroll_summaries")
+    .select("*, profiles!collaborator_id(full_name, email)")
+    .order("cycle_end", { ascending: false });
+  if (error) throw error;
+  const out = (rows ?? []).map((r: any) => ({
+    colaborador: r.profiles?.full_name, email: r.profiles?.email,
+    ciclo_inicio: r.cycle_start, ciclo_fim: r.cycle_end,
+    dias_onboard: r.days_onboard, horas_total: r.total_hours, horas_extra: r.overtime_hours,
+    sobreaviso_dias: r.sobreaviso_days, status: r.status, enviado: r.sent_at, confirmado: r.confirmed_at,
+    exportado_em: new Date().toISOString(),
+  }));
+  downloadCSV(`folha_${new Date().toISOString().slice(0, 10)}.csv`, out);
+}
 
 const STATUS = [
   { v: "pendente", l: "Pendente", t: "warning" as const },
@@ -42,23 +61,11 @@ function PayrollPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll"] }),
   });
 
-  const exportPayroll = () => {
-    const out = (rows ?? []).map((r: any) => ({
-      colaborador: r.profiles?.full_name, email: r.profiles?.email,
-      ciclo_inicio: r.cycle_start, ciclo_fim: r.cycle_end,
-      dias_onboard: r.days_onboard, horas_total: r.total_hours, horas_extra: r.overtime_hours,
-      sobreaviso_dias: r.sobreaviso_days, status: r.status, enviado: r.sent_at, confirmado: r.confirmed_at,
-      exportado_em: new Date().toISOString(),
-    }));
-    downloadCSV(`folha_${new Date().toISOString().slice(0, 10)}.csv`, out);
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-semibold">Comunicação à folha</h1></div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={exportPayroll}><Download className="mr-2 h-4 w-4" />Exportar CSV</Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild><Button><Plus className="mr-2 h-4 w-4" />Novo resumo</Button></DialogTrigger>
             <NewDialog collaborators={collaborators ?? []} onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["payroll"] }); }} />
@@ -90,7 +97,7 @@ function PayrollPage() {
                 </TableRow>
               );
             })}
-            {(rows ?? []).length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sem resumos.</TableCell></TableRow>}
+            {(rows ?? []).length === 0 && <EmptyStateRow colSpan={7} icon={FileText} title="Sem resumos" />}
           </TableBody>
         </Table>
       </Card>
@@ -100,14 +107,17 @@ function PayrollPage() {
 
 function NewDialog({ collaborators, onDone }: { collaborators: any[]; onDone: () => void }) {
   const [f, setF] = useState({ collaborator_id: "", cycle_start: "", cycle_end: "", days_onboard: "0", total_hours: "0", overtime_hours: "0", sobreaviso_days: "0" });
+  const [submitting, setSubmitting] = useState(false);
   const submit = async () => {
-    if (!f.collaborator_id || !f.cycle_start || !f.cycle_end) { toast.error("Preencha os campos"); return; }
+    if (!f.collaborator_id || !f.cycle_start || !f.cycle_end) { notify.error("Preencha os campos"); return; }
+    setSubmitting(true);
     const { error } = await supabase.from("payroll_summaries").insert({
       collaborator_id: f.collaborator_id, cycle_start: f.cycle_start, cycle_end: f.cycle_end,
       days_onboard: Number(f.days_onboard), total_hours: Number(f.total_hours),
       overtime_hours: Number(f.overtime_hours), sobreaviso_days: Number(f.sobreaviso_days),
     });
-    if (error) toast.error(error.message); else { toast.success("Resumo criado"); onDone(); }
+    setSubmitting(false);
+    if (error) notify.error(error.message); else { notify.success("Resumo criado"); onDone(); }
   };
   return (
     <DialogContent>
@@ -124,7 +134,7 @@ function NewDialog({ collaborators, onDone }: { collaborators: any[]; onDone: ()
         <div><Label>Horas extra</Label><Input type="number" step="0.5" value={f.overtime_hours} onChange={(e) => setF({ ...f, overtime_hours: e.target.value })} /></div>
         <div><Label>Sobreaviso (dias)</Label><Input type="number" value={f.sobreaviso_days} onChange={(e) => setF({ ...f, sobreaviso_days: e.target.value })} /></div>
       </div>
-      <DialogFooter><Button onClick={submit}>Salvar</Button></DialogFooter>
+      <DialogFooter><Button onClick={submit} loading={submitting}>Salvar</Button></DialogFooter>
     </DialogContent>
   );
 }

@@ -1,9 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import { parseSmartsheetRow, type OffshorePerson } from "../smartsheet";
+import {
+  parseSmartsheetRow, mergeDuplicatePeople, getTodayDisplayStatus, DAY_STATUS_FULL_LABEL, todayStr,
+  type OffshorePerson,
+} from "../smartsheet";
 
 export const getOffshoreData = createServerFn({ method: "GET" }).handler(async (): Promise<OffshorePerson[]> => {
-  const token = process.env.SMARTSHEET_TOKEN;
-  const sheetId = process.env.SMARTSHEET_SHEET_ID;
+  const token = import.meta.env.VITE_SMARTSHEET_TOKEN;
+  const sheetId = import.meta.env.VITE_SMARTSHEET_SHEET_ID;
 
   if (!token || !sheetId) throw new Error("Credenciais do Smartsheet não configuradas.");
 
@@ -20,7 +23,7 @@ export const getOffshoreData = createServerFn({ method: "GET" }).handler(async (
     colMap[String(col.id)] = col.title;
   }
 
-  return sheet.rows
+  const rows: OffshorePerson[] = sheet.rows
     .map((row: any) => {
       const raw: Record<string, any> = {};
       for (const cell of row.cells) {
@@ -31,4 +34,10 @@ export const getOffshoreData = createServerFn({ method: "GET" }).handler(async (
     })
     .filter((raw: any) => raw["Name"])
     .map(parseSmartsheetRow);
+
+  const today = todayStr();
+  return mergeDuplicatePeople(rows).map((p) => ({
+    ...p,
+    status: DAY_STATUS_FULL_LABEL[getTodayDisplayStatus(p, today)],
+  }));
 });

@@ -1,19 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { getOffshoreData } from "@/lib/api/smartsheet.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Upload, Trash2, Pencil } from "lucide-react";
+import { Plus, Upload, Trash2, Pencil, RefreshCw, Users } from "lucide-react";
 import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
 import * as XLSX from "xlsx";
 import { NewCollaboratorDialog } from "@/components/CollaboratorSelect";
+import { EmptyStateRow } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/collaborators")({ component: CollaboratorsPage });
+export const Route = createFileRoute("/admin/collaborators")({ head: () => pageTitle("Colaboradores"), component: CollaboratorsPage });
 
 type Row = { id: string; full_name: string; role: string | null; city: string | null; active: boolean };
 
@@ -39,9 +42,54 @@ function CollaboratorsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       qc.invalidateQueries({ queryKey: ["collaborators"] });
-      toast.success("Colaborador excluído");
+      notify.success("Colaborador excluído");
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const syncSmartsheet = useMutation({
+    mutationFn: async () => {
+      const people = await getOffshoreData();
+      const byName = new Map(rows.map((r) => [r.full_name.trim().toLowerCase(), r]));
+
+      const toInsert: { full_name: string; role: string | null; city: null; active: boolean }[] = [];
+      const toUpdate: { id: string; role: string | null }[] = [];
+      const seen = new Set<string>();
+
+      for (const p of people) {
+        const name = p.name.trim();
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const newRole = p.function || null;
+        const match = byName.get(key);
+        if (match) {
+          // Preserve the existing "cidade de residência" — only the função is synced.
+          if ((match.role ?? null) !== newRole) toUpdate.push({ id: match.id, role: newRole });
+        } else {
+          toInsert.push({ full_name: name, role: newRole, city: null, active: true });
+        }
+      }
+
+      if (toInsert.length) {
+        const { error } = await supabase.from("collaborators").insert(toInsert);
+        if (error) throw error;
+      }
+      for (const u of toUpdate) {
+        const { error } = await supabase.from("collaborators").update({ role: u.role }).eq("id", u.id);
+        if (error) throw error;
+      }
+
+      return { inserted: toInsert.length, updated: toUpdate.length };
+    },
+    onSuccess: ({ inserted, updated }) => {
+      qc.invalidateQueries({ queryKey: ["collaborators-all"] });
+      qc.invalidateQueries({ queryKey: ["collaborators"] });
+      notify.success(`Smartsheet sincronizado: ${inserted} novo(s), ${updated} atualizado(s). Cidade de residência preservada.`);
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao sincronizar com o Smartsheet."),
   });
 
   const update = useMutation({
@@ -53,9 +101,9 @@ function CollaboratorsPage() {
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       qc.invalidateQueries({ queryKey: ["collaborators"] });
       setEditing(null);
-      toast.success("Atualizado");
+      notify.success("Atualizado");
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => notify.error(e.message),
   });
 
   const onImport = async (file: File) => {
@@ -64,7 +112,7 @@ function CollaboratorsPage() {
       const wb = XLSX.read(buf);
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
-      if (!rows.length) { toast.error("Planilha vazia"); return; }
+      if (!rows.length) { notify.error("Planilha vazia"); return; }
       const norm = (k: any) => String(k ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
       const headerWords = ["nome", "name", "full_name", "colaborador", "funcao", "role", "cargo", "cidade", "city"];
       const first = rows[0].map(norm);
@@ -87,14 +135,14 @@ function CollaboratorsPage() {
         role: r[idxRole] != null ? (String(r[idxRole]).trim() || null) : null,
         city: r[idxCity] != null ? (String(r[idxCity]).trim() || null) : null,
       })).filter((r) => r.full_name);
-      if (!records.length) { toast.error("Nenhuma linha com nome encontrada"); return; }
+      if (!records.length) { notify.error("Nenhuma linha com nome encontrada"); return; }
       const { error } = await supabase.from("collaborators").insert(records);
       if (error) throw error;
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       qc.invalidateQueries({ queryKey: ["collaborators"] });
-      toast.success(`${records.length} colaboradores importados`);
+      notify.success(`${records.length} colaboradores importados`);
     } catch (e: any) {
-      toast.error(e.message);
+      notify.error(e.message);
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -109,6 +157,9 @@ function CollaboratorsPage() {
         </div>
         <div className="flex gap-2">
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
+          <Button variant="outline" onClick={() => syncSmartsheet.mutate()} loading={syncSmartsheet.isPending}>
+            <RefreshCw className="mr-2 h-4 w-4" />Sincronizar Smartsheet
+          </Button>
           <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Importar planilha</Button>
           <NewCollaboratorDialog>
             <Button><Plus className="mr-2 h-4 w-4" />Adicionar colaborador</Button>
@@ -137,12 +188,12 @@ function CollaboratorsPage() {
                 <TableCell>
                   <div className="flex gap-1">
                     <Button size="icon" variant="ghost" onClick={() => setEditing(r)}><Pencil className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Excluir definitivamente "${r.full_name}"? Esta ação não pode ser desfeita.`)) remove.mutate(r.id); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Excluir definitivamente "${r.full_name}"? Esta ação não pode ser desfeita.`)) remove.mutate(r.id); }} loading={remove.isPending && remove.variables === r.id}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </div>
                 </TableCell>
               </TableRow>
             ))}
-            {rows.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Nenhum colaborador cadastrado.</TableCell></TableRow>}
+            {rows.length === 0 && <EmptyStateRow colSpan={5} icon={Users} title="Nenhum colaborador cadastrado" />}
           </TableBody>
         </Table>
       </Card>
@@ -161,7 +212,7 @@ function CollaboratorsPage() {
               </div>
             </div>
           )}
-          <DialogFooter><Button onClick={() => editing && update.mutate(editing)}>Salvar</Button></DialogFooter>
+          <DialogFooter><Button onClick={() => editing && update.mutate(editing)} loading={update.isPending}>Salvar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

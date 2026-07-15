@@ -9,12 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtDate, fmtMoney, downloadCSV } from "@/lib/format";
-import { toast } from "sonner";
-import { Plus, Download } from "lucide-react";
+import { notify } from "@/lib/notify";
+import { Plus, DollarSign } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { EmptyStateRow } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/costs")({ component: CostsPage });
+export const Route = createFileRoute("/admin/costs")({ head: () => pageTitle("Custos"), component: CostsPage });
 
 const COST_TYPES = [
   { v: "transporte_pessoal", l: "Transporte de Pessoal" },
@@ -26,6 +28,22 @@ const COST_TYPES = [
   { v: "servico_externo", l: "Serviço Externo" },
   { v: "demandas_diversas", l: "Demandas Diversas" },
 ];
+
+// Exportação de custos — usada pelo módulo de Relatórios (card "Custos"). Exporta tudo,
+// sem respeitar os filtros de tela (que só valem enquanto a página de Custos está aberta).
+export async function generateRelatorioCustos(): Promise<void> {
+  const { data: rows, error } = await supabase
+    .from("cost_logs")
+    .select("*, profiles!collaborator_id(full_name), clients(name), vendors(name), projects(code)")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  const out = (rows ?? []).map((r: any) => ({
+    colaborador: r.profiles?.full_name, cliente: r.clients?.name, projeto: r.projects?.code,
+    tipo: COST_TYPES.find((c) => c.v === r.cost_type)?.l, fornecedor: r.vendors?.name,
+    valor: r.amount, periodo_inicio: r.period_start, periodo_fim: r.period_end, cobranca: r.billing,
+  }));
+  downloadCSV(`custos_${new Date().toISOString().slice(0, 10)}.csv`, out);
+}
 
 function CostsPage() {
   const qc = useQueryClient();
@@ -47,21 +65,11 @@ function CostsPage() {
   const { data: vendors } = useQuery({ queryKey: ["vendors"], queryFn: async () => (await supabase.from("vendors").select("*").eq("active", true)).data ?? [] });
   const { data: collaborators } = useQuery({ queryKey: ["all-profiles"], queryFn: async () => (await supabase.from("profiles").select("id, full_name, email")).data ?? [] });
 
-  const exportCsv = () => {
-    const out = (rows ?? []).map((r: any) => ({
-      colaborador: r.profiles?.full_name, cliente: r.clients?.name, projeto: r.projects?.code,
-      tipo: COST_TYPES.find((c) => c.v === r.cost_type)?.l, fornecedor: r.vendors?.name,
-      valor: r.amount, periodo_inicio: r.period_start, periodo_fim: r.period_end, cobranca: r.billing,
-    }));
-    downloadCSV(`custos_${new Date().toISOString().slice(0, 10)}.csv`, out);
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h1 className="text-2xl font-semibold">Custos (Lançamentos)</h1></div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={exportCsv}><Download className="mr-2 h-4 w-4" />Exportar CSV</Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild><Button><Plus className="mr-2 h-4 w-4" />Novo lançamento</Button></DialogTrigger>
             <NewDialog clients={clients ?? []} projects={projects ?? []} vendors={vendors ?? []} collaborators={collaborators ?? []} onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["costs"] }); }} />
@@ -101,7 +109,7 @@ function CostsPage() {
                 <TableCell className="text-right font-medium">{fmtMoney(r.amount)}</TableCell>
               </TableRow>
             ))}
-            {(rows ?? []).length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sem lançamentos.</TableCell></TableRow>}
+            {(rows ?? []).length === 0 && <EmptyStateRow colSpan={7} icon={DollarSign} title="Sem lançamentos" />}
           </TableBody>
         </Table>
       </Card>
@@ -116,16 +124,16 @@ function NewDialog({ clients, projects, vendors, collaborators, onDone }: { clie
   const isCancel = ["embarque_cancelado", "embarque_transferido"].includes(f.cost_type);
 
   const submit = async () => {
-    if (!f.collaborator_id || !f.client_id || !f.cost_type || !f.vendor_id) { toast.error("Preencha os campos obrigatórios"); return; }
-    if (!isCancel && Number(f.amount) <= 0) { toast.error("Valor obrigatório"); return; }
-    if (periodRequired && (!f.period_start || !f.period_end)) { toast.error("Período obrigatório para hospedagem/passagens"); return; }
+    if (!f.collaborator_id || !f.client_id || !f.cost_type || !f.vendor_id) { notify.error("Preencha os campos obrigatórios"); return; }
+    if (!isCancel && Number(f.amount) <= 0) { notify.error("Valor obrigatório"); return; }
+    if (periodRequired && (!f.period_start || !f.period_end)) { notify.error("Período obrigatório para hospedagem/passagens"); return; }
     const { error } = await supabase.from("cost_logs").insert({
       collaborator_id: f.collaborator_id, client_id: f.client_id, project_id: f.project_id || null,
       cost_type: f.cost_type, vendor_id: f.vendor_id, amount: Number(f.amount) || 0,
       period_start: f.period_start || null, period_end: f.period_end || null,
       billing: f.billing, notes: f.notes || null, created_by: user?.id,
     });
-    if (error) toast.error(error.message); else { toast.success("Lançado"); onDone(); }
+    if (error) notify.error(error.message); else { notify.success("Lançado"); onDone(); }
   };
 
   return (

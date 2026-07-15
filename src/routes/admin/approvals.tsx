@@ -11,12 +11,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDateTime } from "@/lib/format";
-import { toast } from "sonner";
-import { Plus, Check, X } from "lucide-react";
+import { notify } from "@/lib/notify";
+import { Plus, Check, X, Inbox } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { EmptyStateRow } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/approvals")({ component: ApprovalsPage });
+export const Route = createFileRoute("/admin/approvals")({ head: () => pageTitle("Aprovações"), component: ApprovalsPage });
 
 function ApprovalsPage() {
   const qc = useQueryClient();
@@ -37,7 +39,7 @@ function ApprovalsPage() {
       }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["approvals"] }); toast.success("Decisão registrada"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["approvals"] }); notify.success("Decisão registrada"); },
   });
 
   return (
@@ -70,14 +72,27 @@ function ApprovalsPage() {
                 <TableCell className="text-right">
                   {r.status === "pending" && (
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="outline" onClick={() => decide.mutate({ id: r.id, approve: false, comment: comments[r.id] })}><X className="h-4 w-4" /></Button>
-                      <Button size="sm" onClick={() => decide.mutate({ id: r.id, approve: true, comment: comments[r.id] })}><Check className="h-4 w-4" /></Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => decide.mutate({ id: r.id, approve: false, comment: comments[r.id] })}
+                        loading={decide.isPending && decide.variables?.id === r.id && decide.variables.approve === false}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => decide.mutate({ id: r.id, approve: true, comment: comments[r.id] })}
+                        loading={decide.isPending && decide.variables?.id === r.id && decide.variables.approve === true}
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
                     </div>
                   )}
                 </TableCell>
               </TableRow>
             ))}
-            {(rows ?? []).length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Nenhuma solicitação.</TableCell></TableRow>}
+            {(rows ?? []).length === 0 && <EmptyStateRow colSpan={7} icon={Inbox} title="Nenhuma solicitação" description="Não há aprovações pendentes no momento." />}
           </TableBody>
         </Table>
       </Card>
@@ -88,13 +103,16 @@ function ApprovalsPage() {
 function NewDialog({ approvers, collaborators, onDone }: { approvers: any[]; collaborators: any[]; onDone: () => void }) {
   const { user } = useAuth();
   const [f, setF] = useState({ request_type: "Hora extra", approver_id: "", collaborator_id: "", notes: "" });
+  const [submitting, setSubmitting] = useState(false);
   const submit = async () => {
-    if (!f.approver_id) { toast.error("Selecione um aprovador"); return; }
+    if (!f.approver_id) { notify.error("Selecione um aprovador"); return; }
+    setSubmitting(true);
     const { error } = await supabase.from("approval_requests").insert({
       request_type: f.request_type, approver_id: f.approver_id, requested_by: user!.id,
       collaborator_id: f.collaborator_id || null, payload: { notes: f.notes },
     });
-    if (error) toast.error(error.message); else { toast.success("Solicitação criada"); onDone(); }
+    setSubmitting(false);
+    if (error) notify.error(error.message); else { notify.success("Solicitação criada"); onDone(); }
   };
   return (
     <DialogContent>
@@ -119,7 +137,7 @@ function NewDialog({ approvers, collaborators, onDone }: { approvers: any[]; col
         </div>
         <div><Label>Detalhes</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
       </div>
-      <DialogFooter><Button onClick={submit}>Criar</Button></DialogFooter>
+      <DialogFooter><Button onClick={submit} loading={submitting}>Criar</Button></DialogFooter>
     </DialogContent>
   );
 }

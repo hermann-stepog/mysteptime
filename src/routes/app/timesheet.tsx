@@ -8,12 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate } from "@/lib/format";
-import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { notify } from "@/lib/notify";
+import { Plus, Clock } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { EmptyState } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/app/timesheet")({ component: TS });
+export const Route = createFileRoute("/app/timesheet")({ head: () => pageTitle("Timesheet"), component: TS });
 
 const ACTIVITY = ["Operação", "Manutenção", "Standby", "Treinamento", "Deslocamento"];
 
@@ -36,7 +38,7 @@ function TS() {
         <Button size="sm" onClick={() => setCreating(true)}><Plus className="mr-1 h-4 w-4" />Novo</Button>
       </div>
 
-      <Card className="p-4 bg-primary text-primary-foreground">
+      <Card className="bg-gradient-to-br from-primary to-primary/80 p-4 text-primary-foreground">
         <div className="text-xs uppercase tracking-wider opacity-80">Horas acumuladas no ciclo</div>
         <div className="mt-1 text-3xl font-semibold">{accumulated.toFixed(1)}h</div>
       </Card>
@@ -58,7 +60,11 @@ function TS() {
             </div>
           </Card>
         ))}
-        {(rows ?? []).length === 0 && <Card className="p-6 text-center text-sm text-muted-foreground">Nenhum registro.</Card>}
+        {(rows ?? []).length === 0 && (
+          <Card className="p-4">
+            <EmptyState icon={Clock} title="Nenhum registro" action={{ label: "Novo Lançamento", onClick: () => setCreating(true) }} />
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -74,7 +80,7 @@ function NewTS({ onClose }: { onClose: () => void }) {
       collaborator_id: user!.id, work_date: f.work_date, project_id: f.project_id || null,
       activity_type: f.activity_type, hours: Number(f.hours) || 0, status,
     });
-    if (error) toast.error(error.message); else { toast.success("Salvo"); onClose(); }
+    if (error) notify.error(error.message); else { notify.success("Salvo"); onClose(); }
   };
 
   return (

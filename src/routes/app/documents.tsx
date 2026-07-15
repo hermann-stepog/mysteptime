@@ -8,12 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate, docStatus } from "@/lib/format";
-import { toast } from "sonner";
-import { Plus, AlertTriangle } from "lucide-react";
+import { notify } from "@/lib/notify";
+import { Plus, AlertTriangle, FileText } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { EmptyState } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/app/documents")({ component: Docs });
+export const Route = createFileRoute("/app/documents")({ head: () => pageTitle("Documentos"), component: Docs });
 
 const DOC_TYPES = ["ASO", "NR-10", "NR-13", "CREA", "Certificado de Sobrevivência Offshore", "Outros"];
 
@@ -58,7 +60,11 @@ function Docs() {
             </Card>
           );
         })}
-        {(docs ?? []).length === 0 && <Card className="p-6 text-center text-sm text-muted-foreground">Nenhum documento.</Card>}
+        {(docs ?? []).length === 0 && (
+          <Card className="p-4">
+            <EmptyState icon={FileText} title="Nenhum documento" action={{ label: "Adicionar Documento", onClick: () => setCreating(true) }} />
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -68,9 +74,9 @@ function NewDoc({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
   const [f, setF] = useState({ doc_type: DOC_TYPES[0], doc_name: "", expires_at: "" });
   const save = async () => {
-    if (!f.doc_name || !f.expires_at) { toast.error("Preencha os campos"); return; }
+    if (!f.doc_name || !f.expires_at) { notify.error("Preencha os campos"); return; }
     const { error } = await supabase.from("documents").insert({ collaborator_id: user!.id, ...f });
-    if (error) toast.error(error.message); else { toast.success("Documento salvo"); onClose(); }
+    if (error) notify.error(error.message); else { notify.success("Documento salvo"); onClose(); }
   };
   return (
     <Card className="p-4 space-y-3">

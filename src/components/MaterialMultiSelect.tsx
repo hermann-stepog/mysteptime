@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Check, ChevronsUpDown, Plus, X, PackagePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
 
 export type Material = {
   id: string;
@@ -58,14 +58,14 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
       return data as Material;
     },
     onSuccess: (m) => {
-      toast.success("Material adicionado");
+      notify.success("Material adicionado");
       qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["materials-all"] });
       setF({ volume: "Caixa", qtd: 1, categoria: "" });
       setOpen(false);
       onCreated?.(m);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => notify.error(e.message),
   });
 
   return (
@@ -94,7 +94,7 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
           <div><Label>Categoria <span className="text-xs text-muted-foreground">(opcional)</span></Label><Input value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} /></div>
         </div>
         <DialogFooter>
-          <Button disabled={!f.volume || create.isPending} onClick={() => create.mutate()}>Salvar</Button>
+          <Button disabled={!f.volume} loading={create.isPending} onClick={() => create.mutate()}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
