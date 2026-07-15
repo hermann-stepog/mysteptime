@@ -366,7 +366,6 @@ export type Database = {
       }
       hist_novo_periodos: {
         Row: {
-          bsp: string | null
           centro_de_custo: string | null
           colaborador_id: string
           created_at: string
@@ -379,7 +378,6 @@ export type Database = {
           unidade_operacional: string | null
         }
         Insert: {
-          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id: string
           created_at?: string
@@ -392,7 +390,6 @@ export type Database = {
           unidade_operacional?: string | null
         }
         Update: {
-          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id?: string
           created_at?: string
@@ -505,6 +502,101 @@ export type Database = {
           qtd?: number
           updated_at?: string
           volume?: string | null
+        }
+        Relationships: []
+      }
+      nomination_status_history: {
+        Row: {
+          changed_at: string
+          changed_by_name: string
+          id: string
+          nomination_id: string
+          notes: string | null
+          status: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by_name: string
+          id?: string
+          nomination_id: string
+          notes?: string | null
+          status: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by_name?: string
+          id?: string
+          nomination_id?: string
+          notes?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nomination_status_history_nomination_id_fkey"
+            columns: ["nomination_id"]
+            isOneToOne: false
+            referencedRelation: "nominations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nominations: {
+        Row: {
+          approved_collaborator_id: string | null
+          approved_collaborator_name: string | null
+          client: string | null
+          created_at: string
+          current_status: string
+          function_requested: string
+          id: string
+          notes: string | null
+          period_end: string
+          period_start: string
+          pm_name: string
+          pm_user_id: string | null
+          project: string | null
+          requires_quality_validation: boolean
+          requires_superior_approval: boolean
+          updated_at: string
+          weld_type: string | null
+        }
+        Insert: {
+          approved_collaborator_id?: string | null
+          approved_collaborator_name?: string | null
+          client?: string | null
+          created_at?: string
+          current_status?: string
+          function_requested: string
+          id?: string
+          notes?: string | null
+          period_end: string
+          period_start: string
+          pm_name: string
+          pm_user_id?: string | null
+          project?: string | null
+          requires_quality_validation?: boolean
+          requires_superior_approval?: boolean
+          updated_at?: string
+          weld_type?: string | null
+        }
+        Update: {
+          approved_collaborator_id?: string | null
+          approved_collaborator_name?: string | null
+          client?: string | null
+          created_at?: string
+          current_status?: string
+          function_requested?: string
+          id?: string
+          notes?: string | null
+          period_end?: string
+          period_start?: string
+          pm_name?: string
+          pm_user_id?: string | null
+          project?: string | null
+          requires_quality_validation?: boolean
+          requires_superior_approval?: boolean
+          updated_at?: string
+          weld_type?: string | null
         }
         Relationships: []
       }
@@ -716,6 +808,74 @@ export type Database = {
           },
         ]
       }
+      timesheet_dias: {
+        Row: {
+          adicional_noturno: boolean | null
+          criado_em: string
+          data: string
+          descricao_tarefa: string | null
+          dia_semana: string | null
+          evento: string | null
+          feriado: boolean | null
+          hora_entrada: string | null
+          hora_entrada_extra: string | null
+          hora_saida: string | null
+          hora_saida_extra: string | null
+          horas_extras: number | null
+          horas_normais: number | null
+          id: string
+          numero_tarefa: string | null
+          semana_id: string
+          total_horas: number | null
+        }
+        Insert: {
+          adicional_noturno?: boolean | null
+          criado_em?: string
+          data: string
+          descricao_tarefa?: string | null
+          dia_semana?: string | null
+          evento?: string | null
+          feriado?: boolean | null
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          semana_id: string
+          total_horas?: number | null
+        }
+        Update: {
+          adicional_noturno?: boolean | null
+          criado_em?: string
+          data?: string
+          descricao_tarefa?: string | null
+          dia_semana?: string | null
+          evento?: string | null
+          feriado?: boolean | null
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          semana_id?: string
+          total_horas?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timesheet_dias_semana_id_fkey"
+            columns: ["semana_id"]
+            isOneToOne: false
+            referencedRelation: "timesheet_semanas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       timesheet_embarques: {
         Row: {
           bsp: string | null
@@ -723,7 +883,7 @@ export type Database = {
           criado_em: string
           data_fim_embarque: string
           data_inicio_embarque: string
-          funcao_embarque: string
+          funcao_embarque: string | null
           id: string
           periodo_id: string | null
           status_entrega: string
@@ -735,7 +895,7 @@ export type Database = {
           criado_em?: string
           data_fim_embarque: string
           data_inicio_embarque: string
-          funcao_embarque: string
+          funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
           status_entrega?: string
@@ -747,7 +907,7 @@ export type Database = {
           criado_em?: string
           data_fim_embarque?: string
           data_inicio_embarque?: string
-          funcao_embarque?: string
+          funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
           status_entrega?: string
@@ -804,74 +964,6 @@ export type Database = {
             columns: ["embarque_id"]
             isOneToOne: false
             referencedRelation: "timesheet_embarques"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      timesheet_dias: {
-        Row: {
-          adicional_noturno: boolean
-          criado_em: string
-          data: string
-          descricao_tarefa: string | null
-          dia_semana: string
-          evento: string | null
-          feriado: boolean
-          hora_entrada: string | null
-          hora_entrada_extra: string | null
-          hora_saida: string | null
-          hora_saida_extra: string | null
-          horas_extras: number | null
-          horas_normais: number | null
-          id: string
-          numero_tarefa: string | null
-          semana_id: string
-          total_horas: number | null
-        }
-        Insert: {
-          adicional_noturno?: boolean
-          criado_em?: string
-          data: string
-          descricao_tarefa?: string | null
-          dia_semana: string
-          evento?: string | null
-          feriado?: boolean
-          hora_entrada?: string | null
-          hora_entrada_extra?: string | null
-          hora_saida?: string | null
-          hora_saida_extra?: string | null
-          horas_extras?: number | null
-          horas_normais?: number | null
-          id?: string
-          numero_tarefa?: string | null
-          semana_id: string
-          total_horas?: number | null
-        }
-        Update: {
-          adicional_noturno?: boolean
-          criado_em?: string
-          data?: string
-          descricao_tarefa?: string | null
-          dia_semana?: string
-          evento?: string | null
-          feriado?: boolean
-          hora_entrada?: string | null
-          hora_entrada_extra?: string | null
-          hora_saida?: string | null
-          hora_saida_extra?: string | null
-          horas_extras?: number | null
-          horas_normais?: number | null
-          id?: string
-          numero_tarefa?: string | null
-          semana_id?: string
-          total_horas?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "timesheet_dias_semana_id_fkey"
-            columns: ["semana_id"]
-            isOneToOne: false
-            referencedRelation: "timesheet_semanas"
             referencedColumns: ["id"]
           },
         ]
@@ -1029,6 +1121,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      transport_solicitations: {
+        Row: {
+          centro_custo: string
+          created_at: string
+          data_hora: string
+          destino: string | null
+          id: string
+          notes: string | null
+          origem: string | null
+          setor: string
+          solicitante: string
+          status: string
+          tipos_transporte: string[]
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          centro_custo: string
+          created_at?: string
+          data_hora: string
+          destino?: string | null
+          id?: string
+          notes?: string | null
+          origem?: string | null
+          setor: string
+          solicitante: string
+          status?: string
+          tipos_transporte?: string[]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          centro_custo?: string
+          created_at?: string
+          data_hora?: string
+          destino?: string | null
+          id?: string
+          notes?: string | null
+          origem?: string | null
+          setor?: string
+          solicitante?: string
+          status?: string
+          tipos_transporte?: string[]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       transport_tags: {
         Row: {
@@ -1284,6 +1424,27 @@ export type Database = {
         }
         Relationships: []
       }
+      weld_type_config: {
+        Row: {
+          created_at: string
+          id: string
+          requires_quality_validation: boolean
+          weld_type_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          requires_quality_validation?: boolean
+          weld_type_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          requires_quality_validation?: boolean
+          weld_type_name?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -1299,7 +1460,12 @@ export type Database = {
       is_operator: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
-      app_role: "pending" | "collaborator" | "logistics_operator"
+      app_role:
+        | "pending"
+        | "collaborator"
+        | "logistics_operator"
+        | "visitante"
+        | "pm"
       approval_status: "pending" | "approved" | "rejected"
       billing_type: "com_cobranca" | "sem_cobranca"
       cost_type:
@@ -1458,7 +1624,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["pending", "collaborator", "logistics_operator"],
+      app_role: [
+        "pending",
+        "collaborator",
+        "logistics_operator",
+        "visitante",
+        "pm",
+      ],
       approval_status: ["pending", "approved", "rejected"],
       billing_type: ["com_cobranca", "sem_cobranca"],
       cost_type: [
