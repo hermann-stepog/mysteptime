@@ -5,8 +5,9 @@ import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate } from "@/lib/format";
 import { useAuth } from "@/hooks/useAuth";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/app/financial")({ component: Fin });
+export const Route = createFileRoute("/app/financial")({ head: () => pageTitle("Financeiro"), component: Fin });
 
 const STATUS_L: Record<string, { tone: "warning" | "primary" | "success"; label: string }> = {
   pendente: { tone: "warning", label: "Em processamento" },

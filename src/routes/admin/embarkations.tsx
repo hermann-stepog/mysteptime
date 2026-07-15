@@ -14,13 +14,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { Loader2, Users, Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Check, ChevronsUpDown, X } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
+import { FadeInView } from "@/components/FadeInView";
 import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList,
   PieChart, Pie, Cell,
 } from "recharts";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/embarkations")({ component: HistogramaOffshore });
+export const Route = createFileRoute("/admin/embarkations")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshore });
 
 function defaultStart() {
   const d = new Date();
@@ -480,14 +483,18 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
           { label: "Disponíveis",      value: kpis.disponiveis,          icon: CheckCircle2 },
           { label: "Não Disponíveis",  value: kpis.naoDisp,              icon: AlertCircle  },
           { label: "Utilização",       value: `${kpis.utilizacao}%`,     icon: TrendingUp   },
-        ] as { label: string; value: string | number; icon: ElementType }[]).map((k) => (
-          <Card key={k.label} className="p-4">
+        ] as { label: string; value: string | number; icon: ElementType }[]).map((k, i) => (
+          <FadeInView key={k.label} delay={i * 0.05}>
+          <Card className="bg-gradient-to-br from-white to-slate-50 p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
               <k.icon className="h-4 w-4 text-muted-foreground" />
             </div>
-            <div className="mt-2 text-3xl font-semibold">{k.value}</div>
+            <div className="mt-2 bg-gradient-to-br from-slate-800 to-slate-500 bg-clip-text text-3xl font-semibold text-transparent">
+              {k.value}
+            </div>
           </Card>
+          </FadeInView>
         ))}
       </div>
 
@@ -505,7 +512,7 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
               <Tooltip formatter={(v: number, n: string) => [`${v} pessoas`, n]} />
             </PieChart>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-2xl font-bold text-[#1e3a5f]">{kpis.utilizacao}%</span>
+              <span className="bg-gradient-to-br from-[#1e3a5f] to-[#4a7bb5] bg-clip-text text-2xl font-bold text-transparent">{kpis.utilizacao}%</span>
               <span className="text-[10px] text-muted-foreground">ocupação</span>
             </div>
           </div>
@@ -523,13 +530,13 @@ function DashboardTab({ people, dateStart, dateEnd }: { people: OffshorePerson[]
             <div className="border-t pt-4 grid grid-cols-2 gap-4">
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio Offshore</p>
-                <p className="mt-1 text-2xl font-bold text-[#1e3a5f]">
+                <p className="mt-1 bg-gradient-to-br from-[#1e3a5f] to-[#4a7bb5] bg-clip-text text-2xl font-bold text-transparent">
                   {avgMetrics.avgOffshore}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
                 </p>
               </div>
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio de Folga</p>
-                <p className="mt-1 text-2xl font-bold text-sky-500">
+                <p className="mt-1 bg-gradient-to-br from-sky-500 to-sky-300 bg-clip-text text-2xl font-bold text-transparent">
                   {avgMetrics.avgTimeOff}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
                 </p>
               </div>
@@ -758,8 +765,8 @@ function HistogramaTab({ people, dateStart, dateEnd, filterDayStatus, onFilterDa
             ))}
             {people.length === 0 && (
               <tr>
-                <td colSpan={4 + dates.length} className="py-10 text-center text-sm text-muted-foreground">
-                  Nenhum colaborador encontrado.
+                <td colSpan={4 + dates.length}>
+                  <EmptyState icon={Users} title="Nenhum colaborador encontrado" />
                 </td>
               </tr>
             )}

@@ -6,8 +6,11 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { Ship, Truck, Hotel, Bell } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { notify } from "@/lib/notify";
+import { EmptyState } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/app/schedule")({ component: Schedule });
+export const Route = createFileRoute("/app/schedule")({ head: () => pageTitle("Agenda"), component: Schedule });
 
 function Schedule() {
   const { user } = useAuth();
@@ -21,6 +24,7 @@ function Schedule() {
   const markRead = useMutation({
     mutationFn: async (id: string) => { const { error } = await supabase.from("notifications").update({ read: true }).eq("id", id); if (error) throw error; },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["my-notifs"] }),
+    onError: () => notify.error("Não foi possível marcar a notificação como lida."),
   });
 
   return (
@@ -42,7 +46,7 @@ function Schedule() {
               <div className="mt-1 text-[10px] text-muted-foreground">{fmtDateTime(n.created_at)}</div>
             </Card>
           ))}
-          {(notifs ?? []).length === 0 && <Card className="p-4 text-center text-sm text-muted-foreground">Sem notificações.</Card>}
+          {(notifs ?? []).length === 0 && <Card className="p-4"><EmptyState icon={Bell} title="Sem notificações" className="py-4" /></Card>}
         </div>
       </section>
 
@@ -58,7 +62,7 @@ function Schedule() {
               {e.pre_embark_instructions && <div className="mt-1 text-xs text-muted-foreground">{e.pre_embark_instructions}</div>}
             </Card>
           ))}
-          {(embarks ?? []).length === 0 && <Card className="p-4 text-center text-sm text-muted-foreground">Sem embarques.</Card>}
+          {(embarks ?? []).length === 0 && <Card className="p-4"><EmptyState icon={Ship} title="Sem embarques" className="py-4" /></Card>}
         </div>
       </section>
 
@@ -71,7 +75,7 @@ function Schedule() {
               <div className="mt-0.5 text-xs text-muted-foreground">{fmtDateTime(t.scheduled_at)} · {t.transport_type} · {t.vendors?.name ?? "—"}</div>
             </Card>
           ))}
-          {(transports ?? []).length === 0 && <Card className="p-4 text-center text-sm text-muted-foreground">Sem transporte agendado.</Card>}
+          {(transports ?? []).length === 0 && <Card className="p-4"><EmptyState icon={Truck} title="Sem transporte agendado" className="py-4" /></Card>}
         </div>
       </section>
 
@@ -84,7 +88,7 @@ function Schedule() {
               <div className="mt-0.5 text-xs text-muted-foreground">{fmtDate(h.check_in)} → {fmtDate(h.check_out)}</div>
             </Card>
           ))}
-          {(hotels ?? []).length === 0 && <Card className="p-4 text-center text-sm text-muted-foreground">Sem hospedagem.</Card>}
+          {(hotels ?? []).length === 0 && <Card className="p-4"><EmptyState icon={Hotel} title="Sem hospedagem" className="py-4" /></Card>}
         </div>
       </section>
     </div>

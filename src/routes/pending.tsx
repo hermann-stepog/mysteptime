@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Clock, RefreshCw, LogOut } from "lucide-react";
 import { useEffect } from "react";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/pending")({ component: Pending });
+export const Route = createFileRoute("/pending")({ head: () => pageTitle("Aguardando Aprovação"), component: Pending });
 
 function Pending() {
   const { user, role, signOut, refreshRole, loading } = useAuth();

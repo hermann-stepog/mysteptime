@@ -23,9 +23,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Plus, CalendarDays, ChevronRight, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
+import { EmptyState } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/pm/")({ component: PmHome });
+export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Solicitações"), component: PmHome });
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -157,11 +159,11 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
       });
     },
     onSuccess: () => {
-      toast.success("Solicitação enviada.");
+      notify.success("Solicitação enviada.");
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });
       onClose();
     },
-    onError: (err: Error) => toast.error(err.message || "Erro ao criar solicitação."),
+    onError: (err: Error) => notify.error(err.message || "Erro ao criar solicitação."),
   });
 
   return (
@@ -225,8 +227,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => create.mutate()} disabled={create.isPending}>
-            {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button onClick={() => create.mutate()} loading={create.isPending}>
             Enviar solicitação
           </Button>
         </DialogFooter>
@@ -293,10 +294,12 @@ function PmHome() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : visible.length === 0 ? (
-        <Card className="p-10 text-center text-muted-foreground text-sm">
-          {nominations.length === 0
-            ? "Você ainda não tem solicitações. Clique em \"Nova solicitação\" para começar."
-            : "Nenhuma solicitação com este status."}
+        <Card className="p-4">
+          {nominations.length === 0 ? (
+            <EmptyState icon={CalendarDays} title="Você ainda não tem solicitações" action={{ label: "Nova solicitação", onClick: () => setShowCreate(true) }} />
+          ) : (
+            <EmptyState icon={CalendarDays} title="Nenhuma solicitação com este status" />
+          )}
         </Card>
       ) : (
         <div className="space-y-3">

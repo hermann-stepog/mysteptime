@@ -9,12 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate } from "@/lib/format";
-import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { notify } from "@/lib/notify";
+import { Plus, ClipboardList } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { EmptyState } from "@/components/EmptyState";
+import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/app/")({ component: RDOPage });
+export const Route = createFileRoute("/app/")({ head: () => pageTitle("RDO"), component: RDOPage });
 
 function RDOPage() {
   const { user } = useAuth();
@@ -53,7 +55,11 @@ function RDOPage() {
             </div>
           </Card>
         ))}
-        {(rows ?? []).length === 0 && <Card className="p-6 text-center text-sm text-muted-foreground">Nenhum RDO. Toque em Novo.</Card>}
+        {(rows ?? []).length === 0 && (
+          <Card className="p-4">
+            <EmptyState icon={ClipboardList} title="Nenhum RDO lançado" action={{ label: "Novo RDO", onClick: () => setCreating(true) }} />
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -65,12 +71,12 @@ function NewRDO({ onClose }: { onClose: () => void }) {
   const [f, setF] = useState({ report_date: new Date().toISOString().slice(0, 10), project_id: "", activity: "", hours: "8", observations: "" });
 
   const save = async (status: "draft" | "submitted") => {
-    if (!f.activity) { toast.error("Descreva a atividade"); return; }
+    if (!f.activity) { notify.error("Descreva a atividade"); return; }
     const { error } = await supabase.from("rdo_entries").insert({
       collaborator_id: user!.id, report_date: f.report_date, project_id: f.project_id || null,
       activity: f.activity, hours: Number(f.hours) || 0, observations: f.observations || null, status,
     });
-    if (error) toast.error(error.message); else { toast.success(status === "draft" ? "Rascunho salvo" : "RDO enviado"); onClose(); }
+    if (error) notify.error(error.message); else { notify.success(status === "draft" ? "Rascunho salvo" : "RDO enviado"); onClose(); }
   };
 
   return (

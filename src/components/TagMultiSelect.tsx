@@ -8,7 +8,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Badge } from "@/components/ui/badge";
 import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { notify } from "@/lib/notify";
 
 export type Tag = { id: string; name: string; color: string };
 
@@ -53,9 +53,9 @@ export function TagMultiSelect({ value, onChange }: { value: string[]; onChange:
       qc.invalidateQueries({ queryKey: ["transport_tags"] });
       onChange([...value, t.id]);
       setNewName("");
-      toast.success("Etiqueta criada");
+      notify.success("Etiqueta criada");
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => notify.error(e.message),
   });
 
   return (
@@ -83,7 +83,7 @@ export function TagMultiSelect({ value, onChange }: { value: string[]; onChange:
             </CommandList>
             <div className="border-t p-2 flex gap-1">
               <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nova etiqueta..." className="h-8" />
-              <Button size="sm" disabled={!newName.trim() || create.isPending} onClick={() => create.mutate(newName)}><Plus className="h-3 w-3" /></Button>
+              <Button size="sm" disabled={!newName.trim()} loading={create.isPending} onClick={() => create.mutate(newName)}><Plus className="h-3 w-3" /></Button>
             </div>
           </Command>
         </PopoverContent>

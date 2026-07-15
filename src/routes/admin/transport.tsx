@@ -1,5 +1,6 @@
 import { createFileRoute, useSearch, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // Tabelas ainda não migradas (transport_solicitations/nominations/weld_type_config); cast local.
 const supabase: any = supabaseTyped;
@@ -12,17 +13,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Download, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
-import * as XLSX from "xlsx";
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { notify } from "@/lib/notify";
 import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
 import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
+import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
+import { FadeInView } from "@/components/FadeInView";
 import { CLIENTES } from "@/lib/clientes";
+import { useAuth } from "@/hooks/useAuth";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
+import { pageTitle } from "@/lib/pageTitle";
 
 
 type TripStatus = "em_andamento" | "realizado" | "cancelado";
@@ -30,7 +34,7 @@ type TripTipo = "pessoas" | "material";
 
 type TransportSearch = { tab?: string; tag?: string; status?: string; cliente?: string; tipo?: string };
 
-export const Route = createFileRoute("/admin/transport")({
+export const Route = createFileRoute("/admin/transport")({ head: () => pageTitle("Transporte"),
   component: TransportPage,
   validateSearch: (s: Record<string, unknown>): TransportSearch => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
@@ -91,6 +95,50 @@ function compareCarNumber(a: string, b: string) {
   const nb = parseInt((b.match(/\d+/) ?? ["0"])[0], 10);
   if (na !== nb) return na - nb;
   return a.localeCompare(b);
+}
+
+// Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
+// Busca os próprios dados (não depende de nenhuma tela já aberta) e já baixa tudo, sem
+// diálogo de opções — igual ao resto dos cartões de Relatórios.
+export async function generateRelatorioTransporte(): Promise<void> {
+  const [{ data: trips, error: tripsErr }, { data: tags }, { data: collabs }, { data: materials }] = await Promise.all([
+    supabase.from("transport_trips")
+      .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
+      .order("scheduled_at"),
+    supabase.from("transport_tags").select("*"),
+    supabase.from("collaborators").select("*").eq("active", true),
+    supabase.from("materials").select("*").eq("active", true),
+  ]);
+  if (tripsErr) throw tripsErr;
+
+  const tagsById = new Map(((tags ?? []) as Tag[]).map((t) => [t.id, t]));
+  const collabsById = new Map(((collabs ?? []) as Collaborator[]).map((c) => [c.id, c]));
+  const materialsById = new Map(((materials ?? []) as Material[]).map((m) => [m.id, m]));
+
+  const rows = ((trips ?? []) as Trip[]).map((t) => ({
+    Data: fmtDate(t.scheduled_at),
+    Carro: t.car_number,
+    Tipo: t.tipo === "material" ? "Material" : "Pessoas",
+    Cliente: t.cliente ?? "",
+    "Cliente 2": t.cliente_2 ?? "",
+    "Cliente 3": t.cliente_3 ?? "",
+    BSP: t.bsp ?? "",
+    "BSP 2": t.bsp_2 ?? "",
+    "BSP 3": t.bsp_3 ?? "",
+    Unidade: t.unidade ?? "",
+    Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
+    Horário: fmtTime(t.scheduled_at),
+    Origem: [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; "),
+    Destino: [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; "),
+    Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
+    Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
+    Observações: t.notes ?? "",
+    Status: STATUS_LABEL[t.status],
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Transporte");
+  XLSX.writeFile(wb, `transporte_${todayISO()}.xlsx`);
 }
 
 function useTransportData() {
@@ -237,10 +285,10 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
       const city = (c.city ?? "").trim();
       if (city && cities[cities.length - 1] !== city) cities.push(city);
     }
-    if (cities.length === 0) { toast.error("Nenhum colaborador com cidade cadastrada"); return; }
+    if (cities.length === 0) { notify.error("Nenhum colaborador com cidade cadastrada"); return; }
     if (cities.length === 1) {
       setF({ ...f, origin: cities[0], destination: cities[0] });
-      toast.success("Trajeto sugerido aplicado");
+      notify.success("Trajeto sugerido aplicado");
       return;
     }
     const origin = cities[0];
@@ -250,7 +298,7 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
     const baseNotes = (f.notes ?? "").replace(/\n?Paradas: .*/g, "").trim();
     const notes = [baseNotes, stopsLine].filter(Boolean).join("\n");
     setF({ ...f, origin, destination, notes });
-    toast.success("Trajeto sugerido aplicado");
+    notify.success("Trajeto sugerido aplicado");
   };
 
   return (
@@ -282,6 +330,50 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
         onUseAsOrigin={(c) => c.city && setF({ ...f, origin: c.city })}
         onUseAsDestination={(c) => c.city && setF({ ...f, destination: c.city })}
       />
+    </div>
+  );
+}
+
+// Lista fixa de clientes (CLIENTES) + opção de digitar um cliente manual não cadastrado.
+function ClientSelect({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const isKnown = (v: string) => (CLIENTES as readonly string[]).includes(v);
+  const [manual, setManual] = useState(() => !!value && !isKnown(value));
+
+  useEffect(() => {
+    setManual(!!value && !isKnown(value));
+  }, [value]);
+
+  return (
+    <div>
+      <Label>{label}</Label>
+      {manual ? (
+        <div className="flex gap-2">
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Nome do cliente"
+            className="flex-1"
+          />
+          <Button type="button" variant="outline" size="sm" onClick={() => { setManual(false); onChange(""); }}>
+            Lista
+          </Button>
+        </div>
+      ) : (
+        <Select
+          value={value || "__none__"}
+          onValueChange={(v) => {
+            if (v === "__custom__") { setManual(true); onChange(""); }
+            else onChange(v === "__none__" ? "" : v);
+          }}
+        >
+          <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">—</SelectItem>
+            {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }
@@ -370,10 +462,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
-      toast.success("Salvo");
+      notify.success("Salvo");
       onOpenChange(false);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => notify.error(e.message),
   });
 
   const del = useMutation({
@@ -384,7 +476,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
-      toast.success("Removido");
+      notify.success("Removido");
       onOpenChange(false);
     },
   });
@@ -479,44 +571,17 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label>Cliente</Label>
-              <Select value={f.cliente || "__none__"} onValueChange={(v) => setF({ ...f, cliente: v === "__none__" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">—</SelectItem>
-                  {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+            <ClientSelect label="Cliente" value={f.cliente} onChange={(v) => setF({ ...f, cliente: v })} />
             <div><Label>BSP (opcional)</Label><Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Número do BSP" /></div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label>Cliente 2 (opcional)</Label>
-              <Select value={f.cliente_2 || "__none__"} onValueChange={(v) => setF({ ...f, cliente_2: v === "__none__" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">—</SelectItem>
-                  {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+            <ClientSelect label="Cliente 2 (opcional)" value={f.cliente_2} onChange={(v) => setF({ ...f, cliente_2: v })} />
             <div><Label>BSP 2 (opcional)</Label><Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Número do BSP" /></div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label>Cliente 3 (opcional)</Label>
-              <Select value={f.cliente_3 || "__none__"} onValueChange={(v) => setF({ ...f, cliente_3: v === "__none__" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">—</SelectItem>
-                  {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+            <ClientSelect label="Cliente 3 (opcional)" value={f.cliente_3} onChange={(v) => setF({ ...f, cliente_3: v })} />
             <div><Label>BSP 3 (opcional)</Label><Input value={f.bsp_3} onChange={(e) => setF({ ...f, bsp_3: e.target.value })} placeholder="Número do BSP" /></div>
           </div>
 
@@ -545,8 +610,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
         </div>
         <DialogFooter className="gap-2">
-          {f.id && <Button variant="destructive" onClick={() => del.mutate()}>Excluir</Button>}
-          <Button onClick={() => save.mutate()} disabled={!f.car_number || !f.origin || !f.destination}>Salvar</Button>
+          {f.id && <Button variant="destructive" onClick={() => del.mutate()} loading={del.isPending}>Excluir</Button>}
+          <Button onClick={() => save.mutate()} disabled={!f.car_number || !f.origin || !f.destination} loading={save.isPending}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -562,8 +627,8 @@ function NewColumnDialog() {
       const { error } = await supabase.from("transport_columns").insert({ name: name.trim(), position: 999 });
       if (error) throw error;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["transport_columns"] }); setName(""); setOpen(false); toast.success("Coluna criada"); },
-    onError: (e: any) => toast.error(e.message),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["transport_columns"] }); setName(""); setOpen(false); notify.success("Coluna criada"); },
+    onError: (e: any) => notify.error(e.message),
   });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -571,74 +636,13 @@ function NewColumnDialog() {
       <DialogContent>
         <DialogHeader><DialogTitle>Nova coluna</DialogTitle></DialogHeader>
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome da coluna" />
-        <DialogFooter><Button onClick={() => create.mutate()} disabled={!name.trim()}>Criar</Button></DialogFooter>
+        <DialogFooter><Button onClick={() => create.mutate()} disabled={!name.trim()} loading={create.isPending}>Criar</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function ExportDialog({ trips, tagsById, collabsById, materialsById }: { trips: Trip[]; tagsById: Map<string, Tag>; collabsById: Map<string, Collaborator>; materialsById: Map<string, Material> }) {
-  const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"all" | "range">("all");
-  const [from, setFrom] = useState(todayISO());
-  const [to, setTo] = useState(todayISO());
-
-  const doExport = () => {
-    let list = trips;
-    if (mode === "range") {
-      const a = new Date(from + "T00:00:00").getTime();
-      const b = new Date(to + "T23:59:59").getTime();
-      list = trips.filter((t) => { const x = new Date(t.scheduled_at).getTime(); return x >= a && x <= b; });
-    }
-    const rows = list.map((t) => ({
-      Data: fmtDate(t.scheduled_at),
-      Carro: t.car_number,
-      Tipo: t.tipo === "material" ? "Material" : "Pessoas",
-      Cliente: t.cliente ?? "",
-      "Cliente 2": t.cliente_2 ?? "",
-      "Cliente 3": t.cliente_3 ?? "",
-      BSP: t.bsp ?? "",
-      "BSP 2": t.bsp_2 ?? "",
-      "BSP 3": t.bsp_3 ?? "",
-      Unidade: t.unidade ?? "",
-      Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
-      Horário: fmtTime(t.scheduled_at),
-      Origem: [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; "),
-      Destino: [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; "),
-      Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
-      Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
-      Observações: t.notes ?? "",
-      Status: STATUS_LABEL[t.status],
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Transporte");
-    XLSX.writeFile(wb, `transporte_${todayISO()}.xlsx`);
-    setOpen(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" onClick={() => setOpen(true)}><Download className="mr-2 h-4 w-4" />Exportar Excel</Button>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Exportar planilha</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 text-sm"><input type="radio" checked={mode === "all"} onChange={() => setMode("all")} /> Toda a programação</label>
-            <label className="flex items-center gap-2 text-sm"><input type="radio" checked={mode === "range"} onChange={() => setMode("range")} /> Período</label>
-          </div>
-          {mode === "range" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><Label>De</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-              <div><Label>Até</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
-            </div>
-          )}
-        </div>
-        <DialogFooter><Button onClick={doExport}>Exportar</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
+// Exportação de viagens em Excel foi centralizada no módulo de Relatórios.
 
 function TransportPage() {
   const search = useSearch({ from: "/admin/transport" });
@@ -672,13 +676,16 @@ function TransportPage() {
     setEditing(clone);
     setInstanceKey((k) => k + 1);
     setDialogOpen(true);
-    toast.info("Duplicando viagem — ajuste os campos e salve");
+    notify.info("Duplicando viagem — ajuste os campos e salve");
   };
 
   const allTrips = trips.data ?? [];
   const cols = columns.data ?? [];
 
-  const tab = search.tab ?? "kanban";
+  const { role } = useAuth();
+  const isVisitante = role === "visitante";
+
+  const tab = isVisitante ? "solicitacoes" : (search.tab ?? "kanban");
   const setTab = (v: string) => navigate({ to: "/admin/transport", search: { ...search, tab: v } });
 
   return (
@@ -686,22 +693,27 @@ function TransportPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Transporte &amp; Rotas</h1>
-          <p className="text-sm text-muted-foreground">Kanban de viagens, programação do dia, quadro detalhado e linha do tempo.</p>
+          {!isVisitante && <p className="text-sm text-muted-foreground">Kanban de viagens, programação do dia, quadro detalhado e linha do tempo.</p>}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <ExportDialog trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} />
-          <Button onClick={() => openEdit(null)}><Plus className="mr-2 h-4 w-4" />Nova viagem</Button>
-        </div>
+        {!isVisitante && tab !== "solicitacoes" && (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => openEdit(null)}><Plus className="mr-2 h-4 w-4" />Nova viagem</Button>
+          </div>
+        )}
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex w-full flex-wrap gap-1 h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
-          <TabsTrigger value="solicitacoes">Solicitações</TabsTrigger>
-          <TabsTrigger value="kanban">Kanban</TabsTrigger>
-          <TabsTrigger value="day">Programado</TabsTrigger>
-          <TabsTrigger value="detail">Quadro Detalhado</TabsTrigger>
-          <TabsTrigger value="timeline">Linha do Tempo</TabsTrigger>
-          <TabsTrigger value="kpi">Dashboard KPI</TabsTrigger>
+          <TabsTrigger value="solicitacoes">Solicitação de Transporte</TabsTrigger>
+          {!isVisitante && (
+            <>
+              <TabsTrigger value="kanban">Kanban</TabsTrigger>
+              <TabsTrigger value="day">Programado</TabsTrigger>
+              <TabsTrigger value="detail">Quadro Detalhado</TabsTrigger>
+              <TabsTrigger value="timeline">Linha do Tempo</TabsTrigger>
+              <TabsTrigger value="kpi">Dashboard KPI</TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="solicitacoes" className="mt-4">
@@ -754,7 +766,7 @@ type Solicitacao = {
   notes: string | null;
 };
 
-function SolicitacaoCard({ s, onUpdate }: { s: Solicitacao; onUpdate: (args: { id: string; status: string }) => void }) {
+function SolicitacaoCard({ s, onUpdate, pendingStatus, canManage = true }: { s: Solicitacao; onUpdate: (args: { id: string; status: string }) => void; pendingStatus?: string; canManage?: boolean }) {
   const borderColor = s.status === "programado" ? "border-l-green-500" : s.status === "cancelado" ? "border-l-destructive" : "border-l-amber-400";
   return (
     <Card className={`p-4 border-l-4 ${borderColor}`}>
@@ -780,11 +792,14 @@ function SolicitacaoCard({ s, onUpdate }: { s: Solicitacao; onUpdate: (args: { i
           {s.notes && <p className="text-xs text-muted-foreground italic">{s.notes}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {s.status === "pendente" && (
+          {s.status === "pendente" && canManage && (
             <>
-              <Button size="sm" onClick={() => onUpdate({ id: s.id, status: "programado" })}>Programar</Button>
-              <Button size="sm" variant="outline" onClick={() => onUpdate({ id: s.id, status: "cancelado" })}>Cancelar</Button>
+              <Button size="sm" onClick={() => onUpdate({ id: s.id, status: "programado" })} loading={pendingStatus === "programado"}>Programar</Button>
+              <Button size="sm" variant="outline" onClick={() => onUpdate({ id: s.id, status: "cancelado" })} loading={pendingStatus === "cancelado"}>Cancelar</Button>
             </>
+          )}
+          {s.status === "pendente" && !canManage && (
+            <span className="text-xs text-amber-700 font-medium">Aguardando programação</span>
           )}
           {s.status === "programado" && (
             <span className="text-xs text-green-700 font-semibold">&#10003; Programado</span>
@@ -807,6 +822,7 @@ const TIPOS_TRANSP = [
 
 function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [solicitante, setSolicitante] = useState("");
   const [setor, setSetor]             = useState("");
   const [centroCusto, setCentroCusto] = useState("");
@@ -825,6 +841,7 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
         throw new Error("Preencha todos os campos obrigatórios.");
       if (tipos.length === 0) throw new Error("Selecione ao menos um tipo de transporte.");
       const { error } = await supabase.from("transport_solicitations").insert({
+        user_id: user?.id ?? null,
         solicitante: solicitante.trim(),
         setor: setor.trim(),
         centro_custo: centroCusto.trim(),
@@ -837,13 +854,13 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Solicitação criada.");
+      notify.success("Solicitação criada.");
       qc.invalidateQueries({ queryKey: ["transport-solicitations"] });
       setSolicitante(""); setSetor(""); setCentroCusto(""); setDataHora("");
       setOrigem(""); setDestino(""); setTipos([]); setNotes("");
       onSaved();
     },
-    onError: (err: Error) => toast.error(err.message || "Erro ao criar."),
+    onError: (err: Error) => notify.error(err.message || "Erro ao criar."),
   });
 
   return (
@@ -902,8 +919,7 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => create.mutate()} disabled={create.isPending}>
-            {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button onClick={() => create.mutate()} loading={create.isPending}>
             Criar solicitação
           </Button>
         </DialogFooter>
@@ -915,6 +931,9 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
 function SolicitacoesTab() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const { role } = useAuth();
+  // Só operador logístico aprova/programa — o visitante só acompanha o status.
+  const canManage = role === "logistics_operator";
 
   const { data: solicitations = [], isLoading } = useQuery<Solicitacao[]>({
     queryKey: ["transport-solicitations"],
@@ -926,6 +945,9 @@ function SolicitacoesTab() {
       if (error) throw error;
       return (data ?? []) as Solicitacao[];
     },
+    // Poll curto pra quem só acompanha (ex.: visitante) ver o status mudar (aprovado/
+    // programado) sem precisar recarregar a página manualmente.
+    refetchInterval: 10000,
   });
 
   const updateStatus = useMutation({
@@ -938,9 +960,9 @@ function SolicitacoesTab() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport-solicitations"] });
-      toast.success("Status atualizado.");
+      notify.success("Status atualizado.");
     },
-    onError: () => toast.error("Erro ao atualizar."),
+    onError: () => notify.error("Erro ao atualizar."),
   });
 
   const pending    = solicitations.filter((s) => s.status === "pendente");
@@ -977,7 +999,13 @@ function SolicitacoesTab() {
               </h3>
               <div className="space-y-2">
                 {pending.map((s) => (
-                  <SolicitacaoCard key={s.id} s={s} onUpdate={(args) => updateStatus.mutate(args)} />
+                  <SolicitacaoCard
+                    key={s.id}
+                    s={s}
+                    canManage={canManage}
+                    onUpdate={(args) => updateStatus.mutate(args)}
+                    pendingStatus={updateStatus.isPending && updateStatus.variables?.id === s.id ? updateStatus.variables.status : undefined}
+                  />
                 ))}
               </div>
             </div>
@@ -1112,7 +1140,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
             </div>
           </div>
         ))}
-        {dayTrips.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground">Nenhuma viagem para esta data.</Card>}
+        {dayTrips.length === 0 && <Card className="p-4"><EmptyState icon={CalIcon} title="Nenhuma viagem para esta data" /></Card>}
       </div>
     </div>
   );
@@ -1232,7 +1260,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <TableRow><TableCell colSpan={12} className="py-8 text-center text-muted-foreground">Sem viagens.</TableCell></TableRow>}
+            {filtered.length === 0 && <EmptyStateRow colSpan={12} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
           </TableBody>
         </Table>
       </Card>
@@ -1283,7 +1311,7 @@ function TimelineView({ trips, tagsById }: { trips: Trip[]; tagsById: Map<string
               </div>
             </div>
           ))}
-          {byCar.length === 0 && <div className="py-8 text-center text-sm text-muted-foreground">Sem viagens neste dia.</div>}
+          {byCar.length === 0 && <EmptyState icon={Package} title="Sem viagens neste dia" />}
         </div>
       </Card>
     </div>
@@ -1414,41 +1442,49 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <FadeInView delay={0}>
         <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1e3a8a", background: "linear-gradient(135deg, rgba(30,58,138,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
             <TrendingUp className="h-4 w-4" style={{ color: "#1e3a8a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}>{total}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #1e3a8a, #5b7fd4)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{total}</div>
         </Card>
+        </FadeInView>
+        <FadeInView delay={0.05}>
         <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1a5c2a", background: "linear-gradient(135deg, rgba(26,92,42,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
             <CheckCircle2 className="h-4 w-4" style={{ color: "#1a5c2a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1a5c2a" }}>{realizados}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #1a5c2a, #4ca35f)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{realizados}</div>
         </Card>
+        </FadeInView>
+        <FadeInView delay={0.1}>
         <Card className="p-4 border-l-4" style={{ borderLeftColor: "#b8860b", background: "linear-gradient(135deg, rgba(184,134,11,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
             <Activity className="h-4 w-4" style={{ color: "#b8860b" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#b8860b" }}>{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #b8860b, #d9a83c)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{emAndamento}</div>
         </Card>
+        </FadeInView>
+        <FadeInView delay={0.15}>
         <Card className="p-4 border-l-4" style={{ borderLeftColor: "#475569", background: "linear-gradient(135deg, rgba(71,85,105,0.08), transparent)" }}>
           <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Média de carros/dia</span>
             <TrendingUp className="h-4 w-4" style={{ color: "#475569" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#475569" }}>{avgCarsPerDay}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #475569, #7c8ba1)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{avgCarsPerDay}</div>
         </Card>
+        </FadeInView>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-5">
           <h2 className="text-base font-semibold">Distribuição por status</h2>
           <div className="mt-3 h-64">
-            {statusData.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+            {statusData.length === 0 ? <EmptyState icon={Activity} title="Sem dados" className="h-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} label={(e: any) => `${e.name}: ${e.value}`}>
@@ -1465,7 +1501,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5">
           <h2 className="text-base font-semibold">Evolução mensal</h2>
           <div className="mt-3 h-64">
-            {monthlyData.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+            {monthlyData.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={monthlyData}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -1482,7 +1518,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5">
           <h2 className="text-base font-semibold">Top rotas por volume</h2>
           <div className="mt-3 h-72">
-            {topRoutes.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+            {topRoutes.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topRoutes} layout="vertical" margin={{ left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -1502,7 +1538,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5">
           <h2 className="text-base font-semibold">Comparativo por etiqueta</h2>
           <div className="mt-3 h-72">
-            {tagComparison.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+            {tagComparison.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={tagComparison}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -1525,7 +1561,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5 lg:col-span-2">
           <h2 className="text-base font-semibold">Quantidade de viagens por cliente</h2>
           <div className="mt-3 h-72">
-            {tripsByClient.length === 0 ? <p className="text-sm text-muted-foreground">Sem dados.</p> : (
+            {tripsByClient.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={tripsByClient}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />

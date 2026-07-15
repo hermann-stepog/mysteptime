@@ -17,22 +17,20 @@ import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PmIndexRouteImport } from './routes/pm/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
-import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AppTransportRouteImport } from './routes/app/transport'
 import { Route as AppTimesheetRouteImport } from './routes/app/timesheet'
 import { Route as AppScheduleRouteImport } from './routes/app/schedule'
 import { Route as AppFinancialRouteImport } from './routes/app/financial'
 import { Route as AppDocumentsRouteImport } from './routes/app/documents'
 import { Route as AdminTransportRouteImport } from './routes/admin/transport'
-import { Route as AdminTimesheetsRouteImport } from './routes/admin/timesheets'
+import { Route as AdminTimesheetOffshoreRouteImport } from './routes/admin/timesheet-offshore'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
 import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
 import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
-import { Route as AdminHotelRouteImport } from './routes/admin/hotel'
+import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
 import { Route as AdminEmbarkationsRouteImport } from './routes/admin/embarkations'
-import { Route as AdminDocumentsRouteImport } from './routes/admin/documents'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
@@ -77,11 +75,6 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AdminIndexRoute = AdminIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
 const AppTransportRoute = AppTransportRouteImport.update({
   id: '/transport',
   path: '/transport',
@@ -112,9 +105,9 @@ const AdminTransportRoute = AdminTransportRouteImport.update({
   path: '/transport',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminTimesheetsRoute = AdminTimesheetsRouteImport.update({
-  id: '/timesheets',
-  path: '/timesheets',
+const AdminTimesheetOffshoreRoute = AdminTimesheetOffshoreRouteImport.update({
+  id: '/timesheet-offshore',
+  path: '/timesheet-offshore',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
@@ -142,19 +135,14 @@ const AdminMaterialsRoute = AdminMaterialsRouteImport.update({
   path: '/materials',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminHotelRoute = AdminHotelRouteImport.update({
-  id: '/hotel',
-  path: '/hotel',
+const AdminHistogramaNovoRoute = AdminHistogramaNovoRouteImport.update({
+  id: '/histograma-novo',
+  path: '/histograma-novo',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminEmbarkationsRoute = AdminEmbarkationsRouteImport.update({
   id: '/embarkations',
   path: '/embarkations',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
-const AdminDocumentsRoute = AdminDocumentsRouteImport.update({
-  id: '/documents',
-  path: '/documents',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminCostsRoute = AdminCostsRouteImport.update({
@@ -183,48 +171,45 @@ export interface FileRoutesByFullPath {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
-  '/admin/hotel': typeof AdminHotelRoute
+  '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
-  '/admin/timesheets': typeof AdminTimesheetsRoute
+  '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
   '/admin/transport': typeof AdminTransportRoute
   '/app/documents': typeof AppDocumentsRoute
   '/app/financial': typeof AppFinancialRoute
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
-  '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
-  '/admin/hotel': typeof AdminHotelRoute
+  '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
-  '/admin/timesheets': typeof AdminTimesheetsRoute
+  '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
   '/admin/transport': typeof AdminTransportRoute
   '/app/documents': typeof AppDocumentsRoute
   '/app/financial': typeof AppFinancialRoute
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
-  '/admin': typeof AdminIndexRoute
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
 }
@@ -239,22 +224,20 @@ export interface FileRoutesById {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/documents': typeof AdminDocumentsRoute
   '/admin/embarkations': typeof AdminEmbarkationsRoute
-  '/admin/hotel': typeof AdminHotelRoute
+  '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
-  '/admin/timesheets': typeof AdminTimesheetsRoute
+  '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
   '/admin/transport': typeof AdminTransportRoute
   '/app/documents': typeof AppDocumentsRoute
   '/app/financial': typeof AppFinancialRoute
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
-  '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
 }
@@ -270,48 +253,45 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/documents'
     | '/admin/embarkations'
-    | '/admin/hotel'
+    | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
-    | '/admin/timesheets'
+    | '/admin/timesheet-offshore'
     | '/admin/transport'
     | '/app/documents'
     | '/app/financial'
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
-    | '/admin/'
     | '/app/'
     | '/pm/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/auth'
     | '/pending'
     | '/admin/approvals'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/documents'
     | '/admin/embarkations'
-    | '/admin/hotel'
+    | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
-    | '/admin/timesheets'
+    | '/admin/timesheet-offshore'
     | '/admin/transport'
     | '/app/documents'
     | '/app/financial'
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
-    | '/admin'
     | '/app'
     | '/pm'
   id:
@@ -325,22 +305,20 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/documents'
     | '/admin/embarkations'
-    | '/admin/hotel'
+    | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
     | '/admin/payroll'
     | '/admin/reports'
     | '/admin/settings'
-    | '/admin/timesheets'
+    | '/admin/timesheet-offshore'
     | '/admin/transport'
     | '/app/documents'
     | '/app/financial'
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
-    | '/admin/'
     | '/app/'
     | '/pm/'
   fileRoutesById: FileRoutesById
@@ -412,13 +390,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/admin/': {
-      id: '/admin/'
-      path: '/'
-      fullPath: '/admin/'
-      preLoaderRoute: typeof AdminIndexRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
     '/app/transport': {
       id: '/app/transport'
       path: '/transport'
@@ -461,11 +432,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTransportRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/admin/timesheets': {
-      id: '/admin/timesheets'
-      path: '/timesheets'
-      fullPath: '/admin/timesheets'
-      preLoaderRoute: typeof AdminTimesheetsRouteImport
+    '/admin/timesheet-offshore': {
+      id: '/admin/timesheet-offshore'
+      path: '/timesheet-offshore'
+      fullPath: '/admin/timesheet-offshore'
+      preLoaderRoute: typeof AdminTimesheetOffshoreRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/settings': {
@@ -503,11 +474,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMaterialsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/admin/hotel': {
-      id: '/admin/hotel'
-      path: '/hotel'
-      fullPath: '/admin/hotel'
-      preLoaderRoute: typeof AdminHotelRouteImport
+    '/admin/histograma-novo': {
+      id: '/admin/histograma-novo'
+      path: '/histograma-novo'
+      fullPath: '/admin/histograma-novo'
+      preLoaderRoute: typeof AdminHistogramaNovoRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/embarkations': {
@@ -515,13 +486,6 @@ declare module '@tanstack/react-router' {
       path: '/embarkations'
       fullPath: '/admin/embarkations'
       preLoaderRoute: typeof AdminEmbarkationsRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/documents': {
-      id: '/admin/documents'
-      path: '/documents'
-      fullPath: '/admin/documents'
-      preLoaderRoute: typeof AdminDocumentsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/costs': {
@@ -552,34 +516,30 @@ interface AdminRouteRouteChildren {
   AdminApprovalsRoute: typeof AdminApprovalsRoute
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
   AdminCostsRoute: typeof AdminCostsRoute
-  AdminDocumentsRoute: typeof AdminDocumentsRoute
   AdminEmbarkationsRoute: typeof AdminEmbarkationsRoute
-  AdminHotelRoute: typeof AdminHotelRoute
+  AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
   AdminMaterialsRoute: typeof AdminMaterialsRoute
   AdminNominationsRoute: typeof AdminNominationsRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
-  AdminTimesheetsRoute: typeof AdminTimesheetsRoute
+  AdminTimesheetOffshoreRoute: typeof AdminTimesheetOffshoreRoute
   AdminTransportRoute: typeof AdminTransportRoute
-  AdminIndexRoute: typeof AdminIndexRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminApprovalsRoute: AdminApprovalsRoute,
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
   AdminCostsRoute: AdminCostsRoute,
-  AdminDocumentsRoute: AdminDocumentsRoute,
   AdminEmbarkationsRoute: AdminEmbarkationsRoute,
-  AdminHotelRoute: AdminHotelRoute,
+  AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,
   AdminMaterialsRoute: AdminMaterialsRoute,
   AdminNominationsRoute: AdminNominationsRoute,
   AdminPayrollRoute: AdminPayrollRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
-  AdminTimesheetsRoute: AdminTimesheetsRoute,
+  AdminTimesheetOffshoreRoute: AdminTimesheetOffshoreRoute,
   AdminTransportRoute: AdminTransportRoute,
-  AdminIndexRoute: AdminIndexRoute,
 }
 
 const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
