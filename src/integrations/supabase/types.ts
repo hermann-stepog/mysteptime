@@ -1284,162 +1284,6 @@ export type Database = {
         }
         Relationships: []
       }
-      nominations: {
-        Row: {
-          id: string
-          created_at: string
-          updated_at: string
-          pm_user_id: string | null
-          pm_name: string
-          project: string | null
-          client: string | null
-          function_requested: string
-          weld_type: string | null
-          period_start: string
-          period_end: string
-          notes: string | null
-          current_status: string
-          requires_quality_validation: boolean
-          requires_superior_approval: boolean
-          approved_collaborator_name: string | null
-          approved_collaborator_id: string | null
-        }
-        Insert: {
-          id?: string
-          created_at?: string
-          updated_at?: string
-          pm_user_id?: string | null
-          pm_name: string
-          project?: string | null
-          client?: string | null
-          function_requested: string
-          weld_type?: string | null
-          period_start: string
-          period_end: string
-          notes?: string | null
-          current_status?: string
-          requires_quality_validation?: boolean
-          requires_superior_approval?: boolean
-          approved_collaborator_name?: string | null
-          approved_collaborator_id?: string | null
-        }
-        Update: {
-          id?: string
-          created_at?: string
-          updated_at?: string
-          pm_user_id?: string | null
-          pm_name?: string
-          project?: string | null
-          client?: string | null
-          function_requested?: string
-          weld_type?: string | null
-          period_start?: string
-          period_end?: string
-          notes?: string | null
-          current_status?: string
-          requires_quality_validation?: boolean
-          requires_superior_approval?: boolean
-          approved_collaborator_name?: string | null
-          approved_collaborator_id?: string | null
-        }
-        Relationships: []
-      }
-      nomination_status_history: {
-        Row: {
-          id: string
-          nomination_id: string
-          status: string
-          changed_by_name: string
-          changed_at: string
-          notes: string | null
-        }
-        Insert: {
-          id?: string
-          nomination_id: string
-          status: string
-          changed_by_name: string
-          changed_at?: string
-          notes?: string | null
-        }
-        Update: {
-          id?: string
-          nomination_id?: string
-          status?: string
-          changed_by_name?: string
-          changed_at?: string
-          notes?: string | null
-        }
-        Relationships: []
-      }
-      transport_solicitations: {
-        Row: {
-          id: string
-          created_at: string
-          updated_at: string
-          user_id: string | null
-          solicitante: string
-          setor: string
-          centro_custo: string
-          data_hora: string
-          origem: string | null
-          destino: string | null
-          tipos_transporte: string[]
-          status: string
-          notes: string | null
-        }
-        Insert: {
-          id?: string
-          created_at?: string
-          updated_at?: string
-          user_id?: string | null
-          solicitante: string
-          setor: string
-          centro_custo: string
-          data_hora: string
-          origem?: string | null
-          destino?: string | null
-          tipos_transporte?: string[]
-          status?: string
-          notes?: string | null
-        }
-        Update: {
-          id?: string
-          created_at?: string
-          updated_at?: string
-          user_id?: string | null
-          solicitante?: string
-          setor?: string
-          centro_custo?: string
-          data_hora?: string
-          origem?: string | null
-          destino?: string | null
-          tipos_transporte?: string[]
-          status?: string
-          notes?: string | null
-        }
-        Relationships: []
-      }
-      weld_type_config: {
-        Row: {
-          id: string
-          weld_type_name: string
-          requires_quality_validation: boolean
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          weld_type_name: string
-          requires_quality_validation?: boolean
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          weld_type_name?: string
-          requires_quality_validation?: boolean
-          created_at?: string
-        }
-        Relationships: []
-      }
     }
     Views: {
       [_ in never]: never
@@ -1455,7 +1299,7 @@ export type Database = {
       is_operator: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
-      app_role: "pending" | "collaborator" | "logistics_operator" | "pm"
+      app_role: "pending" | "collaborator" | "logistics_operator"
       approval_status: "pending" | "approved" | "rejected"
       billing_type: "com_cobranca" | "sem_cobranca"
       cost_type:
@@ -1614,7 +1458,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["pending", "collaborator", "logistics_operator", "pm"],
+      app_role: ["pending", "collaborator", "logistics_operator"],
       approval_status: ["pending", "approved", "rejected"],
       billing_type: ["com_cobranca", "sem_cobranca"],
       cost_type: [

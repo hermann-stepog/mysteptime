@@ -1,30 +1,19 @@
-## Origens e Destinos extras (ilimitados) — Nova Viagem
+## Objetivo
+Na aba **Histograma** do módulo Histograma Offshore, transformar as siglas coloridas (E, P, D, FO, F) exibidas acima da tabela em **chips clicáveis** que filtram os colaboradores mostrados.
 
-Adicionar a possibilidade de incluir múltiplos pares de **Origem** e **Destino** no formulário de Nova/Editar Viagem, de forma independente dos campos de Cliente/BSP.
+## Comportamento
+- Os chips (E, P, D, FO, F) viram botões toggle **multi-seleção**. "B" (Base) fica de fora do filtro, como pedido.
+- Ao ativar um ou mais chips, a tabela mostra **apenas colaboradores que têm ao menos um dia com aquele status dentro do período** selecionado (dateStart → dateEnd), usando `getDisplayStatus` (mesma lógica que já pinta as células, para que P e E fiquem coerentes com o visual).
+- Sem chips ativos = mostra todos (comportamento atual).
+- Estado visual do chip ativo: borda mais forte + leve highlight, seguindo o mesmo padrão dos chips de status já existentes no cabeçalho (linha ~145-168), para manter consistência.
+- Um pequeno botão "Limpar" aparece ao lado da legenda quando houver pelo menos um chip ativo.
+- Contador no rodapé (`X colaboradores · Y dias`) continua refletindo o que está visível após o filtro.
 
-### Comportamento
-- Manter os campos atuais `origem` e `destino` como principais (1º par).
-- Abaixo deles, exibir uma lista dinâmica de pares extras (Origem + Destino lado a lado), cada um com botão **Remover**.
-- Botão **+ Adicionar origem/destino** ao final, sem limite de quantidade.
-- Todos os pares extras são opcionais; pares totalmente vazios são descartados ao salvar.
-- Mesmo padrão visual dos campos atuais (mesmos `Input`/labels/spacing).
+## Escopo técnico
+Arquivo único: `src/routes/admin/embarkations.tsx`, apenas dentro do componente `HistogramaTab` (linha 682+):
+- Adicionar `useState<Set<DayStatus>>` para os status ativos.
+- Calcular `visiblePeople` com `useMemo` filtrando `people` pelos dias do range via `getDisplayStatus`.
+- Substituir os `<span>` da legenda por `<button>` toggles reaproveitando cores de `DAY_STATUS_COLOR`.
+- Trocar `people.map` por `visiblePeople.map` no corpo da tabela e no contador.
 
-### Persistência
-- Novas colunas em `transport_trips`:
-  - `origens_extras text[]` (default `'{}'`)
-  - `destinos_extras text[]` (default `'{}'`)
-- Arrays alinhados por índice (posição N de origens_extras corresponde à posição N de destinos_extras). Strings vazias permitidas para preservar alinhamento quando só um lado for preenchido.
-
-### UI
-Em `src/routes/admin/transport.tsx`:
-- `FormState`: adicionar `origens_extras: string[]` e `destinos_extras: string[]`.
-- `init`: ler arrays do `Trip` (fallback `[]`).
-- Form: após o par principal de origem/destino, renderizar `origens_extras.map(...)` com inputs controlados, botão remover (X) por linha e botão "Adicionar origem/destino".
-- Submit: filtrar pares totalmente vazios antes do upsert.
-- **TripCard**: mostrar origens/destinos extras como linhas adicionais no mesmo bloco de rota (formato `origem → destino`), abaixo do par principal.
-- **DetailView (tabela)**: juntar todos os pares no formato `o1 → d1; o2 → d2` na coluna de rota.
-- **CSV**: novas colunas `origens_extras` e `destinos_extras` (join por `;`).
-
-### Fora de escopo
-- Sem alterações em dashboard/KPIs, filtros, agrupamentos por rota (continuam usando origem/destino principais).
-- Sem vínculo com Cliente/BSP (independente, conforme decisão).
+Nada muda fora de `HistogramaTab`: os chips de resumo do cabeçalho (linha 145), a aba Dashboard e a lógica do Smartsheet permanecem intactas.
