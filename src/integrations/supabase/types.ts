@@ -98,6 +98,322 @@ export type Database = {
         }
         Relationships: []
       }
+      bm_lines_logistica: {
+        Row: {
+          amount: number
+          bm_id: string
+          collaborator_name: string | null
+          cost_log_id: string | null
+          cost_type: string
+          id: string
+          is_manual: boolean
+          notes: string | null
+          period_end: string | null
+          period_start: string | null
+          vendor_name: string | null
+        }
+        Insert: {
+          amount: number
+          bm_id: string
+          collaborator_name?: string | null
+          cost_log_id?: string | null
+          cost_type: string
+          id?: string
+          is_manual?: boolean
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          vendor_name?: string | null
+        }
+        Update: {
+          amount?: number
+          bm_id?: string
+          collaborator_name?: string | null
+          cost_log_id?: string | null
+          cost_type?: string
+          id?: string
+          is_manual?: boolean
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          vendor_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_lines_logistica_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bm_lines_logistica_cost_log_id_fkey"
+            columns: ["cost_log_id"]
+            isOneToOne: false
+            referencedRelation: "cost_logs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bm_lines_materiais: {
+        Row: {
+          bm_id: string
+          bsp: string | null
+          categoria: string
+          descricao: string
+          id: string
+          period_end: string | null
+          period_start: string | null
+          qtd: number
+          tag: string | null
+          valor_diario: number | null
+          valor_total: number
+        }
+        Insert: {
+          bm_id: string
+          bsp?: string | null
+          categoria: string
+          descricao: string
+          id?: string
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          valor_diario?: number | null
+          valor_total?: number
+        }
+        Update: {
+          bm_id?: string
+          bsp?: string | null
+          categoria?: string
+          descricao?: string
+          id?: string
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          valor_diario?: number | null
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_lines_materiais_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bm_lines_mo: {
+        Row: {
+          bm_id: string
+          bsp: string | null
+          colaborador_id: string | null
+          colaborador_nome: string
+          dias_dobra: number
+          dias_embarque: number
+          dias_hotel: number
+          funcao: string
+          horas_adicional_noturno: number
+          horas_extras: number
+          id: string
+          rate_adicional_noturno: number | null
+          rate_dobra: number | null
+          rate_embarque: number | null
+          rate_hora_extra: number | null
+          rate_hotel: number | null
+          rate_missing: boolean
+          valor_total: number
+        }
+        Insert: {
+          bm_id: string
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome: string
+          dias_dobra?: number
+          dias_embarque?: number
+          dias_hotel?: number
+          funcao: string
+          horas_adicional_noturno?: number
+          horas_extras?: number
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          rate_missing?: boolean
+          valor_total?: number
+        }
+        Update: {
+          bm_id?: string
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome?: string
+          dias_dobra?: number
+          dias_embarque?: number
+          dias_hotel?: number
+          funcao?: string
+          horas_adicional_noturno?: number
+          horas_extras?: number
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          rate_missing?: boolean
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_lines_mo_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bm_lines_mo_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bm_status_history: {
+        Row: {
+          bm_id: string
+          changed_at: string
+          changed_by_name: string
+          id: string
+          notes: string | null
+          status: string
+        }
+        Insert: {
+          bm_id: string
+          changed_at?: string
+          changed_by_name: string
+          id?: string
+          notes?: string | null
+          status: string
+        }
+        Update: {
+          bm_id?: string
+          changed_at?: string
+          changed_by_name?: string
+          id?: string
+          notes?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_status_history_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bms: {
+        Row: {
+          client_id: string | null
+          client_name: string
+          created_at: string
+          created_by: string | null
+          current_status: string
+          id: string
+          markup_enabled: boolean
+          markup_pct: number
+          numero_bm: string | null
+          period_end: string
+          period_start: string
+          po_balance_before: number | null
+          po_number: string | null
+          po_value: number | null
+          project_id: string | null
+          project_name: string | null
+          rejection_reason: string | null
+          smartsheet_synced_at: string | null
+          total_geral: number
+          total_logistica: number
+          total_materiais: number
+          total_mo: number
+          updated_at: string
+          vessel: string
+        }
+        Insert: {
+          client_id?: string | null
+          client_name: string
+          created_at?: string
+          created_by?: string | null
+          current_status?: string
+          id?: string
+          markup_enabled?: boolean
+          markup_pct?: number
+          numero_bm?: string | null
+          period_end: string
+          period_start: string
+          po_balance_before?: number | null
+          po_number?: string | null
+          po_value?: number | null
+          project_id?: string | null
+          project_name?: string | null
+          rejection_reason?: string | null
+          smartsheet_synced_at?: string | null
+          total_geral?: number
+          total_logistica?: number
+          total_materiais?: number
+          total_mo?: number
+          updated_at?: string
+          vessel: string
+        }
+        Update: {
+          client_id?: string | null
+          client_name?: string
+          created_at?: string
+          created_by?: string | null
+          current_status?: string
+          id?: string
+          markup_enabled?: boolean
+          markup_pct?: number
+          numero_bm?: string | null
+          period_end?: string
+          period_start?: string
+          po_balance_before?: number | null
+          po_number?: string | null
+          po_value?: number | null
+          project_id?: string | null
+          project_name?: string | null
+          rejection_reason?: string | null
+          smartsheet_synced_at?: string | null
+          total_geral?: number
+          total_logistica?: number
+          total_materiais?: number
+          total_mo?: number
+          updated_at?: string
+          vessel?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bms_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bms_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           active: boolean
@@ -725,6 +1041,7 @@ export type Database = {
           email: string | null
           id: string
           name: string
+          pm_user_id: string | null
         }
         Insert: {
           active?: boolean
@@ -734,6 +1051,7 @@ export type Database = {
           email?: string | null
           id?: string
           name: string
+          pm_user_id?: string | null
         }
         Update: {
           active?: boolean
@@ -743,6 +1061,7 @@ export type Database = {
           email?: string | null
           id?: string
           name?: string
+          pm_user_id?: string | null
         }
         Relationships: [
           {
@@ -753,6 +1072,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      rates: {
+        Row: {
+          active: boolean
+          client: string
+          created_at: string
+          funcao: string
+          id: string
+          rate_adicional_noturno: number | null
+          rate_dobra: number | null
+          rate_embarque: number | null
+          rate_hora_extra: number | null
+          rate_hotel: number | null
+          updated_at: string
+          vessel: string
+        }
+        Insert: {
+          active?: boolean
+          client: string
+          created_at?: string
+          funcao: string
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          updated_at?: string
+          vessel: string
+        }
+        Update: {
+          active?: boolean
+          client?: string
+          created_at?: string
+          funcao?: string
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          updated_at?: string
+          vessel?: string
+        }
+        Relationships: []
       }
       rdo_entries: {
         Row: {
