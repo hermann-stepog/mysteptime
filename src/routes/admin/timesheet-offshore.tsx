@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
@@ -34,6 +34,7 @@ import {
 } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
 import { useAuth } from "@/hooks/useAuth";
+import pdfExtractData from "@/data/pdfTimesheetExtract.json";
 
 export const Route = createFileRoute("/admin/timesheet-offshore")({ head: () => pageTitle("Timesheet Offshore"), component: TimesheetOffshore });
 
@@ -82,115 +83,58 @@ async function fetchDiasNoPeriodo(dataInicio: string, dataFim: string): Promise<
   return (diasData ?? []).map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
 }
 
-// ─── Import "Relatório de Timesheets preenchidos" (Access) ──────────────────
-// Backfill único do que já foi lançado no Access antes desse módulo existir — depois disso os
-// lançamentos continuam manuais. Cada Cod_Alocacao no relatório é um ciclo de embarque completo
-// (mesmo quando aparece picado em várias linhas de "Embarque" por semana).
+// ─── Import "PDFs de Timesheet físico" (lido e extraído previamente pelo Claude) ──────
+// Cada registro aqui já é uma semana completa de um colaborador (um PDF pode ter virado
+// vários registros, se tinha várias semanas em páginas separadas). Diferente do import do
+// Access, aqui não criamos colaborador novo — só casamos com quem já existe em "Colaboradores".
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+interface PdfExtractDia {
+  data: string; dia_semana: string; tarefa: string | null; numero_tarefa: string | null;
+  entrada: string | null; saida: string | null; horas_normais: number | null; horas_extras: number | null;
+  total: number | null; evento: string | null;
 }
 
-// Não usamos { cellDates: true } de propósito: os valores desse relatório vêm em serial numérico
-// do Excel, e converter direto (época UTC 1899-12-30) evita qualquer ambiguidade de fuso horário
-// que o Date nativo do XLSX introduziria (confirmado lendo o arquivo real — bate exatamente com
-// a data/hora esperada, diferente do cellDates:true que fica ~3h deslocado).
-const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30);
-
-function excelSerialToISODate(serial: number): string {
-  const d = new Date(EXCEL_EPOCH_UTC + Math.round(serial) * 86400000);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+interface PdfExtractRegistro {
+  fonte_arquivo: string; pagina: number; nome: string; bsp: string | null; funcao: string;
+  embarcacao: string; semana_inicio: string; semana_fim: string; confianca: string; duvida?: string;
+  dias: PdfExtractDia[]; total_normais: number; total_extras: number; total_geral: number;
 }
 
-function excelSerialToHHMM(serial: number): string {
-  const frac = serial - Math.floor(serial);
-  const totalMin = Math.round(frac * 24 * 60);
-  const h = Math.floor(totalMin / 60), m = totalMin % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+function normalizeName(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase().replace(/\s+/g, " ").trim();
 }
 
-interface ParsedCicloDia {
-  evento?: string;
-  noturno?: boolean;
-  horaExtra?: { qtd: number; de: string | null; ate: string | null };
+// Mapeia o texto de evento do PDF pra um dos eventos que o app reconhece (EVENTOS_DIA) —
+// os PDFs às vezes escrevem variações ("EMBARQUE", "Embarque ", etc.).
+function normalizarEvento(texto: string | null): string | null {
+  if (!texto) return null;
+  const norm = normalizeName(texto);
+  const achado = EVENTOS_DIA.find((ev) => normalizeName(ev) === norm);
+  return achado ?? texto;
 }
 
-interface ParsedCiclo {
-  matricula: string;
-  nome: string;
-  unidade_operacional: string | null;
-  funcao_embarque: string;
-  data_inicio: string;
-  data_fim: string;
-  porDia: Map<string, ParsedCicloDia>;
+interface PdfGrupoColaborador {
+  nomeOriginal: string;
+  colaborador?: HistNovoColaborador;
+  semanas: PdfExtractRegistro[];
+  baixaConfianca: number;
 }
 
-function parseAccessTimesheetWorkbook(buf: ArrayBuffer): ParsedCiclo[] {
-  const wb = XLSX.read(buf);
-  const ws = wb.Sheets["Hist por Evento"];
-  if (!ws) throw new Error('Aba "Hist por Evento" não encontrada na planilha.');
-  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
-  if (rows.length < 2) throw new Error("Planilha vazia.");
-
-  const header = rows[0].map((h: any) => String(h ?? "").trim());
-  const idx = (name: string) => header.indexOf(name);
-  const iCd = idx("CdChamada"), iNome = idx("Nome do Funcionário"), iAlo = idx("Cod_Alocacao"),
-    iVessel = idx("Nome_Embarcacao"), iFuncao = idx("Funcao_Evento"), iEvento = idx("Evento"),
-    iDtIni = idx("Dt_Inicio"), iDtFim = idx("Dt_Fim"), iQtd = idx("Qtd_Horas"), iTurno = idx("Turno"),
-    iHeDe = idx("InicioHoraExtra"), iHeAte = idx("FimHoraExtra");
-  const required = { CdChamada: iCd, Cod_Alocacao: iAlo, Evento: iEvento, Dt_Inicio: iDtIni, Dt_Fim: iDtFim };
-  const missing = Object.entries(required).filter(([, i]) => i === -1).map(([k]) => k);
-  if (missing.length) throw new Error(`Colunas não encontradas na aba "Hist por Evento": ${missing.join(", ")}.`);
-
-  const ciclos = new Map<string, ParsedCiclo>();
-  for (const r of rows.slice(1)) {
-    if (!r.some((c) => c !== "")) continue;
-    const cd = String(r[iCd] ?? "").trim();
-    const alo = String(r[iAlo] ?? "").trim();
-    if (!cd || !alo) continue;
-    const matricula = cd.split("_")[0];
-    const dtIniSerial = Number(r[iDtIni]), dtFimSerial = Number(r[iDtFim]);
-    if (!dtIniSerial || !dtFimSerial) continue;
-    const dataInicio = excelSerialToISODate(dtIniSerial);
-    const dataFim = excelSerialToISODate(dtFimSerial);
-    const evento = String(r[iEvento] ?? "").trim();
-    const nomeVessel = iVessel !== -1 ? String(r[iVessel] ?? "").trim() : "";
-    const funcao = iFuncao !== -1 ? String(r[iFuncao] ?? "").trim() : "";
-
-    const chave = `${cd}::${alo}`;
-    if (!ciclos.has(chave)) {
-      ciclos.set(chave, {
-        matricula, nome: String(r[iNome] ?? "").trim(),
-        unidade_operacional: nomeVessel || null, funcao_embarque: funcao,
-        data_inicio: dataInicio, data_fim: dataFim,
-        porDia: new Map(),
-      });
+function agruparPdfPorColaborador(registros: PdfExtractRegistro[], colaboradores: HistNovoColaborador[]): PdfGrupoColaborador[] {
+  const porNome = new Map<string, PdfGrupoColaborador>();
+  registros.forEach((r) => {
+    const norm = normalizeName(r.nome);
+    if (!porNome.has(norm)) {
+      const match =
+        colaboradores.find((c) => normalizeName(c.nome) === norm) ??
+        colaboradores.find((c) => normalizeName(c.nome).includes(norm) || norm.includes(normalizeName(c.nome)));
+      porNome.set(norm, { nomeOriginal: r.nome, colaborador: match, semanas: [], baixaConfianca: 0 });
     }
-    const ciclo = ciclos.get(chave)!;
-    if (dataInicio < ciclo.data_inicio) ciclo.data_inicio = dataInicio;
-    if (dataFim > ciclo.data_fim) ciclo.data_fim = dataFim;
-    if (!ciclo.unidade_operacional && nomeVessel) ciclo.unidade_operacional = nomeVessel;
-    if (!ciclo.funcao_embarque && funcao) ciclo.funcao_embarque = funcao;
-
-    const noturno = iTurno !== -1 && String(r[iTurno] ?? "").trim() === "Noturno";
-    const datas = generateDateRange(dataInicio, dataFim);
-    for (const data of datas) {
-      const existente = ciclo.porDia.get(data) ?? {};
-      if (evento === "Hora Extra") {
-        const qtd = Number(r[iQtd]) || 0;
-        const de = iHeDe !== -1 && r[iHeDe] !== "" ? excelSerialToHHMM(Number(r[iHeDe])) : null;
-        const ate = iHeAte !== -1 && r[iHeAte] !== "" ? excelSerialToHHMM(Number(r[iHeAte])) : null;
-        existente.horaExtra = { qtd, de, ate };
-      } else if (evento) {
-        existente.evento = evento;
-      }
-      if (noturno) existente.noturno = true;
-      ciclo.porDia.set(data, existente);
-    }
-  }
-  return Array.from(ciclos.values());
+    const grupo = porNome.get(norm)!;
+    grupo.semanas.push(r);
+    if (r.confianca !== "alta") grupo.baixaConfianca++;
+  });
+  return Array.from(porNome.values()).sort((a, b) => a.nomeOriginal.localeCompare(b.nomeOriginal));
 }
 
 // Exportação do Relatório RH — usada pelo módulo de Relatórios (card "Relatório RH").
@@ -274,12 +218,18 @@ export async function generateRelatorioMedicao(
   dataFim: string = defaultEnd(),
   unidadeFiltro = "all",
 ): Promise<void> {
-  const [{ data: colaboradores }, { data: embarques }] = await Promise.all([
+  const [{ data: colaboradores }, { data: embarques }, { data: periodos }] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
     supabase.from("timesheet_embarques").select("*"),
+    supabase.from("hist_novo_periodos").select("*"),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
   const embarqueById = new Map(((embarques ?? []) as TimesheetEmbarque[]).map((e) => [e.id, e]));
+  const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
+  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
+    if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
+    periodosByColaborador.get(p.colaborador_id)!.push(p);
+  });
 
   const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
 
@@ -290,7 +240,11 @@ export async function generateRelatorioMedicao(
     if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
     const colaborador = colabById.get(embarque.colaborador_id);
     if (!colaborador) return;
-    const bsp = embarque.bsp || "—";
+    // O embarque pode ter sido lançado sem BSP preenchido (ex.: import do Access, que não traz
+    // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
+    // (mesmo conceito de BSP, só que vindo do relatório Drake).
+    const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
+    const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
     const chave = `${colaborador.id}::${bsp}`;
     if (!porChave.has(chave)) {
       porChave.set(chave, {
@@ -374,6 +328,18 @@ function TimesheetOffshore() {
 
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
 
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set([
+      ...UNIDADES_OPERACIONAIS_FIXAS,
+      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
+    ])).sort(),
+    [periodos],
+  );
+
+  // Visitante só consulta esse módulo — nenhuma ação de lançar/editar/excluir fica visível.
+  const { role } = useAuth();
+  const readOnly = role === "visitante";
+
   if (l1 || l2 || l3 || l4 || l5) {
     return (
       <div className="space-y-4">
@@ -412,18 +378,6 @@ function TimesheetOffshore() {
     );
   }
 
-  const unidadeOptions = useMemo(
-    () => Array.from(new Set([
-      ...UNIDADES_OPERACIONAIS_FIXAS,
-      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
-    ])).sort(),
-    [periodos],
-  );
-
-  // Visitante só consulta esse módulo — nenhuma ação de lançar/editar/excluir fica visível.
-  const { role } = useAuth();
-  const readOnly = role === "visitante";
-
   return (
     <div className="space-y-4">
       <div>
@@ -448,7 +402,7 @@ function TimesheetOffshore() {
           <RelatorioTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} />
         </TabsContent>
         <TabsContent value="medicao" className="mt-4">
-          <MedicaoTab colaboradores={colaboradores} embarques={embarques} />
+          <MedicaoTab colaboradores={colaboradores} embarques={embarques} periodos={periodos} />
         </TabsContent>
       </Tabs>
     </div>
@@ -672,32 +626,15 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     onError: (e: any) => notify.error(e.message),
   });
 
-  const fileRefAccess = useRef<HTMLInputElement>(null);
+  // ── Import dos PDFs de timesheet físico (já extraídos previamente pra src/data) ──
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const pdfGrupos = useMemo(
+    () => agruparPdfPorColaborador((pdfExtractData as { registros: PdfExtractRegistro[] }).registros, colaboradores),
+    [colaboradores],
+  );
 
-  const importAccess = useMutation({
-    mutationFn: async (ciclos: ParsedCiclo[]) => {
-      const matriculas = Array.from(new Set(ciclos.map((c) => c.matricula)));
-      const existentes: HistNovoColaborador[] = [];
-      for (const lote of chunk(matriculas, 300)) {
-        const { data, error } = await supabase.from("hist_novo_colaboradores").select("*").in("matricula", lote);
-        if (error) throw error;
-        existentes.push(...((data ?? []) as HistNovoColaborador[]));
-      }
-      const idByMatricula = new Map(existentes.map((c) => [c.matricula, c.id]));
-
-      const paraCriar = matriculas.filter((m) => !idByMatricula.has(m));
-      let colaboradoresCriados = 0;
-      if (paraCriar.length) {
-        const nomeByMatricula = new Map(ciclos.map((c) => [c.matricula, c.nome]));
-        const toInsert = paraCriar.map((m) => ({ matricula: m, nome: nomeByMatricula.get(m) || m }));
-        const { data, error } = await supabase.from("hist_novo_colaboradores").insert(toInsert).select("*");
-        if (error) throw error;
-        (data ?? []).forEach((c: any) => idByMatricula.set(c.matricula, c.id));
-        colaboradoresCriados = toInsert.length;
-      }
-
-      // Checagem de sobreposição de datas por colaborador — pra não duplicar embarques se o
-      // import rodar de novo (ex.: engano, ou reimportar depois de corrigir algo na planilha).
+  const importPdfs = useMutation({
+    mutationFn: async (grupos: PdfGrupoColaborador[]) => {
       const { data: embarquesExistentes, error: embErr } = await supabase
         .from("timesheet_embarques").select("colaborador_id, data_inicio_embarque, data_fim_embarque");
       if (embErr) throw embErr;
@@ -709,87 +646,88 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       const sobrepoe = (colaboradorId: string, inicio: string, fim: string) =>
         (porColaborador.get(colaboradorId) ?? []).some((e) => e.data_inicio_embarque <= fim && e.data_fim_embarque >= inicio);
 
-      let ciclosImportados = 0, ciclosIgnorados = 0, semanasCount = 0, diasCount = 0;
-      for (const ciclo of ciclos) {
-        const colaboradorId = idByMatricula.get(ciclo.matricula);
-        if (!colaboradorId || sobrepoe(colaboradorId, ciclo.data_inicio, ciclo.data_fim)) { ciclosIgnorados++; continue; }
+      let embarquesCriados = 0, ciclosIgnorados = 0, semanasCount = 0, diasCount = 0;
 
-        const { data: embarque, error: insErr } = await supabase.from("timesheet_embarques").insert({
-          colaborador_id: colaboradorId, periodo_id: null,
-          unidade_operacional: ciclo.unidade_operacional, bsp: null,
-          funcao_embarque: ciclo.funcao_embarque || "—",
-          data_inicio_embarque: ciclo.data_inicio, data_fim_embarque: ciclo.data_fim,
-          status_entrega: "pendente",
-        }).select("*").single();
-        if (insErr) throw insErr;
-        if (!porColaborador.has(colaboradorId)) porColaborador.set(colaboradorId, []);
-        porColaborador.get(colaboradorId)!.push({ data_inicio_embarque: ciclo.data_inicio, data_fim_embarque: ciclo.data_fim });
+      for (const grupo of grupos) {
+        if (!grupo.colaborador) continue;
+        const colaboradorId = grupo.colaborador.id;
+        const semanasOrdenadas = [...grupo.semanas].sort((a, b) => a.semana_inicio.localeCompare(b.semana_inicio));
 
-        const semanasToInsert: { embarque_id: string; data_inicio_semana: string; data_fim_semana: string; recebido_fisico: boolean; data_recebimento: string }[] = [];
-        const semanaDatesList: string[][] = [];
-        for (let semanaInicio = mondayOf(ciclo.data_inicio); semanaInicio <= ciclo.data_fim; semanaInicio = addDaysStr(semanaInicio, 7)) {
-          const datas = weekDates(semanaInicio);
-          semanasToInsert.push({ embarque_id: embarque.id, data_inicio_semana: semanaInicio, data_fim_semana: datas[6], recebido_fisico: true, data_recebimento: todayStr() });
-          semanaDatesList.push(datas);
-        }
-        const { data: semanasInseridas, error: semErr } = await supabase.from("timesheet_semanas").insert(semanasToInsert).select("*");
-        if (semErr) throw semErr;
-        semanasCount += semanasInseridas?.length ?? 0;
-
-        const diasToInsert: any[] = [];
-        (semanasInseridas ?? []).forEach((semana: any, i: number) => {
-          semanaDatesList[i].forEach((data) => {
-            const info = ciclo.porDia.get(data);
-            const extrasQtd = info?.horaExtra?.qtd ?? 0;
-            diasToInsert.push({
-              semana_id: semana.id, data, dia_semana: weekdayLabel(data),
-              evento: info?.evento ?? null,
-              hora_entrada_extra: info?.horaExtra?.de ?? null, hora_saida_extra: info?.horaExtra?.ate ?? null,
-              horas_normais: 12, horas_extras: extrasQtd || null, total_horas: 12 + extrasQtd,
-              adicional_noturno: !!info?.noturno || (info?.horaExtra ? suggestAdicionalNoturno(info.horaExtra.de, info.horaExtra.ate) : false),
-              feriado: false,
-            });
-          });
+        // Agrupa semanas consecutivas (sem lacuna) do mesmo colaborador num único ciclo de embarque.
+        const ciclos: PdfExtractRegistro[][] = [];
+        let atual: PdfExtractRegistro[] = [];
+        semanasOrdenadas.forEach((semana) => {
+          const anterior = atual[atual.length - 1];
+          if (anterior && addDaysStr(anterior.semana_fim, 1) !== semana.semana_inicio) {
+            ciclos.push(atual);
+            atual = [];
+          }
+          atual.push(semana);
         });
-        for (const lote of chunk(diasToInsert, 500)) {
-          const { error: diasErr } = await supabase.from("timesheet_dias").insert(lote);
-          if (diasErr) throw diasErr;
+        if (atual.length) ciclos.push(atual);
+
+        for (const ciclo of ciclos) {
+          const inicio = ciclo[0].semana_inicio;
+          const fim = ciclo[ciclo.length - 1].semana_fim;
+          if (sobrepoe(colaboradorId, inicio, fim)) { ciclosIgnorados++; continue; }
+
+          const { data: embarque, error: insErr } = await supabase.from("timesheet_embarques").insert({
+            colaborador_id: colaboradorId, periodo_id: null,
+            unidade_operacional: ciclo[0].embarcacao || null,
+            bsp: ciclo[0].bsp || null,
+            funcao_embarque: ciclo[0].funcao || "—",
+            data_inicio_embarque: inicio, data_fim_embarque: fim,
+            status_entrega: "pendente",
+          }).select("*").single();
+          if (insErr) throw insErr;
+          if (!porColaborador.has(colaboradorId)) porColaborador.set(colaboradorId, []);
+          porColaborador.get(colaboradorId)!.push({ data_inicio_embarque: inicio, data_fim_embarque: fim });
+          embarquesCriados++;
+
+          for (const semana of ciclo) {
+            const { data: semanaInserida, error: semErr } = await supabase.from("timesheet_semanas").insert({
+              embarque_id: embarque.id, data_inicio_semana: semana.semana_inicio, data_fim_semana: semana.semana_fim,
+              recebido_fisico: true, data_recebimento: todayStr(),
+            }).select("*").single();
+            if (semErr) throw semErr;
+            semanasCount++;
+
+            const diasToInsert = semana.dias.map((d) => ({
+              semana_id: semanaInserida.id, data: d.data, dia_semana: weekdayLabel(d.data),
+              descricao_tarefa: d.tarefa, numero_tarefa: d.numero_tarefa,
+              hora_entrada: d.entrada, hora_saida: d.saida,
+              evento: normalizarEvento(d.evento),
+              horas_normais: d.horas_normais, horas_extras: d.horas_extras, total_horas: d.total,
+              adicional_noturno: suggestAdicionalNoturno(d.entrada, d.saida),
+              feriado: false,
+            }));
+            if (diasToInsert.length) {
+              const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasToInsert);
+              if (diasErr) throw diasErr;
+              diasCount += diasToInsert.length;
+            }
+          }
+
+          const total = totalSemanasEsperadas(inicio, fim);
+          const status = computeStatusEntrega(ciclo.length, total);
+          await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
         }
-        diasCount += diasToInsert.length;
-
-        const total = totalSemanasEsperadas(ciclo.data_inicio, ciclo.data_fim);
-        const status = computeStatusEntrega(semanasInseridas?.length ?? 0, total);
-        await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
-
-        ciclosImportados++;
       }
 
-      return { colaboradoresCriados, ciclosImportados, ciclosIgnorados, semanas: semanasCount, dias: diasCount };
+      return { embarquesCriados, ciclosIgnorados, semanas: semanasCount, dias: diasCount };
     },
-    onSuccess: ({ colaboradoresCriados, ciclosImportados, ciclosIgnorados, semanas, dias }) => {
+    onSuccess: ({ embarquesCriados, ciclosIgnorados, semanas, dias }) => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
       qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
       qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       notify.success(
-        `Importado: ${colaboradoresCriados} colaborador(es) criado(s), ${ciclosImportados} ciclo(s) de embarque, ${semanas} semana(s), ${dias} dia(s).` +
-        (ciclosIgnorados > 0 ? ` ${ciclosIgnorados} ciclo(s) ignorado(s) (colaborador não encontrado ou já havia embarque com datas sobrepostas).` : ""),
+        `Importado: ${embarquesCriados} embarque(s), ${semanas} semana(s), ${dias} dia(s).` +
+        (ciclosIgnorados > 0 ? ` ${ciclosIgnorados} ciclo(s) ignorado(s) (já havia embarque com datas sobrepostas).` : ""),
       );
+      setPdfPreviewOpen(false);
     },
-    onError: (e: any) => notify.error(e.message || "Erro ao importar planilha."),
+    onError: (e: any) => notify.error(e.message || "Erro ao importar PDFs."),
   });
-
-  const onImportAccess = async (file: File) => {
-    try {
-      const buf = await file.arrayBuffer();
-      const ciclos = parseAccessTimesheetWorkbook(buf);
-      if (!ciclos.length) { notify.error("Nenhum ciclo de embarque encontrado na planilha."); return; }
-      importAccess.mutate(ciclos);
-    } catch (e: any) {
-      notify.error(e.message || "Erro ao ler a planilha.");
-    } finally {
-      if (fileRefAccess.current) fileRefAccess.current.value = "";
-    }
-  };
 
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
   const periodosByColaborador = useMemo(() => {
@@ -859,13 +797,11 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           </div>
           {!readOnly && (
             <div className="ml-auto flex items-center gap-2">
-              <input
-                ref={fileRefAccess} type="file" accept=".xlsx,.xls" className="hidden"
-                onChange={(e) => e.target.files?.[0] && onImportAccess(e.target.files[0])}
-              />
-              <Button variant="outline" onClick={() => fileRefAccess.current?.click()} loading={importAccess.isPending}>
-                <Upload className="mr-1.5 h-4 w-4" />Importar Excel (Access)
-              </Button>
+              {pdfGrupos.length > 0 && (
+                <Button variant="outline" onClick={() => setPdfPreviewOpen(true)}>
+                  <Upload className="mr-1.5 h-4 w-4" />Importar PDFs Timesheet ({pdfGrupos.length})
+                </Button>
+              )}
               <Button onClick={() => setNovoOpen(true)}>
                 <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
               </Button>
@@ -970,6 +906,51 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         colaboradorNome={editandoEmbarque ? colabById.get(editandoEmbarque.colaborador_id)?.nome ?? "—" : ""}
         unidadeOptions={unidadeOptions}
       />
+
+      <Dialog open={pdfPreviewOpen} onOpenChange={setPdfPreviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Conferir importação dos PDFs de timesheet</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            {pdfGrupos.filter((g) => g.colaborador).length} de {pdfGrupos.length} nome(s) casados com colaboradores já cadastrados.
+            Os não encontrados abaixo não serão importados — lance esses manualmente depois.
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome no PDF</TableHead>
+                <TableHead>Colaborador casado</TableHead>
+                <TableHead>Semanas</TableHead>
+                <TableHead>Baixa confiança</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pdfGrupos.map((g) => (
+                <TableRow key={g.nomeOriginal}>
+                  <TableCell className="font-medium">{g.nomeOriginal}</TableCell>
+                  <TableCell>
+                    {g.colaborador
+                      ? <StatusBadge tone="success">{g.colaborador.nome}</StatusBadge>
+                      : <StatusBadge tone="destructive">Não encontrado</StatusBadge>}
+                  </TableCell>
+                  <TableCell>{g.semanas.length}</TableCell>
+                  <TableCell>{g.baixaConfianca > 0 ? <StatusBadge tone="warning">{g.baixaConfianca} semana(s)</StatusBadge> : "—"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <DialogFooter>
+            <Button
+              onClick={() => importPdfs.mutate(pdfGrupos)}
+              loading={importPdfs.isPending}
+              disabled={pdfGrupos.filter((g) => g.colaborador).length === 0}
+            >
+              Confirmar importação ({pdfGrupos.filter((g) => g.colaborador).length} colaborador(es))
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1075,7 +1056,7 @@ function PendentesTab({ colaboradores, periodos, embarques, semanas, dias }: {
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
 
   // Precisamos de TODOS os períodos do colaborador (não só os "E") pra computar o status de
-  // cada dia do mesmo jeito que o Histograma Offshore Novo faz (prioridade AT>FE>E>...>DB),
+  // cada dia do mesmo jeito que o Histograma Offshore faz (prioridade AT>FE>E>...>DB),
   // já que um dia dentro de um período "E" pode não ser efetivamente um dia "E" (ex.: o último
   // dia do período costuma virar Desembarque, e dias após o 14º viram Dobra).
   const periodosByColaborador = useMemo(() => {
@@ -1369,7 +1350,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
           className="animate-pulse rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11px] font-medium text-destructive shadow-[0_0_10px_2px_rgba(220,38,38,0.45)]"
           title={diasFaltando.map(fmt).join(", ")}
         >
-          Ainda falta lançar {diasFaltando.length} dia(s) embarcado(s) segundo o Histograma Offshore Novo: {diasFaltando.slice(0, 6).map(fmt).join(", ")}{diasFaltando.length > 6 ? "…" : ""}
+          Ainda falta lançar {diasFaltando.length} dia(s) embarcado(s) segundo o Histograma Offshore: {diasFaltando.slice(0, 6).map(fmt).join(", ")}{diasFaltando.length > 6 ? "…" : ""}
         </div>
       )}
 
@@ -1857,8 +1838,8 @@ interface LinhaMedicao {
   dias: number;
 }
 
-function MedicaoTab({ colaboradores, embarques }: {
-  colaboradores: HistNovoColaborador[]; embarques: TimesheetEmbarque[];
+function MedicaoTab({ colaboradores, embarques, periodos }: {
+  colaboradores: HistNovoColaborador[]; embarques: TimesheetEmbarque[]; periodos: HistNovoPeriodo[];
 }) {
   const [dataInicio, setDataInicio] = useState(defaultStart);
   const [dataFim, setDataFim] = useState(defaultEnd);
@@ -1866,6 +1847,14 @@ function MedicaoTab({ colaboradores, embarques }: {
 
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
   const embarqueById = useMemo(() => new Map(embarques.map((e) => [e.id, e])), [embarques]);
+  const periodosByColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodos.forEach((p) => {
+      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
+      m.get(p.colaborador_id)!.push(p);
+    });
+    return m;
+  }, [periodos]);
 
   const unidadeOptions = useMemo(
     () => Array.from(new Set(embarques.map((e) => e.unidade_operacional).filter((u): u is string => !!u))).sort(),
@@ -1901,7 +1890,11 @@ function MedicaoTab({ colaboradores, embarques }: {
       if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
       const colaborador = colabById.get(embarque.colaborador_id);
       if (!colaborador) return;
-      const bsp = embarque.bsp || "—";
+      // O embarque pode ter sido lançado sem BSP preenchido (ex.: import do Access, que não traz
+      // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
+      // (mesmo conceito de BSP, só que vindo do relatório Drake).
+      const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
+      const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
       const chave = `${colaborador.id}::${bsp}`;
       if (!porChave.has(chave)) {
         porChave.set(chave, {
@@ -1918,12 +1911,47 @@ function MedicaoTab({ colaboradores, embarques }: {
     return Array.from(porChave.values())
       .map((l) => ({ ...l, horasNormais: round2(l.horasNormais), horasExtras: round2(l.horasExtras), totalHoras: round2(l.totalHoras) }))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome) || a.bsp.localeCompare(b.bsp));
-  }, [diasNoPeriodo, embarqueById, colabById, unidadeFiltro]);
+  }, [diasNoPeriodo, embarqueById, colabById, periodosByColaborador, unidadeFiltro]);
 
   // Exportação em Excel foi centralizada no módulo de Relatórios.
 
+  // Totais de HH normal/extra por unidade — soma das linhas (que já estão por colaborador+BSP)
+  // agrupadas só por unidade, pra dar uma visão rápida antes de ir pro detalhe por colaborador.
+  const porUnidade = useMemo(() => {
+    const m = new Map<string, { unidade: string; horasNormais: number; horasExtras: number }>();
+    linhas.forEach((l) => {
+      if (!m.has(l.unidade)) m.set(l.unidade, { unidade: l.unidade, horasNormais: 0, horasExtras: 0 });
+      const u = m.get(l.unidade)!;
+      u.horasNormais += l.horasNormais;
+      u.horasExtras += l.horasExtras;
+    });
+    return Array.from(m.values())
+      .map((u) => ({ ...u, horasNormais: round2(u.horasNormais), horasExtras: round2(u.horasExtras) }))
+      .sort((a, b) => a.unidade.localeCompare(b.unidade));
+  }, [linhas]);
+
   return (
     <div className="space-y-3">
+      {porUnidade.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {porUnidade.map((u) => (
+            <Card key={u.unidade} className="min-w-[160px] flex-1 p-3">
+              <p className="truncate text-xs font-medium text-muted-foreground" title={u.unidade}>{u.unidade}</p>
+              <div className="mt-1.5 flex items-baseline gap-3">
+                <div>
+                  <span className="text-lg font-semibold">{u.horasNormais}</span>
+                  <span className="ml-1 text-[10px] text-muted-foreground">HH normal</span>
+                </div>
+                <div>
+                  <span className="text-lg font-semibold text-amber-600">{u.horasExtras}</span>
+                  <span className="ml-1 text-[10px] text-muted-foreground">HE</span>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5">
