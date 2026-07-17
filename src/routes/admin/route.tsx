@@ -18,6 +18,8 @@ const nav: NavItem[] = [
   { to: "/admin/transport",      label: "Transporte" },
   { to: "/admin/collaborators",  label: "Colaboradores" },
   { to: "/admin/costs",          label: "Custos" },
+  { to: "/admin/rates",          label: "Rates" },
+  { to: "/admin/bm",             label: "Boletim de Medição" },
   { to: "/admin/approvals",      label: "Aprovações" },
   { to: "/admin/reports",        label: "Relatórios" },
   { to: "/admin/settings",       label: "Configurações" },
