@@ -1,0 +1,107 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --animate-fade-in: fade-in 0.6s ease-out both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  /* STEP Oil & Gas brand palette
+     #2a4f89 navy  | #0288d1 blue  | #049ce6 bright blue
+     #81cdf2 sky   | #e0ecf1 mist                              */
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.006 235);
+  --foreground: oklch(0.22 0.06 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.06 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.06 260);
+  --primary: oklch(0.38 0.10 260);            /* #2a4f89 navy */
+  --primary-foreground: oklch(0.985 0.006 235);
+  --secondary: oklch(0.95 0.02 235);           /* near #e0ecf1 */
+  --secondary-foreground: oklch(0.32 0.08 260);
+  --muted: oklch(0.95 0.02 235);
+  --muted-foreground: oklch(0.5 0.04 250);
+  --accent: oklch(0.58 0.16 240);              /* #0288d1 */
+  --accent-foreground: oklch(0.99 0.005 235);
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.98 0.005 240);
+  --success: oklch(0.62 0.15 150);
+  --success-foreground: oklch(0.98 0.005 240);
+  --warning: oklch(0.78 0.16 70);
+  --warning-foreground: oklch(0.2 0.04 250);
+  --border: oklch(0.9 0.02 235);
+  --input: oklch(0.9 0.02 235);
+  --ring: oklch(0.58 0.16 240);
+  --sidebar: oklch(0.32 0.09 260);             /* navy gradient base */
+  --sidebar-foreground: oklch(0.96 0.015 235);
+  --sidebar-primary: oklch(0.66 0.17 235);     /* #049ce6 */
+  --sidebar-primary-foreground: oklch(0.18 0.05 260);
+  --sidebar-accent: oklch(0.38 0.10 260);
+  --sidebar-accent-foreground: oklch(0.96 0.015 235);
+  --sidebar-border: oklch(0.4 0.09 260);
+  --sidebar-ring: oklch(0.66 0.17 235);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1, h2, h3, h4, h5, h6 { font-family: "Barlow", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+}
