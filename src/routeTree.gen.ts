@@ -17,6 +17,7 @@ import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PmIndexRouteImport } from './routes/pm/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as PmBmsRouteImport } from './routes/pm/bms'
 import { Route as AppTransportRouteImport } from './routes/app/transport'
 import { Route as AppTimesheetRouteImport } from './routes/app/timesheet'
 import { Route as AppScheduleRouteImport } from './routes/app/schedule'
@@ -26,12 +27,14 @@ import { Route as AdminTransportRouteImport } from './routes/admin/transport'
 import { Route as AdminTimesheetOffshoreRouteImport } from './routes/admin/timesheet-offshore'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
+import { Route as AdminRatesRouteImport } from './routes/admin/rates'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
 import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
 import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
 import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
+import { Route as AdminBmRouteImport } from './routes/admin/bm'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
 
 const PendingRoute = PendingRouteImport.update({
@@ -73,6 +76,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRouteRoute,
+} as any)
+const PmBmsRoute = PmBmsRouteImport.update({
+  id: '/bms',
+  path: '/bms',
+  getParentRoute: () => PmRouteRoute,
 } as any)
 const AppTransportRoute = AppTransportRouteImport.update({
   id: '/transport',
@@ -119,6 +127,11 @@ const AdminReportsRoute = AdminReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminRatesRoute = AdminRatesRouteImport.update({
+  id: '/rates',
+  path: '/rates',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminPayrollRoute = AdminPayrollRouteImport.update({
   id: '/payroll',
   path: '/payroll',
@@ -149,6 +162,11 @@ const AdminCollaboratorsRoute = AdminCollaboratorsRouteImport.update({
   path: '/collaborators',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminBmRoute = AdminBmRouteImport.update({
+  id: '/bm',
+  path: '/bm',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
   id: '/approvals',
   path: '/approvals',
@@ -163,12 +181,14 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -178,6 +198,7 @@ export interface FileRoutesByFullPath {
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
+  '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
 }
@@ -187,12 +208,14 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -202,6 +225,7 @@ export interface FileRoutesByTo {
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
+  '/pm/bms': typeof PmBmsRoute
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
 }
@@ -214,12 +238,14 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -229,6 +255,7 @@ export interface FileRoutesById {
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
+  '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
 }
@@ -242,12 +269,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
     | '/admin/payroll'
+    | '/admin/rates'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -257,6 +286,7 @@ export interface FileRouteTypes {
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
+    | '/pm/bms'
     | '/app/'
     | '/pm/'
   fileRoutesByTo: FileRoutesByTo
@@ -266,12 +296,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
     | '/admin/payroll'
+    | '/admin/rates'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -281,6 +313,7 @@ export interface FileRouteTypes {
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
+    | '/pm/bms'
     | '/app'
     | '/pm'
   id:
@@ -292,12 +325,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
     | '/admin/payroll'
+    | '/admin/rates'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -307,6 +342,7 @@ export interface FileRouteTypes {
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
+    | '/pm/bms'
     | '/app/'
     | '/pm/'
   fileRoutesById: FileRoutesById
@@ -378,6 +414,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/pm/bms': {
+      id: '/pm/bms'
+      path: '/bms'
+      fullPath: '/pm/bms'
+      preLoaderRoute: typeof PmBmsRouteImport
+      parentRoute: typeof PmRouteRoute
+    }
     '/app/transport': {
       id: '/app/transport'
       path: '/transport'
@@ -441,6 +484,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminReportsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/rates': {
+      id: '/admin/rates'
+      path: '/rates'
+      fullPath: '/admin/rates'
+      preLoaderRoute: typeof AdminRatesRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/payroll': {
       id: '/admin/payroll'
       path: '/payroll'
@@ -483,6 +533,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCollaboratorsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/bm': {
+      id: '/admin/bm'
+      path: '/bm'
+      fullPath: '/admin/bm'
+      preLoaderRoute: typeof AdminBmRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/approvals': {
       id: '/admin/approvals'
       path: '/approvals'
@@ -495,12 +552,14 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteRouteChildren {
   AdminApprovalsRoute: typeof AdminApprovalsRoute
+  AdminBmRoute: typeof AdminBmRoute
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
   AdminCostsRoute: typeof AdminCostsRoute
   AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
   AdminMaterialsRoute: typeof AdminMaterialsRoute
   AdminNominationsRoute: typeof AdminNominationsRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
+  AdminRatesRoute: typeof AdminRatesRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTimesheetOffshoreRoute: typeof AdminTimesheetOffshoreRoute
@@ -509,12 +568,14 @@ interface AdminRouteRouteChildren {
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminApprovalsRoute: AdminApprovalsRoute,
+  AdminBmRoute: AdminBmRoute,
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
   AdminCostsRoute: AdminCostsRoute,
   AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,
   AdminMaterialsRoute: AdminMaterialsRoute,
   AdminNominationsRoute: AdminNominationsRoute,
   AdminPayrollRoute: AdminPayrollRoute,
+  AdminRatesRoute: AdminRatesRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTimesheetOffshoreRoute: AdminTimesheetOffshoreRoute,
@@ -548,10 +609,12 @@ const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
 )
 
 interface PmRouteRouteChildren {
+  PmBmsRoute: typeof PmBmsRoute
   PmIndexRoute: typeof PmIndexRoute
 }
 
 const PmRouteRouteChildren: PmRouteRouteChildren = {
+  PmBmsRoute: PmBmsRoute,
   PmIndexRoute: PmIndexRoute,
 }
 
