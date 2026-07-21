@@ -28,7 +28,7 @@ function AppLayout() {
     if (loading) return;
     if (!user) navigate({ to: "/auth" });
     else if (!role || role === "pending") navigate({ to: "/pending" });
-    else if (role === "logistics_operator") navigate({ to: "/admin/embarkations" });
+    else if (role === "logistics_operator") navigate({ to: "/admin/histograma-novo" });
     else if (role === "visitante") navigate({ to: "/admin/transport" });
   }, [user, role, loading, navigate]);
 
