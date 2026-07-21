@@ -11,8 +11,7 @@ export const Route = createFileRoute("/admin")({ component: AdminLayout });
 
 type NavItem = { to: string; label: string; exact?: boolean };
 const nav: NavItem[] = [
-  { to: "/admin/embarkations",   label: "Histograma Offshore" },
-  { to: "/admin/histograma-novo", label: "Histograma Offshore Novo" },
+  { to: "/admin/histograma-novo", label: "Histograma Offshore" },
   { to: "/admin/timesheet-offshore", label: "Timesheet Offshore" },
   { to: "/admin/nominations",    label: "Nomeações" },
   { to: "/admin/transport",      label: "Transporte" },

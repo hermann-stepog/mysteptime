@@ -39,7 +39,7 @@ import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pageTitle("Histograma Offshore Novo"), component: HistogramaOffshoreNovo });
+export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshoreNovo });
 
 // O PostgREST devolve no máximo 1000 linhas por resposta por padrão — sem paginar, listas
 // grandes (colaboradores/períodos, que só crescem a cada import) ficam truncadas em silêncio,
@@ -156,33 +156,33 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaborado
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Histograma Offshore Novo</h1>
+        <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
         {!isVisitante && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
       </div>
 
-      <Tabs defaultValue={isVisitante ? "dashboard" : "lancamentos"}>
+      <Tabs defaultValue="dashboard">
         <TabsList>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           {!isVisitante && (
             <>
-              <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
               <TabsTrigger value="histograma">Histograma</TabsTrigger>
+              <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
             </>
           )}
-          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
         </TabsList>
-        {!isVisitante && (
-          <>
-            <TabsContent value="lancamentos" className="mt-4">
-              <LancamentosTab colaboradores={colaboradores} periodos={periodos} />
-            </TabsContent>
-            <TabsContent value="histograma" className="mt-4">
-              <HistogramaTab colaboradores={colaboradores} periodos={periodos} />
-            </TabsContent>
-          </>
-        )}
         <TabsContent value="dashboard" className="mt-4">
           <DashboardTab colaboradores={colaboradores} periodos={periodos} />
         </TabsContent>
+        {!isVisitante && (
+          <>
+            <TabsContent value="histograma" className="mt-4">
+              <HistogramaTab colaboradores={colaboradores} periodos={periodos} />
+            </TabsContent>
+            <TabsContent value="lancamentos" className="mt-4">
+              <LancamentosTab colaboradores={colaboradores} periodos={periodos} />
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );
@@ -464,6 +464,84 @@ function parseDisponibilidadeWorkbook(buf: ArrayBuffer): ParsedDisponibilidadeRo
     out.push({ matricula, tipo, data_inicio, data_fim });
   }
   return out;
+}
+
+// Exportação do Relatório de Embarques — usada pelo módulo de Relatórios (card "Embarques").
+// Lista todos os períodos do tipo "E" (embarcado) lançados no Histograma Offshore.
+export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: string): Promise<void> {
+  let periodosQuery = supabase.from("hist_novo_periodos").select("*").eq("tipo", "E").order("data_inicio", { ascending: false });
+  // Sobreposição de intervalo — um embarque que começou antes e ainda está em curso dentro do
+  // período filtrado também deve entrar, não só os que começaram exatamente dentro da janela.
+  if (dataFim) periodosQuery = periodosQuery.lte("data_inicio", dataFim);
+  if (dataInicio) periodosQuery = periodosQuery.gte("data_fim", dataInicio);
+
+  const [{ data: colaboradores, error: cErr }, { data: periodos, error: pErr }] = await Promise.all([
+    supabase.from("hist_novo_colaboradores").select("*"),
+    periodosQuery,
+  ]);
+  if (cErr) throw cErr;
+  if (pErr) throw pErr;
+  const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
+  const rows = ((periodos ?? []) as HistNovoPeriodo[]).map((p) => {
+    const c = colabById.get(p.colaborador_id);
+    return {
+      matricula: c?.matricula ?? "—",
+      colaborador: c?.nome ?? "—",
+      empresa: c?.empresa ?? "—",
+      funcao: c?.funcao_operacao || c?.funcao || "—",
+      unidade_operacional: p.unidade_operacional ?? "—",
+      BSP: p.centro_de_custo ?? "—",
+      data_inicio: p.data_inicio,
+      data_fim: p.data_fim,
+      dias: p.dias ?? "—",
+      origem: p.origem ?? "—",
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Embarques");
+  XLSX.writeFile(wb, `embarques_${todayStr()}.xlsx`);
+}
+
+// Exportação do Relatório de Disponibilidade — usada pelo módulo de Relatórios (card
+// "Disponibilidade"). "Disponível" = status computado de hoje é Standby (sem embarque em curso,
+// mesmo critério usado no KPI "Disponíveis" do Dashboard). O período filtrado só define quem
+// entra na lista (colaborador com pelo menos um período dentro da janela — mesmo critério de
+// "ativo" do Dashboard); o status em si é sempre avaliado em relação a hoje.
+export async function generateRelatorioDisponibilidade(dataInicio?: string, dataFim?: string): Promise<void> {
+  const [{ data: colaboradores, error: cErr }, { data: periodos, error: pErr }] = await Promise.all([
+    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_periodos").select("*"),
+  ]);
+  if (cErr) throw cErr;
+  if (pErr) throw pErr;
+
+  const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
+  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
+    if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
+    periodosByColaborador.get(p.colaborador_id)!.push(p);
+  });
+
+  const hoje = todayStr();
+  const rows = ((colaboradores ?? []) as HistNovoColaborador[])
+    .filter((c) => {
+      if (!dataInicio || !dataFim) return true;
+      const ps = periodosByColaborador.get(c.id) ?? [];
+      return ps.some((p) => p.data_fim >= dataInicio && p.data_inicio <= dataFim);
+    })
+    .filter((c) => computeDayStatus(periodosByColaborador.get(c.id) ?? [], hoje).status === "STB")
+    .map((c) => ({
+      matricula: c.matricula,
+      colaborador: c.nome,
+      empresa: c.empresa ?? "—",
+      funcao: c.funcao_operacao || c.funcao || "—",
+    }))
+    .sort((a, b) => a.colaborador.localeCompare(b.colaborador));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Disponibilidade");
+  XLSX.writeFile(wb, `disponibilidade_${hoje}.xlsx`);
 }
 
 // ─── Lançamentos tab ─────────────────────────────────────────────────────────
@@ -1350,9 +1428,8 @@ function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasBy
 }
 
 // ─── Aba Dashboard ───────────────────────────────────────────────────────────
-// Réplica do dashboard do módulo antigo "Histograma Offshore" (mesmos gráficos, cores e
-// cartões de KPI), só que alimentada pelos dados do Histograma Offshore Novo
-// (hist_novo_colaboradores/hist_novo_periodos) em vez da planilha Smartsheet.
+// Gráficos, cores e cartões de KPI alimentados pelos dados do Histograma Offshore
+// (hist_novo_colaboradores/hist_novo_periodos).
 
 const DASH_MONTH_ABBR = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -1364,6 +1441,10 @@ const DASH_COLORS = {
 };
 
 const DASH_UNIT_PALETTE = ["#1e3a5f", "#2563eb", "#0288d1", "#f97316", "#22c55e", "#8b5cf6", "#eab308", "#94a3b8", "#f43f5e", "#14b8a6"];
+
+// Paleta só em tons de azul pro donut de Taxa de Ocupação — independente das cores de status
+// do Histograma (que usam cores bem distintas entre si, verde/laranja/roxo/vermelho etc.).
+const OCUPACAO_BLUE_PALETTE = ["#0f2744", "#1e3a5f", "#2c5282", "#2563eb", "#3b82f6", "#0ea5e9", "#38bdf8", "#7dd3fc", "#60a5fa", "#93c5fd", "#bae6fd", "#dbeafe"];
 
 type OldBucket = "E" | "P" | "D" | "B" | "FO" | "FE" | "TE" | "IND" | "OTHER";
 
@@ -1525,7 +1606,8 @@ function DashboardTab({ colaboradores, periodos }: {
     });
     return STATUS_ORDER
       .filter((s) => (counts[s] ?? 0) > 0)
-      .map((s) => ({ name: STATUS_LABEL[s], value: counts[s] ?? 0, color: STATUS_COLOR[s] }));
+      .map((s) => ({ name: STATUS_LABEL[s], value: counts[s] ?? 0 }))
+      .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
   }, [activeColaboradores, periodosByColaborador, today]);
 
   // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
@@ -1558,8 +1640,9 @@ function DashboardTab({ colaboradores, periodos }: {
       const fn = c.funcao_operacao || "—";
       if (!m[u].porFuncao[fn]) m[u].porFuncao[fn] = { count: 0, nomes: [] };
       m[u].porFuncao[fn].count++;
-      // Só primeiro + segundo nome no tooltip — nome completo fica grande demais pra caber.
-      m[u].porFuncao[fn].nomes.push(c.nome.trim().split(/\s+/).slice(0, 2).join(" "));
+      // Só primeiro + último nome no tooltip — nome completo fica grande demais pra caber.
+      const partesNome = c.nome.trim().split(/\s+/);
+      m[u].porFuncao[fn].nomes.push(partesNome.length > 1 ? `${partesNome[0]} ${partesNome[partesNome.length - 1]}` : partesNome[0]);
     });
     return Object.entries(m)
       .map(([name, v]) => ({
@@ -1729,7 +1812,7 @@ function DashboardTab({ colaboradores, periodos }: {
       {/* ── Ocupação ── */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold">Taxa de Ocupação</h3>
-        <p className="text-xs text-muted-foreground mb-3">Status de hoje, por colaborador ativo no período filtrado (mesmas cores do Histograma)</p>
+        <p className="text-xs text-muted-foreground mb-3">Status de hoje, por colaborador ativo no período filtrado</p>
         <div className="flex flex-wrap items-center gap-4">
           <div className="relative shrink-0">
             <PieChart width={180} height={180}>

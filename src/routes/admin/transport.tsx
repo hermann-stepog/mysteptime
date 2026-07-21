@@ -100,11 +100,15 @@ function compareCarNumber(a: string, b: string) {
 // Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
 // Busca os próprios dados (não depende de nenhuma tela já aberta) e já baixa tudo, sem
 // diálogo de opções — igual ao resto dos cartões de Relatórios.
-export async function generateRelatorioTransporte(): Promise<void> {
+export async function generateRelatorioTransporte(dataInicio?: string, dataFim?: string): Promise<void> {
+  let tripsQuery = supabase.from("transport_trips")
+    .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
+    .order("scheduled_at");
+  if (dataInicio) tripsQuery = tripsQuery.gte("scheduled_at", dataInicio);
+  if (dataFim) tripsQuery = tripsQuery.lte("scheduled_at", `${dataFim}T23:59:59`);
+
   const [{ data: trips, error: tripsErr }, { data: tags }, { data: collabs }, { data: materials }] = await Promise.all([
-    supabase.from("transport_trips")
-      .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
-      .order("scheduled_at"),
+    tripsQuery,
     supabase.from("transport_tags").select("*"),
     supabase.from("collaborators").select("*").eq("active", true),
     supabase.from("materials").select("*").eq("active", true),
