@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo,
+  TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo,
@@ -493,7 +493,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                 <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo })}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{t} — {TIPO_LABEL[t]}</SelectItem>)}
+                    {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -545,7 +545,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {TIPO_ORDER.map((t) => <SelectItem key={t} value={t} className="text-xs">{t} — {TIPO_LABEL[t]}</SelectItem>)}
+                {TIPO_ORDER.map((t) => <SelectItem key={t} value={t} className="text-xs">{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -600,7 +600,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                         style={{ backgroundColor: getPeriodoColor(p)!, color: getContrastText(getPeriodoColor(p)!) }}
                         title={getPeriodoLabel(p)}
                       >
-                        {tipo}
+                        {displayAbbr(tipo)}
                       </span>
                     ) : p.tipo}
                   </TableCell>
@@ -649,7 +649,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                   <Select value={editing.tipo} onValueChange={(v) => setEditing({ ...editing, tipo: v })}>
                     <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{t} — {TIPO_LABEL[t]}</SelectItem>)}
+                      {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -839,6 +839,16 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
+              <Select value={statusFilter || "all"} onValueChange={(v) => setStatusFilter(v === "all" ? "" : (v as ComputedStatus))}>
+                <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                  {STATUS_ORDER.map((s) => <SelectItem key={s} value={s} className="text-xs">{displayAbbr(s)} — {STATUS_LABEL[s]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </>
         ) : (
           <>
@@ -872,7 +882,7 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
                 }}
                 title={active ? `Limpar filtro ${STATUS_LABEL[s]}` : `Filtrar por ${STATUS_LABEL[s]}`}
               >
-                <span className="inline-flex h-4 w-7 items-center justify-center rounded font-bold" style={{ backgroundColor: STATUS_COLOR[s], color: getContrastText(STATUS_COLOR[s]) }}>{s}</span>
+                <span className="inline-flex h-4 w-7 items-center justify-center rounded font-bold" style={{ backgroundColor: STATUS_COLOR[s], color: getContrastText(STATUS_COLOR[s]) }}>{displayAbbr(s)}</span>
                 <span className="text-muted-foreground">{STATUS_LABEL[s]}</span>
               </button>
             );
@@ -970,7 +980,7 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
                         className="h-6 w-[26px] flex items-center justify-center text-[9px] font-bold"
                         style={{ backgroundColor: color, color: getContrastText(color) }}
                       >
-                        {result.status}
+                        {displayAbbr(result.status)}
                       </div>
                     </td>
                   );
@@ -1019,7 +1029,7 @@ function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasBy
                       className="h-7 w-[26px] flex items-center justify-center text-[10px] font-bold"
                       style={{ backgroundColor: color, color: getContrastText(color) }}
                     >
-                      {result.status}
+                      {displayAbbr(result.status)}
                     </div>
                   </td>
                 );
