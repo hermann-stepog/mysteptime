@@ -171,19 +171,33 @@ export async function generateRelatorioRH(
   });
 
   const linhas = Array.from(byColab.values()).map(({ colaborador, dias }) => {
+    // "209" sai de adicionaisPorFuncao pra dois contadores: Sobreaviso (208) conta todo dia em
+    // que a função é elegível, sem exceção; Periculosidade (209) é o mesmo dia, mas não conta
+    // quando o evento do dia é de hotel (Hotel Pré Embarque, Hotel Embarque Cancelado, Quarentena
+    // Hotel etc.) — regra confirmada: dia de hotel não é periculosidade, mas continua sobreaviso.
     const counts: Record<AdicionalCode, number> = { "055": 0, "056": 0, "057": 0, "033": 0, "209": 0 };
+    let sobreavisoDias = 0;
     let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasHoras = 0;
-    const colabPeriodos = periodosByColaborador.get(colaborador.id) ?? [];
     dias.forEach((d) => {
       const embarque = embarqueById.get(d.embarque_id);
-      if (embarque) adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code]++; });
+      const codes = embarque ? adicionaisPorFuncao(embarque.funcao_embarque) : [];
+      const isHotel = (d.evento ?? "").toLowerCase().includes("hotel");
+      codes.forEach((code) => {
+        if (code === "209") {
+          sobreavisoDias++;
+          if (!isHotel) counts["209"]++;
+        } else {
+          counts[code]++;
+        }
+      });
       horaExtra += d.horas_extras ?? 0;
       if (d.adicional_noturno) horasNoturno += d.total_horas ?? 0;
-      if (d.feriado) feriadoDias++;
-      if (computeDayStatus(colabPeriodos, d.data).status === "DB") dobrasHoras += d.total_horas ?? 0;
+      // Feriado só conta nos dias de Embarque (não em folga/hotel/etc. que caiam num feriado).
+      if (d.feriado && d.evento === "Embarque") feriadoDias++;
+      if (d.evento === "Dobra") dobrasHoras += d.total_horas ?? 0;
     });
     return {
-      colaborador, counts,
+      colaborador, counts, sobreavisoDias,
       horaExtra: round2(horaExtra), horasNoturno: round2(horasNoturno),
       feriadoDias, dobrasHoras: round2(dobrasHoras),
     };
@@ -196,7 +210,7 @@ export async function generateRelatorioRH(
   ];
   const dataRows = linhas.map((l) => [
     l.colaborador.nome, l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
-    0, l.counts["209"], l.horaExtra, l.dobrasHoras, l.feriadoDias, l.horasNoturno,
+    l.sobreavisoDias, l.counts["209"], l.horaExtra, l.dobrasHoras, l.feriadoDias, l.horasNoturno,
   ]);
   const aoa = [
     ["Step Oil & Gas"],
@@ -276,6 +290,70 @@ export async function generateRelatorioMedicao(
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Relatório Medição");
   XLSX.writeFile(wb, `Relatorio_Medicao_${dataInicio}_${dataFim}.xlsx`);
+}
+
+// Relatório Folha de Pagamento / RH — réplica da consulta Con_FP_Novo do sistema legado em
+// Access. Uma linha por lançamento (dia), sem agregação; a soma por colaborador, se precisar,
+// é feita depois em cima desse resultado (igual ao Access). Regras de filtro (confirmadas
+// contra o legado):
+//   1. Excluir = false: não existe soft-delete em timesheet_dias — um lançamento apagado é
+//      removido de verdade da tabela, então esse filtro já é automático (nenhuma linha
+//      "excluída" pode aparecer aqui).
+//   2. Qtd_Horas > 0 (confirmado direto no SQL da Con_FP_Novo real, não é só "IS NOT NULL"):
+//      mapeado pra total_horas > 0 — além de rascunhos sem horas, também ficam de fora
+//      lançamentos com 0 horas.
+//   3. data_inicio BETWEEN Data_Inicial AND Data_Final: mapeado pra data BETWEEN dataInicio E
+//      dataFim — timesheet_dias guarda 1 dia por linha (não uma faixa), então a própria coluna
+//      "data" já é ao mesmo tempo início e fim do lançamento.
+// NaoPassivelMedicao não é filtrado aqui de propósito — não existe no schema atual e é
+// exclusivo do relatório de Medição/faturamento ao cliente, não deste.
+export async function generateRelatorioFolhaRH(
+  dataInicio: string = defaultStart(),
+  dataFim: string = defaultEnd(),
+): Promise<void> {
+  const [{ data: colaboradores }, { data: embarques }] = await Promise.all([
+    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("timesheet_embarques").select("*"),
+  ]);
+  const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
+  const embarqueById = new Map(((embarques ?? []) as TimesheetEmbarque[]).map((e) => [e.id, e]));
+
+  const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
+
+  const linhas = diasNoPeriodo
+    .filter((d) => (d.total_horas ?? 0) > 0) // regra 2 — Qtd_Horas > 0
+    .map((d) => {
+      const embarque = embarqueById.get(d.embarque_id);
+      const colaborador = embarque ? colabById.get(embarque.colaborador_id) : undefined;
+      return {
+        colaborador: colaborador?.nome ?? "—",
+        embarcacao: embarque?.unidade_operacional ?? "—",
+        funcao: embarque?.funcao_embarque ?? "—",
+        tipo_evento: d.evento ?? "—",
+        data_inicio: d.data,
+        data_fim: d.data,
+        quantidade_horas: d.total_horas,
+        comentarios: d.descricao_tarefa ?? "",
+      };
+    })
+    .sort((a, b) => a.colaborador.localeCompare(b.colaborador) || a.data_inicio.localeCompare(b.data_inicio));
+
+  const header = ["Colaborador", "Embarcação", "Função", "Tipo de Evento", "Data Início", "Data Fim", "Quantidade de Horas", "Comentários"];
+  const dataRows = linhas.map((l) => [
+    l.colaborador, l.embarcacao, l.funcao, l.tipo_evento, fmt(l.data_inicio), fmt(l.data_fim), l.quantidade_horas, l.comentarios,
+  ]);
+  const aoa = [
+    ["Step Oil & Gas"],
+    [`Relatório Folha de Pagamento / RH — ${fmt(dataInicio)} a ${fmt(dataFim)}`],
+    [],
+    header,
+    ...dataRows,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = header.map(() => ({ wch: 22 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Folha RH");
+  XLSX.writeFile(wb, `Relatorio_Folha_RH_${dataInicio}_${dataFim}.xlsx`);
 }
 
 // ─── Main page ─────────────────────────────────────────────────────────────

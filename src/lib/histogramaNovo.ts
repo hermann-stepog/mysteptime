@@ -9,17 +9,29 @@ export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "F", "FE", "STB", "AT", "EC"
 export const TIPO_COLOR: Record<TipoPeriodo, string> = {
   P: "#d1d5db",   // programado — cinza claro
   E: "#1D9E75",   // embarcado — verde escuro
-  F: "#C8B99A",   // folga — bege
+  F: "#E8DCC0",   // folga — bege claro (tom pálido, igual ao Drake)
   FE: "#378ADD",  // férias — azul
   STB: "#e2e8f0", // standby — azul acinzentado bem claro (letra escura automática via getContrastText)
   AT: "#EF9F27",  // atestado — amarelo
   EC: "#97C459",  // empresa em casa — verde claro
-  DDN: "#D85A30", // disponível dia não — laranja
+  DDN: "#F3F6F8", // desembarque em dia não útil — branco gelo
   TE: "#BA7517",  // trabalho externo — amarelo ouro
   DI: "#e5e7eb",  // disponível — cinza claro
   FI: "#ED93B1",  // folga indenizada — rosa
-  HTL: "#A78BFA", // hotel — roxo claro
+  HTL: "#F2A9AE", // hotel — rosa salmão (igual ao Drake)
 };
+
+// Sigla exibida na grade — separada da chave interna (usada em dados/lógica) pra poder
+// bater com o Drake (ex.: "HTL"→"H", "DB"→"D") sem renomear tipo/status em nenhum outro
+// lugar (banco, EVENTO_ABBR do BM, etc.).
+export const DISPLAY_ABBR: Record<string, string> = {
+  HTL: "H",
+  DB: "D",
+};
+
+export function displayAbbr(code: string): string {
+  return DISPLAY_ABBR[code] ?? code;
+}
 
 export const TIPO_LABEL: Record<TipoPeriodo, string> = {
   P: "Programado",
@@ -51,13 +63,13 @@ export const STATUS_COLOR: Record<ComputedStatus, string> = {
   AT: "#EF9F27",
   FE: "#378ADD",
   STB: "#e2e8f0", // azul acinzentado bem claro — letra escura automática via getContrastText
-  F: "#C8B99A",
+  F: "#E8DCC0",   // folga — bege claro (igual ao Drake)
   TE: "#BA7517",
-  HTL: "#A78BFA", // hotel — roxo claro
-  DDN: "#D85A30",
+  HTL: "#F2A9AE", // hotel — rosa salmão (igual ao Drake)
+  DDN: "#F3F6F8", // branco gelo
   DES: "#f59e0b",  // desembarque — âmbar
   FI: "#ED93B1",
-  DB: "#DC2626",   // dobra — vermelho, cor de alerta
+  DB: "#DC2626",   // dobra — vermelho, cor de alerta (sigla exibida vira "D", ver DISPLAY_ABBR)
 };
 
 export const STATUS_LABEL: Record<ComputedStatus, string> = {

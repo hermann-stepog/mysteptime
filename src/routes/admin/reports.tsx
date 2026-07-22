@@ -4,10 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { notify } from "@/lib/notify";
 import { useState, type ElementType } from "react";
-import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck } from "lucide-react";
+import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
 import { generateRelatorioTransporte } from "./transport";
-import { generateRelatorioRH, generateRelatorioMedicao } from "./timesheet-offshore";
+import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH } from "./timesheet-offshore";
 import { generateRelatorioEmbarques, generateRelatorioDisponibilidade } from "./histograma-novo";
 import { generateRelatorioCustos } from "./costs";
 
@@ -39,6 +39,7 @@ const REPORT_CARDS: ReportCard[] = [
   { id: "embarques", label: "Embarques", description: "Embarques do Histograma Offshore no período", icon: Ship, run: (i, f) => generateRelatorioEmbarques(i, f) },
   { id: "disponibilidade", label: "Disponibilidade", description: "Quem está disponível hoje, segundo o Histograma Offshore", icon: UserCheck, run: (i, f) => generateRelatorioDisponibilidade(i, f) },
   { id: "rh", label: "Relatório Folha Offshore RH", description: "Adicionais do período selecionado", icon: Users, run: (i, f) => generateRelatorioRH(i, f) },
+  { id: "folha-rh", label: "Folha de Pagamento / RH", description: "Lançamentos detalhados no período (regra Con_FP_Novo)", icon: ClipboardList, run: (i, f) => generateRelatorioFolhaRH(i, f) },
   { id: "medicao", label: "Relatório Medição", description: "Horas por colaborador/BSP no período", icon: Ruler, run: (i, f) => generateRelatorioMedicao(i, f) },
   { id: "custos", label: "Custos", description: "Lançamentos no período em CSV", icon: DollarSign, run: (i, f) => generateRelatorioCustos(i, f) },
 ];
