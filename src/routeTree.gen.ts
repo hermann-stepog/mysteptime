@@ -36,6 +36,7 @@ import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
 import { Route as AdminBmRouteImport } from './routes/admin/bm'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
+import { Route as ApiIntegrationsDrakeUpdateRouteImport } from './routes/api/integrations/drake/update'
 
 const PendingRoute = PendingRouteImport.update({
   id: '/pending',
@@ -172,6 +173,12 @@ const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
   path: '/approvals',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const ApiIntegrationsDrakeUpdateRoute =
+  ApiIntegrationsDrakeUpdateRouteImport.update({
+    id: '/api/integrations/drake/update',
+    path: '/api/integrations/drake/update',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -201,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -228,6 +236,7 @@ export interface FileRoutesByTo {
   '/pm/bms': typeof PmBmsRoute
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
+  '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -258,6 +267,7 @@ export interface FileRoutesById {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/integrations/drake/update'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -316,6 +327,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app'
     | '/pm'
+    | '/api/integrations/drake/update'
   id:
     | '__root__'
     | '/'
@@ -345,6 +357,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/integrations/drake/update'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -354,6 +367,7 @@ export interface RootRouteChildren {
   PmRouteRoute: typeof PmRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
+  ApiIntegrationsDrakeUpdateRoute: typeof ApiIntegrationsDrakeUpdateRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -547,6 +561,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminApprovalsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/api/integrations/drake/update': {
+      id: '/api/integrations/drake/update'
+      path: '/api/integrations/drake/update'
+      fullPath: '/api/integrations/drake/update'
+      preLoaderRoute: typeof ApiIntegrationsDrakeUpdateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -628,6 +649,7 @@ const rootRouteChildren: RootRouteChildren = {
   PmRouteRoute: PmRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
+  ApiIntegrationsDrakeUpdateRoute: ApiIntegrationsDrakeUpdateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

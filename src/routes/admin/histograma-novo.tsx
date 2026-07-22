@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
@@ -24,7 +24,7 @@ import {
   PieChart, Pie, Cell,
 } from "recharts";
 import {
-  Upload, Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search,
+  Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,7 @@ import {
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
+import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
 
 export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshoreNovo });
 
@@ -273,199 +274,6 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
   );
 }
 
-// ─── Import Drake: parsing helpers ──────────────────────────────────────────
-
-type DrakeField = "empresa" | "unidade_operacional" | "centro_de_custo" | "matricula" | "nome" | "funcao" | "data_inicio" | "data_fim" | "dias" | "funcao_operacao";
-
-const DRAKE_HEADER_MAP: Record<string, DrakeField> = {
-  "empresa do trabalhador": "empresa",
-  "unidade oprecional": "unidade_operacional",
-  "unidade operacional": "unidade_operacional",
-  "centro de custo": "centro_de_custo",
-  "bsp": "centro_de_custo",
-  "matricula": "matricula",
-  "trabalhador": "nome",
-  "funcao": "funcao",
-  "inicio do embarque": "data_inicio",
-  "termino do embarque": "data_fim",
-  "dias do embarque": "dias",
-  "funcao de operacao do trabalhador": "funcao_operacao",
-};
-
-// Quebra um array em lotes — usado nas consultas/mutações de import (Drake e Disponibilidade)
-// pra evitar URLs gigantes em filtros ".in(...)" quando há milhares de matrículas/ids.
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-function normalizeHeader(v: any): string {
-  return String(v ?? "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\s+/g, " ");
-}
-
-// Usada só pra converter datas vindas do Excel (via XLSX/cellDates ou cálculo de serial +
-// época) pra "YYYY-MM-DD". Esses Date objects são ancorados em UTC (meia-noite UTC do dia
-// certo) — por isso lê com getUTC*, não getFullYear()/getMonth()/getDate() (locais). Usar os
-// getters locais aqui faria a data "voltar" um dia em fusos negativos como o do Brasil
-// (UTC-3), que era exatamente o bug de desembarque aparecendo um dia adiantado.
-function isoDate(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-}
-
-function parseExcelDate(v: any): string | null {
-  if (v == null || v === "") return null;
-  if (v instanceof Date) return isoDate(v);
-  if (typeof v === "number") {
-    const epoch = new Date(Date.UTC(1899, 11, 30));
-    return isoDate(new Date(epoch.getTime() + v * 86400000));
-  }
-  const s = String(v).trim();
-  const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (br) {
-    const [, dd, mm, yyyy] = br;
-    const year = yyyy.length === 2 ? `20${yyyy}` : yyyy;
-    return `${year}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-  }
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  return null;
-}
-
-interface ParsedDrakeRow {
-  matricula: string; nome: string; empresa: string | null; funcao: string | null; funcao_operacao: string | null;
-  unidade_operacional: string | null; centro_de_custo: string | null;
-  data_inicio: string; data_fim: string; dias: number | null;
-}
-
-function parseDrakeWorkbook(buf: ArrayBuffer): ParsedDrakeRow[] {
-  const wb = XLSX.read(buf, { cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
-  if (rows.length < 2) throw new Error("Planilha vazia.");
-
-  const headerRow = rows[0].map(normalizeHeader);
-  const colIndex: Partial<Record<DrakeField, number>> = {};
-  headerRow.forEach((h, i) => {
-    const key = DRAKE_HEADER_MAP[h];
-    if (key && colIndex[key] === undefined) colIndex[key] = i;
-  });
-
-  const required: DrakeField[] = ["matricula", "nome", "data_inicio", "data_fim"];
-  const missing = required.filter((k) => colIndex[k] === undefined);
-  if (missing.length) throw new Error(`Colunas não encontradas na planilha: ${missing.join(", ")}.`);
-
-  const get = (r: any[], k: DrakeField): string => {
-    const i = colIndex[k];
-    return i === undefined ? "" : String(r[i] ?? "").trim();
-  };
-
-  return rows.slice(1)
-    .filter((r) => r.some((c) => c !== ""))
-    .map((r) => ({
-      matricula: get(r, "matricula"),
-      nome: get(r, "nome"),
-      empresa: get(r, "empresa") || null,
-      funcao: get(r, "funcao") || null,
-      funcao_operacao: get(r, "funcao_operacao") || null,
-      unidade_operacional: get(r, "unidade_operacional") || null,
-      centro_de_custo: get(r, "centro_de_custo") || null,
-      data_inicio: parseExcelDate(colIndex.data_inicio !== undefined ? r[colIndex.data_inicio] : null) ?? "",
-      data_fim: parseExcelDate(colIndex.data_fim !== undefined ? r[colIndex.data_fim] : null) ?? "",
-      dias: colIndex.dias !== undefined ? (Number(r[colIndex.dias]) || null) : null,
-    }))
-    .filter((r) => r.matricula && r.nome && r.data_inicio && r.data_fim);
-}
-
-// ─── Relatório de Disponibilidade (StandBy, Folga, Férias, Atestado etc.) ────
-// Vem misturado com colaboradores onshore — por isso só aplicamos o evento em quem já existe
-// em hist_novo_colaboradores (cruzado por matrícula); quem não bate é ignorado.
-
-// "Descrição do Evento" → tipo do período no Histograma. `null` = evento ignorado de propósito
-// (Embarque/Dobra já vêm de outra fonte ou são calculados; Periculosidade/Sobreaviso são
-// adicionais de pagamento, não status de disponibilidade; Falta/Treinamento/No Show não têm
-// um tipo correspondente no Histograma; Trabalho Externo é ignorado por decisão — não deve
-// entrar no Histograma vindo desse relatório).
-const DISPONIBILIDADE_EVENTO_MAP: Record<string, TipoPeriodo | null> = {
-  "standby": "STB",
-  "folga": "F",
-  "atestado medico": "AT",
-  "ferias": "FE",
-  "folga indenizada": "FI",
-  "folga indenizada cancelamento": "FI",
-  "folga indenizada ferias": "FI",
-  "folga indenizada hotel": "FI",
-  "folga indenizada treinamento": "FI",
-  "feriado indenizado": "FI",
-  "trabalho externo": null,
-  "afastamento": "AT",
-  "licenca medica": "AT",
-  "embarque": null,
-  "dobra": null,
-  "desembarque em dia nao util": "DDN",
-  "periculosidade": null,
-  "sobreaviso": null,
-  "hotel": "HTL",
-  "embarque cancelado": null,
-  "falta": null,
-  "treinamento": null,
-  "no show": null,
-};
-
-interface ParsedDisponibilidadeRow {
-  matricula: string; tipo: TipoPeriodo; data_inicio: string; data_fim: string;
-}
-
-// "07/01/2026 00:00:00" ou "07/01/2026" → "2026-01-07". Datas nesse relatório vêm como texto,
-// não como data nativa do Excel (por isso não reaproveita parseExcelDate do Drake).
-function parseDisponibilidadeDate(v: any): string | null {
-  if (v == null || v === "") return null;
-  if (v instanceof Date) return isoDate(v);
-  const s = String(v).trim();
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (!m) return null;
-  const [, dd, mm, yyyy] = m;
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-}
-
-function parseDisponibilidadeWorkbook(buf: ArrayBuffer): ParsedDisponibilidadeRow[] {
-  const wb = XLSX.read(buf, { cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
-  if (rows.length < 2) throw new Error("Planilha vazia.");
-
-  const header = rows[0].map(normalizeHeader);
-  const iMatricula = header.indexOf("matricula do trabalhador");
-  const iEvento = header.indexOf("descricao do evento");
-  const iInicio = header.indexOf("data de inicio do evento");
-  const iFim = header.indexOf("data de termino do evento");
-  const iSituacao = header.indexOf("situacao do trabalhador");
-  if ([iMatricula, iEvento, iInicio, iFim].some((i) => i === -1)) {
-    throw new Error("Colunas esperadas não encontradas (Matrícula do Trabalhador / Descrição do Evento / Data de Início do Evento / Data de Término do Evento).");
-  }
-
-  const out: ParsedDisponibilidadeRow[] = [];
-  for (const r of rows.slice(1)) {
-    if (!r.some((c) => c !== "")) continue;
-    if (iSituacao !== -1 && normalizeHeader(r[iSituacao]) !== "ativo") continue;
-    const matricula = String(r[iMatricula] ?? "").trim();
-    if (!matricula) continue;
-    const eventoKey = normalizeHeader(r[iEvento]);
-    const tipo = DISPONIBILIDADE_EVENTO_MAP[eventoKey];
-    if (!tipo) continue; // não mapeado ou ignorado de propósito
-    const data_inicio = parseDisponibilidadeDate(r[iInicio]);
-    const data_fim = parseDisponibilidadeDate(r[iFim]);
-    if (!data_inicio || !data_fim) continue;
-    out.push({ matricula, tipo, data_inicio, data_fim });
-  }
-  return out;
-}
-
 // Exportação do Relatório de Embarques — usada pelo módulo de Relatórios (card "Embarques").
 // Lista todos os períodos do tipo "E" (embarcado) lançados no Histograma Offshore.
 export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: string): Promise<void> {
@@ -548,7 +356,6 @@ export async function generateRelatorioDisponibilidade(dataInicio?: string, data
 
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const colaboradorById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
 
@@ -580,179 +387,6 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     setFilterAte(ateInput);
   };
   const [editing, setEditing] = useState<HistNovoPeriodo | null>(null);
-
-  const importMutation = useMutation({
-    mutationFn: async (rows: ParsedDrakeRow[]) => {
-      const matriculas = Array.from(new Set(rows.map((r) => r.matricula)));
-      const existing: HistNovoColaborador[] = [];
-      for (const lote of chunk(matriculas, 300)) {
-        const { data, error: exErr } = await supabase.from("hist_novo_colaboradores").select("*").in("matricula", lote);
-        if (exErr) throw exErr;
-        existing.push(...((data ?? []) as HistNovoColaborador[]));
-      }
-      const byMatricula = new Map(existing.map((c) => [c.matricula, c]));
-
-      const toInsert: Array<{ matricula: string; nome: string; empresa: string | null; funcao: string | null; funcao_operacao: string | null }> = [];
-      const toUpdate: Array<{ id: string; nome: string; empresa: string | null; funcao: string | null; funcao_operacao: string | null }> = [];
-      const seen = new Set<string>();
-      for (const r of rows) {
-        if (seen.has(r.matricula)) continue;
-        seen.add(r.matricula);
-        const ex = byMatricula.get(r.matricula);
-        if (!ex) {
-          toInsert.push({ matricula: r.matricula, nome: r.nome, empresa: r.empresa, funcao: r.funcao, funcao_operacao: r.funcao_operacao });
-        } else if (ex.nome !== r.nome || ex.empresa !== r.empresa || ex.funcao !== r.funcao || ex.funcao_operacao !== r.funcao_operacao) {
-          toUpdate.push({ id: ex.id, nome: r.nome || ex.nome, empresa: r.empresa ?? ex.empresa, funcao: r.funcao ?? ex.funcao, funcao_operacao: r.funcao_operacao ?? ex.funcao_operacao });
-        }
-      }
-
-      let insertedColabs: HistNovoColaborador[] = [];
-      if (toInsert.length) {
-        const { data, error } = await supabase.from("hist_novo_colaboradores").insert(toInsert).select("*");
-        if (error) throw error;
-        insertedColabs = (data ?? []) as HistNovoColaborador[];
-      }
-      for (const u of toUpdate) {
-        const { error } = await supabase.from("hist_novo_colaboradores").update({
-          nome: u.nome, empresa: u.empresa, funcao: u.funcao, funcao_operacao: u.funcao_operacao,
-        }).eq("id", u.id);
-        if (error) throw error;
-      }
-
-      const allColabs = [...(existing ?? []), ...insertedColabs] as HistNovoColaborador[];
-      const idByMatricula = new Map(allColabs.map((c) => [c.matricula, c.id]));
-
-      const periodosToInsert = rows
-        .map((r) => ({
-          colaborador_id: idByMatricula.get(r.matricula),
-          unidade_operacional: r.unidade_operacional,
-          centro_de_custo: r.centro_de_custo,
-          tipo: "E",
-          data_inicio: r.data_inicio,
-          data_fim: r.data_fim,
-          dias: r.dias,
-          origem: "drake",
-        }))
-        .filter((p): p is typeof p & { colaborador_id: string } => !!p.colaborador_id);
-
-      // Uma planilha Drake nova é sempre um retrato completo e atualizado dos embarques —
-      // substitui o que já tinha sido importado antes (origem "drake") em vez de duplicar.
-      // Períodos lançados manualmente (origem "manual"/"programado") não são tocados.
-      const { data: drakeAntigos, error: drakeErr } = await supabase.from("hist_novo_periodos").select("id").eq("origem", "drake");
-      if (drakeErr) throw drakeErr;
-      const drakeIds = (drakeAntigos ?? []).map((p) => p.id);
-      if (drakeIds.length) {
-        // Solta qualquer timesheet_embarque antigo que ainda apontava direto pro período
-        // (vínculo legado, de antes do periodo_id virar opcional) pra não travar o DELETE por FK.
-        // Em lotes — um único ".in()" com muitos milhares de uuids estoura o tamanho da URL.
-        for (let i = 0; i < drakeIds.length; i += 500) {
-          const lote = drakeIds.slice(i, i + 500);
-          const { error: unlinkErr } = await supabase.from("timesheet_embarques").update({ periodo_id: null }).in("periodo_id", lote);
-          if (unlinkErr) throw unlinkErr;
-        }
-        const { error: delErr } = await supabase.from("hist_novo_periodos").delete().eq("origem", "drake");
-        if (delErr) throw delErr;
-      }
-
-      // Insere em lotes pelo mesmo motivo — evita um POST único gigante com milhares de linhas.
-      for (let i = 0; i < periodosToInsert.length; i += 500) {
-        const lote = periodosToInsert.slice(i, i + 500);
-        const { error: pErr } = await supabase.from("hist_novo_periodos").insert(lote);
-        if (pErr) throw pErr;
-      }
-
-      return { colaboradores: toInsert.length + toUpdate.length, periodos: periodosToInsert.length };
-    },
-    onSuccess: ({ colaboradores: cCount, periodos: pCount }) => {
-      qc.invalidateQueries({ queryKey: ["hist-novo-colaboradores"] });
-      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
-      notify.success(`Importado: ${cCount} colaborador(es) criado(s)/atualizado(s), ${pCount} período(s) lançado(s).`);
-    },
-    onError: (e: any) => notify.error(e.message || "Erro ao importar planilha."),
-  });
-
-  const onImport = async (file: File) => {
-    try {
-      const buf = await file.arrayBuffer();
-      const rows = parseDrakeWorkbook(buf);
-      if (!rows.length) { notify.error("Nenhuma linha válida encontrada na planilha."); return; }
-      importMutation.mutate(rows);
-    } catch (e: any) {
-      notify.error(e.message || "Erro ao ler a planilha.");
-    } finally {
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
-
-  // Relatório de Disponibilidade: vem misturado com onshore, então só lança período pra quem já
-  // existe em hist_novo_colaboradores (cruzado por matrícula, cadastro alimentado só pelo Drake)
-  // — quem não bate é ignorado de propósito, pra não misturar onshore no histograma offshore.
-  const importDisponibilidadeMutation = useMutation({
-    mutationFn: async (rows: ParsedDisponibilidadeRow[]) => {
-      const matriculas = Array.from(new Set(rows.map((r) => r.matricula)));
-      const existentes: { id: string; matricula: string }[] = [];
-      for (const lote of chunk(matriculas, 300)) {
-        const { data, error: exErr } = await supabase.from("hist_novo_colaboradores").select("id, matricula").in("matricula", lote);
-        if (exErr) throw exErr;
-        existentes.push(...(data ?? []));
-      }
-      const idByMatricula = new Map(existentes.map((c) => [c.matricula, c.id]));
-
-      const periodosToInsert = rows
-        .map((r) => ({
-          colaborador_id: idByMatricula.get(r.matricula),
-          unidade_operacional: null,
-          tipo: r.tipo,
-          data_inicio: r.data_inicio,
-          data_fim: r.data_fim,
-          dias: Math.round((new Date(r.data_fim).getTime() - new Date(r.data_inicio).getTime()) / 86400000) + 1,
-          origem: "disponibilidade",
-        }))
-        .filter((p): p is typeof p & { colaborador_id: string } => !!p.colaborador_id);
-
-      const ignorados = rows.length - periodosToInsert.length;
-
-      // Igual ao Drake: uma planilha nova substitui o que já tinha sido importado antes dessa
-      // mesma origem, em vez de duplicar. Delete direto por "origem" (não por lista de ids) —
-      // esse relatório gera milhares de períodos, e um DELETE ...IN (milhares de uuids) estoura
-      // o tamanho da URL e volta "Bad Request".
-      const { error: delErr } = await supabase.from("hist_novo_periodos").delete().eq("origem", "disponibilidade");
-      if (delErr) throw delErr;
-
-      // Insere em lotes pelo mesmo motivo — evita um POST único gigante com milhares de linhas.
-      for (let i = 0; i < periodosToInsert.length; i += 500) {
-        const lote = periodosToInsert.slice(i, i + 500);
-        const { error: pErr } = await supabase.from("hist_novo_periodos").insert(lote);
-        if (pErr) throw pErr;
-      }
-
-      return { periodos: periodosToInsert.length, ignorados };
-    },
-    onSuccess: ({ periodos: pCount, ignorados }) => {
-      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
-      notify.success(
-        `Importado: ${pCount} período(s) lançado(s)` +
-        (ignorados > 0 ? `, ${ignorados} linha(s) ignorada(s) (colaborador não cadastrado ou evento não mapeado)` : "") +
-        ".",
-      );
-    },
-    onError: (e: any) => notify.error(e.message || "Erro ao importar planilha."),
-  });
-
-  const fileRefDisponibilidade = useRef<HTMLInputElement>(null);
-
-  const onImportDisponibilidade = async (file: File) => {
-    try {
-      const buf = await file.arrayBuffer();
-      const rows = parseDisponibilidadeWorkbook(buf);
-      if (!rows.length) { notify.error("Nenhuma linha válida/mapeável encontrada na planilha."); return; }
-      importDisponibilidadeMutation.mutate(rows);
-    } catch (e: any) {
-      notify.error(e.message || "Erro ao ler a planilha.");
-    } finally {
-      if (fileRefDisponibilidade.current) fileRefDisponibilidade.current.value = "";
-    }
-  };
 
   const createPeriodo = useMutation({
     mutationFn: async () => {
@@ -842,38 +476,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
 
   return (
     <div className="space-y-4">
-      {/* ── Importação e lançamento manual ── */}
+      {/* ── Atualização Drake e lançamento manual ── */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-4">
-          <Card className="self-start p-4 space-y-3">
-            <h3 className="text-sm font-semibold">Importar planilha Drake</h3>
-            <p className="text-xs text-muted-foreground">
-              Cria/atualiza colaboradores e lança períodos de embarque (tipo E) a partir do relatório Drake.
-            </p>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
-            <Button variant="outline" onClick={() => fileRef.current?.click()} loading={importMutation.isPending}>
-              <Upload className="mr-2 h-4 w-4" />
-              Importar Excel Drake
-            </Button>
-          </Card>
-
-          <Card className="self-start p-4 space-y-3">
-            <h3 className="text-sm font-semibold">Importar Relatório de Disponibilidade</h3>
-            <p className="text-xs text-muted-foreground">
-              Lança StandBy, Folga, Férias, Atestado, Folga Indenizada, Hotel e Desembarque em Dia Não Útil a
-              partir do relatório — só pra colaboradores que já existem no Histograma (cruzado por matrícula;
-              onshore e Trabalho Externo são ignorados).
-            </p>
-            <input
-              ref={fileRefDisponibilidade} type="file" accept=".xlsx,.xls" className="hidden"
-              onChange={(e) => e.target.files?.[0] && onImportDisponibilidade(e.target.files[0])}
-            />
-            <Button variant="outline" onClick={() => fileRefDisponibilidade.current?.click()} loading={importDisponibilidadeMutation.isPending}>
-              <Upload className="mr-2 h-4 w-4" />
-              Importar Relatório de Disponibilidade
-            </Button>
-          </Card>
-        </div>
+        <DrakeUpdateCard />
 
         <Card className="p-4 space-y-3">
           <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
