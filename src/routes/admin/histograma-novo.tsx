@@ -352,6 +352,135 @@ export async function generateRelatorioDisponibilidade(dataInicio?: string, data
   XLSX.writeFile(wb, `disponibilidade_${hoje}.xlsx`);
 }
 
+const fmtDateHeadcount = (d: string) => d.split("-").reverse().join("/");
+
+interface HeadcountSnapshot {
+  total: number; embarcados: number; programados: number; disponiveis: number; naoDisp: number; utilizacao: number;
+  statusCounts: Partial<Record<ComputedStatus, number>>;
+}
+
+// Réplica exata das regras da aba Dashboard do Histograma: o período (inicio/fim) só define
+// quem entra como colaborador "ativo" (pelo menos um período sobrepondo a janela); os números
+// em si são uma foto do status NA DATA "snapshotDate" (hoje, pro relatório de período único;
+// o fim de cada período, pro relatório de múltiplos períodos — comparar "hoje" entre períodos
+// passados não faria sentido). Ver toOldBucket() pra saber quais status caem em cada balde.
+function computeHeadcountSnapshot(
+  colaboradores: HistNovoColaborador[],
+  periodosByColaborador: Map<string, HistNovoPeriodo[]>,
+  dataInicio: string | undefined, dataFim: string | undefined,
+  snapshotDate: string,
+): HeadcountSnapshot {
+  const activeColaboradores = colaboradores.filter((c) => {
+    if (!dataInicio || !dataFim) return true;
+    const ps = periodosByColaborador.get(c.id) ?? [];
+    return ps.some((p) => p.data_fim >= dataInicio && p.data_inicio <= dataFim);
+  });
+
+  let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0;
+  const statusCounts: Partial<Record<ComputedStatus, number>> = {};
+  activeColaboradores.forEach((c) => {
+    const status = computeDayStatus(periodosByColaborador.get(c.id) ?? [], snapshotDate).status;
+    statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+    const bucket = toOldBucket(status);
+    if (bucket === "E") embarcados++;
+    else if (bucket === "P") programados++;
+    else if (bucket === "B") disponiveis++;
+    else if (bucket === "FE" || bucket === "IND") naoDisp++;
+  });
+  const total = activeColaboradores.length;
+  const utilizacao = total > 0 ? Math.round((embarcados / total) * 100) : 0;
+  return { total, embarcados, programados, disponiveis, naoDisp, utilizacao, statusCounts };
+}
+
+async function fetchColaboradoresEPeriodos() {
+  const [{ data: colaboradores, error: cErr }, { data: periodos, error: pErr }] = await Promise.all([
+    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_periodos").select("*"),
+  ]);
+  if (cErr) throw cErr;
+  if (pErr) throw pErr;
+  const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
+  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
+    if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
+    periodosByColaborador.get(p.colaborador_id)!.push(p);
+  });
+  return { colaboradores: (colaboradores ?? []) as HistNovoColaborador[], periodosByColaborador };
+}
+
+function headcountSnapshotRows(snap: HeadcountSnapshot): (string | number)[][] {
+  return [
+    ["Indicador", "Valor"],
+    ["Headcount Total", snap.total],
+    ["Embarcados", snap.embarcados],
+    ["Programados", snap.programados],
+    ["Disponíveis", snap.disponiveis],
+    ["Não Disponíveis", snap.naoDisp],
+    ["Utilização", `${snap.utilizacao}%`],
+    [],
+    ["Status (detalhado)", "Quantidade"],
+    ...STATUS_ORDER.filter((s) => (snap.statusCounts[s] ?? 0) > 0).map((s) => [STATUS_LABEL[s], snap.statusCounts[s] ?? 0]),
+  ];
+}
+
+// Exportação do Relatório Headcount (período único) — usada pelo módulo de Relatórios
+// (card "Headcount"). Status avaliado sempre em relação a hoje.
+export async function generateRelatorioHeadcount(dataInicio?: string, dataFim?: string): Promise<void> {
+  const { colaboradores, periodosByColaborador } = await fetchColaboradoresEPeriodos();
+  const hoje = todayStr();
+  const snap = computeHeadcountSnapshot(colaboradores, periodosByColaborador, dataInicio, dataFim, hoje);
+
+  const aoa: (string | number)[][] = [
+    ["Step Oil & Gas"],
+    [`Relatório Headcount — ${fmtDateHeadcount(hoje)}${dataInicio && dataFim ? ` (ativos entre ${fmtDateHeadcount(dataInicio)} e ${fmtDateHeadcount(dataFim)})` : ""}`],
+    [],
+    ...headcountSnapshotRows(snap),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 28 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Headcount");
+  XLSX.writeFile(wb, `headcount_${hoje}.xlsx`);
+}
+
+// Exportação do Relatório Headcount com múltiplos períodos — cada período vira uma seção
+// detalhada (status avaliado no FIM daquele período, não em "hoje", pra fazer sentido comparar
+// períodos passados) e, no final da planilha, uma tabela "Consolidado" com todos os períodos
+// lado a lado.
+export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: string; fim: string }[]): Promise<void> {
+  if (!periodos.length) throw new Error("Informe ao menos um período.");
+  const { colaboradores, periodosByColaborador } = await fetchColaboradoresEPeriodos();
+
+  const snaps = periodos.map((p) => ({
+    periodo: p,
+    snap: computeHeadcountSnapshot(colaboradores, periodosByColaborador, p.inicio, p.fim, p.fim),
+  }));
+
+  const aoa: (string | number)[][] = [
+    ["Step Oil & Gas"],
+    ["Relatório Headcount — Múltiplos Períodos"],
+    [],
+  ];
+  snaps.forEach(({ periodo, snap }) => {
+    aoa.push([`Período: ${fmtDateHeadcount(periodo.inicio)} a ${fmtDateHeadcount(periodo.fim)} (status em ${fmtDateHeadcount(periodo.fim)})`]);
+    aoa.push(...headcountSnapshotRows(snap));
+    aoa.push([]);
+  });
+  aoa.push(["CONSOLIDADO POR PERÍODO"]);
+  aoa.push(["Período", "Headcount Total", "Embarcados", "Programados", "Disponíveis", "Não Disponíveis", "Utilização"]);
+  snaps.forEach(({ periodo, snap }) => {
+    aoa.push([
+      `${fmtDateHeadcount(periodo.inicio)} a ${fmtDateHeadcount(periodo.fim)}`,
+      snap.total, snap.embarcados, snap.programados, snap.disponiveis, snap.naoDisp, `${snap.utilizacao}%`,
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Headcount");
+  XLSX.writeFile(wb, `headcount_multiplo_${todayStr()}.xlsx`);
+}
+
 // ─── Lançamentos tab ─────────────────────────────────────────────────────────
 
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {

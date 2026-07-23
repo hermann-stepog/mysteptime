@@ -32,6 +32,7 @@ import {
   UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno,
   type TimesheetEmbarque, type TimesheetSemana, type TimesheetDia,
 } from "@/lib/timesheetOffshore";
+import { gerarSemanasEDias } from "@/lib/timesheetAutoGen";
 import { pageTitle } from "@/lib/pageTitle";
 import { useAuth } from "@/hooks/useAuth";
 import pdfExtractData from "@/data/pdfTimesheetExtract.json";
@@ -460,27 +461,14 @@ function TimesheetOffshore() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Timesheet Offshore</h1>
-        <p className="text-sm text-muted-foreground">Controle de timesheets físicos por embarque, lançamento semanal e relatório de RH.</p>
       </div>
 
       <Tabs defaultValue="embarques">
         <TabsList>
           <TabsTrigger value="embarques">Lançamento por período</TabsTrigger>
-          <TabsTrigger value="pendentes">Pendentes de Lançamento</TabsTrigger>
-          <TabsTrigger value="relatorio">Relatório RH</TabsTrigger>
-          <TabsTrigger value="medicao">Relatório Medição</TabsTrigger>
         </TabsList>
         <TabsContent value="embarques" className="mt-4">
           <EmbarquesTab colaboradores={colaboradores} periodos={periodos} periodosE={periodosE} embarques={embarques} semanas={semanas} dias={dias} unidadeOptions={unidadeOptions} readOnly={readOnly} />
-        </TabsContent>
-        <TabsContent value="pendentes" className="mt-4">
-          <PendentesTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} semanas={semanas} dias={dias} />
-        </TabsContent>
-        <TabsContent value="relatorio" className="mt-4">
-          <RelatorioTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} />
-        </TabsContent>
-        <TabsContent value="medicao" className="mt-4">
-          <MedicaoTab colaboradores={colaboradores} embarques={embarques} periodos={periodos} />
         </TabsContent>
       </Tabs>
     </div>
@@ -611,10 +599,16 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
         status_entrega: "pendente",
       }).select("*").single();
       if (error) throw error;
+      // Gera as semanas + dias automaticamente (blocos de 7 dias a partir da data real de
+      // início, sem alinhar à segunda-feira) — não precisa mais clicar em "+ Nova Semana"
+      // pra começar a lançar horas.
+      await gerarSemanasEDias(supabase, data.id, f.data_inicio, f.data_fim);
       return data as TimesheetEmbarque;
     },
     onSuccess: (embarque) => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
+      qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       notify.success("Embarque lançado");
       onOpenChange(false);
       onCreated?.(embarque);
@@ -678,6 +672,8 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   const qc = useQueryClient();
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  const [filterDe, setFilterDe] = useState("");
+  const [filterAte, setFilterAte] = useState("");
   const [novoOpen, setNovoOpen] = useState(false);
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
   const [editandoEmbarque, setEditandoEmbarque] = useState<TimesheetEmbarque | null>(null);
@@ -852,13 +848,50 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
   const filtered = rows.filter((r) =>
     (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
-    (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())),
+    (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())) &&
+    (!filterDe || r.embarque.data_fim_embarque >= filterDe) &&
+    (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
   );
+
+  // Cartões por Unidade — soma as horas/dias lançados em timesheet_dias dentro do período
+  // De/Até selecionado (sem período, soma tudo). Clicar no cartão só aplica o mesmo filtro
+  // de Unidade Operacional já usado pela tabela abaixo.
+  const unidadeByEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.unidade_operacional])), [embarques]);
+  const embarqueIdBySemanaId = useMemo(() => new Map(semanas.map((s) => [s.id, s.embarque_id])), [semanas]);
+
+  const cardsPorUnidade = useMemo(() => {
+    const m = new Map<string, { horasNormais: number; horasExtras: number; adicionalNoturno: number; dobras: number; dias: number }>();
+    dias.forEach((d) => {
+      if (filterDe && d.data < filterDe) return;
+      if (filterAte && d.data > filterAte) return;
+      const embarqueId = embarqueIdBySemanaId.get(d.semana_id);
+      const unidade = embarqueId ? unidadeByEmbarqueId.get(embarqueId) : null;
+      if (!unidade) return;
+      if (!m.has(unidade)) m.set(unidade, { horasNormais: 0, horasExtras: 0, adicionalNoturno: 0, dobras: 0, dias: 0 });
+      const c = m.get(unidade)!;
+      c.horasNormais += d.horas_normais ?? 0;
+      c.horasExtras += d.horas_extras ?? 0;
+      if (d.adicional_noturno) c.adicionalNoturno += d.total_horas ?? 0;
+      if (d.evento === "Dobra") c.dobras++;
+      c.dias++;
+    });
+    return Array.from(m.entries())
+      .map(([unidade, v]) => ({ unidade, ...v }))
+      .sort((a, b) => a.unidade.localeCompare(b.unidade));
+  }, [dias, filterDe, filterAte, embarqueIdBySemanaId, unidadeByEmbarqueId]);
 
   return (
     <div className="space-y-3">
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
+            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+          </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
             <Select value={filterUnidade} onValueChange={setFilterUnidade}>
@@ -875,11 +908,6 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           </div>
           {!readOnly && (
             <div className="ml-auto flex items-center gap-2">
-              {pdfGrupos.length > 0 && (
-                <Button variant="outline" onClick={() => setPdfPreviewOpen(true)}>
-                  <Upload className="mr-1.5 h-4 w-4" />Importar PDFs Timesheet ({pdfGrupos.length})
-                </Button>
-              )}
               <Button onClick={() => setNovoOpen(true)}>
                 <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
               </Button>
@@ -887,6 +915,31 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           )}
         </div>
       </Card>
+
+      {cardsPorUnidade.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {cardsPorUnidade.map((c) => (
+            <Card
+              key={c.unidade}
+              role="button" tabIndex={0}
+              onClick={() => setFilterUnidade(c.unidade === filterUnidade ? "all" : c.unidade)}
+              className={cn(
+                "cursor-pointer p-2 text-[11px] transition-colors hover:bg-muted/50",
+                filterUnidade === c.unidade && "border-primary bg-primary/5",
+              )}
+            >
+              <p className="mb-1 text-xs font-semibold">{c.unidade}</p>
+              <div className="flex gap-3 text-muted-foreground">
+                <span>Normais: <strong className="text-foreground">{round2(c.horasNormais)}h</strong></span>
+                <span>Extras: <strong className="text-foreground">{round2(c.horasExtras)}h</strong></span>
+                <span>Adic. Not.: <strong className="text-foreground">{round2(c.adicionalNoturno)}h</strong></span>
+                <span>Dobras: <strong className="text-foreground">{c.dobras}</strong></span>
+                <span>Dias: <strong className="text-foreground">{c.dias}</strong></span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card>
         <Table>
@@ -1464,20 +1517,28 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
   );
 }
 
+// Dia da semana + dia do mês juntos, ex: "Segunda 06" — em vez do "Segunda-feira / Monday"
+// cru guardado em dia_semana.
+function diaLabelCurto(d: TimesheetDia): string {
+  const diaSemanaPt = d.dia_semana.split(" / ")[0].replace("-feira", "");
+  const diaMes = d.data.slice(8, 10);
+  return `${diaSemanaPt} ${diaMes}`;
+}
+
 function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: HistNovoPeriodo | undefined, embarque: TimesheetEmbarque, rows: TimesheetDia[], totals: { normais: number; extras: number; total: number }) {
   const win = window.open("", "_blank", "width=900,height=700");
   if (!win) return;
   const linhas = rows.map((r) => `
     <tr>
-      <td>${fmt(r.data)}</td><td>${r.dia_semana}</td><td>${r.evento ?? ""}</td>
+      <td>${diaLabelCurto(r)}</td><td>${r.evento ?? ""}</td>
+      <td>${r.hora_entrada ?? ""}</td><td>${r.hora_saida ?? ""}</td>
       <td>${r.horas_normais ?? ""}</td><td>${r.horas_extras ?? ""}</td><td>${r.total_horas ?? ""}</td>
-      <td>${r.adicional_noturno ? "Noturno" : "Diurno"}</td><td>${r.feriado ? "X" : ""}</td>
     </tr>`).join("");
   win.document.write(`
     <html><head><title>Offshore Daily Timesheet</title>
     <style>
       body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-      h1 { font-size: 18px; margin-bottom: 12px; }
+      h1 { font-size: 18px; margin-bottom: 12px; letter-spacing: 0.02em; }
       .info { font-size: 13px; margin-bottom: 2px; }
       table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 11px; }
       th, td { border: 1px solid #333; padding: 4px 6px; text-align: center; }
@@ -1485,19 +1546,20 @@ function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: H
       .totals { margin-top: 12px; font-weight: bold; text-align: right; font-size: 13px; }
     </style></head>
     <body>
-      <h1>Offshore Daily Timesheet</h1>
-      <div class="info"><strong>Local:</strong> ${periodo?.unidade_operacional ?? "—"}</div>
+      <h1>OFFSHORE DAILY TIMESHEET</h1>
+      <div class="info"><strong>Unidade:</strong> ${embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"}</div>
       <div class="info"><strong>Nome:</strong> ${colaborador?.nome ?? "—"}</div>
       <div class="info"><strong>BSP:</strong> ${embarque.bsp ?? "—"}</div>
       <div class="info"><strong>Função:</strong> ${embarque.funcao_embarque}</div>
-      <div class="info"><strong>Período do embarque:</strong> ${fmt(embarque.data_inicio_embarque)} – ${fmt(embarque.data_fim_embarque)}</div>
+      <div class="info"><strong>Período:</strong> ${fmt(rows[0]?.data ?? embarque.data_inicio_embarque)} a ${fmt(rows[rows.length - 1]?.data ?? embarque.data_fim_embarque)}</div>
       <table>
         <thead><tr>
-          <th>Data</th><th>Dia</th><th>Evento</th><th>Normais</th><th>Extras</th><th>Total</th><th>Turno</th><th>Fer.</th>
+          <th>Dia</th><th>Evento</th>
+          <th>Entrada</th><th>Saída</th><th>Horas Normais</th><th>Horas Extras</th><th>Total</th>
         </tr></thead>
         <tbody>${linhas}</tbody>
       </table>
-      <div class="totals">Normais: ${totals.normais.toFixed(1)}h &nbsp;&nbsp; Extras: ${totals.extras.toFixed(1)}h &nbsp;&nbsp; Total: ${totals.total.toFixed(1)}h</div>
+      <div class="totals">Total Hours — Normais: ${totals.normais.toFixed(1)}h &nbsp;&nbsp; Extras: ${totals.extras.toFixed(1)}h &nbsp;&nbsp; Total: ${totals.total.toFixed(1)}h</div>
     </body></html>
   `);
   win.document.close();
@@ -1505,20 +1567,16 @@ function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: H
   win.print();
 }
 
-const TIPOS_MARCACAO = [...EVENTOS_DIA, "Feriado", "Hora Extra"];
+const EVENTO_OPCOES = ["Nenhum", ...EVENTOS_DIA];
 
-// Lançamento simplificado: uma única entrada de turno pra semana toda — o app aplica 12h
-// normais em cada dia automaticamente. Dias que fujam do padrão (embarque, desembarque, dobra,
-// hotel, feriado, hora extra) são marcados à parte, sem precisar editar dia a dia.
+// Formulário no padrão da folha física — uma linha editável por dia (Descrição, Nº Trabalho,
+// Entrada, Saída, Horas Normais, Horas Extras, Evento), sem nenhum valor pré-calculado ou
+// assumido: só o físico em mãos define o que vai em cada campo. Total é o único campo
+// calculado (Normais + Extras), nunca digitado.
 function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }: {
   semana: TimesheetSemana; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; embarque: TimesheetEmbarque; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
-  const [turno, setTurno] = useState<"diurno" | "noturno">("diurno");
-  const [novaMarcacaoData, setNovaMarcacaoData] = useState("");
-  const [novaMarcacaoTipo, setNovaMarcacaoTipo] = useState("");
-  const [novaMarcacaoDe, setNovaMarcacaoDe] = useState("");
-  const [novaMarcacaoAte, setNovaMarcacaoAte] = useState("");
 
   const { data: dias = [] } = useQuery({
     queryKey: ["timesheet-dias", semana.id],
@@ -1529,23 +1587,34 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
     },
   });
 
-  useEffect(() => {
-    if (!dias.length) return;
-    setTurno(dias.some((d) => d.adicional_noturno) ? "noturno" : "diurno");
-  }, [dias]);
+  const [draft, setDraft] = useState<TimesheetDia[]>([]);
+  useEffect(() => { setDraft(dias); }, [dias]);
+
+  const editarCampo = (id: string, patch: Partial<TimesheetDia>) => {
+    setDraft((prev) => prev.map((d) => {
+      if (d.id !== id) return d;
+      const atualizado = { ...d, ...patch };
+      atualizado.total_horas = round2((atualizado.horas_normais ?? 0) + (atualizado.horas_extras ?? 0));
+      return atualizado;
+    }));
+  };
 
   const salvar = useMutation({
     mutationFn: async () => {
-      const noturno = turno === "noturno";
-      await Promise.all(dias.map((d) => {
-        const extrasAtual = d.horas_extras ?? 0;
-        // Se a hora extra lançada nesse dia cruzar a janela 22h–05h, o dia continua contando
-        // como adicional noturno mesmo que o turno normal da semana seja Diurno.
-        const extraNoturno = suggestAdicionalNoturno(d.hora_entrada_extra, d.hora_saida_extra);
+      await Promise.all(draft.map((d) => {
+        // Sugere adicional noturno quando o horário digitado cruza a janela 22h–05h — mesma
+        // regra usada no resto do módulo — mas não sobrescreve se já tiver sido marcado antes.
+        const adicionalNoturno = d.adicional_noturno || suggestAdicionalNoturno(d.hora_entrada, d.hora_saida);
         return supabase.from("timesheet_dias").update({
-          horas_normais: 12,
-          total_horas: 12 + extrasAtual,
-          adicional_noturno: noturno || extraNoturno,
+          descricao_tarefa: d.descricao_tarefa || null,
+          numero_tarefa: d.numero_tarefa || null,
+          hora_entrada: d.hora_entrada || null,
+          hora_saida: d.hora_saida || null,
+          horas_normais: d.horas_normais,
+          horas_extras: d.horas_extras,
+          total_horas: d.total_horas,
+          evento: d.evento || null,
+          adicional_noturno: adicionalNoturno,
         }).eq("id", d.id).then(({ error }) => { if (error) throw error; });
       }));
 
@@ -1571,159 +1640,87 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
     onError: (e: any) => notify.error(e.message),
   });
 
-  const adicionarMarcacao = useMutation({
-    mutationFn: async () => {
-      if (!novaMarcacaoData || !novaMarcacaoTipo) throw new Error("Selecione o dia e o evento.");
-      if (novaMarcacaoTipo === "Hora Extra") {
-        if (!novaMarcacaoDe || !novaMarcacaoAte) throw new Error("Informe o horário de início e fim da hora extra.");
-        const extra = computeDuracaoHoras(novaMarcacaoDe, novaMarcacaoAte);
-        if (extra == null || extra <= 0) throw new Error("Horário inválido.");
-        const dia = dias.find((d) => d.data === novaMarcacaoData);
-        const normais = dia?.horas_normais ?? 12;
-        // Se o intervalo da hora extra cruzar a janela 22h–05h, o dia todo passa a contar como
-        // adicional noturno no Relatório RH — o modelo de relatório trabalha no nível do dia, não
-        // da hora exata.
-        const noturno = suggestAdicionalNoturno(novaMarcacaoDe, novaMarcacaoAte);
-        const patch: Partial<TimesheetDia> = {
-          hora_entrada_extra: novaMarcacaoDe, hora_saida_extra: novaMarcacaoAte,
-          horas_extras: extra, total_horas: normais + extra,
-        };
-        if (noturno) patch.adicional_noturno = true;
-        const { error } = await supabase.from("timesheet_dias").update(patch).eq("semana_id", semana.id).eq("data", novaMarcacaoData);
-        if (error) throw error;
-        return;
-      }
-      const patch = novaMarcacaoTipo === "Feriado" ? { feriado: true } : { evento: novaMarcacaoTipo };
-      const { error } = await supabase.from("timesheet_dias").update(patch).eq("semana_id", semana.id).eq("data", novaMarcacaoData);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["timesheet-dias", semana.id] });
-      setNovaMarcacaoData("");
-      setNovaMarcacaoTipo("");
-      setNovaMarcacaoDe("");
-      setNovaMarcacaoAte("");
-      notify.success("Evento adicionado");
-    },
-    onError: (e: any) => notify.error(e.message),
-  });
-
-  const removerMarcacao = useMutation({
-    mutationFn: async (dia: TimesheetDia) => {
-      const { error } = await supabase.from("timesheet_dias").update({
-        evento: null, feriado: false, horas_extras: 0, total_horas: dia.horas_normais ?? 12,
-        hora_entrada_extra: null, hora_saida_extra: null,
-      }).eq("id", dia.id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["timesheet-dias", semana.id] }),
-    onError: (e: any) => notify.error(e.message),
-  });
-
-  const totals = useMemo(() => dias.reduce((acc, d) => ({
+  const totals = useMemo(() => draft.reduce((acc, d) => ({
     normais: acc.normais + (d.horas_normais ?? 0),
     extras: acc.extras + (d.horas_extras ?? 0),
     total: acc.total + (d.total_horas ?? 0),
-  }), { normais: 0, extras: 0, total: 0 }), [dias]);
-
-  const marcacoes = dias.filter((d) => d.evento || d.feriado || (d.horas_extras ?? 0) > 0);
-
-  const labelMarcacao = (d: TimesheetDia) => {
-    if (d.evento) return d.evento;
-    if (d.feriado) return "Feriado";
-    if (d.hora_entrada_extra && d.hora_saida_extra) return `Hora Extra: ${d.hora_entrada_extra}–${d.hora_saida_extra} (${d.horas_extras}h)`;
-    return `Hora Extra: ${d.horas_extras}h`;
-  };
+  }), { normais: 0, extras: 0, total: 0 }), [draft]);
 
   return (
     <Card className="p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm space-y-0.5">
-          <div><strong>Local:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong> {embarque.bsp ?? "—"} &nbsp;·&nbsp; <strong>Função:</strong> {embarque.funcao_embarque}</div>
-          <div className="text-xs text-muted-foreground">Semana: {fmt(semana.data_inicio_semana)} – {fmt(semana.data_fim_semana)}</div>
+          <div><strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong> {embarque.bsp ?? "—"} &nbsp;·&nbsp; <strong>Função:</strong> {embarque.funcao_embarque}</div>
+          <div className="text-xs text-muted-foreground">Período: {fmt(semana.data_inicio_semana)} a {fmt(semana.data_fim_semana)}</div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => imprimirSemana(colaborador, periodo, embarque, dias, totals)}>
+          <Button variant="outline" size="sm" onClick={() => imprimirSemana(colaborador, periodo, embarque, draft, totals)}>
             <Printer className="mr-1.5 h-3.5 w-3.5" />Visualizar / Imprimir
           </Button>
-          {!readOnly && <Button size="sm" onClick={() => salvar.mutate()} disabled={dias.length === 0} loading={salvar.isPending}>Salvar semana</Button>}
+          {!readOnly && <Button size="sm" onClick={() => salvar.mutate()} disabled={draft.length === 0} loading={salvar.isPending}>Salvar semana</Button>}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-0.5 w-36">
-          <Label className="text-xs">Turno</Label>
-          <Select value={turno} onValueChange={(v) => setTurno(v as "diurno" | "noturno")}>
-            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="diurno">Diurno</SelectItem>
-              <SelectItem value="noturno">Noturno</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <p className="pb-2 text-xs text-muted-foreground">
-          {dias.length} dia(s) × 12h normais ({turno === "noturno" ? "noturno" : "diurno"})
-        </p>
-      </div>
-
-      <div className="space-y-2 border-t pt-3">
-        <Label className="text-xs">Evento diferente nesse período (opcional)</Label>
-        {!readOnly && (
-          <div className="flex flex-wrap items-end gap-2" onKeyDown={focusNextOnEnter}>
-            <Select value={novaMarcacaoData} onValueChange={setNovaMarcacaoData}>
-              <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="Dia" /></SelectTrigger>
-              <SelectContent>
-                {dias.map((d) => <SelectItem key={d.id} value={d.data} className="text-xs">{fmt(d.data)} · {d.dia_semana.split(" / ")[0]}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={novaMarcacaoTipo} onValueChange={setNovaMarcacaoTipo}>
-              <SelectTrigger className="h-8 w-48 text-xs"><SelectValue placeholder="Evento" /></SelectTrigger>
-              <SelectContent>
-                {TIPOS_MARCACAO.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {novaMarcacaoTipo === "Hora Extra" && (
-              <>
-                <div className="space-y-0.5">
-                  <Label className="text-[10px] text-muted-foreground">De</Label>
-                  <Input type="time" className="h-8 w-24 text-xs" value={novaMarcacaoDe} onChange={(e) => setNovaMarcacaoDe(e.target.value)} />
-                </div>
-                <div className="space-y-0.5">
-                  <Label className="text-[10px] text-muted-foreground">Até</Label>
-                  <Input type="time" className="h-8 w-24 text-xs" value={novaMarcacaoAte} onChange={(e) => setNovaMarcacaoAte(e.target.value)} />
-                </div>
-              </>
-            )}
-            <Button size="sm" variant="outline" onClick={() => adicionarMarcacao.mutate()} loading={adicionarMarcacao.isPending}>
-              <Plus className="mr-1 h-3.5 w-3.5" />Adicionar
-            </Button>
-          </div>
-        )}
-        {marcacoes.length > 0 && (
-          <ul className="space-y-1 pt-1">
-            {marcacoes.map((d) => (
-              <li key={d.id} className="flex items-center gap-2 text-xs">
-                <span className="font-medium">{fmt(d.data)}</span>
-                <StatusBadge tone="muted">{labelMarcacao(d)}</StatusBadge>
-                {!readOnly && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5"
-                    onClick={() => removerMarcacao.mutate(d)}
-                    loading={removerMarcacao.isPending && removerMarcacao.variables?.id === d.id}
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-24">Dia</TableHead>
+              <TableHead className="w-40">Evento</TableHead>
+              <TableHead className="w-24">Entrada</TableHead>
+              <TableHead className="w-24">Saída</TableHead>
+              <TableHead className="w-28">Horas Normais</TableHead>
+              <TableHead className="w-28">Horas Extras</TableHead>
+              <TableHead className="w-20">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {draft.map((d) => (
+              <TableRow key={d.id}>
+                <TableCell className="text-xs font-medium">{diaLabelCurto(d)}</TableCell>
+                <TableCell>
+                  <Select
+                    value={d.evento ?? "Nenhum"} disabled={readOnly}
+                    onValueChange={(v) => editarCampo(d.id, { evento: v === "Nenhum" ? null : v })}
                   >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                )}
-              </li>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{EVENTO_OPCOES.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}</SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_entrada ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_saida ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number" step="0.5" className="h-8 text-xs" disabled={readOnly}
+                    value={d.horas_normais ?? ""} onChange={(e) => editarCampo(d.id, { horas_normais: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number" step="0.5" className="h-8 text-xs" disabled={readOnly}
+                    value={d.horas_extras ?? ""} onChange={(e) => editarCampo(d.id, { horas_extras: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </TableCell>
+                <TableCell className="text-xs font-semibold">{d.total_horas ?? 0}</TableCell>
+              </TableRow>
             ))}
-          </ul>
-        )}
+            {draft.length === 0 && <EmptyStateRow colSpan={7} icon={Clock} title="Nenhum dia nessa semana" />}
+          </TableBody>
+        </Table>
       </div>
 
       <div className="flex justify-end gap-4 border-t pt-3 text-sm font-semibold">
-        <span>Normais: {totals.normais.toFixed(1)}h</span>
+        <span>Total Hours — Normais: {totals.normais.toFixed(1)}h</span>
         <span>Extras: {totals.extras.toFixed(1)}h</span>
         <span>Total: {totals.total.toFixed(1)}h</span>
       </div>
