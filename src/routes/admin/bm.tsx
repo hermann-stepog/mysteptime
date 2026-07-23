@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
@@ -25,6 +26,7 @@ import {
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
+import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
 import { getPoInfo, getBmHistoryForPo, recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
 import { pageTitle } from "@/lib/pageTitle";
@@ -44,7 +46,7 @@ function BmPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Boletim de Medição</h1>
-        <p className="text-sm text-muted-foreground">Geração automática de BM a partir do Timesheet Offshore, Logística e Materiais.</p>
+        <p className="text-sm text-muted-foreground">Geração automática de BM a partir do Timesheet Offshore e Logística.</p>
       </div>
       <Tabs defaultValue="gerar">
         <TabsList>
@@ -66,8 +68,7 @@ function BmPage() {
 
 interface Cabecalho {
   client: string;
-  projectId: string;
-  projectName: string;
+  bsp: string;
   vessel: string;
   periodStart: string;
   periodEnd: string;
@@ -77,7 +78,7 @@ interface Cabecalho {
 }
 
 const CABECALHO_VAZIO: Cabecalho = {
-  client: "", projectId: "", projectName: "", vessel: "", periodStart: "", periodEnd: "",
+  client: "", bsp: "", vessel: "", periodStart: "", periodEnd: "",
   poNumber: "", poValue: null, poBalanceBefore: null,
 };
 
@@ -98,7 +99,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     if (!reopenBm) return;
     setStep(0);
     setCab({
-      client: reopenBm.client_name, projectId: reopenBm.project_id ?? "", projectName: reopenBm.project_name ?? "",
+      client: reopenBm.client_name, bsp: reopenBm.project_name ?? "",
       vessel: reopenBm.vessel, periodStart: reopenBm.period_start, periodEnd: reopenBm.period_end,
       poNumber: reopenBm.po_number ?? "", poValue: reopenBm.po_value, poBalanceBefore: reopenBm.po_balance_before,
     });
@@ -113,22 +114,58 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
   };
 
-  const { data: projetos = [] } = useQuery({
-    queryKey: ["bm-projects"],
+  // Clientes cadastrados (tabela antiga) — usado só pra resolver o client_id ao salvar o BM
+  // e filtrar a Logística (cost_logs), já que "Projeto" saiu do cabeçalho e virou BSP.
+  const { data: clientRows = [] } = useQuery({
+    queryKey: ["bm-clients"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("projects").select("id, name, code, client_id, clients(name)").eq("active", true);
+      const { data, error } = await supabase.from("clients").select("id, name");
       if (error) throw error;
-      return (data ?? []) as { id: string; name: string; code: string | null; client_id: string; clients: { name: string } | null }[];
+      return (data ?? []) as { id: string; name: string }[];
+    },
+  });
+  const clientIdAtual = useMemo(
+    () => clientRows.find((c) => c.name.trim().toLowerCase() === cab.client.trim().toLowerCase())?.id ?? null,
+    [clientRows, cab.client],
+  );
+
+  // BSP (Centro de Custo) por embarcação — busca os pares reais já lançados no Histograma, no
+  // lugar do antigo "Projeto" (tabela `projects`, desconectada do Drake/Histograma). Guardado
+  // por unidade pra a lista de BSP filtrar de acordo com a Embarcação escolhida.
+  const { data: unidadeBspPares = [] } = useQuery<{ unidade: string; bsp: string }[]>({
+    queryKey: ["bm-unidade-bsp-pares"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("hist_novo_periodos").select("unidade_operacional, centro_de_custo");
+      if (error) throw error;
+      const pares: { unidade: string; bsp: string }[] = (data ?? [])
+        .filter((r: { unidade_operacional: string | null; centro_de_custo: string | null }) => !!r.unidade_operacional && !!r.centro_de_custo)
+        .map((r: { unidade_operacional: string | null; centro_de_custo: string | null }) => ({ unidade: r.unidade_operacional as string, bsp: r.centro_de_custo as string }));
+      return pares;
     },
   });
 
-  const projetosDoCliente = useMemo(() => {
-    if (!cab.client) return projetos;
-    const doCliente = projetos.filter((p) => (p.clients?.name ?? "").trim().toLowerCase() === cab.client.trim().toLowerCase());
-    return doCliente.length ? doCliente : projetos;
-  }, [projetos, cab.client]);
+  const bspByUnidade = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    unidadeBspPares.forEach(({ unidade, bsp }) => {
+      if (!m.has(unidade)) m.set(unidade, new Set());
+      m.get(unidade)!.add(bsp);
+    });
+    return m;
+  }, [unidadeBspPares]);
 
-  const vesselOptions = useMemo(() => Array.from(new Set(UNIDADES_OPERACIONAIS_FIXAS)).sort(), []);
+  // Sem embarcação escolhida ainda, mostra todos os BSPs já vistos (fallback); depois de
+  // escolher a Embarcação, a lista fica restrita só aos BSPs daquela unidade.
+  const bspOptions = useMemo(() => {
+    if (cab.vessel) return Array.from(bspByUnidade.get(cab.vessel) ?? []).sort();
+    return Array.from(new Set(unidadeBspPares.map((p) => p.bsp))).sort();
+  }, [bspByUnidade, unidadeBspPares, cab.vessel]);
+
+  const unidadesHistograma = useMemo(() => Array.from(bspByUnidade.keys()), [bspByUnidade]);
+
+  const vesselOptions = useMemo(
+    () => Array.from(new Set([...UNIDADES_OPERACIONAIS_FIXAS, ...unidadesHistograma])).sort(),
+    [unidadesHistograma],
+  );
 
   const headerCompleto = !!(cab.client && cab.vessel && cab.periodStart && cab.periodEnd);
 
@@ -154,8 +191,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
   // ── Step 2: Mão de Obra ────────────────────────────────────────────────────
   const { data: maoDeObraCalculada, isFetching: carregandoMo } = useQuery({
-    queryKey: ["bm-mo", cab.vessel, cab.periodStart, cab.periodEnd, cab.client],
-    enabled: step === 1 && headerCompleto,
+    queryKey: ["bm-mo", cab.vessel, cab.periodStart, cab.periodEnd, cab.bsp],
+    enabled: headerCompleto,
     queryFn: async () => {
       const { data: embarquesData, error: embErr } = await supabase
         .from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, bsp").eq("unidade_operacional", cab.vessel);
@@ -196,10 +233,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         };
       }).filter((d: TimesheetDiaComColaborador) => d.colaborador_id);
 
-      const { data: ratesData, error: ratesErr } = await supabase.from("rates").select("*").eq("client", cab.client).eq("vessel", cab.vessel).eq("active", true);
+      const { data: ratesData, error: ratesErr } = await supabase.from("rates").select("*").eq("bsp", cab.bsp).eq("active", true);
       if (ratesErr) throw ratesErr;
 
-      return aggregateMaoDeObra(diasComColaborador, (ratesData ?? []) as Rate[], cab.client, cab.vessel);
+      return aggregateMaoDeObra(diasComColaborador, (ratesData ?? []) as Rate[], cab.bsp);
     },
   });
 
@@ -210,13 +247,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const hasRateMissing = linesMo.some((l) => l.rate_missing);
 
   // ── Step 3: Logística ──────────────────────────────────────────────────────
-  const { data: costLogsCalculados } = useQuery({
-    queryKey: ["bm-logistica", cab.projectId, cab.periodStart, cab.periodEnd],
-    enabled: step === 2 && !!cab.projectId,
+  const { data: costLogsCalculados, isFetching: carregandoLogistica } = useQuery({
+    queryKey: ["bm-logistica", clientIdAtual, cab.periodStart, cab.periodEnd],
+    enabled: !!clientIdAtual && headerCompleto,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cost_logs").select("id, cost_type, amount, period_start, period_end, notes, vendors(name), profiles(full_name)")
-        .eq("project_id", cab.projectId)
+        .eq("client_id", clientIdAtual)
         .lte("period_start", cab.periodEnd).gte("period_end", cab.periodStart);
       if (error) throw error;
       return (data ?? []).map((c: any): Omit<BmLineLogistica, "id" | "bm_id"> => ({
@@ -239,7 +276,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totals.grandTotal) : null;
 
   const bmExportData: BmExportData = useMemo(() => ({
-    client: cab.client, vessel: cab.vessel, projectName: cab.projectName,
+    client: cab.client, vessel: cab.vessel, projectName: cab.bsp,
     periodStart: cab.periodStart, periodEnd: cab.periodEnd, poNumber: cab.poNumber,
     poValue: cab.poValue, poBalanceBefore: cab.poBalanceBefore,
     markupEnabled, markupPct, totals,
@@ -247,13 +284,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
   const salvarBm = useMutation({
     mutationFn: async (targetStatus: "draft" | "pending_pm") => {
-      const clientRow = projetosDoCliente.find((p) => p.id === cab.projectId);
       const payload = {
         numero_bm: null,
-        client_id: clientRow?.client_id ?? null,
+        client_id: clientIdAtual,
         client_name: cab.client,
-        project_id: cab.projectId || null,
-        project_name: cab.projectName || clientRow?.name || null,
+        project_id: null,
+        // "project_name" é reaproveitado pra guardar o BSP — "Projeto" saiu do cabeçalho
+        // do BM, ver comentário na query bspOptions acima.
+        project_name: cab.bsp || null,
         vessel: cab.vessel,
         period_start: cab.periodStart,
         period_end: cab.periodEnd,
@@ -306,7 +344,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   return (
     <Card className="p-4 space-y-4">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {["Cabeçalho", "Mão de Obra", "Logística", "Materiais", "Resumo"].map((label, i) => (
+        {["Cabeçalho", "Mão de Obra", "Logística", "Resumo"].map((label, i) => (
           <span key={label} className={i === step ? "font-semibold text-foreground" : undefined}>
             {i > 0 && <span className="mx-1.5">→</span>}{label}
           </span>
@@ -318,29 +356,29 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Cliente</Label>
-              <Select value={cab.client} onValueChange={(v) => setCab({ ...cab, client: v, projectId: "", projectName: "" })}>
+              <Select value={cab.client} onValueChange={(v) => setCab({ ...cab, client: v })}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="text-xs">Projeto</Label>
-              <Select value={cab.projectId} onValueChange={(v) => setCab({ ...cab, projectId: v, projectName: projetosDoCliente.find((p) => p.id === v)?.name ?? "" })}>
+              <Label className="text-xs">BSP</Label>
+              <Select value={cab.bsp} onValueChange={(v) => setCab({ ...cab, bsp: v })}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{projetosDoCliente.map((p) => <SelectItem key={p.id} value={p.id}>{p.code ? `${p.code} — ${p.name}` : p.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Embarcação</Label>
-              <Select value={cab.vessel} onValueChange={(v) => setCab({ ...cab, vessel: v })}>
+              <Select value={cab.vessel} onValueChange={(v) => setCab({ ...cab, vessel: v, bsp: "" })}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{vesselOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="text-xs">PO Number</Label>
+              <Label className="text-xs">PO Number (opcional)</Label>
               <div className="flex gap-2">
                 <Input value={cab.poNumber} onChange={(e) => setCab({ ...cab, poNumber: e.target.value })} placeholder="Ex: P3231161" />
                 <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Buscar</Button>
@@ -423,15 +461,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       )}
 
       {step === 2 && <LogisticaStep lines={linesLogistica} setLines={setLinesLogistica} />}
-      {step === 3 && <MateriaisStep lines={linesMateriais} setLines={setLinesMateriais} clientAtual={cab.client} poNumber={cab.poNumber} />}
 
-      {step === 4 && (
+      {step === 3 && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="space-y-1">
               <div className="flex justify-between"><span>Mão de Obra</span><span className="font-medium">{fmtMoney(totals.totalMo)}</span></div>
               <div className="flex justify-between"><span>Logística{markupEnabled ? ` (+${markupPct}%)` : ""}</span><span className="font-medium">{fmtMoney(totals.totalLogisticaComMarkup)}</span></div>
-              <div className="flex justify-between"><span>Materiais</span><span className="font-medium">{fmtMoney(totals.totalMateriais)}</span></div>
               <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totals.grandTotal)}</span></div>
             </div>
             <div className="space-y-2">
@@ -483,11 +519,23 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         <Button variant="ghost" size="sm" disabled={step === 0} onClick={() => setStep(step - 1)}>
           <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />Voltar
         </Button>
-        {step < 4 && (
-          <Button size="sm" disabled={step === 0 && !podeAvancarStep0} onClick={() => setStep(step + 1)}>
-            Próximo<ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {step === 0 && (
+            <Button
+              size="sm" variant="outline"
+              disabled={!podeAvancarStep0 || carregandoMo || carregandoLogistica}
+              loading={salvarBm.isPending && salvarBm.variables === "draft"}
+              onClick={() => salvarBm.mutate("draft")}
+            >
+              Gerar BM
+            </Button>
+          )}
+          {step < 3 && (
+            <Button size="sm" disabled={step === 0 && !podeAvancarStep0} onClick={() => setStep(step + 1)}>
+              Próximo<ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
     </Card>
   );
@@ -600,6 +648,21 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
   const qc = useQueryClient();
   const [filterClient, setFilterClient] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [viewingBm, setViewingBm] = useState<Bm | null>(null);
+
+  const { data: viewingLinhas } = useQuery({
+    queryKey: ["bm-linhas", viewingBm?.id],
+    enabled: !!viewingBm,
+    queryFn: async () => {
+      const [mo, logistica] = await Promise.all([
+        supabase.from("bm_lines_mo").select("*").eq("bm_id", viewingBm!.id),
+        supabase.from("bm_lines_logistica").select("*").eq("bm_id", viewingBm!.id),
+      ]);
+      if (mo.error) throw mo.error;
+      if (logistica.error) throw logistica.error;
+      return { mo: (mo.data ?? []) as BmLineMo[], logistica: (logistica.data ?? []) as BmLineLogistica[] };
+    },
+  });
 
   const { data: bms = [], isLoading } = useQuery({
     queryKey: ["bm-historico"],
@@ -671,6 +734,7 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                 <TableCell>{fmtMoney(b.total_geral)}</TableCell>
                 <TableCell><StatusBadge tone={STATUS_TONE[b.current_status]}>{STATUS_LABELS[b.current_status]}</StatusBadge></TableCell>
                 <TableCell>
+                  <Button size="sm" variant="ghost" onClick={() => setViewingBm(b)}>Ver</Button>
                   {(b.current_status === "draft" || b.current_status === "rejected") && (
                     <Button size="sm" variant="ghost" onClick={() => onReopen(b)}>Reabrir</Button>
                   )}
@@ -686,6 +750,18 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={!!viewingBm} onOpenChange={(o) => { if (!o) setViewingBm(null); }}>
+        <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto">
+          {viewingBm && (
+            <BmConsolidatedView
+              bm={viewingBm}
+              linesMo={viewingLinhas?.mo ?? []}
+              linesLogistica={viewingLinhas?.logistica ?? []}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
