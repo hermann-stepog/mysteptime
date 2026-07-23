@@ -16,6 +16,7 @@ export interface TimesheetDiaComColaborador {
 }
 
 export interface Rate {
+  bsp: string;
   client: string;
   vessel: string;
   funcao: string;
@@ -37,11 +38,10 @@ function normalizar(s: string): string {
   return s.trim().toLowerCase();
 }
 
-function findRate(rates: Rate[], client: string, vessel: string, funcao: string): Rate | undefined {
+function findRate(rates: Rate[], bsp: string, funcao: string): Rate | undefined {
   return rates.find((r) =>
     r.active &&
-    normalizar(r.client) === normalizar(client) &&
-    normalizar(r.vessel) === normalizar(vessel) &&
+    normalizar(r.bsp) === normalizar(bsp) &&
     normalizar(r.funcao) === normalizar(funcao),
   );
 }
@@ -54,7 +54,7 @@ export type BmLineMoComputed = Omit<BmLineMo, "id" | "bm_id"> & {
 // Agrega os dias de timesheet por colaborador e cruza com as rates do cliente/embarcação —
 // função pura, sem I/O, pra poder ser testada e reutilizada tanto no wizard quanto (se
 // precisar) no export Excel.
-export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Rate[], client: string, vessel: string): BmLineMoComputed[] {
+export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Rate[], bsp: string): BmLineMoComputed[] {
   const porColaborador = new Map<string, { nome: string; funcao: string; bsp: string | null; dias: TimesheetDiaComColaborador[] }>();
   dias.forEach((d) => {
     if (!porColaborador.has(d.colaborador_id)) {
@@ -64,14 +64,14 @@ export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Ra
   });
 
   const linhas: BmLineMoComputed[] = [];
-  porColaborador.forEach(({ nome, funcao, bsp, dias: diasColab }, colaboradorId) => {
+  porColaborador.forEach(({ nome, funcao, bsp: colaboradorBsp, dias: diasColab }, colaboradorId) => {
     const diasEmbarque = diasColab.filter((d) => d.evento === "Embarque").length;
     const diasDobra = diasColab.filter((d) => d.evento === "Dobra").length;
     const diasHotel = diasColab.filter((d) => d.evento && EVENTOS_HOTEL.has(d.evento)).length;
     const horasExtras = round2(diasColab.reduce((acc, d) => acc + (d.horas_extras ?? 0), 0));
     const horasAdicionalNoturno = round2(diasColab.reduce((acc, d) => acc + (d.adicional_noturno ? (d.total_horas ?? 0) : 0), 0));
 
-    const rate = findRate(rates, client, vessel, funcao);
+    const rate = findRate(rates, bsp, funcao);
     const rateMissing = !rate;
     const hasHoraExtraRate = !!rate?.rate_hora_extra;
     const hasAdicionalNoturnoRate = !!rate?.rate_adicional_noturno;
@@ -88,7 +88,7 @@ export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Ra
       colaborador_id: colaboradorId,
       colaborador_nome: nome,
       funcao,
-      bsp,
+      bsp: colaboradorBsp,
       dias_embarque: diasEmbarque,
       dias_dobra: diasDobra,
       dias_hotel: diasHotel,

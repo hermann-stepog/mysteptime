@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import type { HistNovoColaborador } from "@/lib/histogramaNovo";
+import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
 
 export type DrakeField =
   | "empresa"
@@ -257,6 +258,26 @@ export async function importDrakeEmbarkation(
     const lote = periodosToInsert.slice(i, i + 500);
     const { error: pErr } = await supabase.from("hist_novo_periodos").insert(lote);
     if (pErr) throw pErr;
+  }
+
+  // Gera o timesheet (semanas + dias) automaticamente pra cada período de embarque
+  // importado — sem isso o colaborador não tem onde lançar as horas até alguém criar o
+  // embarque manualmente. periodo_id fica null de propósito: o Drake sempre apaga e
+  // reinsere essas linhas a cada import (ids novos toda vez), então o dedup de
+  // ensureTimesheetParaPeriodo é feito por sobreposição de data, não por periodo_id.
+  const colabById = new Map(allColabs.map((c) => [c.id, c]));
+  for (const p of periodosToInsert) {
+    const colaborador = colabById.get(p.colaborador_id);
+    const funcaoEmbarque = colaborador?.funcao_operacao || colaborador?.funcao || "—";
+    await ensureTimesheetParaPeriodo(supabase, {
+      colaboradorId: p.colaborador_id,
+      periodoId: null,
+      unidadeOperacional: p.unidade_operacional,
+      bsp: p.centro_de_custo,
+      funcaoEmbarque,
+      dataInicio: p.data_inicio,
+      dataFim: p.data_fim,
+    });
   }
 
   return {

@@ -72,7 +72,7 @@ function buildSummarySheet(bm: BmExportData, linesMo: LineMo[]) {
     [],
     ["CLIENT:", bm.client],
     ["Vessel:", bm.vessel],
-    ["Project:", bm.projectName || "—"],
+    ["BSP (Cabeçalho):", bm.projectName || "—"],
     [],
     ["BSP / BPP / B3D No.:", linesMo[0]?.bsp ?? "—", "PO Number:", bm.poNumber || "—"],
     [],

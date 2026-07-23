@@ -23,6 +23,7 @@ export const Route = createFileRoute("/admin/rates")({ head: () => pageTitle("Ra
 
 interface RateRow {
   id: string;
+  bsp: string;
   client: string;
   vessel: string;
   funcao: string;
@@ -37,7 +38,7 @@ interface RateRow {
 type RateForm = Omit<RateRow, "id"> & { id?: string };
 
 const EMPTY_FORM: RateForm = {
-  client: "", vessel: "", funcao: "",
+  bsp: "", client: "", vessel: "", funcao: "",
   rate_embarque: null, rate_dobra: null, rate_hotel: null, rate_hora_extra: null, rate_adicional_noturno: null,
   active: true,
 };
@@ -53,7 +54,7 @@ function normHeader(s: any): string {
 }
 
 interface ParsedRateRow {
-  client: string; vessel: string; funcao: string;
+  bsp: string; client: string; vessel: string; funcao: string;
   rate_embarque: number | null; rate_dobra: number | null; rate_hotel: number | null;
   rate_hora_extra: number | null; rate_adicional_noturno: number | null;
 }
@@ -67,6 +68,7 @@ function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
 
   const header = rows[0].map(normHeader);
   const idx = (...names: string[]) => header.findIndex((h) => names.includes(h));
+  const iBsp = idx("bsp");
   const iKey = idx("_key", "key", "chave");
   const iClient = idx("client", "cliente");
   const iVessel = idx("vessel", "embarcacao", "embarcação");
@@ -84,6 +86,7 @@ function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
   };
 
   return rows.slice(1).map((r): ParsedRateRow | null => {
+    const bsp = iBsp >= 0 ? String(r[iBsp] ?? "").trim() : "";
     let client = iClient >= 0 ? String(r[iClient] ?? "").trim() : "";
     let vessel = iVessel >= 0 ? String(r[iVessel] ?? "").trim() : "";
     let funcao = iFuncao >= 0 ? String(r[iFuncao] ?? "").trim() : "";
@@ -92,9 +95,9 @@ function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
       const partes = String(r[iKey] ?? "").split("|").map((p) => p.trim());
       if (partes.length === 3) [client, vessel, funcao] = partes;
     }
-    if (!client || !vessel || !funcao) return null;
+    if (!bsp || !client || !vessel || !funcao) return null;
     return {
-      client, vessel, funcao,
+      bsp, client, vessel, funcao,
       rate_embarque: iEmbarque >= 0 ? num(r[iEmbarque]) : null,
       rate_dobra: iDobra >= 0 ? num(r[iDobra]) : null,
       rate_hotel: iHotel >= 0 ? num(r[iHotel]) : null,
@@ -114,7 +117,7 @@ function RatesPage() {
   const { data: rows = [] } = useQuery({
     queryKey: ["rates-all"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("rates").select("*").order("client").order("vessel").order("funcao");
+      const { data, error } = await supabase.from("rates").select("*").order("bsp").order("funcao");
       if (error) throw error;
       return (data ?? []) as RateRow[];
     },
@@ -125,7 +128,7 @@ function RatesPage() {
   const save = useMutation({
     mutationFn: async (f: RateForm) => {
       const payload = {
-        client: f.client.trim(), vessel: f.vessel.trim(), funcao: f.funcao.trim(),
+        bsp: f.bsp.trim(), client: f.client.trim(), vessel: f.vessel.trim(), funcao: f.funcao.trim(),
         rate_embarque: f.rate_embarque, rate_dobra: f.rate_dobra, rate_hotel: f.rate_hotel,
         rate_hora_extra: f.rate_hora_extra, rate_adicional_noturno: f.rate_adicional_noturno,
         active: f.active,
@@ -164,7 +167,7 @@ function RatesPage() {
     mutationFn: async (parsed: ParsedRateRow[]) => {
       const { error } = await supabase.from("rates").upsert(
         parsed.map((p) => ({ ...p, active: true })),
-        { onConflict: "client,vessel,funcao" },
+        { onConflict: "bsp,funcao" },
       );
       if (error) throw error;
       return parsed.length;
@@ -232,6 +235,7 @@ function RatesPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>BSP</TableHead>
               <TableHead>Cliente</TableHead>
               <TableHead>Embarcação</TableHead>
               <TableHead>Função</TableHead>
@@ -247,7 +251,8 @@ function RatesPage() {
           <TableBody>
             {filtered.map((r) => (
               <TableRow key={r.id} className={!r.active ? "opacity-50" : undefined}>
-                <TableCell className="font-medium">{r.client}</TableCell>
+                <TableCell className="font-medium">{r.bsp}</TableCell>
+                <TableCell>{r.client}</TableCell>
                 <TableCell>{r.vessel}</TableCell>
                 <TableCell>{r.funcao}</TableCell>
                 <TableCell>{fmtMoney(r.rate_embarque)}</TableCell>
@@ -270,7 +275,7 @@ function RatesPage() {
                 </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <EmptyStateRow colSpan={10} icon={Coins} title="Nenhum rate cadastrado" />}
+            {filtered.length === 0 && <EmptyStateRow colSpan={11} icon={Coins} title="Nenhum rate cadastrado" />}
           </TableBody>
         </Table>
       </Card>
@@ -280,6 +285,7 @@ function RatesPage() {
           <DialogHeader><DialogTitle>{editing?.id ? "Editar rate" : "Novo rate"}</DialogTitle></DialogHeader>
           {editing && (
             <div className="grid gap-3">
+              <div><Label>BSP</Label><Input value={editing.bsp} onChange={(e) => setEditing({ ...editing, bsp: e.target.value })} placeholder="Ex: 26-174" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Cliente</Label>
@@ -308,7 +314,7 @@ function RatesPage() {
           )}
           <DialogFooter>
             <Button
-              disabled={!editing?.client || !editing.vessel.trim() || !editing.funcao.trim()}
+              disabled={!editing?.bsp.trim() || !editing?.client || !editing.vessel.trim() || !editing.funcao.trim()}
               loading={save.isPending}
               onClick={() => editing && save.mutate(editing)}
             >
@@ -323,12 +329,12 @@ function RatesPage() {
           <DialogHeader><DialogTitle>Conferir import de rates</DialogTitle></DialogHeader>
           <p className="text-xs text-muted-foreground">
             {importPreview?.length ?? 0} linha(s) encontrada(s). Rates existentes com o mesmo
-            cliente+embarcação+função serão atualizados; os demais serão criados.
+            BSP+função serão atualizados; os demais serão criados.
           </p>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Cliente</TableHead><TableHead>Embarcação</TableHead><TableHead>Função</TableHead>
+                <TableHead>BSP</TableHead><TableHead>Cliente</TableHead><TableHead>Embarcação</TableHead><TableHead>Função</TableHead>
                 <TableHead>Embarque</TableHead><TableHead>Dobra</TableHead><TableHead>Hotel</TableHead>
                 <TableHead>HE</TableHead><TableHead>AN</TableHead>
               </TableRow>
@@ -336,7 +342,7 @@ function RatesPage() {
             <TableBody>
               {(importPreview ?? []).map((p, i) => (
                 <TableRow key={i}>
-                  <TableCell>{p.client}</TableCell><TableCell>{p.vessel}</TableCell><TableCell>{p.funcao}</TableCell>
+                  <TableCell>{p.bsp}</TableCell><TableCell>{p.client}</TableCell><TableCell>{p.vessel}</TableCell><TableCell>{p.funcao}</TableCell>
                   <TableCell>{fmtMoney(p.rate_embarque)}</TableCell><TableCell>{fmtMoney(p.rate_dobra)}</TableCell><TableCell>{fmtMoney(p.rate_hotel)}</TableCell>
                   <TableCell>{fmtMoney(p.rate_hora_extra)}</TableCell><TableCell>{fmtMoney(p.rate_adicional_noturno)}</TableCell>
                 </TableRow>

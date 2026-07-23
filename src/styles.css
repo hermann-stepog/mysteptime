@@ -105,3 +105,16 @@
   }
   h1, h2, h3, h4, h5, h6 { font-family: "Barlow", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
 }
+
+/* Impressão do Boletim de Medição ("Baixar PDF") — esconde tudo na página exceto a área
+   marcada .bm-print-area, pra window.print() virar um PDF limpo dos 3 blocos do BM. */
+@media print {
+  body * { visibility: hidden; }
+  .bm-print-area, .bm-print-area * { visibility: visible; }
+  .bm-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
