@@ -26,7 +26,7 @@ describe("segurança de bundle do frontend", () => {
   it("API Drake update é server-only e usa fetch customizado do Supabase via auth", () => {
     const source = read("src/routes/api/integrations/drake/update.ts");
     expect(source).toMatch(/await import\(["']@\/lib\/supabase\/app-auth\.server["']\)/);
-    expect(source).toMatch(/await import\(["']@\/lib\/drake\/update-service\.server["']\)/);
+    expect(source).toMatch(/await import\(["']@\/lib\/drake\/run-drake-update\.server["']\)/);
     expect(source).not.toMatch(/from\s+["']playwright["']/);
   });
 

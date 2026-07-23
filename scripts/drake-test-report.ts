@@ -77,6 +77,10 @@ async function main() {
                 updatedCount: summary.updated,
                 insertedCount: summary.insertedEvents,
                 skippedCount: summary.skipped,
+                unchangedCount: summary.unchangedCount,
+                periodsUpdatedCount: summary.periodsUpdatedCount,
+                preservedReferencedCount: summary.preservedReferencedCount,
+                deletedUnreferencedCount: summary.deletedUnreferencedCount,
               });
             } else {
               const { importDisponibilidadeFromBuffer } = await import(

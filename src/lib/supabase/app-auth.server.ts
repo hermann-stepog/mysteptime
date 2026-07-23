@@ -75,6 +75,38 @@ export function createUserClient(accessToken: string): SupabaseClient {
 }
 
 /**
+ * Mesmo mecanismo da tela de login (`useAuth.signIn` → `auth.signInWithPassword`).
+ * Cliente efêmero server-side (sem localStorage / persistSession).
+ */
+export async function signInWithPassword(
+  email: string,
+  password: string,
+): Promise<{
+  data: {
+    session: { access_token: string; user?: { id?: string } | null } | null;
+    user: { id?: string } | null;
+  };
+  error: {
+    message?: string;
+    code?: string;
+    status?: number;
+    name?: string;
+  } | null;
+}> {
+  const { url, key } = getSupabaseEnv();
+  const client = createClient(url, key, {
+    global: { fetch: supabaseServerFetch },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storage: undefined,
+    },
+  });
+  return client.auth.signInWithPassword({ email, password });
+}
+
+/**
  * Cliente com service role — somente no bypass local, para gravar o job
  * sem depender de getUser/RLS quando o Supabase auth está inacessível.
  * triggered_by fica null (coluna UUID); a auditoria vai para o log.

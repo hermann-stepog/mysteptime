@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { APIRequestContext } from "playwright";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { env } from "./config.server";
 import { getCurrentDrakeRunFiles, writeJsonAtomic } from "./drake-files.server";
 import { getDiagnosticsDir } from "./filesystem.server";
@@ -63,7 +63,7 @@ async function dumpDiagnostic(diagnostic: ApiReportDiagnostic): Promise<void> {
 }
 
 async function getJson(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   url: string,
   options?: { stage?: string; reportCode?: number },
 ): Promise<HttpResult> {
@@ -81,7 +81,7 @@ async function getJson(
 }
 
 async function postJson(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   url: string,
   data: unknown,
   options?: { stage?: string; reportCode?: number; attempt?: number },
@@ -147,7 +147,7 @@ function assert2xx(result: HttpResult): boolean {
 }
 
 export async function validateQueryDefinition(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   report: DrakeApiReportDefinition,
 ): Promise<DrakeQueryDefinitionResponse> {
   logger.info("drake-report", `Validando definicao do relatorio ${report.code}`, {
@@ -330,7 +330,7 @@ async function writeFailureDiagnostic(args: {
 }
 
 async function exportToExcel(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   payload: DrakeExportRequest,
   reportCode: number,
   attempt = 1,
@@ -343,7 +343,7 @@ async function exportToExcel(
 }
 
 async function executeQuery(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   payload: DrakeExecuteRequest,
   reportCode: number,
 ): Promise<HttpResult> {
@@ -414,7 +414,7 @@ function logExportAccepted(
 }
 
 async function sendExportWithSignalRFallback(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   payload: DrakeExportRequest,
   report: DrakeApiReportDefinition,
   preparedMeta: { names: string[]; count: number },
@@ -496,7 +496,7 @@ async function sendExportWithSignalRFallback(
 }
 
 async function executeWithSignalRFallback(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   payload: DrakeExecuteRequest,
   report: DrakeApiReportDefinition,
   preparedMeta: { names: string[]; count: number },
@@ -553,7 +553,7 @@ async function executeWithSignalRFallback(
 }
 
 async function requestExportJob(args: {
-  request: APIRequestContext;
+  request: DrakeHttpClient;
   report: DrakeApiReportDefinition;
   payload: DrakeExportRequest;
   preparedMeta: { names: string[]; count: number };
@@ -714,7 +714,7 @@ async function requestExportJob(args: {
 }
 
 export async function runSingleApiReport(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   report: DrakeApiReportDefinition,
   options: RunSingleApiReportOptions,
 ): Promise<ApiDownloadedReport> {

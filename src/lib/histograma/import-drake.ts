@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import type { HistNovoColaborador } from "@/lib/histogramaNovo";
+import type { HistNovoColaborador, HistNovoPeriodo } from "@/lib/histogramaNovo";
 
 export type DrakeField =
   | "empresa"
@@ -47,7 +47,32 @@ export interface DrakeImportSummary {
   updated: number;
   insertedEvents: number;
   skipped: number;
+  unchangedCount: number;
+  periodsUpdatedCount: number;
+  preservedReferencedCount: number;
+  deletedUnreferencedCount: number;
 }
+
+export type DesiredEmbarkationPeriod = {
+  colaborador_id: string;
+  unidade_operacional: string | null;
+  centro_de_custo: string | null;
+  tipo: "E";
+  data_inicio: string;
+  data_fim: string;
+  dias: number | null;
+  origem: "drake";
+};
+
+export type PeriodMergePlan = {
+  toInsert: DesiredEmbarkationPeriod[];
+  toUpdate: Array<{ id: string; patch: Partial<DesiredEmbarkationPeriod> }>;
+  unchangedIds: string[];
+  /** Períodos antigos sem match no relatório e sem timesheet — podem ser removidos. */
+  toDeleteUnreferenced: string[];
+  /** Períodos antigos sem match no relatório, mas referenciados — preservar. */
+  toPreserveReferenced: Array<{ id: string; linkedTimesheetCount: number }>;
+};
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -133,6 +158,154 @@ export function parseDrakeWorkbook(buf: ArrayBuffer | Buffer): ParsedDrakeRow[] 
     .filter((r) => r.matricula && r.nome && r.data_inicio && r.data_fim);
 }
 
+/**
+ * Chave natural do período de embarque Drake.
+ * Confirmada pelo schema e pelo uso no histograma: colaborador + tipo + datas.
+ */
+export function embarkationPeriodNaturalKey(input: {
+  colaborador_id: string;
+  tipo: string;
+  data_inicio: string;
+  data_fim: string;
+}): string {
+  return `${input.colaborador_id}|${input.tipo}|${input.data_inicio}|${input.data_fim}`;
+}
+
+function periodPayloadChanged(
+  existing: HistNovoPeriodo,
+  desired: DesiredEmbarkationPeriod,
+): Partial<DesiredEmbarkationPeriod> | null {
+  const patch: Partial<DesiredEmbarkationPeriod> = {};
+  if ((existing.unidade_operacional ?? null) !== (desired.unidade_operacional ?? null)) {
+    patch.unidade_operacional = desired.unidade_operacional;
+  }
+  if ((existing.centro_de_custo ?? null) !== (desired.centro_de_custo ?? null)) {
+    patch.centro_de_custo = desired.centro_de_custo;
+  }
+  if ((existing.dias ?? null) !== (desired.dias ?? null)) {
+    patch.dias = desired.dias;
+  }
+  if ((existing.origem ?? null) !== "drake") {
+    patch.origem = "drake";
+  }
+  return Object.keys(patch).length ? patch : null;
+}
+
+/**
+ * Planeja merge sem apagar períodos referenciados por timesheet_embarques.
+ * Não nullifica periodo_id; não usa CASCADE.
+ */
+export function planEmbarkationPeriodMerge(input: {
+  existingDrakePeriods: HistNovoPeriodo[];
+  desiredPeriods: DesiredEmbarkationPeriod[];
+  referencedCounts: Map<string, number>;
+}): PeriodMergePlan {
+  const desiredByKey = new Map<string, DesiredEmbarkationPeriod>();
+  for (const desired of input.desiredPeriods) {
+    desiredByKey.set(embarkationPeriodNaturalKey(desired), desired);
+  }
+
+  const existingByKey = new Map<string, HistNovoPeriodo[]>();
+  for (const existing of input.existingDrakePeriods) {
+    const key = embarkationPeriodNaturalKey(existing);
+    const list = existingByKey.get(key) ?? [];
+    list.push(existing);
+    existingByKey.set(key, list);
+  }
+
+  const toInsert: DesiredEmbarkationPeriod[] = [];
+  const toUpdate: Array<{ id: string; patch: Partial<DesiredEmbarkationPeriod> }> = [];
+  const unchangedIds: string[] = [];
+  const toDeleteUnreferenced: string[] = [];
+  const toPreserveReferenced: Array<{ id: string; linkedTimesheetCount: number }> = [];
+  const matchedExistingIds = new Set<string>();
+
+  for (const [key, desired] of desiredByKey) {
+    const candidates = existingByKey.get(key) ?? [];
+    if (candidates.length === 0) {
+      toInsert.push(desired);
+      continue;
+    }
+
+    // Preferir período já referenciado por timesheet; senão o mais antigo (id estável).
+    const preferred =
+      candidates.find((c) => (input.referencedCounts.get(c.id) ?? 0) > 0) ??
+      [...candidates].sort((a, b) => a.id.localeCompare(b.id))[0]!;
+
+    matchedExistingIds.add(preferred.id);
+    const patch = periodPayloadChanged(preferred, desired);
+    if (patch) toUpdate.push({ id: preferred.id, patch });
+    else unchangedIds.push(preferred.id);
+
+    for (const extra of candidates) {
+      if (extra.id === preferred.id) continue;
+      matchedExistingIds.add(extra.id);
+      const linked = input.referencedCounts.get(extra.id) ?? 0;
+      if (linked > 0) {
+        toPreserveReferenced.push({ id: extra.id, linkedTimesheetCount: linked });
+      } else {
+        toDeleteUnreferenced.push(extra.id);
+      }
+    }
+  }
+
+  for (const existing of input.existingDrakePeriods) {
+    if (matchedExistingIds.has(existing.id)) continue;
+    const linked = input.referencedCounts.get(existing.id) ?? 0;
+    if (linked > 0) {
+      toPreserveReferenced.push({ id: existing.id, linkedTimesheetCount: linked });
+    } else {
+      toDeleteUnreferenced.push(existing.id);
+    }
+  }
+
+  return {
+    toInsert,
+    toUpdate,
+    unchangedIds,
+    toDeleteUnreferenced,
+    toPreserveReferenced,
+  };
+}
+
+async function loadReferencedPeriodCounts(
+  supabase: SupabaseClient,
+  periodIds: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  for (const id of periodIds) counts.set(id, 0);
+  if (!periodIds.length) return counts;
+
+  for (const lote of chunk(periodIds, 300)) {
+    const { data, error } = await supabase
+      .from("timesheet_embarques")
+      .select("periodo_id")
+      .in("periodo_id", lote);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const pid = (row as { periodo_id: string | null }).periodo_id;
+      if (!pid) continue;
+      counts.set(pid, (counts.get(pid) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function logPreservedPeriods(
+  preserved: Array<{ id: string; linkedTimesheetCount: number }>,
+): void {
+  for (const item of preserved) {
+    console.info(
+      "[embarkation-import] Periodo preservado por possuir timesheets vinculados",
+      {
+        periodIdPresent: true,
+        linkedTimesheetCount: item.linkedTimesheetCount,
+        action: "preserved",
+      },
+    );
+  }
+}
+
 /** Importa relatório de embarque (mesmo fluxo do botão Importar Excel Drake). */
 export async function importDrakeEmbarkation(
   supabase: SupabaseClient,
@@ -150,14 +323,14 @@ export async function importDrakeEmbarkation(
   }
   const byMatricula = new Map(existing.map((c) => [c.matricula, c]));
 
-  const toInsert: Array<{
+  const toInsertColabs: Array<{
     matricula: string;
     nome: string;
     empresa: string | null;
     funcao: string | null;
     funcao_operacao: string | null;
   }> = [];
-  const toUpdate: Array<{
+  const toUpdateColabs: Array<{
     id: string;
     nome: string;
     empresa: string | null;
@@ -170,7 +343,7 @@ export async function importDrakeEmbarkation(
     seen.add(r.matricula);
     const ex = byMatricula.get(r.matricula);
     if (!ex) {
-      toInsert.push({
+      toInsertColabs.push({
         matricula: r.matricula,
         nome: r.nome,
         empresa: r.empresa,
@@ -183,7 +356,7 @@ export async function importDrakeEmbarkation(
       ex.funcao !== r.funcao ||
       ex.funcao_operacao !== r.funcao_operacao
     ) {
-      toUpdate.push({
+      toUpdateColabs.push({
         id: ex.id,
         nome: r.nome || ex.nome,
         empresa: r.empresa ?? ex.empresa,
@@ -194,15 +367,15 @@ export async function importDrakeEmbarkation(
   }
 
   let insertedColabs: HistNovoColaborador[] = [];
-  if (toInsert.length) {
+  if (toInsertColabs.length) {
     const { data, error } = await supabase
       .from("hist_novo_colaboradores")
-      .insert(toInsert)
+      .insert(toInsertColabs)
       .select("*");
     if (error) throw error;
     insertedColabs = (data ?? []) as HistNovoColaborador[];
   }
-  for (const u of toUpdate) {
+  for (const u of toUpdateColabs) {
     const { error } = await supabase
       .from("hist_novo_colaboradores")
       .update({
@@ -218,9 +391,12 @@ export async function importDrakeEmbarkation(
   const allColabs = [...existing, ...insertedColabs];
   const idByMatricula = new Map(allColabs.map((c) => [c.matricula, c.id]));
 
-  const periodosToInsert = rows
-    .map((r) => ({
-      colaborador_id: idByMatricula.get(r.matricula),
+  const desiredByKey = new Map<string, DesiredEmbarkationPeriod>();
+  for (const r of rows) {
+    const colaborador_id = idByMatricula.get(r.matricula);
+    if (!colaborador_id) continue;
+    const desired: DesiredEmbarkationPeriod = {
+      colaborador_id,
       unidade_operacional: r.unidade_operacional,
       centro_de_custo: r.centro_de_custo,
       tipo: "E",
@@ -228,42 +404,83 @@ export async function importDrakeEmbarkation(
       data_fim: r.data_fim,
       dias: r.dias,
       origem: "drake",
-    }))
-    .filter((p): p is typeof p & { colaborador_id: string } => !!p.colaborador_id);
+    };
+    desiredByKey.set(embarkationPeriodNaturalKey(desired), desired);
+  }
+  const desiredPeriods = [...desiredByKey.values()];
 
-  const { data: drakeAntigos, error: drakeErr } = await supabase
+  const { data: existingDrakeRows, error: existingErr } = await supabase
     .from("hist_novo_periodos")
-    .select("id")
-    .eq("origem", "drake");
-  if (drakeErr) throw drakeErr;
-  const drakeIds = (drakeAntigos ?? []).map((p: { id: string }) => p.id);
-  if (drakeIds.length) {
-    for (let i = 0; i < drakeIds.length; i += 500) {
-      const lote = drakeIds.slice(i, i + 500);
-      const { error: unlinkErr } = await supabase
-        .from("timesheet_embarques")
-        .update({ periodo_id: null })
-        .in("periodo_id", lote);
-      if (unlinkErr) throw unlinkErr;
-    }
-    const { error: delErr } = await supabase
+    .select("*")
+    .eq("origem", "drake")
+    .eq("tipo", "E");
+  if (existingErr) throw existingErr;
+  const existingDrakePeriods = (existingDrakeRows ?? []) as HistNovoPeriodo[];
+
+  const referencedCounts = await loadReferencedPeriodCounts(
+    supabase,
+    existingDrakePeriods.map((p) => p.id),
+  );
+
+  const plan = planEmbarkationPeriodMerge({
+    existingDrakePeriods,
+    desiredPeriods,
+    referencedCounts,
+  });
+
+  logPreservedPeriods(plan.toPreserveReferenced);
+
+  let deletedUnreferencedCount = 0;
+  let preservedReferencedCount = plan.toPreserveReferenced.length;
+
+  // Ordem segura: UPDATE (preserva id) → INSERT → DELETE só não referenciados.
+  // Não nullifica timesheet_embarques.periodo_id; não usa CASCADE.
+  for (const item of plan.toUpdate) {
+    const { error } = await supabase
       .from("hist_novo_periodos")
-      .delete()
-      .eq("origem", "drake");
-    if (delErr) throw delErr;
+      .update(item.patch)
+      .eq("id", item.id);
+    if (error) throw error;
   }
 
-  for (let i = 0; i < periodosToInsert.length; i += 500) {
-    const lote = periodosToInsert.slice(i, i + 500);
+  for (const lote of chunk(plan.toInsert, 500)) {
+    if (!lote.length) continue;
     const { error: pErr } = await supabase.from("hist_novo_periodos").insert(lote);
     if (pErr) throw pErr;
   }
 
+  for (const lote of chunk(plan.toDeleteUnreferenced, 500)) {
+    if (!lote.length) continue;
+    // Revalida referências imediatamente antes do DELETE (evita corrida).
+    const latestCounts = await loadReferencedPeriodCounts(supabase, lote);
+    const safeToDelete: string[] = [];
+    for (const id of lote) {
+      const linked = latestCounts.get(id) ?? 0;
+      if (linked > 0) {
+        logPreservedPeriods([{ id, linkedTimesheetCount: linked }]);
+        preservedReferencedCount += 1;
+        continue;
+      }
+      safeToDelete.push(id);
+    }
+    if (!safeToDelete.length) continue;
+    const { error: delErr } = await supabase
+      .from("hist_novo_periodos")
+      .delete()
+      .in("id", safeToDelete);
+    if (delErr) throw delErr;
+    deletedUnreferencedCount += safeToDelete.length;
+  }
+
   return {
-    created: toInsert.length,
-    updated: toUpdate.length,
-    insertedEvents: periodosToInsert.length,
-    skipped: rows.length - periodosToInsert.length,
+    created: toInsertColabs.length,
+    updated: toUpdateColabs.length,
+    insertedEvents: plan.toInsert.length,
+    skipped: rows.length - desiredPeriods.length,
+    unchangedCount: plan.unchangedIds.length,
+    periodsUpdatedCount: plan.toUpdate.length,
+    preservedReferencedCount,
+    deletedUnreferencedCount,
   };
 }
 

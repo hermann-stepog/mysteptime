@@ -129,6 +129,16 @@ describe("http-only imports", () => {
     expect(src).toMatch(/openDrakeSignalRSession/);
   });
 
+  it("rota manual usa runDrakeUpdate; scheduler não tem endpoint HTTP", async () => {
+    const fs = await import("node:fs/promises");
+    const manual = await fs.readFile("src/routes/api/integrations/drake/update.ts", "utf8");
+    expect(manual).toMatch(/runDrakeUpdate/);
+    expect(manual).not.toMatch(/setInterval|localStorage/);
+    await expect(
+      fs.access("src/routes/api/internal/drake/scheduled-update.ts"),
+    ).rejects.toBeTruthy();
+  });
+
   it("servico nao acessa drake_data_updates", async () => {
     const fs = await import("node:fs/promises");
     const src = await fs.readFile("src/lib/drake/update-service.server.ts", "utf8");
@@ -155,11 +165,22 @@ describe("updateDrakeData ordem dos relatorios", () => {
     vi.doMock("./auth/environment-credentials-auth.server", () => ({
       EnvironmentCredentialsDrakeAuthProvider: class {
         async authenticate() {
-          return { storageState: { cookies: [], origins: [] }, renewed: false };
+          return {
+            storageState: { cookies: [], origins: [] },
+            authenticatedSession: {
+              storageState: { cookies: [], origins: [] },
+              cookieJar: { cookieNames: () => [] },
+              requiredHeaders: {},
+            },
+            reusedCache: false,
+          };
         }
       },
     }));
     vi.doMock("./api-session.server", () => ({
+      createDrakeApiContextFromAuthenticatedSession: vi.fn().mockResolvedValue({
+        dispose: vi.fn().mockResolvedValue(undefined),
+      }),
       createDrakeApiContextFromStorageState: vi.fn().mockResolvedValue({
         dispose: vi.fn().mockResolvedValue(undefined),
       }),

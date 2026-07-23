@@ -70,16 +70,35 @@ describe("config credentials", () => {
 });
 
 describe("headless auth contract", () => {
-  it("provider lanca chromium apenas com headless true", async () => {
+  it("adaptador local lanca chromium apenas com headless true", async () => {
     const fs = await import("node:fs/promises");
-    const src = await fs.readFile(
+    const local = await fs.readFile(
+      "src/lib/drake/browser/local-drake-browser-runtime.server.ts",
+      "utf8",
+    );
+    const auth = await fs.readFile(
       "src/lib/drake/auth/environment-credentials-auth.server.ts",
       "utf8",
     );
-    expect(src).toMatch(/chromium\.launch\(\{\s*headless:\s*true/);
-    expect(src).toMatch(/browser\?\.close/);
-    expect(src).not.toMatch(/headless:\s*false/);
-    expect(src).not.toMatch(/page\.pause/);
+    expect(local).toMatch(/chromium\.launch\(\{\s*headless:\s*true/);
+    expect(local).toMatch(/await import\(/);
+    expect(local).toMatch(/playwright/);
+    expect(auth).toMatch(/createDrakeBrowserRuntime/);
+    expect(auth).not.toMatch(/from ["']playwright["']/);
+    expect(auth).not.toMatch(/headless:\s*false/);
+    expect(auth).not.toMatch(/page\.pause/);
+  });
+
+  it("adaptador remoto usa connectOverCDP e nao lanca browser local", async () => {
+    const fs = await import("node:fs/promises");
+    const remote = await fs.readFile(
+      "src/lib/drake/browser/remote-drake-browser-runtime.server.ts",
+      "utf8",
+    );
+    expect(remote).toMatch(/connectOverCDP/);
+    expect(remote).toMatch(/playwright-core/);
+    expect(remote).not.toMatch(/chromium\.launch\s*\(/);
+    expect(remote).not.toMatch(/executablePath/);
   });
 
   it("relatorios nao usam Page/chromium para executar", async () => {

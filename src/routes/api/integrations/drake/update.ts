@@ -81,8 +81,13 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
                     availabilityStatus: "waiting",
                   });
 
-                  const { updateDrakeData } = await import("@/lib/drake/update-service.server");
-                  const result = await updateDrakeData(client, send);
+                  const { runDrakeUpdate } = await import("@/lib/drake/run-drake-update.server");
+                  const result = await runDrakeUpdate({
+                    trigger: "manual",
+                    db: client,
+                    onProgress: send,
+                    acquireLock: false,
+                  });
 
                   await send({
                     type: "completed",

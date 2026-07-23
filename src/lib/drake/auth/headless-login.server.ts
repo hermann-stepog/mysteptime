@@ -112,7 +112,8 @@ export async function performHeadlessDrakeLogin(page: Page): Promise<void> {
 
   await selectDrakeContext(page);
   await confirmStableAuthenticatedSession(page);
-  logger.info("Autenticacao headless do Drake concluida");
+  // Critério forte (Menu 200) é aplicado em waitForBrowserMenuAuthenticated pelo provider.
+  logger.info("Login UI do Drake estabilizado; aguardando validacao do Menu no navegador");
 }
 
 export async function extractStorageStateFromPage(page: Page): Promise<StorageState> {

@@ -1,3 +1,5 @@
+import type { DrakeAuthenticatedSession } from "./authenticated-session.server";
+
 /** Subconjunto tipado do storageState do Playwright (sem logar conteúdo). */
 export interface StorageState {
   cookies: Array<Record<string, unknown>>;
@@ -6,6 +8,8 @@ export interface StorageState {
 
 export interface DrakeAuthResult {
   storageState: StorageState;
+  /** Sessão em memória com cookies + headers comprovados (não persistir tokens). */
+  authenticatedSession: DrakeAuthenticatedSession;
   reusedCache: boolean;
 }
 

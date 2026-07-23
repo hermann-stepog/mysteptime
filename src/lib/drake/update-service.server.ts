@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
-import type { APIRequestContext } from "playwright";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createDrakeApiContextFromStorageState, isSessionExpiredError } from "./api-session.server";
+import { createDrakeApiContextFromAuthenticatedSession, isSessionExpiredError } from "./api-session.server";
 import {
   EnvironmentCredentialsDrakeAuthProvider,
   type AuthProgressStage,
@@ -80,7 +80,7 @@ async function updateDrakeDataInner(
   onProgress: DrakeProgressCallback,
   startedAtMs: number,
 ): Promise<DrakeUpdateResult> {
-  let apiContext: APIRequestContext | null = null;
+  let apiContext: DrakeHttpClient | null = null;
   let storageState: StorageState | null = null;
   let signalRSession: DrakeSignalRSession | null = null;
   let renewedOnce = false;
@@ -93,7 +93,16 @@ async function updateDrakeDataInner(
   let currentReportCode: number | undefined;
 
   let embarkationSummary:
-    | { created?: number; updated?: number; insertedEvents?: number; skipped?: number }
+    | {
+        created?: number;
+        updated?: number;
+        insertedEvents?: number;
+        skipped?: number;
+        unchangedCount?: number;
+        periodsUpdatedCount?: number;
+        preservedReferencedCount?: number;
+        deletedUnreferencedCount?: number;
+      }
     | undefined;
   let availabilitySummary: { insertedEvents?: number; skipped?: number } | undefined;
   let report1Started = 0;
@@ -138,9 +147,9 @@ async function updateDrakeDataInner(
     );
     const result = await provider.authenticate();
     storageState = result.storageState;
-    const previous: APIRequestContext | null = apiContext;
+    const previous: DrakeHttpClient | null = apiContext;
     if (previous) await previous.dispose().catch(() => undefined);
-    apiContext = await createDrakeApiContextFromStorageState(result.storageState);
+    apiContext = await createDrakeApiContextFromAuthenticatedSession(result.authenticatedSession);
     logger.info("drake-authentication", "Integracao Drake validada", {
       stage: "authenticating",
       durationMs: Date.now() - authStarted,
@@ -148,7 +157,7 @@ async function updateDrakeDataInner(
   }
 
   async function withSessionRetry<T>(
-    operation: (ctx: APIRequestContext) => Promise<T>,
+    operation: (ctx: DrakeHttpClient) => Promise<T>,
   ): Promise<T> {
     if (!apiContext) throw new Error("Contexto HTTP do Drake ausente.");
     try {
@@ -264,6 +273,10 @@ async function updateDrakeDataInner(
           updatedCount: embarkationSummary?.updated,
           insertedCount: embarkationSummary?.insertedEvents,
           skippedCount: embarkationSummary?.skipped,
+          unchangedCount: embarkationSummary?.unchangedCount,
+          periodsUpdatedCount: embarkationSummary?.periodsUpdatedCount,
+          preservedReferencedCount: embarkationSummary?.preservedReferencedCount,
+          deletedUnreferencedCount: embarkationSummary?.deletedUnreferencedCount,
         });
 
         await emit("embarkation-completed", { embarkationStatus: "completed" });
@@ -370,11 +383,16 @@ async function updateDrakeDataInner(
         embarkationEvents: embarkationSummary?.insertedEvents,
         availabilityEvents: availabilitySummary?.insertedEvents,
         skipped: (embarkationSummary?.skipped ?? 0) + (availabilitySummary?.skipped ?? 0),
+        report1DurationMs,
+        import1DurationMs,
+        report14DurationMs,
+        import14DurationMs,
+        totalDurationMs: Date.now() - startedAtMs,
       };
 
       logger.info("drake-update", "Atualizacao Drake concluida", {
         stage: "completed",
-        totalDurationMs: Date.now() - startedAtMs,
+        totalDurationMs: result.totalDurationMs,
         report1DurationMs,
         import1DurationMs,
         report14DurationMs,
@@ -430,7 +448,7 @@ async function updateDrakeDataInner(
     if (session) {
       await session.close().catch(() => undefined);
     }
-    const ctx = apiContext as APIRequestContext | null;
+    const ctx = apiContext as DrakeHttpClient | null;
     apiContext = null;
     if (ctx) await ctx.dispose().catch(() => undefined);
     storageState = null;

@@ -49,6 +49,8 @@ export function getDrakeConfig() {
     DRAKE_CONTEXT_NAME: process.env.DRAKE_CONTEXT_NAME ?? "Step",
     DRAKE_TIMEOUT_MS: intEnv("DRAKE_TIMEOUT_MS", 60_000),
     DRAKE_LOGIN_DISCOVERY_TIMEOUT_MS: intEnv("DRAKE_LOGIN_DISCOVERY_TIMEOUT_MS", 90_000),
+    /** Timeout para o Menu no BrowserContext retornar 200 após o login UI. */
+    DRAKE_BROWSER_MENU_TIMEOUT_MS: intEnv("DRAKE_BROWSER_MENU_TIMEOUT_MS", 90_000),
     DRAKE_REPORT_DOWNLOAD_TIMEOUT_MS: intEnv("DRAKE_REPORT_DOWNLOAD_TIMEOUT_MS", 300_000),
     DRAKE_USER_AGENT:
       process.env.DRAKE_USER_AGENT ??

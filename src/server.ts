@@ -9,6 +9,27 @@ type ServerEntry = {
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
+/**
+ * Agendamento automático Drake executado no processo Node.
+ * Não utiliza endpoint HTTP, segredo próprio ou sessão de usuário.
+ * Protegido contra hot reload via flag de módulo + globalThis no scheduler.
+ */
+function bootstrapDrakeSchedulerOnce() {
+  const g = globalThis as typeof globalThis & {
+    __drakeSchedulerBootstrapDone?: boolean;
+  };
+  if (g.__drakeSchedulerBootstrapDone) return;
+  g.__drakeSchedulerBootstrapDone = true;
+
+  void import("./lib/drake/drake-scheduler.server")
+    .then((mod) => {
+      mod.ensureDrakeSchedulerRegistered();
+    })
+    .catch(() => {
+      /* scheduler opcional no boot */
+    });
+}
+
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
@@ -52,3 +73,6 @@ export default {
     }
   },
 };
+
+// Única chamada: boot do processo server-side (não por request).
+bootstrapDrakeSchedulerOnce();
