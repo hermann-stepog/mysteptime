@@ -304,8 +304,12 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   if (embarque) {
     const folgaMesmoDia = covering("F");
     if (folgaMesmoDia) return { status: "FI", periodo: embarque };
+    // Dobra só faz sentido em embarque confirmado (não em programação futura "a confirmar") e
+    // só para dias que já aconteceram — não marca dobra em dia futuro que ainda nem ocorreu.
     const diaNum = daysBetween(embarque.data_inicio, date) + 1;
-    if (diaNum >= 15) return { status: "DB", periodo: embarque };
+    if (diaNum >= 15 && !isEAConfirmar(embarque) && date <= todayStr()) {
+      return { status: "DB", periodo: embarque };
+    }
     return { status: "E", periodo: embarque };
   }
 

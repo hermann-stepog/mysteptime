@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+// hist_novo_periodos.bsp ainda não está nos tipos gerados — mesmo cast padrão dos outros módulos.
+const supabase: any = supabaseTyped;
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -671,7 +673,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     mutationFn: async (embarque: TimesheetEmbarque) => {
       const { data: semanasDoEmbarque, error: semErr } = await supabase.from("timesheet_semanas").select("id").eq("embarque_id", embarque.id);
       if (semErr) throw semErr;
-      const semanaIds = (semanasDoEmbarque ?? []).map((s) => s.id);
+      const semanaIds = (semanasDoEmbarque ?? []).map((s: any) => s.id);
       if (semanaIds.length) {
         const { error: diasErr } = await supabase.from("timesheet_dias").delete().in("semana_id", semanaIds);
         if (diasErr) throw diasErr;
@@ -1397,10 +1399,10 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
       const { data: diasAtuais, error: diasErr } = await supabase.from("timesheet_dias").select("*").eq("semana_id", semana.id);
       if (diasErr) throw diasErr;
       const novasDatas = generateDateRange(novaDataInicio, novaDataFim);
-      const datasExistentes = new Set((diasAtuais ?? []).map((d) => d.data));
-      const foraDoIntervalo = (diasAtuais ?? []).filter((d) => !novasDatas.includes(d.data));
+      const datasExistentes = new Set((diasAtuais ?? []).map((d: any) => d.data));
+      const foraDoIntervalo = (diasAtuais ?? []).filter((d: any) => !novasDatas.includes(d.data));
       if (foraDoIntervalo.length) {
-        const { error: delErr } = await supabase.from("timesheet_dias").delete().in("id", foraDoIntervalo.map((d) => d.id));
+        const { error: delErr } = await supabase.from("timesheet_dias").delete().in("id", foraDoIntervalo.map((d: any) => d.id));
         if (delErr) throw delErr;
       }
       const faltantes = novasDatas.filter((d) => !datasExistentes.has(d)).map((d) => ({ semana_id: semana.id, data: d, dia_semana: weekdayLabel(d) }));
@@ -1654,7 +1656,7 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
           total_horas: d.total_horas,
           evento: d.evento || null,
           adicional_noturno: adicionalNoturno,
-        }).eq("id", d.id).then(({ error }) => { if (error) throw error; });
+        }).eq("id", d.id).then(({ error }: any) => { if (error) throw error; });
       }));
 
       const { error: semErr } = await supabase.from("timesheet_semanas").update({
@@ -1664,7 +1666,7 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
 
       const { data: todasSemanas, error: listErr } = await supabase.from("timesheet_semanas").select("recebido_fisico").eq("embarque_id", embarque.id);
       if (listErr) throw listErr;
-      const recebidas = (todasSemanas ?? []).filter((s) => s.recebido_fisico).length;
+      const recebidas = (todasSemanas ?? []).filter((s: any) => s.recebido_fisico).length;
       const total = totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque);
       const status = computeStatusEntrega(recebidas, total);
       await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
