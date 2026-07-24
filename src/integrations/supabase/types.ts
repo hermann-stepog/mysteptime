@@ -811,6 +811,7 @@ export type Database = {
       timesheet_dias: {
         Row: {
           adicional_noturno: boolean
+          bsp: string | null
           criado_em: string
           data: string
           descricao_tarefa: string | null
@@ -830,6 +831,7 @@ export type Database = {
         }
         Insert: {
           adicional_noturno?: boolean
+          bsp?: string | null
           criado_em?: string
           data: string
           descricao_tarefa?: string | null
@@ -849,6 +851,7 @@ export type Database = {
         }
         Update: {
           adicional_noturno?: boolean
+          bsp?: string | null
           criado_em?: string
           data?: string
           descricao_tarefa?: string | null
