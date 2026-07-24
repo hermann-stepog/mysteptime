@@ -1666,7 +1666,7 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
 
       const { data: todasSemanas, error: listErr } = await supabase.from("timesheet_semanas").select("recebido_fisico").eq("embarque_id", embarque.id);
       if (listErr) throw listErr;
-      const recebidas = (todasSemanas ?? []).filter((s) => s.recebido_fisico).length;
+      const recebidas = (todasSemanas ?? []).filter((s: any) => s.recebido_fisico).length;
       const total = totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque);
       const status = computeStatusEntrega(recebidas, total);
       await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
