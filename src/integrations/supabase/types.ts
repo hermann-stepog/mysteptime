@@ -435,6 +435,47 @@ export type Database = {
         }
         Relationships: []
       }
+      colaborador_funcoes_historico: {
+        Row: {
+          cod_alocacao: string | null
+          colaborador_id: string
+          criado_em: string
+          data_fim: string | null
+          data_inicio: string
+          embarcacao: string | null
+          funcao: string
+          id: string
+        }
+        Insert: {
+          cod_alocacao?: string | null
+          colaborador_id: string
+          criado_em?: string
+          data_fim?: string | null
+          data_inicio: string
+          embarcacao?: string | null
+          funcao: string
+          id?: string
+        }
+        Update: {
+          cod_alocacao?: string | null
+          colaborador_id?: string
+          criado_em?: string
+          data_fim?: string | null
+          data_inicio?: string
+          embarcacao?: string | null
+          funcao?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colaborador_funcoes_historico_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       collaborators: {
         Row: {
           active: boolean
@@ -682,7 +723,6 @@ export type Database = {
       }
       hist_novo_periodos: {
         Row: {
-          bsp: string | null
           centro_de_custo: string | null
           colaborador_id: string
           created_at: string
@@ -695,7 +735,6 @@ export type Database = {
           unidade_operacional: string | null
         }
         Insert: {
-          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id: string
           created_at?: string
@@ -708,7 +747,6 @@ export type Database = {
           unidade_operacional?: string | null
         }
         Update: {
-          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id?: string
           created_at?: string
@@ -861,63 +899,74 @@ export type Database = {
       }
       nominations: {
         Row: {
-          approved_collaborator_id: string | null
-          approved_collaborator_name: string | null
+          briefing_sms_realizado: boolean
           client: string | null
+          colaborador_id: string
+          colaborador_nome: string
           created_at: string
           current_status: string
-          function_requested: string
+          funcao: string
           id: string
           notes: string | null
-          period_end: string
-          period_start: string
-          pm_name: string
+          period_end: string | null
+          period_start: string | null
+          pm_name: string | null
           pm_user_id: string | null
           project: string | null
+          quality_validated: boolean
           requires_quality_validation: boolean
-          requires_superior_approval: boolean
           updated_at: string
           weld_type: string | null
         }
         Insert: {
-          approved_collaborator_id?: string | null
-          approved_collaborator_name?: string | null
+          briefing_sms_realizado?: boolean
           client?: string | null
+          colaborador_id: string
+          colaborador_nome: string
           created_at?: string
           current_status?: string
-          function_requested: string
+          funcao: string
           id?: string
           notes?: string | null
-          period_end: string
-          period_start: string
-          pm_name: string
+          period_end?: string | null
+          period_start?: string | null
+          pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_validated?: boolean
           requires_quality_validation?: boolean
-          requires_superior_approval?: boolean
           updated_at?: string
           weld_type?: string | null
         }
         Update: {
-          approved_collaborator_id?: string | null
-          approved_collaborator_name?: string | null
+          briefing_sms_realizado?: boolean
           client?: string | null
+          colaborador_id?: string
+          colaborador_nome?: string
           created_at?: string
           current_status?: string
-          function_requested?: string
+          funcao?: string
           id?: string
           notes?: string | null
-          period_end?: string
-          period_start?: string
-          pm_name?: string
+          period_end?: string | null
+          period_start?: string | null
+          pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_validated?: boolean
           requires_quality_validation?: boolean
-          requires_superior_approval?: boolean
           updated_at?: string
           weld_type?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "nominations_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notifications: {
         Row: {
@@ -1079,6 +1128,7 @@ export type Database = {
       rates: {
         Row: {
           active: boolean
+          bsp: string | null
           client: string
           created_at: string
           funcao: string
@@ -1093,6 +1143,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          bsp?: string | null
           client: string
           created_at?: string
           funcao: string
@@ -1107,6 +1158,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          bsp?: string | null
           client?: string
           created_at?: string
           funcao?: string
@@ -1667,6 +1719,7 @@ export type Database = {
           cliente_3: string | null
           column_id: string | null
           created_at: string
+          custo: number | null
           departure_time: string | null
           destination: string
           destinos_extras: string[]
@@ -1693,6 +1746,7 @@ export type Database = {
           cliente_3?: string | null
           column_id?: string | null
           created_at?: string
+          custo?: number | null
           departure_time?: string | null
           destination: string
           destinos_extras?: string[]
@@ -1719,6 +1773,7 @@ export type Database = {
           cliente_3?: string | null
           column_id?: string | null
           created_at?: string
+          custo?: number | null
           departure_time?: string | null
           destination?: string
           destinos_extras?: string[]
@@ -1865,7 +1920,11 @@ export type Database = {
         | "concluido"
         | "cancelado"
       transport_tipo: "pessoas" | "material"
-      transport_trip_status: "em_andamento" | "realizado" | "cancelado"
+      transport_trip_status:
+        | "em_andamento"
+        | "realizado"
+        | "cancelado"
+        | "faturado"
       transport_type: "carro" | "van" | "voo" | "onibus"
     }
     CompositeTypes: {
@@ -2033,7 +2092,12 @@ export const Constants = {
         "cancelado",
       ],
       transport_tipo: ["pessoas", "material"],
-      transport_trip_status: ["em_andamento", "realizado", "cancelado"],
+      transport_trip_status: [
+        "em_andamento",
+        "realizado",
+        "cancelado",
+        "faturado",
+      ],
       transport_type: ["carro", "van", "voo", "onibus"],
     },
   },
