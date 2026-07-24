@@ -16,7 +16,7 @@ export interface TimesheetDiaComColaborador {
 }
 
 export interface Rate {
-  bsp: string;
+  bsp: string | null;
   client: string;
   vessel: string;
   funcao: string;
@@ -38,12 +38,25 @@ function normalizar(s: string): string {
   return s.trim().toLowerCase();
 }
 
-function findRate(rates: Rate[], bsp: string, funcao: string): Rate | undefined {
-  return rates.find((r) =>
-    r.active &&
-    normalizar(r.bsp) === normalizar(bsp) &&
-    normalizar(r.funcao) === normalizar(funcao),
-  );
+// Sufixo de nível/numeral no fim da função ("SOLDADOR I", "SUPERVISOR OFFSHORE III",
+// "CALDEIREIRO IRATA N2") — descartado só como fallback quando não existe rate pra função
+// exata, pra cair no rate "base" (SOLDADOR I/II/IV -> SOLDADOR, confirmado com a usuária:
+// o rate não varia por nível dentro da mesma função). Só entra em ação depois de tentar o
+// match exato, então não atropela rates cadastrados por nível quando eles batem exato
+// (ex: se um dia existir colaborador com função exatamente "CALDEIREIRO IRATA N2").
+function stripNivel(s: string): string {
+  return normalizar(s).replace(/\s+(i{1,3}|iv|v|n\d+)$/i, "").trim();
+}
+
+// Chave real do rate é Cliente+Embarcação+Função (bate com a planilha mestre da usuária,
+// STEP_Rates_e_BM_Automatico, aba "_Lookup") — o rate não varia por BSP, então um BSP novo
+// aberto no mesmo navio já funciona sem recadastro. BSP fica só informativo em `Rate.bsp`.
+function findRate(rates: Rate[], client: string, vessel: string, funcao: string): Rate | undefined {
+  const doClienteVessel = (r: Rate) => r.active && normalizar(r.client) === normalizar(client) && normalizar(r.vessel) === normalizar(vessel);
+  const exato = rates.find((r) => doClienteVessel(r) && normalizar(r.funcao) === normalizar(funcao));
+  if (exato) return exato;
+  const funcaoBase = stripNivel(funcao);
+  return rates.find((r) => doClienteVessel(r) && stripNivel(r.funcao) === funcaoBase);
 }
 
 export type BmLineMoComputed = Omit<BmLineMo, "id" | "bm_id"> & {
@@ -54,7 +67,7 @@ export type BmLineMoComputed = Omit<BmLineMo, "id" | "bm_id"> & {
 // Agrega os dias de timesheet por colaborador e cruza com as rates do cliente/embarcação —
 // função pura, sem I/O, pra poder ser testada e reutilizada tanto no wizard quanto (se
 // precisar) no export Excel.
-export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Rate[], bsp: string): BmLineMoComputed[] {
+export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Rate[], client: string, vessel: string): BmLineMoComputed[] {
   const porColaborador = new Map<string, { nome: string; funcao: string; bsp: string | null; dias: TimesheetDiaComColaborador[] }>();
   dias.forEach((d) => {
     if (!porColaborador.has(d.colaborador_id)) {
@@ -71,7 +84,7 @@ export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Ra
     const horasExtras = round2(diasColab.reduce((acc, d) => acc + (d.horas_extras ?? 0), 0));
     const horasAdicionalNoturno = round2(diasColab.reduce((acc, d) => acc + (d.adicional_noturno ? (d.total_horas ?? 0) : 0), 0));
 
-    const rate = findRate(rates, bsp, funcao);
+    const rate = findRate(rates, client, vessel, funcao);
     const rateMissing = !rate;
     const hasHoraExtraRate = !!rate?.rate_hora_extra;
     const hasAdicionalNoturnoRate = !!rate?.rate_adicional_noturno;
