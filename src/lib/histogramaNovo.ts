@@ -97,6 +97,28 @@ export const ORIGEM_PROGRAMADO = "programado";
 // tem um caso especial pra ele: pediram cinza médio, não a letra escura padrão.
 export const STB_BG_COLOR = "#e2e8f0";
 
+// Decisão da usuária: não precisa buscar/considerar dado de antes de 2026 (nem do Drake, nem
+// do que deriva dele — embarques/semanas/dias) — reduz bastante o volume das consultas grandes
+// (hist_novo_periodos, timesheet_dias etc.) sem perder nada relevante pro uso atual do app.
+export const DRAKE_DATA_CUTOFF = "2026-01-01";
+
+// BSP "de verdade" de um período — vem de `centro_de_custo` (Drake) ou `bsp` (lançamento manual
+// em LancamentosTab), nunca os dois ao mesmo tempo dependendo da origem do registro.
+export function bspDoPeriodo(p: HistNovoPeriodo): string | null {
+  return p.centro_de_custo || p.bsp;
+}
+
+// BSPs já vistos nos períodos do Histograma, restritos à unidade escolhida (ou todos, se
+// "all") — usado pra alimentar o filtro de BSP ao lado do filtro de Unidade Operacional nas
+// várias telas do app.
+export function bspOptionsForUnidade(periodos: HistNovoPeriodo[], unidade: string): string[] {
+  const bsps = periodos
+    .filter((p) => unidade === "all" || p.unidade_operacional === unidade)
+    .map(bspDoPeriodo)
+    .filter((b): b is string => !!b);
+  return Array.from(new Set(bsps)).sort();
+}
+
 // Escolhe texto branco ou escuro conforme a luminância da cor de fundo, para manter contraste
 // legível. Caso especial: o fundo do STB usa cinza médio em vez do escuro padrão.
 export function getContrastText(hex: string): string {
