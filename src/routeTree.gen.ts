@@ -32,7 +32,6 @@ import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
 import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
 import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
 import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
-import { Route as AdminEmbarkationsRouteImport } from './routes/admin/embarkations'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
 import { Route as AdminBmRouteImport } from './routes/admin/bm'
@@ -154,11 +153,6 @@ const AdminHistogramaNovoRoute = AdminHistogramaNovoRouteImport.update({
   path: '/histograma-novo',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminEmbarkationsRoute = AdminEmbarkationsRouteImport.update({
-  id: '/embarkations',
-  path: '/embarkations',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
 const AdminCostsRoute = AdminCostsRouteImport.update({
   id: '/costs',
   path: '/costs',
@@ -197,7 +191,6 @@ export interface FileRoutesByFullPath {
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
@@ -226,7 +219,6 @@ export interface FileRoutesByTo {
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
@@ -258,7 +250,6 @@ export interface FileRoutesById {
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
@@ -291,7 +282,6 @@ export interface FileRouteTypes {
     | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/embarkations'
     | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
@@ -320,7 +310,6 @@ export interface FileRouteTypes {
     | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/embarkations'
     | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
@@ -351,7 +340,6 @@ export interface FileRouteTypes {
     | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/embarkations'
     | '/admin/histograma-novo'
     | '/admin/materials'
     | '/admin/nominations'
@@ -545,13 +533,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminHistogramaNovoRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/admin/embarkations': {
-      id: '/admin/embarkations'
-      path: '/embarkations'
-      fullPath: '/admin/embarkations'
-      preLoaderRoute: typeof AdminEmbarkationsRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
     '/admin/costs': {
       id: '/admin/costs'
       path: '/costs'
@@ -595,7 +576,6 @@ interface AdminRouteRouteChildren {
   AdminBmRoute: typeof AdminBmRoute
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
   AdminCostsRoute: typeof AdminCostsRoute
-  AdminEmbarkationsRoute: typeof AdminEmbarkationsRoute
   AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
   AdminMaterialsRoute: typeof AdminMaterialsRoute
   AdminNominationsRoute: typeof AdminNominationsRoute
@@ -612,7 +592,6 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminBmRoute: AdminBmRoute,
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
   AdminCostsRoute: AdminCostsRoute,
-  AdminEmbarkationsRoute: AdminEmbarkationsRoute,
   AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,
   AdminMaterialsRoute: AdminMaterialsRoute,
   AdminNominationsRoute: AdminNominationsRoute,
