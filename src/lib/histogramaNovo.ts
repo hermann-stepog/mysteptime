@@ -304,12 +304,18 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   if (embarque) {
     const folgaMesmoDia = covering("F");
     if (folgaMesmoDia) return { status: "FI", periodo: embarque };
-    // Dobra só faz sentido em embarque confirmado (não em programação futura "a confirmar") e
-    // só para dias que já aconteceram — não marca dobra em dia futuro que ainda nem ocorreu.
     const diaNum = daysBetween(embarque.data_inicio, date) + 1;
-    if (diaNum >= 15 && !isEAConfirmar(embarque) && date <= todayStr()) {
-      return { status: "DB", periodo: embarque };
+    // Ciclo offshore: máx. 14 dias embarcado. Para dias futuros (ou embarques "a confirmar"
+    // vindos de programação), projeta-se o ciclo teórico — dias 1-14 = E, 15-28 = F,
+    // 29+ = STB. Embarque confirmado (Drake) já ocorrido respeita o dado real e a Dobra
+    // continua marcando do 15º dia em diante.
+    const projetado = isEAConfirmar(embarque) || date > todayStr();
+    if (projetado) {
+      if (diaNum <= 14) return { status: "E", periodo: embarque };
+      if (diaNum <= 28) return { status: "F", periodo: embarque };
+      return { status: "STB", periodo: embarque };
     }
+    if (diaNum >= 15) return { status: "DB", periodo: embarque };
     return { status: "E", periodo: embarque };
   }
 
