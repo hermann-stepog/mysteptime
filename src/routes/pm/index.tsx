@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -7,9 +7,10 @@ const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import {
   type Nomination, type NominationStatusHistory, type WeldTypeConfig,
-  STATUS_LABELS, STATUS_COLORS, ALL_STATUSES,
+  STATUS_LABELS, STATUS_BADGE, ALL_STATUSES,
   fmtDate, fmtDatetime, isSoldador,
 } from "@/lib/nominations";
+import { selectAllPages } from "@/lib/supabasePaginate";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,11 +32,14 @@ export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Sol
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const label = STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status;
-  const color = STATUS_COLORS[status as keyof typeof STATUS_COLORS] ?? "bg-slate-100 text-slate-700";
+function StatusBadge({ status }: { status: Nomination["current_status"] }) {
+  const label = STATUS_LABELS[status] ?? status;
+  const c = STATUS_BADGE[status] ?? { bg: "#f1f5f9", text: "#334155" };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${color}`}>
+    <span
+      className="inline-flex items-center rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: c.bg, color: c.text }}
+    >
       {label}
     </span>
   );
@@ -60,21 +64,18 @@ function NominationDetail({ nom }: { nom: Nomination }) {
     <Dialog open>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{nom.function_requested}</DialogTitle>
+          <DialogTitle>{nom.colaborador_nome} — <span className="text-muted-foreground">{nom.funcao}</span></DialogTitle>
           <StatusBadge status={nom.current_status} />
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
           <div className="grid grid-cols-2 gap-2">
-            <div><span className="text-muted-foreground">Período:</span> {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}</div>
+            {nom.period_start && nom.period_end && (
+              <div><span className="text-muted-foreground">Período:</span> {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}</div>
+            )}
             {nom.client && <div><span className="text-muted-foreground">Cliente:</span> {nom.client}</div>}
             {nom.project && <div><span className="text-muted-foreground">Projeto:</span> {nom.project}</div>}
             {nom.weld_type && <div><span className="text-muted-foreground">Tipo de solda:</span> {nom.weld_type}</div>}
-            {nom.approved_collaborator_name && (
-              <div className="col-span-2 text-green-700 font-medium">
-                ✓ Colaborador aprovado: {nom.approved_collaborator_name}
-              </div>
-            )}
             {nom.notes && <div className="col-span-2 text-muted-foreground italic">{nom.notes}</div>}
           </div>
 
@@ -103,10 +104,18 @@ function NominationDetail({ nom }: { nom: Nomination }) {
 
 // ── Create dialog ─────────────────────────────────────────────────────────────
 
+interface PmColaborador {
+  id: string;
+  nome: string;
+  funcao: string | null;
+  funcao_operacao: string | null;
+}
+
 function CreateDialog({ onClose }: { onClose: () => void }) {
   const { user, profile } = useAuth();
   const qc = useQueryClient();
 
+  const [colaboradorId, setColaboradorId] = useState("");
   const [fn, setFn]             = useState("");
   const [weldType, setWeldType] = useState("");
   const [start, setStart]       = useState("");
@@ -123,6 +132,52 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
     },
   });
 
+  const { data: colaboradores = [] } = useQuery<PmColaborador[]>({
+    queryKey: ["pm-create-nomination-colaboradores"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hist_novo_colaboradores")
+        .select("id, nome, funcao, funcao_operacao")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as PmColaborador[];
+    },
+  });
+
+  const { data: funcoesHistorico = [] } = useQuery<{ colaborador_id: string; funcao: string }[]>({
+    queryKey: ["pm-create-nomination-funcoes-historico"],
+    queryFn: () =>
+      selectAllPages((from, to) =>
+        supabase
+          .from("colaborador_funcoes_historico")
+          .select("colaborador_id, funcao")
+          .order("data_inicio", { ascending: false })
+          .range(from, to),
+      ),
+  });
+
+  const colaborador = colaboradores.find((c) => c.id === colaboradorId);
+  const funcaoOptions = useMemo(() => {
+    if (!colaboradorId) return [];
+    const doColaborador: string[] = [];
+    funcoesHistorico.forEach((f) => {
+      if (f.colaborador_id === colaboradorId && f.funcao && !doColaborador.includes(f.funcao)) {
+        doColaborador.push(f.funcao);
+      }
+    });
+    if (doColaborador.length > 0) return doColaborador;
+    const fallback = colaborador?.funcao_operacao || colaborador?.funcao;
+    return fallback ? [fallback] : [];
+  }, [colaboradorId, funcoesHistorico, colaborador]);
+
+  const handleSelectColaborador = (id: string) => {
+    setColaboradorId(id);
+    const c = colaboradores.find((x) => x.id === id);
+    const doColaborador = funcoesHistorico.find((f) => f.colaborador_id === id)?.funcao;
+    setFn(doColaborador || c?.funcao_operacao || c?.funcao || "");
+    setWeldType("");
+  };
+
   const showWeld = isSoldador(fn);
   const requiresQuality = showWeld
     ? weldConfig.find((w) => w.weld_type_name === weldType)?.requires_quality_validation ?? false
@@ -130,7 +185,8 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!fn.trim() || !start || !end) throw new Error("Preencha função e período.");
+      if (!colaborador) throw new Error("Selecione o colaborador.");
+      if (!fn.trim()) throw new Error("Selecione a função.");
       const pmName = profile?.full_name ?? profile?.email ?? "PM";
 
       const { data, error } = await supabase
@@ -138,14 +194,17 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
         .insert({
           pm_user_id:                 user!.id,
           pm_name:                    pmName,
-          function_requested:         fn.trim(),
+          colaborador_id:              colaborador.id,
+          colaborador_nome:            colaborador.nome,
+          funcao:                      fn.trim(),
           weld_type:                  showWeld ? weldType || null : null,
-          period_start:               start,
-          period_end:                 end,
+          period_start:               start || null,
+          period_end:                 end || null,
           project:                    project.trim() || null,
           client:                     client.trim() || null,
           notes:                      notes.trim() || null,
           requires_quality_validation: requiresQuality,
+          current_status:              "solicitacao",
         })
         .select()
         .single();
@@ -153,7 +212,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
 
       await supabase.from("nomination_status_history").insert({
         nomination_id:   data.id,
-        status:          "triagem_pendente",
+        status:          "solicitacao",
         changed_by_name: pmName,
         notes:           "Solicitação criada pelo PM",
       });
@@ -175,13 +234,31 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
 
         <div className="space-y-3 py-2">
           <div className="space-y-1">
-            <Label>Função necessária *</Label>
-            <Input
-              placeholder="Ex.: Soldador, Mecânico, Eletricista"
-              value={fn}
-              onChange={(e) => setFn(e.target.value)}
-            />
+            <Label>Colaborador *</Label>
+            <Select value={colaboradorId} onValueChange={handleSelectColaborador}>
+              <SelectTrigger><SelectValue placeholder="Selecione o colaborador" /></SelectTrigger>
+              <SelectContent>
+                {colaboradores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
+          {colaboradorId && (
+            <div className="space-y-1">
+              <Label>Função *</Label>
+              {funcaoOptions.length > 1 ? (
+                <Select value={fn} onValueChange={(v) => { setFn(v); setWeldType(""); }}>
+                  <SelectTrigger><SelectValue placeholder="Selecione a função" /></SelectTrigger>
+                  <SelectContent>
+                    {funcaoOptions.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : funcaoOptions.length === 1 ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium">{funcaoOptions[0]}</div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Nenhuma função no histórico deste colaborador.</p>
+              )}
+            </div>
+          )}
           {showWeld && (
             <div className="space-y-1">
               <Label>Tipo de solda</Label>
@@ -311,20 +388,18 @@ function PmHome() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1 min-w-0">
-                  <p className="font-semibold text-sm">{nom.function_requested}</p>
+                  <p className="font-semibold text-sm">{nom.colaborador_nome}</p>
+                  <p className="text-xs text-muted-foreground">{nom.funcao}</p>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <CalendarDays className="h-3 w-3" />
-                      {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}
-                    </span>
+                    {nom.period_start && nom.period_end && (
+                      <span className="flex items-center gap-1">
+                        <CalendarDays className="h-3 w-3" />
+                        {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}
+                      </span>
+                    )}
                     {nom.client && <span>{nom.client}</span>}
                     {nom.project && <span>{nom.project}</span>}
                   </div>
-                  {nom.approved_collaborator_name && (
-                    <p className="text-xs text-green-700 font-medium">
-                      ✓ Aprovado: {nom.approved_collaborator_name}
-                    </p>
-                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <StatusBadge status={nom.current_status} />
