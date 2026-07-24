@@ -23,7 +23,7 @@ export const Route = createFileRoute("/admin/rates")({ head: () => pageTitle("Ra
 
 interface RateRow {
   id: string;
-  bsp: string;
+  bsp: string | null;
   client: string;
   vessel: string;
   funcao: string;
@@ -54,11 +54,13 @@ function normHeader(s: any): string {
 }
 
 interface ParsedRateRow {
-  bsp: string; client: string; vessel: string; funcao: string;
+  bsp: string | null; client: string; vessel: string; funcao: string;
   rate_embarque: number | null; rate_dobra: number | null; rate_hotel: number | null;
   rate_hora_extra: number | null; rate_adicional_noturno: number | null;
 }
 
+// A planilha mestre da usuária (STEP_Rates_e_BM_Automatico, aba "_Lookup") não tem coluna de
+// BSP — o rate é por Cliente+Embarcação+Função, então BSP é lido só se existir (informativo).
 function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
   const wb = XLSX.read(buf);
   const sheetName = wb.SheetNames.find((n) => normHeader(n) === "_lookup" || normHeader(n) === "lookup") ?? wb.SheetNames[0];
@@ -73,11 +75,11 @@ function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
   const iClient = idx("client", "cliente");
   const iVessel = idx("vessel", "embarcacao", "embarcação");
   const iFuncao = idx("funcao", "função", "role");
-  const iEmbarque = idx("rate_embarque", "embarque");
-  const iDobra = idx("rate_dobra", "dobra");
-  const iHotel = idx("rate_hotel", "hotel");
-  const iHoraExtra = idx("rate_hora_extra", "hora extra", "hora_extra", "he");
-  const iAdicionalNoturno = idx("rate_adicional_noturno", "adicional noturno", "adicional_noturno", "an");
+  const iEmbarque = idx("rate_embarque", "embarque", "rate e (r$/dia)");
+  const iDobra = idx("rate_dobra", "dobra", "rate do (r$/dia)");
+  const iHotel = idx("rate_hotel", "hotel", "rate ho (r$/dia)");
+  const iHoraExtra = idx("rate_hora_extra", "hora extra", "hora_extra", "he", "rate he (r$/hora)");
+  const iAdicionalNoturno = idx("rate_adicional_noturno", "adicional noturno", "adicional_noturno", "an", "rate an (r$/hora)");
 
   const num = (v: any): number | null => {
     if (v === "" || v == null) return null;
@@ -86,7 +88,7 @@ function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
   };
 
   return rows.slice(1).map((r): ParsedRateRow | null => {
-    const bsp = iBsp >= 0 ? String(r[iBsp] ?? "").trim() : "";
+    const bsp = iBsp >= 0 ? String(r[iBsp] ?? "").trim() || null : null;
     let client = iClient >= 0 ? String(r[iClient] ?? "").trim() : "";
     let vessel = iVessel >= 0 ? String(r[iVessel] ?? "").trim() : "";
     let funcao = iFuncao >= 0 ? String(r[iFuncao] ?? "").trim() : "";
@@ -95,7 +97,7 @@ function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
       const partes = String(r[iKey] ?? "").split("|").map((p) => p.trim());
       if (partes.length === 3) [client, vessel, funcao] = partes;
     }
-    if (!bsp || !client || !vessel || !funcao) return null;
+    if (!client || !vessel || !funcao) return null;
     return {
       bsp, client, vessel, funcao,
       rate_embarque: iEmbarque >= 0 ? num(r[iEmbarque]) : null,
@@ -117,7 +119,7 @@ function RatesPage() {
   const { data: rows = [] } = useQuery({
     queryKey: ["rates-all"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("rates").select("*").order("bsp").order("funcao");
+      const { data, error } = await supabase.from("rates").select("*").order("client").order("vessel").order("funcao");
       if (error) throw error;
       return (data ?? []) as RateRow[];
     },
@@ -128,7 +130,7 @@ function RatesPage() {
   const save = useMutation({
     mutationFn: async (f: RateForm) => {
       const payload = {
-        bsp: f.bsp.trim(), client: f.client.trim(), vessel: f.vessel.trim(), funcao: f.funcao.trim(),
+        bsp: f.bsp?.trim() || null, client: f.client.trim(), vessel: f.vessel.trim(), funcao: f.funcao.trim(),
         rate_embarque: f.rate_embarque, rate_dobra: f.rate_dobra, rate_hotel: f.rate_hotel,
         rate_hora_extra: f.rate_hora_extra, rate_adicional_noturno: f.rate_adicional_noturno,
         active: f.active,
@@ -167,7 +169,7 @@ function RatesPage() {
     mutationFn: async (parsed: ParsedRateRow[]) => {
       const { error } = await supabase.from("rates").upsert(
         parsed.map((p) => ({ ...p, active: true })),
-        { onConflict: "bsp,funcao" },
+        { onConflict: "client,vessel,funcao" },
       );
       if (error) throw error;
       return parsed.length;
@@ -251,7 +253,7 @@ function RatesPage() {
           <TableBody>
             {filtered.map((r) => (
               <TableRow key={r.id} className={!r.active ? "opacity-50" : undefined}>
-                <TableCell className="font-medium">{r.bsp}</TableCell>
+                <TableCell className="font-medium text-muted-foreground">{r.bsp ?? "—"}</TableCell>
                 <TableCell>{r.client}</TableCell>
                 <TableCell>{r.vessel}</TableCell>
                 <TableCell>{r.funcao}</TableCell>
@@ -285,7 +287,7 @@ function RatesPage() {
           <DialogHeader><DialogTitle>{editing?.id ? "Editar rate" : "Novo rate"}</DialogTitle></DialogHeader>
           {editing && (
             <div className="grid gap-3">
-              <div><Label>BSP</Label><Input value={editing.bsp} onChange={(e) => setEditing({ ...editing, bsp: e.target.value })} placeholder="Ex: 26-174" /></div>
+              <div><Label>BSP (opcional, informativo)</Label><Input value={editing.bsp ?? ""} onChange={(e) => setEditing({ ...editing, bsp: e.target.value })} placeholder="Ex: 26-174" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Cliente</Label>
@@ -314,7 +316,7 @@ function RatesPage() {
           )}
           <DialogFooter>
             <Button
-              disabled={!editing?.bsp.trim() || !editing?.client || !editing.vessel.trim() || !editing.funcao.trim()}
+              disabled={!editing?.client || !editing.vessel.trim() || !editing.funcao.trim()}
               loading={save.isPending}
               onClick={() => editing && save.mutate(editing)}
             >
@@ -329,7 +331,7 @@ function RatesPage() {
           <DialogHeader><DialogTitle>Conferir import de rates</DialogTitle></DialogHeader>
           <p className="text-xs text-muted-foreground">
             {importPreview?.length ?? 0} linha(s) encontrada(s). Rates existentes com o mesmo
-            BSP+função serão atualizados; os demais serão criados.
+            Cliente+Embarcação+Função serão atualizados; os demais serão criados.
           </p>
           <Table>
             <TableHeader>

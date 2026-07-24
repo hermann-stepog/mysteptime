@@ -109,6 +109,10 @@
 /* Impressão do Boletim de Medição ("Baixar PDF") — esconde tudo na página exceto a área
    marcada .bm-print-area, pra window.print() virar um PDF limpo dos 3 blocos do BM. */
 @media print {
+  @page {
+    size: landscape;
+    margin: 10mm;
+  }
   body * { visibility: hidden; }
   .bm-print-area, .bm-print-area * { visibility: visible; }
   .bm-print-area {
@@ -116,5 +120,28 @@
     left: 0;
     top: 0;
     width: 100%;
+    overflow: hidden;
+  }
+  /* As tabelas do Diárias/Horas ficam num container com scroll horizontal (várias colunas de
+     dia) e coluna "Nome" fixa (sticky) — no print isso corta o conteúdo pra só o que estava
+     visível na tela (ou duplica células por causa do sticky). Deixa tudo fluir naturalmente
+     e reduz a fonte pra caber mais colunas por página. */
+  .bm-print-area .overflow-x-auto {
+    overflow: visible !important;
+  }
+  .bm-print-area table {
+    font-size: 8px;
+  }
+  .bm-print-area .sticky {
+    position: static !important;
+  }
+  /* Encolhe o conteúdo inteiro pra caber na largura de uma página, mesmo num período de ~30
+     dias (Nome+Função+BSP+30 colunas de dia+Rate/Dias Emb/Dobra/Hotel+Total passa fácil de
+     1000px). IMPORTANTE: usa `zoom`, não `transform: scale()` — transform só afeta a pintura
+     visual, o Chrome ainda pagina com base no tamanho de layout pré-transform, então as
+     últimas colunas "somem" (ficam fora da página calculada) mesmo aparecendo visualmente
+     encolhidas. `zoom` muda o tamanho de layout de verdade, então a página soma certo. */
+  .bm-print-scale-inner {
+    zoom: 0.55;
   }
 }
