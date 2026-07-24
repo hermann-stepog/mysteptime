@@ -1656,7 +1656,7 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
           total_horas: d.total_horas,
           evento: d.evento || null,
           adicional_noturno: adicionalNoturno,
-        }).eq("id", d.id).then(({ error }) => { if (error) throw error; });
+        }).eq("id", d.id).then(({ error }: any) => { if (error) throw error; });
       }));
 
       const { error: semErr } = await supabase.from("timesheet_semanas").update({
