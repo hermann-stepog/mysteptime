@@ -673,7 +673,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     mutationFn: async (embarque: TimesheetEmbarque) => {
       const { data: semanasDoEmbarque, error: semErr } = await supabase.from("timesheet_semanas").select("id").eq("embarque_id", embarque.id);
       if (semErr) throw semErr;
-      const semanaIds = (semanasDoEmbarque ?? []).map((s) => s.id);
+      const semanaIds = (semanasDoEmbarque ?? []).map((s: any) => s.id);
       if (semanaIds.length) {
         const { error: diasErr } = await supabase.from("timesheet_dias").delete().in("semana_id", semanaIds);
         if (diasErr) throw diasErr;
