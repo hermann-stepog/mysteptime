@@ -176,7 +176,7 @@ export async function generateRelatorioRH(
     let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasDias = 0;
     dias.forEach((d) => {
       const embarque = embarqueById.get(d.embarque_id);
-      if (embarque) adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code]++; });
+      if (embarque) adicionaisPorFuncao(embarque.funcao_embarque ?? "").forEach((code) => { counts[code]++; });
       if (isDiaSobreaviso(d.evento)) sobreavisoDias++;
       if (isDiaPericulosidade(d.evento)) counts["209"]++;
       horaExtra += d.horas_extras ?? 0;
@@ -1111,7 +1111,7 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
       bsp: bspAtual,
-      funcao_embarque: embarque.funcao_embarque,
+      funcao_embarque: embarque.funcao_embarque ?? "",
       data_inicio: embarque.data_inicio_embarque,
       data_fim: embarque.data_fim_embarque,
     });
@@ -1544,7 +1544,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
 // Dia da semana + dia do mês juntos, ex: "Segunda 06" — em vez do "Segunda-feira / Monday"
 // cru guardado em dia_semana.
 function diaLabelCurto(d: TimesheetDia): string {
-  const diaSemanaPt = d.dia_semana.split(" / ")[0].replace("-feira", "");
+  const diaSemanaPt = (d.dia_semana ?? "").split(" / ")[0].replace("-feira", "");
   const diaMes = d.data.slice(8, 10);
   return `${diaSemanaPt} ${diaMes}`;
 }
