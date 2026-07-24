@@ -1399,10 +1399,10 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
       const { data: diasAtuais, error: diasErr } = await supabase.from("timesheet_dias").select("*").eq("semana_id", semana.id);
       if (diasErr) throw diasErr;
       const novasDatas = generateDateRange(novaDataInicio, novaDataFim);
-      const datasExistentes = new Set((diasAtuais ?? []).map((d) => d.data));
-      const foraDoIntervalo = (diasAtuais ?? []).filter((d) => !novasDatas.includes(d.data));
+      const datasExistentes = new Set((diasAtuais ?? []).map((d: any) => d.data));
+      const foraDoIntervalo = (diasAtuais ?? []).filter((d: any) => !novasDatas.includes(d.data));
       if (foraDoIntervalo.length) {
-        const { error: delErr } = await supabase.from("timesheet_dias").delete().in("id", foraDoIntervalo.map((d) => d.id));
+        const { error: delErr } = await supabase.from("timesheet_dias").delete().in("id", foraDoIntervalo.map((d: any) => d.id));
         if (delErr) throw delErr;
       }
       const faltantes = novasDatas.filter((d) => !datasExistentes.has(d)).map((d) => ({ semana_id: semana.id, data: d, dia_semana: weekdayLabel(d) }));
