@@ -6,7 +6,7 @@ export interface TimesheetEmbarque {
   periodo_id: string | null;
   unidade_operacional: string | null;
   bsp: string | null;
-  funcao_embarque: string;
+  funcao_embarque: string | null;
   data_inicio_embarque: string;
   data_fim_embarque: string;
   status_entrega: string;
@@ -27,10 +27,11 @@ export interface TimesheetDia {
   id: string;
   semana_id: string;
   data: string;
-  dia_semana: string;
+  dia_semana: string | null;
   descricao_tarefa: string | null;
   numero_tarefa: string | null;
   evento: string | null;
+  bsp: string | null;
   hora_entrada: string | null;
   hora_saida: string | null;
   hora_entrada_extra: string | null;
@@ -38,8 +39,8 @@ export interface TimesheetDia {
   horas_normais: number | null;
   horas_extras: number | null;
   total_horas: number | null;
-  adicional_noturno: boolean;
-  feriado: boolean;
+  adicional_noturno: boolean | null;
+  feriado: boolean | null;
   criado_em: string;
 }
 
@@ -97,7 +98,9 @@ export const ADICIONAL_LABEL: Record<AdicionalCode, string> = {
   "209": "209 - Periculosidade 30%",
 };
 
-// A função do embarque define automaticamente quais adicionais se aplicam.
+// A função do embarque define automaticamente quais adicionais se aplicam (055/056/057/033).
+// 209 saiu daqui — regra do Access (REGRAS_ACCESS_TIMESHEET_RH.txt, seção 16.6) é por evento
+// do dia, não por função: ver isDiaPericulosidade/isDiaSobreaviso abaixo.
 export function adicionaisPorFuncao(funcao: string): AdicionalCode[] {
   const f = funcao.toUpperCase();
   const codes: AdicionalCode[] = [];
@@ -105,8 +108,21 @@ export function adicionaisPorFuncao(funcao: string): AdicionalCode[] {
   if (f.includes("IRATA N2")) codes.push("056");
   if (f.includes("IRATA N3")) codes.push("057");
   if (f.includes("HABITAT")) codes.push("033");
-  if (["WELDER", "FITTER", "MECANICO", "RIGGER", "SCAFFOLDER", "PAINTER", "E&I"].some((k) => f.includes(k))) codes.push("209");
   return codes;
+}
+
+// 209 - Periculosidade 30% (regra do Access, seção 16.6): todo dia de evento Embarque conta,
+// qualquer função — sem filtro de função.
+export function isDiaPericulosidade(evento: string | null): boolean {
+  return evento === "Embarque";
+}
+
+// 208 - Sobreaviso 20% (regra do Access, seção 16.5): Embarque + Embarque Cancelado + Hotel
+// Embarque Cancelado + Hotel Pré-Embarque contam; Desembarque fica de fora explicitamente.
+// ("Quarentena Hotel" também conta na regra original, mas não existe como evento neste app.)
+const EVENTOS_SOBREAVISO = new Set(["Embarque", "Hotel Pré Embarque", "Hotel Embarque Cancelado", "Embarque Cancelado"]);
+export function isDiaSobreaviso(evento: string | null): boolean {
+  return !!evento && EVENTOS_SOBREAVISO.has(evento);
 }
 
 export const WEEKDAY_PT = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
@@ -218,5 +234,10 @@ export function diasFaltandoNoHistograma(periodosEDoColaborador: HistNovoPeriodo
   periodosEDoColaborador.forEach((p) => {
     generateDateRangeHistograma(p.data_inicio, p.data_fim).forEach((d) => diasHistograma.add(d));
   });
-  return Array.from(diasHistograma).filter((d) => !diasSalvosDoColaborador.has(d)).sort();
+  // Só avisa de falta de lançamento no ano vigente — embarque de anos anteriores (ex.: dez/2025
+  // arrastando pro início de um período) não deve gerar aviso pendente aqui.
+  const anoVigente = String(new Date().getFullYear());
+  return Array.from(diasHistograma)
+    .filter((d) => !diasSalvosDoColaborador.has(d) && d.startsWith(anoVigente))
+    .sort();
 }

@@ -12,6 +12,7 @@ export async function gerarSemanasEDias(
   embarqueId: string,
   dataInicio: string,
   dataFim: string,
+  bsp: string | null = null,
 ): Promise<void> {
   let inicioBloco = dataInicio;
   while (inicioBloco <= dataFim) {
@@ -25,10 +26,13 @@ export async function gerarSemanasEDias(
       .single();
     if (semErr) throw semErr;
 
+    // BSP nasce igual ao do embarque (Drake ou digitado no "Novo Embarque") — alguns dias podem
+    // ser lançados numa BSP diferente (realocação temporária), por isso fica editável por dia
+    // no formulário em vez de só herdar do embarque pra sempre.
     const diasToInsert: Record<string, unknown>[] = [];
     let d = inicioBloco;
     while (d <= fimBloco) {
-      diasToInsert.push({ semana_id: (semana as { id: string }).id, data: d, dia_semana: weekdayLabel(d), evento: "Embarque" });
+      diasToInsert.push({ semana_id: (semana as { id: string }).id, data: d, dia_semana: weekdayLabel(d), evento: "Embarque", bsp });
       d = addDaysStr(d, 1);
     }
     const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasToInsert);
@@ -83,6 +87,6 @@ export async function ensureTimesheetParaPeriodo(
     .single();
   if (insErr) throw insErr;
 
-  await gerarSemanasEDias(supabase, (embarque as { id: string }).id, params.dataInicio, params.dataFim);
+  await gerarSemanasEDias(supabase, (embarque as { id: string }).id, params.dataInicio, params.dataFim, params.bsp);
   return { criado: true };
 }

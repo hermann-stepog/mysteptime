@@ -24,15 +24,16 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload } from "lucide-react";
 import { cn, focusNextOnEnter } from "@/lib/utils";
-import { computeDayStatus, generateDateRange, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
-  FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, type AdicionalCode,
+  FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
   STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas,
   mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma,
   UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno,
   type TimesheetEmbarque, type TimesheetSemana, type TimesheetDia,
 } from "@/lib/timesheetOffshore";
 import { gerarSemanasEDias } from "@/lib/timesheetAutoGen";
+import { selectAllPages } from "@/lib/supabasePaginate";
 import { pageTitle } from "@/lib/pageTitle";
 import { useAuth } from "@/hooks/useAuth";
 import pdfExtractData from "@/data/pdfTimesheetExtract.json";
@@ -70,18 +71,20 @@ function defaultEnd() {
 // alimentar a exportação a partir do módulo de Relatórios, sem duplicar a consulta.
 async function fetchDiasNoPeriodo(dataInicio: string, dataFim: string): Promise<DiaComEmbarque[]> {
   if (!dataInicio || !dataFim) return [];
-  const { data: semanasNoPeriodo, error: semErr } = await supabase
-    .from("timesheet_semanas").select("*")
-    .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio);
-  if (semErr) throw semErr;
-  const semanaIds = (semanasNoPeriodo ?? []).map((s) => s.id);
+  // timesheet_semanas/timesheet_dias já passam de 1000 linhas — sem paginação o Supabase corta
+  // em silêncio e o relatório sai incompleto sem erro nenhum.
+  const semanasNoPeriodo = await selectAllPages<TimesheetSemana>((from, to) =>
+    supabase.from("timesheet_semanas").select("*")
+      .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio).order("id").range(from, to),
+  );
+  const semanaIds = semanasNoPeriodo.map((s) => s.id);
   if (semanaIds.length === 0) return [];
-  const { data: diasData, error: diasErr } = await supabase
-    .from("timesheet_dias").select("*")
-    .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim);
-  if (diasErr) throw diasErr;
-  const embarqueIdBySemanaId = new Map((semanasNoPeriodo ?? []).map((s) => [s.id, s.embarque_id]));
-  return (diasData ?? []).map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
+  const diasData = await selectAllPages<TimesheetDia>((from, to) =>
+    supabase.from("timesheet_dias").select("*")
+      .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim).order("id").range(from, to),
+  );
+  const embarqueIdBySemanaId = new Map(semanasNoPeriodo.map((s) => [s.id, s.embarque_id]));
+  return diasData.map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
 }
 
 // ─── Import "PDFs de Timesheet físico" (lido e extraído previamente pelo Claude) ──────
@@ -145,18 +148,12 @@ export async function generateRelatorioRH(
   dataFim: string = defaultEnd(),
   unidadeFiltro = "all",
 ): Promise<void> {
-  const [{ data: colaboradores }, { data: periodos }, { data: embarques }] = await Promise.all([
+  const [{ data: colaboradores }, embarques] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    supabase.from("hist_novo_periodos").select("*"),
-    supabase.from("timesheet_embarques").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
-  const embarqueById = new Map(((embarques ?? []) as TimesheetEmbarque[]).map((e) => [e.id, e]));
-  const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
-  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
-    if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
-    periodosByColaborador.get(p.colaborador_id)!.push(p);
-  });
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
 
   const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
 
@@ -172,35 +169,27 @@ export async function generateRelatorioRH(
   });
 
   const linhas = Array.from(byColab.values()).map(({ colaborador, dias }) => {
-    // "209" sai de adicionaisPorFuncao pra dois contadores: Sobreaviso (208) conta todo dia em
-    // que a função é elegível, sem exceção; Periculosidade (209) é o mesmo dia, mas não conta
-    // quando o evento do dia é de hotel (Hotel Pré Embarque, Hotel Embarque Cancelado, Quarentena
-    // Hotel etc.) — regra confirmada: dia de hotel não é periculosidade, mas continua sobreaviso.
+    // 055/056/057/033 continuam por função (adicionaisPorFuncao). 208/209 são por evento do dia
+    // (regra do Access, seção 16.5/16.6) — sem filtro de função, e sem contar Desembarque em 208.
     const counts: Record<AdicionalCode, number> = { "055": 0, "056": 0, "057": 0, "033": 0, "209": 0 };
     let sobreavisoDias = 0;
-    let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasHoras = 0;
+    let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasDias = 0;
     dias.forEach((d) => {
       const embarque = embarqueById.get(d.embarque_id);
-      const codes = embarque ? adicionaisPorFuncao(embarque.funcao_embarque) : [];
-      const isHotel = (d.evento ?? "").toLowerCase().includes("hotel");
-      codes.forEach((code) => {
-        if (code === "209") {
-          sobreavisoDias++;
-          if (!isHotel) counts["209"]++;
-        } else {
-          counts[code]++;
-        }
-      });
+      if (embarque) adicionaisPorFuncao(embarque.funcao_embarque ?? "").forEach((code) => { counts[code]++; });
+      if (isDiaSobreaviso(d.evento)) sobreavisoDias++;
+      if (isDiaPericulosidade(d.evento)) counts["209"]++;
       horaExtra += d.horas_extras ?? 0;
       if (d.adicional_noturno) horasNoturno += d.total_horas ?? 0;
       // Feriado só conta nos dias de Embarque (não em folga/hotel/etc. que caiam num feriado).
       if (d.feriado && d.evento === "Embarque") feriadoDias++;
-      if (d.evento === "Dobra") dobrasHoras += d.total_horas ?? 0;
+      // 413 - Dobras a bordo conta dias/ocorrências (regra do Access, seção 13.3), não horas.
+      if (d.evento === "Dobra") dobrasDias++;
     });
     return {
       colaborador, counts, sobreavisoDias,
       horaExtra: round2(horaExtra), horasNoturno: round2(horasNoturno),
-      feriadoDias, dobrasHoras: round2(dobrasHoras),
+      feriadoDias, dobrasDias,
     };
   }).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
 
@@ -211,7 +200,7 @@ export async function generateRelatorioRH(
   ];
   const dataRows = linhas.map((l) => [
     l.colaborador.nome, l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
-    l.sobreavisoDias, l.counts["209"], l.horaExtra, l.dobrasHoras, l.feriadoDias, l.horasNoturno,
+    l.sobreavisoDias, l.counts["209"], l.horaExtra, l.dobrasDias, l.feriadoDias, l.horasNoturno,
   ]);
   const aoa = [
     ["Step Oil & Gas"],
@@ -233,15 +222,15 @@ export async function generateRelatorioMedicao(
   dataFim: string = defaultEnd(),
   unidadeFiltro = "all",
 ): Promise<void> {
-  const [{ data: colaboradores }, { data: embarques }, { data: periodos }] = await Promise.all([
+  const [{ data: colaboradores }, embarques, periodos] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    supabase.from("timesheet_embarques").select("*"),
-    supabase.from("hist_novo_periodos").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
-  const embarqueById = new Map(((embarques ?? []) as TimesheetEmbarque[]).map((e) => [e.id, e]));
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
   const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
-  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
+  periodos.forEach((p) => {
     if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
     periodosByColaborador.get(p.colaborador_id)!.push(p);
   });
@@ -312,12 +301,12 @@ export async function generateRelatorioFolhaRH(
   dataInicio: string = defaultStart(),
   dataFim: string = defaultEnd(),
 ): Promise<void> {
-  const [{ data: colaboradores }, { data: embarques }] = await Promise.all([
+  const [{ data: colaboradores }, embarques] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    supabase.from("timesheet_embarques").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
-  const embarqueById = new Map(((embarques ?? []) as TimesheetEmbarque[]).map((e) => [e.id, e]));
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
 
   const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
 
@@ -360,49 +349,31 @@ export async function generateRelatorioFolhaRH(
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 function TimesheetOffshore() {
+  // Todas as tabelas abaixo já passam de 1000 linhas — sem paginação o Supabase corta em
+  // silêncio (era o motivo real de "sumiu" BSP/colaborador/dia em várias telas).
   const { data: colaboradores = [], isLoading: l1 } = useQuery({
     queryKey: ["hist-novo-colaboradores"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("hist_novo_colaboradores").select("*").order("nome");
-      if (error) throw error;
-      return (data ?? []) as HistNovoColaborador[];
-    },
+    queryFn: () => selectAllPages<HistNovoColaborador>((from, to) => supabase.from("hist_novo_colaboradores").select("*").order("nome").order("id").range(from, to)),
   });
 
   const { data: periodos = [], isLoading: l2 } = useQuery({
     queryKey: ["hist-novo-periodos"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("hist_novo_periodos").select("*");
-      if (error) throw error;
-      return (data ?? []) as HistNovoPeriodo[];
-    },
+    queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const { data: embarques = [], isLoading: l3 } = useQuery({
     queryKey: ["timesheet-embarques"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_embarques").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetEmbarque[];
-    },
+    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const { data: semanas = [], isLoading: l4 } = useQuery({
     queryKey: ["timesheet-semanas-all"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_semanas").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetSemana[];
-    },
+    queryFn: () => selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const { data: dias = [], isLoading: l5 } = useQuery({
     queryKey: ["timesheet-dias-all"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_dias").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetDia[];
-    },
+    queryFn: () => selectAllPages<TimesheetDia>((from, to) => supabase.from("timesheet_dias").select("*").gte("data", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
@@ -544,7 +515,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Novo colaborador</DialogTitle></DialogHeader>
-          <div className="grid gap-3" onKeyDown={focusNextOnEnter}>
+          <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
             <div><Label className="text-xs">Matrícula</Label><Input value={nf.matricula} onChange={(e) => setNf({ ...nf, matricula: e.target.value })} /></div>
             <div><Label className="text-xs">Nome</Label><Input value={nf.nome} onChange={(e) => setNf({ ...nf, nome: e.target.value })} /></div>
             <div><Label className="text-xs">Empresa</Label><Input value={nf.empresa} onChange={(e) => setNf({ ...nf, empresa: e.target.value })} /></div>
@@ -564,21 +535,28 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
 // livremente (ou cadastrado na hora) e as datas são digitadas manualmente. O cruzamento com
 // hist_novo_periodos acontece depois, por comparação de datas (ver diasFaltandoNoHistograma),
 // não por vínculo obrigatório.
-function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions, onCreated }: {
+function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unidadeOptions, onCreated }: {
   open: boolean; onOpenChange: (o: boolean) => void;
-  colaboradores: HistNovoColaborador[]; unidadeOptions: string[];
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; unidadeOptions: string[];
   onCreated?: (embarque: TimesheetEmbarque) => void;
 }) {
   const qc = useQueryClient();
   const [f, setF] = useState({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+  // Quando a unidade escolhida já tem mais de um BSP conhecido no histórico, mostra uma lista
+  // em vez de campo livre — reduz erro de digitação. "Outro" volta pro campo livre (BSP novo
+  // que ainda não apareceu em nenhum período dessa unidade).
+  const [bspManual, setBspManual] = useState(false);
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   useEffect(() => {
-    if (!open) setF({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+    if (!open) { setF({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" }); setBspManual(false); }
   }, [open]);
 
   const onSelectColaborador = (id: string) => {
     const c = colaboradores.find((x) => x.id === id);
-    const nomeFuncao = (c?.funcao_operacao ?? c?.funcao ?? "").toUpperCase();
+    // "funcao" (função de embarque) é a que bate com os rates — "funcao_operacao" é a função
+    // de carteira, mais genérica/interna.
+    const nomeFuncao = (c?.funcao ?? c?.funcao_operacao ?? "").toUpperCase();
     const sugerida = FUNCOES_EMBARQUE.find((fn) => fn.toUpperCase() === nomeFuncao) ?? "";
     setF((prev) => ({ ...prev, colaboradorId: id, funcao_embarque: prev.funcao_embarque || sugerida }));
   };
@@ -602,7 +580,7 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
       // Gera as semanas + dias automaticamente (blocos de 7 dias a partir da data real de
       // início, sem alinhar à segunda-feira) — não precisa mais clicar em "+ Nova Semana"
       // pra começar a lançar horas.
-      await gerarSemanasEDias(supabase, data.id, f.data_inicio, f.data_fim);
+      await gerarSemanasEDias(supabase, data.id, f.data_inicio, f.data_fim, f.bsp.trim() || null);
       return data as TimesheetEmbarque;
     },
     onSuccess: (embarque) => {
@@ -620,7 +598,7 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Novo embarque</DialogTitle></DialogHeader>
-        <div className="grid gap-3" onKeyDown={focusNextOnEnter}>
+        <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
           <div>
             <Label className="text-xs">Colaborador</Label>
             <ColaboradorCombobox colaboradores={colaboradores} value={f.colaboradorId} onChange={onSelectColaborador} />
@@ -628,14 +606,24 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Unidade Operacional</Label>
-              <Select value={f.unidade_operacional} onValueChange={(v) => setF({ ...f, unidade_operacional: v })}>
+              <Select value={f.unidade_operacional} onValueChange={(v) => { setF({ ...f, unidade_operacional: v, bsp: "" }); setBspManual(false); }}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
               <Label className="text-xs">BSP</Label>
-              <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              {bspOptions.length > 1 && !bspManual ? (
+                <Select value={f.bsp} onValueChange={(v) => v === "__outro__" ? setBspManual(true) : setF({ ...f, bsp: v })}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                  <SelectContent>
+                    {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                    <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              )}
             </div>
           </div>
           <div>
@@ -671,6 +659,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 }) {
   const qc = useQueryClient();
   const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
   const [filterNome, setFilterNome] = useState("");
   const [filterDe, setFilterDe] = useState("");
   const [filterAte, setFilterAte] = useState("");
@@ -709,11 +698,11 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
   const importPdfs = useMutation({
     mutationFn: async (grupos: PdfGrupoColaborador[]) => {
-      const { data: embarquesExistentes, error: embErr } = await supabase
-        .from("timesheet_embarques").select("colaborador_id, data_inicio_embarque, data_fim_embarque");
-      if (embErr) throw embErr;
+      const embarquesExistentes = await selectAllPages<{ colaborador_id: string; data_inicio_embarque: string; data_fim_embarque: string }>(
+        (from, to) => supabase.from("timesheet_embarques").select("colaborador_id, data_inicio_embarque, data_fim_embarque").order("colaborador_id").range(from, to),
+      );
       const porColaborador = new Map<string, { data_inicio_embarque: string; data_fim_embarque: string }[]>();
-      (embarquesExistentes ?? []).forEach((e: any) => {
+      embarquesExistentes.forEach((e) => {
         if (!porColaborador.has(e.colaborador_id)) porColaborador.set(e.colaborador_id, []);
         porColaborador.get(e.colaborador_id)!.push(e);
       });
@@ -846,8 +835,11 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     return { embarque, colaborador, diasFaltando };
   }), [embarques, colabById, periodosEByColaborador, diasSalvosPorColaborador]);
 
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
+
   const filtered = rows.filter((r) =>
     (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
+    (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
     (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())) &&
     (!filterDe || r.embarque.data_fim_embarque >= filterDe) &&
     (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
@@ -857,6 +849,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   // De/Até selecionado (sem período, soma tudo). Clicar no cartão só aplica o mesmo filtro
   // de Unidade Operacional já usado pela tabela abaixo.
   const unidadeByEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.unidade_operacional])), [embarques]);
+  const bspByEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.bsp])), [embarques]);
   const embarqueIdBySemanaId = useMemo(() => new Map(semanas.map((s) => [s.id, s.embarque_id])), [semanas]);
 
   const cardsPorUnidade = useMemo(() => {
@@ -867,6 +860,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       const embarqueId = embarqueIdBySemanaId.get(d.semana_id);
       const unidade = embarqueId ? unidadeByEmbarqueId.get(embarqueId) : null;
       if (!unidade) return;
+      if (filterBsp !== "all" && (!embarqueId || bspByEmbarqueId.get(embarqueId) !== filterBsp)) return;
       if (!m.has(unidade)) m.set(unidade, { horasNormais: 0, horasExtras: 0, adicionalNoturno: 0, dobras: 0, dias: 0 });
       const c = m.get(unidade)!;
       c.horasNormais += d.horas_normais ?? 0;
@@ -878,7 +872,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     return Array.from(m.entries())
       .map(([unidade, v]) => ({ unidade, ...v }))
       .sort((a, b) => a.unidade.localeCompare(b.unidade));
-  }, [dias, filterDe, filterAte, embarqueIdBySemanaId, unidadeByEmbarqueId]);
+  }, [dias, filterDe, filterAte, filterBsp, embarqueIdBySemanaId, unidadeByEmbarqueId, bspByEmbarqueId]);
 
   return (
     <div className="space-y-3">
@@ -894,11 +888,21 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={filterUnidade} onValueChange={setFilterUnidade}>
+            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todas</SelectItem>
                 {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -917,19 +921,21 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       </Card>
 
       {cardsPorUnidade.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-4 gap-3">
           {cardsPorUnidade.map((c) => (
             <Card
               key={c.unidade}
               role="button" tabIndex={0}
-              onClick={() => setFilterUnidade(c.unidade === filterUnidade ? "all" : c.unidade)}
+              onClick={() => { setFilterUnidade(c.unidade === filterUnidade ? "all" : c.unidade); setFilterBsp("all"); }}
               className={cn(
-                "cursor-pointer p-2 text-[11px] transition-colors hover:bg-muted/50",
-                filterUnidade === c.unidade && "border-primary bg-primary/5",
+                "cursor-pointer overflow-hidden rounded-xl p-0 text-[11px] shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md",
+                filterUnidade === c.unidade && "border-primary shadow-md",
               )}
             >
-              <p className="mb-1 text-xs font-semibold">{c.unidade}</p>
-              <div className="flex gap-3 text-muted-foreground">
+              <div className="bg-gradient-to-b from-accent/20 via-accent/5 to-transparent px-2.5 pb-2.5 pt-2.5">
+                <p className="text-xs font-semibold">{c.unidade}</p>
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 px-2.5 pb-2.5 text-muted-foreground">
                 <span>Normais: <strong className="text-foreground">{round2(c.horasNormais)}h</strong></span>
                 <span>Extras: <strong className="text-foreground">{round2(c.horasExtras)}h</strong></span>
                 <span>Adic. Not.: <strong className="text-foreground">{round2(c.adicionalNoturno)}h</strong></span>
@@ -1009,10 +1015,10 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         </Table>
       </Card>
 
-      <NovoEmbarqueDialog open={novoOpen} onOpenChange={setNovoOpen} colaboradores={colaboradores} unidadeOptions={unidadeOptions} />
+      <NovoEmbarqueDialog open={novoOpen} onOpenChange={setNovoOpen} colaboradores={colaboradores} periodos={periodos} unidadeOptions={unidadeOptions} />
 
       <Dialog open={!!lancandoEmbarque} onOpenChange={(o) => !o && setLancandoEmbarque(null)}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Lançamento de horas — {lancandoEmbarque ? colabById.get(lancandoEmbarque.colaborador_id)?.nome ?? "—" : ""}
@@ -1035,6 +1041,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         open={!!editandoEmbarque}
         onOpenChange={(o) => !o && setEditandoEmbarque(null)}
         colaboradorNome={editandoEmbarque ? colabById.get(editandoEmbarque.colaborador_id)?.nome ?? "—" : ""}
+        periodos={periodos}
         unidadeOptions={unidadeOptions}
       />
 
@@ -1086,22 +1093,29 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   );
 }
 
-function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, unidadeOptions }: {
+function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, periodos, unidadeOptions }: {
   embarque: TimesheetEmbarque | null; open: boolean; onOpenChange: (o: boolean) => void;
-  colaboradorNome: string; unidadeOptions: string[];
+  colaboradorNome: string; periodos: HistNovoPeriodo[]; unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
   const [f, setF] = useState({ unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
   const [bound, setBound] = useState<string | null>(null);
+  // Se o BSP já gravado no embarque não estiver entre as opções conhecidas da unidade, começa
+  // em modo manual (campo livre) pra não esconder/perder o valor já salvo.
+  const [bspManual, setBspManual] = useState(false);
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   if (open && embarque && bound !== embarque.id) {
+    const bspAtual = embarque.bsp ?? "";
+    const opcoesUnidade = bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? "");
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
-      bsp: embarque.bsp ?? "",
-      funcao_embarque: embarque.funcao_embarque,
+      bsp: bspAtual,
+      funcao_embarque: embarque.funcao_embarque ?? "",
       data_inicio: embarque.data_inicio_embarque,
       data_fim: embarque.data_fim_embarque,
     });
+    setBspManual(!!bspAtual && !opcoesUnidade.includes(bspAtual));
     setBound(embarque.id);
   }
   if (!open && bound !== null) setBound(null);
@@ -1130,18 +1144,28 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, u
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Editar embarque — {colaboradorNome}</DialogTitle></DialogHeader>
-        <div className="grid gap-3" onKeyDown={focusNextOnEnter}>
+        <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Unidade Operacional</Label>
-              <Select value={f.unidade_operacional} onValueChange={(v) => setF({ ...f, unidade_operacional: v })}>
+              <Select value={f.unidade_operacional} onValueChange={(v) => { setF({ ...f, unidade_operacional: v }); setBspManual(false); }}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
               <Label className="text-xs">BSP</Label>
-              <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              {bspOptions.length > 1 && !bspManual ? (
+                <Select value={f.bsp} onValueChange={(v) => v === "__outro__" ? setBspManual(true) : setF({ ...f, bsp: v })}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                  <SelectContent>
+                    {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                    <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              )}
             </div>
           </div>
           <div>
@@ -1492,7 +1516,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
       <Dialog open={!!editandoSemana} onOpenChange={(o) => !o && setEditandoSemana(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar semana</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-3" onKeyDown={focusNextOnEnter}>
+          <div className="grid grid-cols-2 gap-3" onKeyDownCapture={focusNextOnEnter}>
             <div>
               <Label className="text-xs">De</Label>
               <Input type="date" value={novaDataInicio} onChange={(e) => setNovaDataInicio(e.target.value)} />
@@ -1520,7 +1544,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
 // Dia da semana + dia do mês juntos, ex: "Segunda 06" — em vez do "Segunda-feira / Monday"
 // cru guardado em dia_semana.
 function diaLabelCurto(d: TimesheetDia): string {
-  const diaSemanaPt = d.dia_semana.split(" / ")[0].replace("-feira", "");
+  const diaSemanaPt = (d.dia_semana ?? "").split(" / ")[0].replace("-feira", "");
   const diaMes = d.data.slice(8, 10);
   return `${diaSemanaPt} ${diaMes}`;
 }
@@ -1594,6 +1618,15 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
     setDraft((prev) => prev.map((d) => {
       if (d.id !== id) return d;
       const atualizado = { ...d, ...patch };
+      // Entrada/Saída (normal ou HE) recalcula a duração automaticamente — evita ter que
+      // digitar a conta na mão. Editar Horas Normais/Extras direto continua funcionando (só
+      // não mexe nos horários, então não entra nesse recálculo).
+      if ("hora_entrada" in patch || "hora_saida" in patch) {
+        atualizado.horas_normais = computeDuracaoHoras(atualizado.hora_entrada, atualizado.hora_saida);
+      }
+      if ("hora_entrada_extra" in patch || "hora_saida_extra" in patch) {
+        atualizado.horas_extras = computeDuracaoHoras(atualizado.hora_entrada_extra, atualizado.hora_saida_extra);
+      }
       atualizado.total_horas = round2((atualizado.horas_normais ?? 0) + (atualizado.horas_extras ?? 0));
       return atualizado;
     }));
@@ -1602,14 +1635,20 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
   const salvar = useMutation({
     mutationFn: async () => {
       await Promise.all(draft.map((d) => {
-        // Sugere adicional noturno quando o horário digitado cruza a janela 22h–05h — mesma
-        // regra usada no resto do módulo — mas não sobrescreve se já tiver sido marcado antes.
-        const adicionalNoturno = d.adicional_noturno || suggestAdicionalNoturno(d.hora_entrada, d.hora_saida);
+        // Sugere adicional noturno quando o horário digitado (jornada normal OU a faixa da
+        // hora extra) cruza a janela 22h–05h — mesma regra usada no resto do módulo — mas não
+        // sobrescreve se já tiver sido marcado antes.
+        const adicionalNoturno =
+          d.adicional_noturno ||
+          suggestAdicionalNoturno(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
         return supabase.from("timesheet_dias").update({
           descricao_tarefa: d.descricao_tarefa || null,
           numero_tarefa: d.numero_tarefa || null,
+          bsp: d.bsp || null,
           hora_entrada: d.hora_entrada || null,
           hora_saida: d.hora_saida || null,
+          hora_entrada_extra: d.hora_entrada_extra || null,
+          hora_saida_extra: d.hora_saida_extra || null,
           horas_normais: d.horas_normais,
           horas_extras: d.horas_extras,
           total_horas: d.total_horas,
@@ -1640,11 +1679,17 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
     onError: (e: any) => notify.error(e.message),
   });
 
-  const totals = useMemo(() => draft.reduce((acc, d) => ({
-    normais: acc.normais + (d.horas_normais ?? 0),
-    extras: acc.extras + (d.horas_extras ?? 0),
-    total: acc.total + (d.total_horas ?? 0),
-  }), { normais: 0, extras: 0, total: 0 }), [draft]);
+  const totals = useMemo(() => draft.reduce((acc, d) => {
+    // Mesmo critério usado ao salvar e no Relatório RH: dia com adicional noturno conta o
+    // total_horas do dia inteiro como hora noturna (não decompõe em parte diurna/noturna).
+    const ehNoturno = d.adicional_noturno || suggestAdicionalNoturno(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
+    return {
+      normais: acc.normais + (d.horas_normais ?? 0),
+      extras: acc.extras + (d.horas_extras ?? 0),
+      noturno: acc.noturno + (ehNoturno ? (d.total_horas ?? 0) : 0),
+      total: acc.total + (d.total_horas ?? 0),
+    };
+  }, { normais: 0, extras: 0, noturno: 0, total: 0 }), [draft]);
 
   return (
     <Card className="p-4 space-y-4">
@@ -1661,16 +1706,19 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" onKeyDownCapture={focusNextOnEnter}>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="w-24">Dia</TableHead>
               <TableHead className="w-40">Evento</TableHead>
+              <TableHead className="w-28">BSP</TableHead>
               <TableHead className="w-24">Entrada</TableHead>
               <TableHead className="w-24">Saída</TableHead>
               <TableHead className="w-28">Horas Normais</TableHead>
               <TableHead className="w-28">Horas Extras</TableHead>
+              <TableHead className="w-24">HE Entrada</TableHead>
+              <TableHead className="w-24">HE Saída</TableHead>
               <TableHead className="w-20">Total</TableHead>
             </TableRow>
           </TableHeader>
@@ -1689,6 +1737,12 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
                 </TableCell>
                 <TableCell>
                   <Input
+                    className="h-8 text-xs" disabled={readOnly} placeholder="BSP"
+                    value={d.bsp ?? ""} onChange={(e) => editarCampo(d.id, { bsp: e.target.value || null })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
                     type="time" className="h-8 text-xs" disabled={readOnly}
                     value={d.hora_entrada ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada: e.target.value })}
                   />
@@ -1701,20 +1755,32 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
                 </TableCell>
                 <TableCell>
                   <Input
-                    type="number" step="0.5" className="h-8 text-xs" disabled={readOnly}
+                    type="number" step="0.5" className="h-8 min-w-[4.5rem] text-sm font-medium" disabled={readOnly}
                     value={d.horas_normais ?? ""} onChange={(e) => editarCampo(d.id, { horas_normais: e.target.value === "" ? null : Number(e.target.value) })}
                   />
                 </TableCell>
                 <TableCell>
                   <Input
-                    type="number" step="0.5" className="h-8 text-xs" disabled={readOnly}
+                    type="number" step="0.5" className="h-8 min-w-[4.5rem] text-sm font-medium" disabled={readOnly}
                     value={d.horas_extras ?? ""} onChange={(e) => editarCampo(d.id, { horas_extras: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_entrada_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada_extra: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_saida_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida_extra: e.target.value })}
                   />
                 </TableCell>
                 <TableCell className="text-xs font-semibold">{d.total_horas ?? 0}</TableCell>
               </TableRow>
             ))}
-            {draft.length === 0 && <EmptyStateRow colSpan={7} icon={Clock} title="Nenhum dia nessa semana" />}
+            {draft.length === 0 && <EmptyStateRow colSpan={10} icon={Clock} title="Nenhum dia nessa semana" />}
           </TableBody>
         </Table>
       </div>
@@ -1722,183 +1788,15 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
       <div className="flex justify-end gap-4 border-t pt-3 text-sm font-semibold">
         <span>Total Hours — Normais: {totals.normais.toFixed(1)}h</span>
         <span>Extras: {totals.extras.toFixed(1)}h</span>
+        <span>Adic. Noturno: {totals.noturno.toFixed(1)}h</span>
         <span>Total: {totals.total.toFixed(1)}h</span>
       </div>
     </Card>
   );
 }
 
-// ─── Aba 3: Relatório RH ─────────────────────────────────────────────────────
-
 interface DiaComEmbarque extends TimesheetDia {
   embarque_id: string;
-}
-
-function RelatorioTab({ colaboradores, periodos, embarques }: {
-  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[];
-}) {
-  const [dataInicio, setDataInicio] = useState(defaultStart);
-  const [dataFim, setDataFim] = useState(defaultEnd);
-  const [unidadeFiltro, setUnidadeFiltro] = useState("all");
-
-  const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
-  const embarqueById = useMemo(() => new Map(embarques.map((e) => [e.id, e])), [embarques]);
-  const periodosByColaborador = useMemo(() => {
-    const m = new Map<string, HistNovoPeriodo[]>();
-    periodos.forEach((p) => {
-      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
-      m.get(p.colaborador_id)!.push(p);
-    });
-    return m;
-  }, [periodos]);
-
-  const unidadeOptions = useMemo(
-    () => Array.from(new Set(embarques.map((e) => e.unidade_operacional).filter((u): u is string => !!u))).sort(),
-    [embarques],
-  );
-
-  const { data: diasNoPeriodo = [], isLoading } = useQuery({
-    queryKey: ["timesheet-dias-periodo", dataInicio, dataFim],
-    queryFn: async (): Promise<DiaComEmbarque[]> => {
-      if (!dataInicio || !dataFim) return [];
-      const { data: semanasNoPeriodo, error: semErr } = await supabase
-        .from("timesheet_semanas").select("*")
-        .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio);
-      if (semErr) throw semErr;
-      const semanaIds = (semanasNoPeriodo ?? []).map((s) => s.id);
-      if (semanaIds.length === 0) return [];
-      const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("*")
-        .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim);
-      if (diasErr) throw diasErr;
-      const embarqueIdBySemanaId = new Map((semanasNoPeriodo ?? []).map((s) => [s.id, s.embarque_id]));
-      return (diasData ?? []).map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
-    },
-    enabled: !!dataInicio && !!dataFim,
-  });
-
-  const linhas = useMemo(() => {
-    const byColab = new Map<string, { colaborador: HistNovoColaborador; dias: DiaComEmbarque[] }>();
-    diasNoPeriodo.forEach((d) => {
-      const embarque = embarqueById.get(d.embarque_id);
-      if (!embarque) return;
-      if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
-      const colaborador = colabById.get(embarque.colaborador_id);
-      if (!colaborador) return;
-      if (!byColab.has(colaborador.id)) byColab.set(colaborador.id, { colaborador, dias: [] });
-      byColab.get(colaborador.id)!.dias.push(d);
-    });
-
-    return Array.from(byColab.values()).map(({ colaborador, dias }) => {
-      const counts: Record<AdicionalCode, number> = { "055": 0, "056": 0, "057": 0, "033": 0, "209": 0 };
-      let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasHoras = 0;
-      const colabPeriodos = periodosByColaborador.get(colaborador.id) ?? [];
-      dias.forEach((d) => {
-        const embarque = embarqueById.get(d.embarque_id);
-        if (embarque) adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code]++; });
-        horaExtra += d.horas_extras ?? 0;
-        if (d.adicional_noturno) horasNoturno += d.total_horas ?? 0;
-        if (d.feriado) feriadoDias++;
-        if (computeDayStatus(colabPeriodos, d.data).status === "DB") dobrasHoras += d.total_horas ?? 0;
-      });
-      return {
-        colaborador, counts,
-        horaExtra: round2(horaExtra), horasNoturno: round2(horasNoturno),
-        feriadoDias, dobrasHoras: round2(dobrasHoras),
-      };
-    }).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [diasNoPeriodo, embarqueById, colabById, periodosByColaborador, unidadeFiltro]);
-
-  const pendentes = useMemo(() => embarques.filter((e) => {
-    if (e.data_fim_embarque < dataInicio || e.data_inicio_embarque > dataFim) return false;
-    if (unidadeFiltro !== "all" && e.unidade_operacional !== unidadeFiltro) return false;
-    return e.status_entrega !== "completo";
-  }), [embarques, dataInicio, dataFim, unidadeFiltro]);
-
-  // Exportação em Excel foi centralizada no módulo de Relatórios.
-
-  return (
-    <div className="space-y-3">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
-          </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-48">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={unidadeFiltro} onValueChange={setUnidadeFiltro}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </Card>
-
-      {pendentes.length > 0 && (
-        <Card className="p-3 border-destructive/30 bg-destructive/5">
-          <div className="flex items-center gap-2 text-sm text-destructive font-medium">
-            <AlertTriangle className="h-4 w-4" />
-            {pendentes.length} embarque(s) com timesheet pendente/parcial neste período
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {pendentes.map((p) => colabById.get(p.colaborador_id)?.nome ?? "—").join(", ")}
-          </p>
-        </Card>
-      )}
-
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nome do Funcionário</TableHead>
-              <TableHead>{ADICIONAL_LABEL["055"]}</TableHead>
-              <TableHead>{ADICIONAL_LABEL["056"]}</TableHead>
-              <TableHead>{ADICIONAL_LABEL["057"]}</TableHead>
-              <TableHead>{ADICIONAL_LABEL["033"]}</TableHead>
-              <TableHead>208 - Sobreaviso 20%</TableHead>
-              <TableHead>{ADICIONAL_LABEL["209"]}</TableHead>
-              <TableHead>408 - HE +100%</TableHead>
-              <TableHead>413 - Dobras (h)</TableHead>
-              <TableHead>220 - Feriado</TableHead>
-              <TableHead>035 - Adic. Noturno (h)</TableHead>
-            </TableRow>
-          </TableHeader>
-          {isLoading ? (
-            <TableSkeleton rows={6} cols={11} />
-          ) : (
-            <TableBody>
-              {linhas.map((l) => (
-                <TableRow key={l.colaborador.id}>
-                  <TableCell className="font-medium">{l.colaborador.nome}</TableCell>
-                  <TableCell>{l.counts["055"]}</TableCell>
-                  <TableCell>{l.counts["056"]}</TableCell>
-                  <TableCell>{l.counts["057"]}</TableCell>
-                  <TableCell>{l.counts["033"]}</TableCell>
-                  <TableCell className="text-muted-foreground">0</TableCell>
-                  <TableCell>{l.counts["209"]}</TableCell>
-                  <TableCell>{l.horaExtra}</TableCell>
-                  <TableCell>{l.dobrasHoras}</TableCell>
-                  <TableCell>{l.feriadoDias}</TableCell>
-                  <TableCell>{l.horasNoturno}</TableCell>
-                </TableRow>
-              ))}
-              {linhas.length === 0 && (
-                <EmptyStateRow colSpan={11} icon={Clock} title="Nenhum lançamento no período selecionado" />
-              )}
-            </TableBody>
-          )}
-        </Table>
-      </Card>
-    </div>
-  );
 }
 
 // ─── Aba 4: Relatório Medição ────────────────────────────────────────────────
@@ -1919,6 +1817,7 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
   const [dataInicio, setDataInicio] = useState(defaultStart);
   const [dataFim, setDataFim] = useState(defaultEnd);
   const [unidadeFiltro, setUnidadeFiltro] = useState("all");
+  const [bspFiltro, setBspFiltro] = useState("all");
 
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
   const embarqueById = useMemo(() => new Map(embarques.map((e) => [e.id, e])), [embarques]);
@@ -1935,24 +1834,11 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
     () => Array.from(new Set(embarques.map((e) => e.unidade_operacional).filter((u): u is string => !!u))).sort(),
     [embarques],
   );
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFiltro), [periodos, unidadeFiltro]);
 
   const { data: diasNoPeriodo = [], isLoading } = useQuery({
     queryKey: ["timesheet-dias-medicao", dataInicio, dataFim],
-    queryFn: async (): Promise<DiaComEmbarque[]> => {
-      if (!dataInicio || !dataFim) return [];
-      const { data: semanasNoPeriodo, error: semErr } = await supabase
-        .from("timesheet_semanas").select("*")
-        .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio);
-      if (semErr) throw semErr;
-      const semanaIds = (semanasNoPeriodo ?? []).map((s) => s.id);
-      if (semanaIds.length === 0) return [];
-      const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("*")
-        .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim);
-      if (diasErr) throw diasErr;
-      const embarqueIdBySemanaId = new Map((semanasNoPeriodo ?? []).map((s) => [s.id, s.embarque_id]));
-      return (diasData ?? []).map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
-    },
+    queryFn: () => fetchDiasNoPeriodo(dataInicio, dataFim),
     enabled: !!dataInicio && !!dataFim,
   });
 
@@ -1970,6 +1856,7 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
       // (mesmo conceito de BSP, só que vindo do relatório Drake).
       const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
       const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
+      if (bspFiltro !== "all" && bsp !== bspFiltro) return;
       const chave = `${colaborador.id}::${bsp}`;
       if (!porChave.has(chave)) {
         porChave.set(chave, {
@@ -1986,7 +1873,7 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
     return Array.from(porChave.values())
       .map((l) => ({ ...l, horasNormais: round2(l.horasNormais), horasExtras: round2(l.horasExtras), totalHoras: round2(l.totalHoras) }))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome) || a.bsp.localeCompare(b.bsp));
-  }, [diasNoPeriodo, embarqueById, colabById, periodosByColaborador, unidadeFiltro]);
+  }, [diasNoPeriodo, embarqueById, colabById, periodosByColaborador, unidadeFiltro, bspFiltro]);
 
   // Exportação em Excel foi centralizada no módulo de Relatórios.
 
@@ -2039,11 +1926,21 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={unidadeFiltro} onValueChange={setUnidadeFiltro}>
+            <Select value={unidadeFiltro} onValueChange={(v) => { setUnidadeFiltro(v); setBspFiltro("all"); }}>
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todas</SelectItem>
                 {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={bspFiltro} onValueChange={setBspFiltro}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>

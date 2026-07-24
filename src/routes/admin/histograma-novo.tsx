@@ -32,34 +32,21 @@ import {
   TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
-  generateDateRange, todayStr, weekdayAbbr, latestPeriodo,
+  generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
 } from "@/lib/histogramaNovo";
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
+import { selectAllPages } from "@/lib/supabasePaginate";
 
 export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshoreNovo });
 
-// O PostgREST devolve no máximo 1000 linhas por resposta por padrão — sem paginar, listas
-// grandes (colaboradores/períodos, que só crescem a cada import) ficam truncadas em silêncio,
-// e quem cai fora da página some das telas sem nenhum erro visível (foi o que causou linhas
-// com colaborador em branco na tabela de Lançamentos).
-async function fetchAllPages<T>(
-  fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-): Promise<T[]> {
-  const pageSize = 1000;
-  const all: T[] = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await fetchPage(from, from + pageSize - 1);
-    if (error) throw error;
-    all.push(...(data ?? []));
-    if (!data || data.length < pageSize) break;
-    from += pageSize;
-  }
-  return all;
+// "YYYY-MM-DD" → "DD/MM" — usado só pra exibir a data de referência do card "POB x Unidade"
+// quando ela deixa de ser hoje (período filtrado não cobre a data atual).
+function fmtDiaCurto(d: string): string {
+  return `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 }
 
 function useColaboradoresQuery() {
@@ -69,7 +56,7 @@ function useColaboradoresQuery() {
       // "id" como segundo critério é essencial: "nome" sozinho não é único (pode empatar),
       // e sem um desempate determinístico o range() de cada página pode repetir ou pular
       // linhas entre uma requisição e outra.
-      fetchAllPages<HistNovoColaborador>((from, to) =>
+      selectAllPages<HistNovoColaborador>((from, to) =>
         supabase.from("hist_novo_colaboradores").select("*").order("nome").order("id").range(from, to),
       ),
   });
@@ -80,9 +67,12 @@ function usePeriodosQuery() {
     queryKey: ["hist-novo-periodos"],
     queryFn: async () => {
       // Mesmo motivo: "data_inicio" tem muitos empates (vários períodos na mesma data),
-      // por isso "id" entra como desempate pra paginação ficar estável.
-      const data = await fetchAllPages<HistNovoPeriodo>((from, to) =>
-        supabase.from("hist_novo_periodos").select("*").order("data_inicio", { ascending: false }).order("id").range(from, to),
+      // por isso "id" entra como desempate pra paginação ficar estável. Decisão da usuária:
+      // não busca período que termina antes de 2026 (ver DRAKE_DATA_CUTOFF).
+      const data = await selectAllPages<HistNovoPeriodo>((from, to) =>
+        supabase.from("hist_novo_periodos").select("*")
+          .gte("data_fim", DRAKE_DATA_CUTOFF)
+          .order("data_inicio", { ascending: false }).order("id").range(from, to),
       );
       return data;
     },
@@ -277,26 +267,28 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
 // Exportação do Relatório de Embarques — usada pelo módulo de Relatórios (card "Embarques").
 // Lista todos os períodos do tipo "E" (embarcado) lançados no Histograma Offshore.
 export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: string): Promise<void> {
-  let periodosQuery = supabase.from("hist_novo_periodos").select("*").eq("tipo", "E").order("data_inicio", { ascending: false });
-  // Sobreposição de intervalo — um embarque que começou antes e ainda está em curso dentro do
-  // período filtrado também deve entrar, não só os que começaram exatamente dentro da janela.
-  if (dataFim) periodosQuery = periodosQuery.lte("data_inicio", dataFim);
-  if (dataInicio) periodosQuery = periodosQuery.gte("data_fim", dataInicio);
-
-  const [{ data: colaboradores, error: cErr }, { data: periodos, error: pErr }] = await Promise.all([
+  const [{ data: colaboradores, error: cErr }, periodos] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    periodosQuery,
+    selectAllPages<HistNovoPeriodo>((from, to) => {
+      let q = supabase.from("hist_novo_periodos").select("*").eq("tipo", "E")
+        .gte("data_fim", DRAKE_DATA_CUTOFF)
+        .order("data_inicio", { ascending: false }).order("id");
+      // Sobreposição de intervalo — um embarque que começou antes e ainda está em curso dentro
+      // do período filtrado também deve entrar, não só os que começaram dentro da janela.
+      if (dataFim) q = q.lte("data_inicio", dataFim);
+      if (dataInicio) q = q.gte("data_fim", dataInicio);
+      return q.range(from, to);
+    }),
   ]);
   if (cErr) throw cErr;
-  if (pErr) throw pErr;
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
-  const rows = ((periodos ?? []) as HistNovoPeriodo[]).map((p) => {
+  const rows = periodos.map((p) => {
     const c = colabById.get(p.colaborador_id);
     return {
       matricula: c?.matricula ?? "—",
       colaborador: c?.nome ?? "—",
       empresa: c?.empresa ?? "—",
-      funcao: c?.funcao_operacao || c?.funcao || "—",
+      funcao: c?.funcao || c?.funcao_operacao || "—",
       unidade_operacional: p.unidade_operacional ?? "—",
       BSP: p.centro_de_custo ?? "—",
       data_inicio: p.data_inicio,
@@ -317,15 +309,14 @@ export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: 
 // entra na lista (colaborador com pelo menos um período dentro da janela — mesmo critério de
 // "ativo" do Dashboard); o status em si é sempre avaliado em relação a hoje.
 export async function generateRelatorioDisponibilidade(dataInicio?: string, dataFim?: string): Promise<void> {
-  const [{ data: colaboradores, error: cErr }, { data: periodos, error: pErr }] = await Promise.all([
+  const [{ data: colaboradores, error: cErr }, periodos] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    supabase.from("hist_novo_periodos").select("*"),
+    selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   if (cErr) throw cErr;
-  if (pErr) throw pErr;
 
   const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
-  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
+  periodos.forEach((p) => {
     if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
     periodosByColaborador.get(p.colaborador_id)!.push(p);
   });
@@ -342,7 +333,7 @@ export async function generateRelatorioDisponibilidade(dataInicio?: string, data
       matricula: c.matricula,
       colaborador: c.nome,
       empresa: c.empresa ?? "—",
-      funcao: c.funcao_operacao || c.funcao || "—",
+      funcao: c.funcao || c.funcao_operacao || "—",
     }))
     .sort((a, b) => a.colaborador.localeCompare(b.colaborador));
 
@@ -393,14 +384,13 @@ function computeHeadcountSnapshot(
 }
 
 async function fetchColaboradoresEPeriodos() {
-  const [{ data: colaboradores, error: cErr }, { data: periodos, error: pErr }] = await Promise.all([
+  const [{ data: colaboradores, error: cErr }, periodos] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    supabase.from("hist_novo_periodos").select("*"),
+    selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   if (cErr) throw cErr;
-  if (pErr) throw pErr;
   const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
-  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
+  periodos.forEach((p) => {
     if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
     periodosByColaborador.get(p.colaborador_id)!.push(p);
   });
@@ -501,17 +491,21 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   const [colaboradorInput, setColaboradorInput] = useState("all");
   const [tipoInput, setTipoInput] = useState("all");
   const [unidadeInput, setUnidadeInput] = useState("all");
+  const [bspInput, setBspInput] = useState("all");
   const [deInput, setDeInput] = useState("");
   const [ateInput, setAteInput] = useState("");
   const [filterColaborador, setFilterColaborador] = useState("all");
   const [filterTipo, setFilterTipo] = useState("all");
   const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
   const [filterDe, setFilterDe] = useState("");
   const [filterAte, setFilterAte] = useState("");
+  const bspInputOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeInput), [periodos, unidadeInput]);
   const aplicarFiltro = () => {
     setFilterColaborador(colaboradorInput);
     setFilterTipo(tipoInput);
     setFilterUnidade(unidadeInput);
+    setFilterBsp(bspInput);
     setFilterDe(deInput);
     setFilterAte(ateInput);
   };
@@ -599,9 +593,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
     (filterTipo === "all" || p.tipo === filterTipo) &&
     (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
+    (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
     (!filterDe || p.data_fim >= filterDe) &&
     (!filterAte || p.data_inicio <= filterAte),
-  ).sort((a, b) => a.data_inicio.localeCompare(b.data_inicio)), [periodos, filterColaborador, filterTipo, filterUnidade, filterDe, filterAte]);
+  ).sort((a, b) => a.data_inicio.localeCompare(b.data_inicio)), [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterDe, filterAte]);
 
   return (
     <div className="space-y-4">
@@ -680,11 +675,21 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
-            <Select value={unidadeInput} onValueChange={setUnidadeInput}>
+            <Select value={unidadeInput} onValueChange={(v) => { setUnidadeInput(v); setBspInput("all"); }}>
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todas</SelectItem>
                 {unidadesExistentes.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={bspInput} onValueChange={setBspInput}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {bspInputOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -844,29 +849,23 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const [selectedColaborador, setSelectedColaborador] = useState("");
   const [statusFilter, setStatusFilter] = useState<ComputedStatus | "">("");
   const [unidadeFilter, setUnidadeFilter] = useState("all");
+  const [bspFilter, setBspFilter] = useState("all");
 
   const unidadeOptions = useMemo(
     () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
     [periodos],
   );
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFilter), [periodos, unidadeFilter]);
 
   // Indicador de timesheet físico recebido (verde escuro) vs. embarcado com timesheet pendente
   // (verde claro) nas células "E" — ver Timesheet Offshore.
   const { data: timesheetEmbarques = [] } = useQuery({
     queryKey: ["timesheet-embarques"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_embarques").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetEmbarque[];
-    },
+    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
   const { data: timesheetSemanas = [] } = useQuery({
     queryKey: ["timesheet-semanas-all"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_semanas").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetSemana[];
-    },
+    queryFn: () => selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
   const embarqueByPeriodoId = useMemo(
     () => new Map(timesheetEmbarques.filter((e): e is TimesheetEmbarque & { periodo_id: string } => !!e.periodo_id).map((e) => [e.periodo_id, e])),
@@ -916,11 +915,15 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   }, [statusFilter, colaboradores, periodosByColaborador, activeColaboradores, gridDates]);
 
   const visibleColaboradores = useMemo(() => {
-    if (unidadeFilter === "all") return statusFiltered;
+    if (unidadeFilter === "all" && bspFilter === "all") return statusFiltered;
     return statusFiltered.filter((c) =>
-      (periodosByColaborador.get(c.id) ?? []).some((p) => p.unidade_operacional === unidadeFilter && p.data_fim >= gridDe && p.data_inicio <= gridAte),
+      (periodosByColaborador.get(c.id) ?? []).some((p) =>
+        (unidadeFilter === "all" || p.unidade_operacional === unidadeFilter) &&
+        (bspFilter === "all" || bspDoPeriodo(p) === bspFilter) &&
+        p.data_fim >= gridDe && p.data_inicio <= gridAte,
+      ),
     );
-  }, [statusFiltered, unidadeFilter, periodosByColaborador, gridDe, gridAte]);
+  }, [statusFiltered, unidadeFilter, bspFilter, periodosByColaborador, gridDe, gridAte]);
 
   // Conta pessoas únicas por nome (evita contar duas vezes cadastros duplicados do mesmo colaborador).
   const visibleCount = useMemo(
@@ -960,11 +963,21 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
             </div>
             <div className="space-y-0.5">
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-              <Select value={unidadeFilter} onValueChange={setUnidadeFilter}>
+              <Select value={unidadeFilter} onValueChange={(v) => { setUnidadeFilter(v); setBspFilter("all"); }}>
                 <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all" className="text-xs">Todas</SelectItem>
                   {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+              <Select value={bspFilter} onValueChange={setBspFilter}>
+                <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                  {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -1240,6 +1253,7 @@ function DashboardTab({ colaboradores, periodos }: {
   // unidade específica — afetam todos os cartões e gráficos abaixo.
   const [filterColaborador, setFilterColaborador] = useState("all");
   const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
 
   const periodosByColaborador = useMemo(() => {
     const m = new Map<string, HistNovoPeriodo[]>();
@@ -1250,16 +1264,22 @@ function DashboardTab({ colaboradores, periodos }: {
     return m;
   }, [periodos]);
 
-  // Colaborador escolhido no filtro (se houver) + só quem já teve período na unidade escolhida
-  // (se houver) — antes de aplicar o recorte de "ativo no período" abaixo.
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
+
+  // Colaborador escolhido no filtro (se houver) + só quem já teve período na unidade/BSP
+  // escolhidos (se houver) — antes de aplicar o recorte de "ativo no período" abaixo.
   const colaboradoresFiltrados = useMemo(() => colaboradores.filter((c) => {
     if (filterColaborador !== "all" && c.id !== filterColaborador) return false;
     if (filterUnidade !== "all") {
       const ps = periodosByColaborador.get(c.id) ?? [];
       if (!ps.some((p) => p.unidade_operacional === filterUnidade)) return false;
     }
+    if (filterBsp !== "all") {
+      const ps = periodosByColaborador.get(c.id) ?? [];
+      if (!ps.some((p) => bspDoPeriodo(p) === filterBsp)) return false;
+    }
     return true;
-  }), [colaboradores, periodosByColaborador, filterColaborador, filterUnidade]);
+  }), [colaboradores, periodosByColaborador, filterColaborador, filterUnidade, filterBsp]);
 
   const activeColaboradores = useMemo(() => {
     if (!dataInicio || !dataFim) return colaboradoresFiltrados;
@@ -1371,17 +1391,24 @@ function DashboardTab({ colaboradores, periodos }: {
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
   }, [dailyRecords]);
 
-  // ── Status por Unidade (foto de hoje, agrupado por unidade — mini-barras por função) ──
+  // ── Status por Unidade (foto de hoje por padrão; se o período De/Até filtrado não cobre
+  // hoje — ex.: um mês passado ou futuro — usa o último dia desse período como referência,
+  // pra o card "POB x Unidade" acompanhar o período selecionado em vez de sempre hoje) ──
+  const pobReferenceDate = useMemo(() => {
+    if (dataInicio && dataFim && dataInicio <= today && today <= dataFim) return today;
+    return dataFim || today;
+  }, [dataInicio, dataFim, today]);
+
   const byUnitStatus = useMemo(() => {
     const m: Record<string, { total: number; porFuncao: Record<string, { count: number; nomes: string[] }> }> = {};
     activeColaboradores.forEach((c) => {
-      const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], today);
+      const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       if (toOldBucket(result.status) !== "E") return;
       const u = result.periodo?.unidade_operacional;
       if (!u) return;
       if (!m[u]) m[u] = { total: 0, porFuncao: {} };
       m[u].total++;
-      const fn = c.funcao_operacao || "—";
+      const fn = c.funcao || c.funcao_operacao || "—";
       if (!m[u].porFuncao[fn]) m[u].porFuncao[fn] = { count: 0, nomes: [] };
       m[u].porFuncao[fn].count++;
       // Só primeiro + último nome no tooltip — nome completo fica grande demais pra caber.
@@ -1396,7 +1423,7 @@ function DashboardTab({ colaboradores, periodos }: {
           .sort((a, b) => b.count - a.count),
       }))
       .sort((a, b) => b.Embarcado - a.Embarcado);
-  }, [activeColaboradores, periodosByColaborador, today]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
 
   const funcaoColor = useMemo(() => {
     const todasFuncoes = Array.from(new Set(byUnitStatus.flatMap((u) => u.porFuncao.map((f) => f.funcao))));
@@ -1522,11 +1549,21 @@ function DashboardTab({ colaboradores, periodos }: {
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
-            <Select value={filterUnidade} onValueChange={setFilterUnidade}>
+            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todas</SelectItem>
                 {unidades.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -1684,9 +1721,11 @@ function DashboardTab({ colaboradores, periodos }: {
       {/* ── POB x Unidade ── */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold">POB x Unidade</h3>
-        <p className="text-xs text-muted-foreground mb-3">Embarcados hoje, por unidade</p>
+        <p className="text-xs text-muted-foreground mb-3">
+          {pobReferenceDate === today ? "Embarcados hoje, por unidade" : `Embarcados em ${fmtDiaCurto(pobReferenceDate)}, por unidade`}
+        </p>
         {byUnitStatus.length === 0 ? (
-          <EmptyState icon={Ship} title="Nenhuma unidade com colaborador embarcado hoje" />
+          <EmptyState icon={Ship} title={pobReferenceDate === today ? "Nenhuma unidade com colaborador embarcado hoje" : `Nenhuma unidade com colaborador embarcado em ${fmtDiaCurto(pobReferenceDate)}`} />
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {byUnitStatus.map((u) => (
@@ -1698,7 +1737,9 @@ function DashboardTab({ colaboradores, periodos }: {
                 >
                   {u.Embarcado}
                 </p>
-                <p className="text-xs text-muted-foreground">embarcado(s) hoje</p>
+                <p className="text-xs text-muted-foreground">
+                  {pobReferenceDate === today ? "embarcado(s) hoje" : `embarcado(s) em ${fmtDiaCurto(pobReferenceDate)}`}
+                </p>
                 {u.porFuncao.length > 0 && (
                   <div className="mt-3 flex h-8 items-end gap-1">
                     {u.porFuncao.map((f) => {

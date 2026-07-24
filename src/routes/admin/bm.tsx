@@ -15,6 +15,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
@@ -26,6 +30,8 @@ import {
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
+import { selectAllPages } from "@/lib/supabasePaginate";
+import { DRAKE_DATA_CUTOFF } from "@/lib/histogramaNovo";
 import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
 import { getPoInfo, getBmHistoryForPo, recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
@@ -94,10 +100,17 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   const [smartsheetLoading, setSmartsheetLoading] = useState(false);
+  // Resultado do último BM gerado/salvo — enquanto preenchido, a tela mostra o BmConsolidatedView
+  // (Consolidado + Diárias + Horas) no lugar do wizard, pra "Gerar BM" ter um resultado visível
+  // imediato em vez de só um toast e o formulário voltando em branco.
+  const [savedBm, setSavedBm] = useState<Bm | null>(null);
+  const [savedLinesMo, setSavedLinesMo] = useState<BmLineMo[]>([]);
+  const [savedLinesLogistica, setSavedLinesLogistica] = useState<BmLineLogistica[]>([]);
 
   useEffect(() => {
     if (!reopenBm) return;
     setStep(0);
+    setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
     setCab({
       client: reopenBm.client_name, bsp: reopenBm.project_name ?? "",
       vessel: reopenBm.vessel, periodStart: reopenBm.period_start, periodEnd: reopenBm.period_end,
@@ -112,6 +125,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const resetWizard = () => {
     setStep(0); setCab(CABECALHO_VAZIO); setLinesMo([]); setLinesLogistica([]); setLinesMateriais([]);
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
+    setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
   };
 
   // Clientes cadastrados (tabela antiga) — usado só pra resolver o client_id ao salvar o BM
@@ -135,11 +149,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const { data: unidadeBspPares = [] } = useQuery<{ unidade: string; bsp: string }[]>({
     queryKey: ["bm-unidade-bsp-pares"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("hist_novo_periodos").select("unidade_operacional, centro_de_custo");
-      if (error) throw error;
-      const pares: { unidade: string; bsp: string }[] = (data ?? [])
-        .filter((r: { unidade_operacional: string | null; centro_de_custo: string | null }) => !!r.unidade_operacional && !!r.centro_de_custo)
-        .map((r: { unidade_operacional: string | null; centro_de_custo: string | null }) => ({ unidade: r.unidade_operacional as string, bsp: r.centro_de_custo as string }));
+      // hist_novo_periodos já passa de 1000 linhas — sem paginação o Supabase corta em
+      // silêncio e BSPs "somem" da lista (ficam de fora do lote retornado).
+      const data = await selectAllPages<{ unidade_operacional: string | null; centro_de_custo: string | null }>(
+        (from, to) => supabase.from("hist_novo_periodos").select("unidade_operacional, centro_de_custo").gte("data_fim", DRAKE_DATA_CUTOFF).range(from, to),
+      );
+      const pares: { unidade: string; bsp: string }[] = data
+        .filter((r) => !!r.unidade_operacional && !!r.centro_de_custo)
+        .map((r) => ({ unidade: r.unidade_operacional as string, bsp: r.centro_de_custo as string }));
       return pares;
     },
   });
@@ -233,10 +250,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         };
       }).filter((d: TimesheetDiaComColaborador) => d.colaborador_id);
 
-      const { data: ratesData, error: ratesErr } = await supabase.from("rates").select("*").eq("bsp", cab.bsp).eq("active", true);
+      // Rate é buscado por Cliente+Embarcação+Função (bate com a planilha mestre de rates da
+      // usuária) — não varia por BSP, então filtra só por cliente/embarcação aqui e deixa o
+      // cruzamento de função (com fallback de nível) por conta de findRate (bmRateEngine.ts).
+      const { data: ratesData, error: ratesErr } = await supabase
+        .from("rates").select("*").eq("client", cab.client).eq("vessel", cab.vessel).eq("active", true);
       if (ratesErr) throw ratesErr;
 
-      return aggregateMaoDeObra(diasComColaborador, (ratesData ?? []) as Rate[], cab.bsp);
+      return aggregateMaoDeObra(diasComColaborador, (ratesData ?? []) as Rate[], cab.client, cab.vessel);
     },
   });
 
@@ -308,38 +329,67 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       };
 
       let bmId = reopenBmId;
+      let bmRow: Bm;
       if (bmId) {
-        const { error } = await supabase.from("bms").update(payload).eq("id", bmId);
+        const { data, error } = await supabase.from("bms").update(payload).eq("id", bmId).select("*").single();
         if (error) throw error;
+        bmRow = data as Bm;
         await supabase.from("bm_lines_mo").delete().eq("bm_id", bmId);
         await supabase.from("bm_lines_logistica").delete().eq("bm_id", bmId);
         await supabase.from("bm_lines_materiais").delete().eq("bm_id", bmId);
       } else {
-        const { data, error } = await supabase.from("bms").insert(payload).select("id").single();
+        const { data, error } = await supabase.from("bms").insert(payload).select("*").single();
         if (error) throw error;
-        bmId = data.id;
+        bmRow = data as Bm;
+        bmId = bmRow.id;
       }
 
-      if (linesMo.length) { const { error } = await supabase.from("bm_lines_mo").insert(linesMo.map((l) => ({ ...l, bm_id: bmId }))); if (error) throw error; }
-      if (linesLogistica.length) { const { error } = await supabase.from("bm_lines_logistica").insert(linesLogistica.map((l) => ({ ...l, bm_id: bmId }))); if (error) throw error; }
+      let savedMo: BmLineMo[] = [];
+      let savedLogistica: BmLineLogistica[] = [];
+      if (linesMo.length) {
+        const { data, error } = await supabase.from("bm_lines_mo").insert(linesMo.map((l) => ({ ...l, bm_id: bmId }))).select("*");
+        if (error) throw error;
+        savedMo = (data ?? []) as BmLineMo[];
+      }
+      if (linesLogistica.length) {
+        const { data, error } = await supabase.from("bm_lines_logistica").insert(linesLogistica.map((l) => ({ ...l, bm_id: bmId }))).select("*");
+        if (error) throw error;
+        savedLogistica = (data ?? []) as BmLineLogistica[];
+      }
       if (linesMateriais.length) { const { error } = await supabase.from("bm_lines_materiais").insert(linesMateriais.map((l) => ({ ...l, bm_id: bmId }))); if (error) throw error; }
 
       if (targetStatus === "pending_pm") {
         const { error } = await supabase.from("bm_status_history").insert({ bm_id: bmId, status: "pending_pm", changed_by_name: "Operador", notes: null });
         if (error) throw error;
       }
-      return { bmId, targetStatus };
+      return { bm: bmRow, savedMo, savedLogistica, targetStatus };
     },
-    onSuccess: ({ targetStatus }) => {
+    onSuccess: ({ bm, savedMo, savedLogistica, targetStatus }) => {
       qc.invalidateQueries({ queryKey: ["bm-historico"] });
       notify.success(targetStatus === "pending_pm" ? "BM enviado para aprovação do PM." : "Rascunho salvo.");
-      resetWizard();
+      setSavedBm(bm);
+      setSavedLinesMo(savedMo);
+      setSavedLinesLogistica(savedLogistica);
     },
     onError: (e: any) => notify.error(e.message || "Erro ao salvar o BM."),
   });
 
   const podeAvancarStep0 = headerCompleto;
   const podeEnviarAprovacao = headerCompleto && linesMo.length > 0 && (!hasRateMissing || cienteRatesFaltando);
+
+  if (savedBm) {
+    return (
+      <Card className="p-4 space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <p className="text-sm font-medium">
+            BM {savedBm.current_status === "pending_pm" ? "enviado para aprovação" : "salvo como rascunho"}.
+          </p>
+          <Button size="sm" variant="outline" onClick={resetWizard}>Gerar novo BM</Button>
+        </div>
+        <BmConsolidatedView bm={savedBm} linesMo={savedLinesMo} linesLogistica={savedLinesLogistica} />
+      </Card>
+    );
+  }
 
   return (
     <Card className="p-4 space-y-4">
@@ -690,6 +740,20 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
     onError: (e: any) => notify.error(e.message || "Erro ao atualizar o Smartsheet."),
   });
 
+  // bm_lines_mo/logistica/materiais e bm_status_history têm ON DELETE CASCADE (ver migration
+  // 20260718000002_bm_core.sql) — apagar o bm já apaga as linhas junto.
+  const deleteBm = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("bms").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bm-historico"] });
+      notify.success("BM excluído.");
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao excluir o BM."),
+  });
+
   const clientesNaLista = useMemo(() => Array.from(new Set(bms.map((b) => b.client_name))).sort(), [bms]);
   const filtered = bms.filter((b) => (filterClient === "all" || b.client_name === filterClient) && (filterStatus === "all" || b.current_status === filterStatus));
 
@@ -743,6 +807,25 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                       Atualizar Smartsheet
                     </Button>
                   )}
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-6 w-6" title="Excluir">
+                        <Trash2 className="h-3 w-3 text-destructive" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir este BM?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {b.client_name} — {b.vessel} ({fmt(b.period_start)} – {fmt(b.period_end)}). Essa ação não pode ser desfeita.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => deleteBm.mutate(b.id)}>Excluir</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </TableCell>
               </TableRow>
             ))}
@@ -752,7 +835,11 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
       </Card>
 
       <Dialog open={!!viewingBm} onOpenChange={(o) => { if (!o) setViewingBm(null); }}>
-        <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto">
+        {/* print:hidden aqui — o Dialog do Radix (fixed + Portal) briga com o CSS de impressão
+            (posicionamento imprevisível, conteúdo cortado). A cópia de baixo, fora do Dialog e
+            sempre no fluxo normal da página, é a que efetivamente aparece no PDF (mesmo padrão
+            já testado e funcionando na visualização inline do wizard). */}
+        <DialogContent className="print:hidden max-w-[95vw] max-h-[90vh] overflow-y-auto">
           {viewingBm && (
             <BmConsolidatedView
               bm={viewingBm}
@@ -762,6 +849,15 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
           )}
         </DialogContent>
       </Dialog>
+      {viewingBm && (
+        <div className="hidden print:block">
+          <BmConsolidatedView
+            bm={viewingBm}
+            linesMo={viewingLinhas?.mo ?? []}
+            linesLogistica={viewingLinhas?.logistica ?? []}
+          />
+        </div>
+      )}
     </div>
   );
 }

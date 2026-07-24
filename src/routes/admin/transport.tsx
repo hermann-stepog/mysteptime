@@ -23,13 +23,13 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
 import { CLIENTES } from "@/lib/clientes";
 import { useAuth } from "@/hooks/useAuth";
-import { fmtDate, fmtDateTime } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 import { pageTitle } from "@/lib/pageTitle";
 
 
-type TripStatus = "em_andamento" | "realizado" | "cancelado";
+type TripStatus = "em_andamento" | "realizado" | "faturado" | "cancelado";
 type TripTipo = "pessoas" | "material";
 
 type TransportSearch = { tab?: string; tag?: string; status?: string; cliente?: string; tipo?: string };
@@ -67,20 +67,23 @@ type Trip = {
   departure_time: string | null;
   arrival_time: string | null;
   status: TripStatus;
+  custo: number | null;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
   materials: { material_id: string; quantidade: number | null }[];
 };
 
-const STATUS_LABEL: Record<TripStatus, string> = { em_andamento: "Em Andamento", realizado: "Realizado", cancelado: "Cancelado" };
+const STATUS_LABEL: Record<TripStatus, string> = { em_andamento: "Em Andamento", realizado: "Realizado", faturado: "Faturado", cancelado: "Cancelado" };
 const STATUS_BADGE: Record<TripStatus, string> = {
   em_andamento: "bg-primary/15 text-primary border-primary/30",
   realizado: "bg-success/15 text-success border-success/30",
+  faturado: "bg-violet-500/15 text-violet-700 border-violet-500/30",
   cancelado: "bg-destructive/15 text-destructive border-destructive/30",
 };
 const STATUS_BORDER: Record<TripStatus, string> = {
   em_andamento: "border-l-primary",
   realizado: "border-l-success",
+  faturado: "border-l-violet-500",
   cancelado: "border-l-destructive",
 };
 
@@ -138,6 +141,7 @@ export async function generateRelatorioTransporte(dataInicio?: string, dataFim?:
     Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
     Observações: t.notes ?? "",
     Status: STATUS_LABEL[t.status],
+    Custo: t.custo ?? "",
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -261,6 +265,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
           <SelectContent>
             <SelectItem value="em_andamento">Em Andamento</SelectItem>
             <SelectItem value="realizado">Realizado</SelectItem>
+            <SelectItem value="faturado">Faturado</SelectItem>
             <SelectItem value="cancelado">Cancelado</SelectItem>
           </SelectContent>
         </Select>
@@ -391,6 +396,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     origens_extras: string[]; destinos_extras: string[];
     notes: string;
     tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
+    custo: string;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -405,6 +411,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
       cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
       unidade: t.unidade ?? "", status: t.status,
+      custo: t.custo != null ? String(t.custo) : "",
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -419,6 +426,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       bsp: "", bsp_2: "", bsp_3: "",
       cliente: "", cliente_2: "", cliente_3: "",
       unidade: "", status: "em_andamento",
+      custo: "",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
@@ -446,6 +454,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         cliente: f.cliente || null, cliente_2: f.cliente_2 || null, cliente_3: f.cliente_3 || null,
         unidade: f.unidade.trim() || null,
         status: f.status,
+        custo: f.custo.trim() ? Number(f.custo.trim()) : null,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
       };
       let id = f.id;
@@ -601,16 +610,27 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
           <div><Label>Observações</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} /></div>
 
-          <div>
-            <Label>Status</Label>
-            <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v as TripStatus })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                <SelectItem value="realizado">Realizado</SelectItem>
-                <SelectItem value="cancelado">Cancelado</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Status</Label>
+              <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v as TripStatus })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="em_andamento">Em Andamento</SelectItem>
+                  <SelectItem value="realizado">Realizado</SelectItem>
+                  <SelectItem value="faturado">Faturado</SelectItem>
+                  <SelectItem value="cancelado">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Custo do transporte (opcional)</Label>
+              <Input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })}
+                placeholder="R$ 0,00"
+              />
+            </div>
           </div>
         </div>
         <DialogFooter className="gap-2">
@@ -1214,6 +1234,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="em_andamento">Em Andamento</SelectItem>
               <SelectItem value="realizado">Realizado</SelectItem>
+              <SelectItem value="faturado">Faturado</SelectItem>
               <SelectItem value="cancelado">Cancelado</SelectItem>
             </SelectContent>
           </Select>
@@ -1234,6 +1255,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <TableHead>Destino</TableHead>
               <TableHead>Pessoas/Materiais</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Custo</TableHead>
               <TableHead className="w-[1%]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -1255,6 +1277,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                     : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
+                <TableCell>{t.custo != null ? fmtMoney(t.custo) : "—"}</TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   {onDuplicate && (
                     <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
@@ -1325,11 +1348,12 @@ function TimelineView({ trips, tagsById }: { trips: Trip[]; tagsById: Map<string
 const STATUS_COLOR: Record<TripStatus, string> = {
   em_andamento: "hsl(var(--primary))",
   realizado: "hsl(var(--success))",
+  faturado: "#7c3aed",
   cancelado: "hsl(var(--destructive))",
 };
 
 const BLUES = ["#1e3a8a", "#1d4ed8", "#1e40af", "#2563eb", "#475569", "#64748b", "#0369a1", "#334155", "#0284c7", "#94a3b8"];
-const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", cancelado: "#c00000" };
+const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", faturado: "#5b21b6", cancelado: "#c00000" };
 
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
@@ -1353,6 +1377,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const total = filtered.length;
   const realizados = filtered.filter((t) => t.status === "realizado").length;
   const emAndamento = filtered.filter((t) => t.status === "em_andamento").length;
+  const faturados = filtered.filter((t) => t.status === "faturado").length;
   const cancelados = filtered.filter((t) => t.status === "cancelado").length;
 
   const avgCarsPerDay = useMemo(() => {
@@ -1371,6 +1396,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const statusData = [
     { name: "Realizado", value: realizados, color: STATUS_BLUES.realizado },
     { name: "Em Andamento", value: emAndamento, color: STATUS_BLUES.em_andamento },
+    { name: "Faturado", value: faturados, color: STATUS_BLUES.faturado },
     { name: "Cancelado", value: cancelados, color: STATUS_BLUES.cancelado },
   ].filter((d) => d.value > 0);
 

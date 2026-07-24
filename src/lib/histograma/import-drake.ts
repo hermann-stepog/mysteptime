@@ -268,7 +268,10 @@ export async function importDrakeEmbarkation(
   const colabById = new Map(allColabs.map((c) => [c.id, c]));
   for (const p of periodosToInsert) {
     const colaborador = colabById.get(p.colaborador_id);
-    const funcaoEmbarque = colaborador?.funcao_operacao || colaborador?.funcao || "—";
+    // "funcao" (função de embarque) é a que bate com os rates cadastrados — "funcao_operacao"
+    // é a função de carteira do colaborador, uma classificação mais genérica/interna que não
+    // necessariamente reflete o cargo real desse embarque específico.
+    const funcaoEmbarque = colaborador?.funcao || colaborador?.funcao_operacao || "—";
     await ensureTimesheetParaPeriodo(supabase, {
       colaboradorId: p.colaborador_id,
       periodoId: null,

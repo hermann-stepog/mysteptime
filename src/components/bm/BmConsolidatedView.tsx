@@ -107,7 +107,8 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
   }, [dates, dayGrid, codesByColaborador]);
 
   return (
-    <div className="bm-print-area space-y-6">
+    <div className="bm-print-area">
+    <div className="bm-print-scale-inner space-y-6">
       <div className="flex items-center justify-between border-b pb-3">
         <BrandLogo className="h-10 w-auto" />
         <div className="text-right text-xs text-muted-foreground">
@@ -276,6 +277,7 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
         </div>
       </section>
 
+    </div>
       <div className="flex justify-end print:hidden">
         <Button variant="outline" onClick={() => window.print()}>
           <Printer className="mr-1.5 h-4 w-4" />Baixar PDF

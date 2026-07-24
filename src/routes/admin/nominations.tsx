@@ -2,17 +2,14 @@ import { useState, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
-// Tabelas nominations/weld_type_config/nomination_status_history ainda não existem no schema;
-// cast local para não bloquear o build enquanto a feature não é migrada.
+// Tabelas nominations/weld_type_config/nomination_status_history/colaborador_funcoes_historico
+// ainda não estão nos tipos gerados; cast local para não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
-import { getOffshoreData } from "@/lib/api/smartsheet.functions";
-import { sendNominationPhaseEmail } from "@/lib/api/email.functions";
-import type { OffshorePerson } from "@/lib/smartsheet";
 import {
-  type Nomination, type NominationStatusHistory, type WeldTypeConfig,
-  STATUS_LABELS, STATUS_COLORS, ALL_STATUSES, NEXT_ACTION_LABELS,
-  getNextStatus, fmtDate, fmtDatetime, isSoldador,
+  type Nomination, type NominationStatusHistory, type WeldTypeConfig, type NominationStatus,
+  STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS,
+  columnIdForStatus, canMoveToColumn, fmtDate, fmtDatetime, isSoldador,
 } from "@/lib/nominations";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,7 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -30,23 +26,35 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
-  Trash2, Pencil,
+  Trash2,
 } from "lucide-react";
+import {
+  DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
 import { notify } from "@/lib/notify";
-import { EmptyState } from "@/components/EmptyState";
+import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { pageTitle } from "@/lib/pageTitle";
+import {
+  generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
+  displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, type ComputedStatus, type HistNovoPeriodo,
+} from "@/lib/histogramaNovo";
+import { selectAllPages } from "@/lib/supabasePaginate";
 
 export const Route = createFileRoute("/admin/nominations")({ head: () => pageTitle("Nomeações"), component: NominationsPage });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const label = STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status;
-  const color = STATUS_COLORS[status as keyof typeof STATUS_COLORS] ?? "bg-slate-100 text-slate-700";
+function StatusBadge({ status }: { status: NominationStatus }) {
+  const label = STATUS_LABELS[status] ?? status;
+  const c = STATUS_BADGE[status] ?? { bg: "#f1f5f9", text: "#334155" };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${color}`}>
+    <span
+      className="inline-flex items-center rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: c.bg, color: c.text }}
+    >
       {label}
     </span>
   );
@@ -70,120 +78,6 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
   );
 }
 
-// ── Available collaborators from Smartsheet ───────────────────────────────────
-
-// Normaliza acentos/caixa para comparar com os valores da coluna "Status" do Smartsheet.
-const DIACRITICS_RE = new RegExp(String.fromCharCode(0x5b, 0x300, 0x2d, 0x36f, 0x5d), "g");
-const normalizeStatus = (s: string) => s.trim().toUpperCase().normalize("NFD").replace(DIACRITICS_RE, "");
-const AVAILABLE_STATUSES = new Set(["DISPONIVEL", "FOLGA"]);
-
-function AvailableCollabs({ nomination }: { nomination: Nomination }) {
-  const { profile } = useAuth();
-  const qc = useQueryClient();
-
-  const { data: people = [], isLoading } = useQuery({
-    queryKey: ["offshore-data"],
-    queryFn: () => getOffshoreData(),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const matches = useMemo(() => {
-    const fn = nomination.function_requested.toLowerCase();
-    return people
-      .filter((p) => p.function?.toLowerCase().includes(fn))
-      .filter((p) => p.status && AVAILABLE_STATUSES.has(normalizeStatus(p.status)))
-      .filter((p) => {
-        // Available if no conflicting embarkation in the period
-        const start = nomination.period_start;
-        const end   = nomination.period_end;
-        const emb1  = p.embark && p.disembark && p.embark <= end && p.disembark >= start;
-        const emb2  = p.embark2 && p.disembark2 && p.embark2 <= end && p.disembark2 >= start;
-        return !emb1 && !emb2;
-      })
-      .slice(0, 15);
-  }, [people, nomination]);
-
-  const select = useMutation({
-    mutationFn: async (p: OffshorePerson) => {
-      const { error: e1 } = await supabase
-        .from("nominations")
-        .update({ approved_collaborator_name: p.name })
-        .eq("id", nomination.id);
-      if (e1) throw e1;
-
-      await supabase.from("nomination_status_history").insert({
-        nomination_id:   nomination.id,
-        status:          nomination.current_status,
-        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-        notes:           `Colaborador selecionado: ${p.name}`,
-      });
-
-      const { data: proj } = await supabase
-        .from("projects")
-        .select("email")
-        .eq("name", nomination.pm_name)
-        .maybeSingle();
-
-      if (!proj?.email) return { emailed: false };
-
-      await sendNominationPhaseEmail({
-        data: {
-          to:      proj.email,
-          subject: `Nomeação — ${nomination.function_requested}: ${STATUS_LABELS[nomination.current_status]}`,
-          text:
-            `Olá ${nomination.pm_name},\n\n` +
-            `Sua solicitação de ${nomination.function_requested} ` +
-            `(período ${fmtDate(nomination.period_start)} a ${fmtDate(nomination.period_end)}) ` +
-            `está na fase: ${STATUS_LABELS[nomination.current_status]}.\n\n` +
-            `Colaborador selecionado: ${p.name}.\n\n` +
-            `Equipe de Logística de Pessoal.`,
-        },
-      });
-      return { emailed: true };
-    },
-    onSuccess: ({ emailed }) => {
-      qc.invalidateQueries({ queryKey: ["nominations"] });
-      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "history"] });
-      notify.success(
-        emailed
-          ? "Colaborador selecionado e PM notificado por e-mail."
-          : "Colaborador selecionado. PM sem e-mail cadastrado em Configurações → Projetos — e-mail não enviado.",
-      );
-    },
-    onError: (e: any) => notify.error(e.message || "Erro ao selecionar colaborador."),
-  });
-
-  if (isLoading) return <p className="text-xs text-muted-foreground">Carregando...</p>;
-  if (matches.length === 0) return <p className="text-xs text-muted-foreground">Nenhum colaborador disponível encontrado para esta função e período.</p>;
-
-  return (
-    <ul className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-      {matches.map((p) => {
-        const isSelected = nomination.approved_collaborator_name === p.name;
-        return (
-          <li
-            key={p.id}
-            onClick={() => !select.isPending && select.mutate(p)}
-            className={`flex items-center justify-between rounded-md border px-3 py-1.5 text-sm cursor-pointer transition-colors ${
-              isSelected ? "border-primary bg-primary/5" : "hover:bg-muted"
-            }`}
-          >
-            <span className="font-medium">
-              {isSelected && <CheckCircle2 className="mr-1.5 inline h-3.5 w-3.5 text-primary" />}
-              {p.name}
-            </span>
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
-              {select.isPending && select.variables?.id === p.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {p.status}
-              <span className="text-muted-foreground/70">· {p.unit || "—"}</span>
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 // ── Manage dialog ─────────────────────────────────────────────────────────────
 
 function ManageDialog({
@@ -195,9 +89,6 @@ function ManageDialog({
 }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
-  const [notes, setNotes] = useState("");
-  const [approvedCollab, setApprovedCollab] = useState(nomination.approved_collaborator_name ?? "");
-  const [reqSuperior, setReqSuperior] = useState(nomination.requires_superior_approval);
   const [tab, setTab] = useState("detalhes");
 
   const { data: history = [] } = useQuery<NominationStatusHistory[]>({
@@ -212,61 +103,44 @@ function ManageDialog({
     },
   });
 
-  const nextStatus = getNextStatus({ ...nomination, requires_superior_approval: reqSuperior });
-  const nextLabel  = nextStatus ? (NEXT_ACTION_LABELS[nextStatus] ?? STATUS_LABELS[nextStatus]) : null;
-  // Actually, NEXT_ACTION_LABELS keys are the CURRENT status, not next
-  const actionLabel = nomination.current_status in NEXT_ACTION_LABELS
-    ? NEXT_ACTION_LABELS[nomination.current_status as keyof typeof NEXT_ACTION_LABELS]
-    : null;
-
-  const updateSuperiorApproval = useMutation({
+  const toggleQualityValidated = useMutation({
     mutationFn: async (val: boolean) => {
-      const { error } = await supabase
-        .from("nominations")
-        .update({ requires_superior_approval: val })
-        .eq("id", nomination.id);
+      const { error } = await supabase.from("nominations").update({ quality_validated: val }).eq("id", nomination.id);
       if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id,
+        status: nomination.current_status,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes: val ? "Validação de Qualidade marcada" : "Validação de Qualidade desmarcada",
+      });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "history"] });
+    },
     onError: () => notify.error("Erro ao atualizar."),
   });
 
-  const advanceStatus = useMutation({
-    mutationFn: async () => {
-      const nom = { ...nomination, requires_superior_approval: reqSuperior };
-      const next = getNextStatus(nom);
-      if (!next) return;
-
-      const updates: Partial<Nomination> = { current_status: next };
-      if (nomination.current_status === "aprovacao_pm_pendente") {
-        if (!approvedCollab.trim()) throw new Error("Informe o nome do colaborador aprovado.");
-        updates.approved_collaborator_name = approvedCollab.trim();
-      }
-
-      const { error: e1 } = await supabase
+  const toggleBriefing = useMutation({
+    mutationFn: async (val: boolean) => {
+      const { error } = await supabase
         .from("nominations")
-        .update(updates)
+        .update({ briefing_sms_realizado: val, current_status: val ? "apto" : "briefing_sms" })
         .eq("id", nomination.id);
-      if (e1) throw e1;
-
-      const { error: e2 } = await supabase
-        .from("nomination_status_history")
-        .insert({
-          nomination_id:   nomination.id,
-          status:          next,
-          changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-          notes:           notes.trim() || null,
-        });
-      if (e2) throw e2;
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id,
+        status: val ? "apto" : "briefing_sms",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes: val ? "Briefing SMS realizado" : "Briefing SMS desmarcado",
+      });
     },
     onSuccess: () => {
-      notify.success("Status atualizado.");
       qc.invalidateQueries({ queryKey: ["nominations"] });
       qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "history"] });
-      setNotes("");
-      onClose();
+      notify.success("Atualizado.");
     },
-    onError: (err: Error) => notify.error(err.message || "Erro ao avançar status."),
+    onError: () => notify.error("Erro ao atualizar."),
   });
 
   const remove = useMutation({
@@ -275,17 +149,12 @@ function ManageDialog({
       if (error) throw error;
     },
     onSuccess: () => {
-      notify.success("Solicitação excluída.");
+      notify.success("Nomeação excluída.");
       qc.invalidateQueries({ queryKey: ["nominations"] });
       onClose();
     },
-    onError: (err: Error) => notify.error(err.message || "Erro ao excluir solicitação."),
+    onError: (err: Error) => notify.error(err.message || "Erro ao excluir nomeação."),
   });
-
-  const handleSuperiorToggle = (val: boolean) => {
-    setReqSuperior(val);
-    updateSuperiorApproval.mutate(val);
-  };
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -293,7 +162,7 @@ function ManageDialog({
         <DialogHeader>
           <div className="flex items-start justify-between gap-2 pr-6">
             <DialogTitle className="text-base">
-              Nomeação — <span className="text-muted-foreground">{nomination.function_requested}</span>
+              {nomination.colaborador_nome} — <span className="text-muted-foreground">{nomination.funcao}</span>
             </DialogTitle>
             <Button
               type="button"
@@ -301,7 +170,7 @@ function ManageDialog({
               size="icon"
               className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
               onClick={() => {
-                if (confirm("Excluir definitivamente esta solicitação de nomeação? Esta ação não pode ser desfeita.")) {
+                if (confirm("Excluir definitivamente esta nomeação? Esta ação não pode ser desfeita.")) {
                   remove.mutate();
                 }
               }}
@@ -312,8 +181,8 @@ function ManageDialog({
           </div>
           <div className="flex items-center gap-2 pt-1">
             <StatusBadge status={nomination.current_status} />
-            {nomination.current_status === "embarcado" && (
-              <span className="text-xs text-green-700 font-medium">Concluído</span>
+            {nomination.current_status === "apto" && (
+              <span className="text-xs text-green-700 font-medium">Apto — processo concluído</span>
             )}
           </div>
         </DialogHeader>
@@ -322,29 +191,27 @@ function ManageDialog({
           <TabsList>
             <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
             <TabsTrigger value="historico">Histórico</TabsTrigger>
-            <TabsTrigger value="colaboradores">Disponíveis</TabsTrigger>
           </TabsList>
 
           {/* ── Detalhes ── */}
           <TabsContent value="detalhes" className="space-y-4 pt-2">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-muted-foreground">PM:</span> <span className="font-medium">{nomination.pm_name}</span></div>
-              <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.function_requested}</span></div>
+              <div><span className="text-muted-foreground">Colaborador:</span> <span className="font-medium">{nomination.colaborador_nome}</span></div>
+              <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
+              {nomination.pm_name && (
+                <div><span className="text-muted-foreground">PM:</span> <span className="font-medium">{nomination.pm_name}</span></div>
+              )}
               {nomination.weld_type && (
                 <div><span className="text-muted-foreground">Tipo de solda:</span> <span className="font-medium">{nomination.weld_type}</span></div>
               )}
-              <div><span className="text-muted-foreground">Período:</span> <span className="font-medium">{fmtDate(nomination.period_start)} – {fmtDate(nomination.period_end)}</span></div>
+              {nomination.period_start && nomination.period_end && (
+                <div><span className="text-muted-foreground">Período:</span> <span className="font-medium">{fmtDate(nomination.period_start)} – {fmtDate(nomination.period_end)}</span></div>
+              )}
               {nomination.project && (
                 <div><span className="text-muted-foreground">Projeto:</span> <span className="font-medium">{nomination.project}</span></div>
               )}
               {nomination.client && (
                 <div><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{nomination.client}</span></div>
-              )}
-              {nomination.approved_collaborator_name && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground">Colaborador aprovado:</span>{" "}
-                  <span className="font-semibold text-green-700">{nomination.approved_collaborator_name}</span>
-                </div>
               )}
               {nomination.notes && (
                 <div className="col-span-2"><span className="text-muted-foreground">Notas:</span> {nomination.notes}</div>
@@ -353,65 +220,30 @@ function ManageDialog({
 
             <Separator />
 
-            {/* Flags condicionais — só editáveis na triagem */}
             <div className="space-y-3">
               {nomination.requires_quality_validation && (
-                <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  Requer validação da qualidade (tipo de solda)
-                </div>
+                <label className="flex items-center justify-between gap-2 rounded-md bg-purple-50 border border-purple-200 px-3 py-2 text-sm text-purple-900 cursor-pointer">
+                  <span className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    Validação de Qualidade (tipo de solda exige)
+                  </span>
+                  <Checkbox
+                    checked={nomination.quality_validated}
+                    onCheckedChange={(val) => toggleQualityValidated.mutate(!!val)}
+                  />
+                </label>
               )}
-              <div className="flex items-center justify-between">
-                <Label htmlFor="superior" className="text-sm">Requer aprovação de Henrique/Wainer</Label>
-                <Switch
-                  id="superior"
-                  checked={reqSuperior}
-                  onCheckedChange={handleSuperiorToggle}
-                  disabled={nomination.current_status === "embarcado"}
+              <label className="flex items-center justify-between gap-2 rounded-md bg-teal-50 border border-teal-200 px-3 py-2 text-sm text-teal-900 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Briefing SMS realizado
+                </span>
+                <Checkbox
+                  checked={nomination.briefing_sms_realizado}
+                  onCheckedChange={(val) => toggleBriefing.mutate(!!val)}
                 />
-              </div>
+              </label>
             </div>
-
-            {nomination.current_status !== "embarcado" && actionLabel && (
-              <>
-                <Separator />
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Próxima ação</p>
-
-                  {nomination.current_status === "aprovacao_pm_pendente" && (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="collab" className="text-sm">Colaborador aprovado pelo PM *</Label>
-                      <Input
-                        id="collab"
-                        placeholder="Nome do colaborador"
-                        value={approvedCollab}
-                        onChange={(e) => setApprovedCollab(e.target.value)}
-                      />
-                    </div>
-                  )}
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="notes" className="text-sm">Observações (opcional)</Label>
-                    <Textarea
-                      id="notes"
-                      rows={2}
-                      placeholder="Adicione uma observação para o histórico..."
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                    />
-                  </div>
-
-                  <Button
-                    className="w-full"
-                    onClick={() => advanceStatus.mutate()}
-                    loading={advanceStatus.isPending}
-                  >
-                    {actionLabel}
-                    <ChevronRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
-              </>
-            )}
           </TabsContent>
 
           {/* ── Histórico ── */}
@@ -422,14 +254,6 @@ function ManageDialog({
               <HistoryTimeline items={history} />
             )}
           </TabsContent>
-
-          {/* ── Disponíveis ── */}
-          <TabsContent value="colaboradores" className="pt-2 space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Colaboradores com função compatível e sem embarque conflitante no período.
-            </p>
-            <AvailableCollabs nomination={nomination} />
-          </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>
@@ -437,6 +261,13 @@ function ManageDialog({
 }
 
 // ── Create dialog ─────────────────────────────────────────────────────────────
+
+interface CreateColaborador {
+  id: string;
+  nome: string;
+  funcao: string | null;
+  funcao_operacao: string | null;
+}
 
 function CreateDialog({
   onClose,
@@ -454,78 +285,104 @@ function CreateDialog({
       (await supabase.from("projects").select("*, clients(name)").eq("active", true).order("name")).data ?? [],
   });
 
-  const { data: sheetPeople = [] } = useQuery({
-    queryKey: ["offshore-data"],
-    queryFn: () => getOffshoreData(),
-    staleTime: 5 * 60 * 1000,
+  const { data: colaboradores = [] } = useQuery<CreateColaborador[]>({
+    queryKey: ["create-nomination-colaboradores"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hist_novo_colaboradores")
+        .select("id, nome, funcao, funcao_operacao")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as CreateColaborador[];
+    },
   });
-  const smartsheetFunctions = useMemo(
-    () => Array.from(new Set(sheetPeople.map((p) => p.function).filter(Boolean))).sort(),
-    [sheetPeople],
-  );
 
-  type FnRow = { id: string; fn: string; weldType: string; manual: boolean };
-  const newRow = (): FnRow => ({ id: crypto.randomUUID(), fn: "", weldType: "", manual: false });
+  // Mesma fonte usada no droplist de função da aba Simulação — histórico real por embarque
+  // (importado do Access), mais completo que o valor único hoje em timesheet_embarques.
+  const { data: funcoesHistorico = [] } = useQuery<{ colaborador_id: string; funcao: string }[]>({
+    queryKey: ["create-nomination-funcoes-historico"],
+    queryFn: () =>
+      selectAllPages((from, to) =>
+        supabase
+          .from("colaborador_funcoes_historico")
+          .select("colaborador_id, funcao")
+          .order("data_inicio", { ascending: false })
+          .range(from, to),
+      ),
+  });
 
+  const [colaboradorId, setColaboradorId] = useState("");
+  const [funcao, setFuncao]         = useState("");
+  const [weldType, setWeldType]     = useState("");
   const [pmName, setPmName]         = useState("");
-  const [rows, setRows]             = useState<FnRow[]>([newRow()]);
   const [start, setStart]           = useState("");
   const [end, setEnd]               = useState("");
   const [project, setProject]       = useState("");
   const [client, setClient]         = useState("");
   const [notes, setNotes]           = useState("");
 
-  const addRow = () => setRows((r) => [...r, newRow()]);
-  const removeRow = (id: string) => setRows((r) => r.filter((row) => row.id !== id));
-  const updateRow = (id: string, patch: Partial<FnRow>) =>
-    setRows((r) => r.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const colaborador = colaboradores.find((c) => c.id === colaboradorId);
+
+  const funcaoOptions = useMemo(() => {
+    if (!colaboradorId) return [];
+    const doColaborador: string[] = [];
+    funcoesHistorico.forEach((f) => {
+      if (f.colaborador_id === colaboradorId && f.funcao && !doColaborador.includes(f.funcao)) {
+        doColaborador.push(f.funcao);
+      }
+    });
+    if (doColaborador.length > 0) return doColaborador;
+    const fallback = colaborador?.funcao_operacao || colaborador?.funcao;
+    return fallback ? [fallback] : [];
+  }, [colaboradorId, funcoesHistorico, colaborador]);
+
+  const handleSelectColaborador = (id: string) => {
+    setColaboradorId(id);
+    const c = colaboradores.find((x) => x.id === id);
+    const doColaborador = funcoesHistorico.find((f) => f.colaborador_id === id)?.funcao;
+    setFuncao(doColaborador || c?.funcao_operacao || c?.funcao || "");
+    setWeldType("");
+  };
+
+  const showWeld = isSoldador(funcao);
+  const requiresQuality = showWeld
+    ? weldConfig.find((w) => w.weld_type_name === weldType)?.requires_quality_validation ?? false
+    : false;
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!pmName.trim() || !start || !end) {
-        throw new Error("Preencha PM e período.");
-      }
-      const validRows = rows.filter((r) => r.fn.trim());
-      if (validRows.length === 0) {
-        throw new Error("Informe ao menos uma função solicitada.");
-      }
+      if (!colaborador) throw new Error("Selecione o colaborador.");
+      if (!funcao.trim()) throw new Error("Selecione a função.");
 
-      for (const r of validRows) {
-        const rowShowWeld = isSoldador(r.fn);
-        const rowRequiresQuality = rowShowWeld
-          ? weldConfig.find((w) => w.weld_type_name === r.weldType)?.requires_quality_validation ?? false
-          : false;
+      const { data, error } = await supabase
+        .from("nominations")
+        .insert({
+          colaborador_id:              colaborador.id,
+          colaborador_nome:            colaborador.nome,
+          funcao:                      funcao.trim(),
+          pm_name:                     pmName.trim() || null,
+          weld_type:                   showWeld ? weldType || null : null,
+          period_start:                start || null,
+          period_end:                  end || null,
+          project:                     project.trim() || null,
+          client:                      client.trim() || null,
+          notes:                       notes.trim() || null,
+          requires_quality_validation: requiresQuality,
+          current_status:              "solicitacao",
+        })
+        .select()
+        .single();
+      if (error) throw error;
 
-        const { data, error } = await supabase
-          .from("nominations")
-          .insert({
-            pm_name:                    pmName.trim(),
-            function_requested:         r.fn.trim(),
-            weld_type:                  rowShowWeld ? r.weldType || null : null,
-            period_start:               start,
-            period_end:                 end,
-            project:                    project.trim() || null,
-            client:                     client.trim() || null,
-            notes:                      notes.trim() || null,
-            requires_quality_validation: rowRequiresQuality,
-          })
-          .select()
-          .single();
-        if (error) throw error;
-
-        // Initial history entry
-        await supabase.from("nomination_status_history").insert({
-          nomination_id:   data.id,
-          status:          "triagem_pendente",
-          changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-          notes:           "Solicitação criada",
-        });
-      }
-
-      return validRows.length;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id:   data.id,
+        status:          "solicitacao",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes:           "Nomeação criada",
+      });
     },
-    onSuccess: (count) => {
-      notify.success(count > 1 ? `${count} nomeações criadas.` : "Nomeação criada.");
+    onSuccess: () => {
+      notify.success("Nomeação criada.");
       qc.invalidateQueries({ queryKey: ["nominations"] });
       onClose();
     },
@@ -541,7 +398,65 @@ function CreateDialog({
 
         <div className="space-y-3 py-2">
           <div className="space-y-1">
-            <Label>PM solicitante *</Label>
+            <Label>Colaborador *</Label>
+            <Select value={colaboradorId} onValueChange={handleSelectColaborador}>
+              <SelectTrigger><SelectValue placeholder="Selecione o colaborador" /></SelectTrigger>
+              <SelectContent>
+                {colaboradores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {colaboradorId && (
+            <div className="space-y-1">
+              <Label>Função *</Label>
+              {funcaoOptions.length > 1 ? (
+                <Select value={funcao} onValueChange={(v) => { setFuncao(v); setWeldType(""); }}>
+                  <SelectTrigger><SelectValue placeholder="Selecione a função" /></SelectTrigger>
+                  <SelectContent>
+                    {funcaoOptions.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : funcaoOptions.length === 1 ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium">{funcaoOptions[0]}</div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Nenhuma função no histórico deste colaborador.</p>
+              )}
+            </div>
+          )}
+
+          {showWeld && (
+            <div className="space-y-1">
+              <Label className="text-xs">Tipo de solda</Label>
+              {weldConfig.length > 0 ? (
+                <Select value={weldType} onValueChange={setWeldType}>
+                  <SelectTrigger><SelectValue placeholder="Selecione o tipo de solda" /></SelectTrigger>
+                  <SelectContent>
+                    {weldConfig.map((w) => (
+                      <SelectItem key={w.id} value={w.weld_type_name}>
+                        {w.weld_type_name}
+                        {w.requires_quality_validation && " (requer qualidade)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  placeholder="Tipo de solda (nenhum configurado ainda)"
+                  value={weldType}
+                  onChange={(e) => setWeldType(e.target.value)}
+                />
+              )}
+              {requiresQuality && (
+                <p className="text-xs text-amber-700 font-medium">
+                  Este tipo de solda exige validação da qualidade (aparece como etapa em Aprovação Técnica).
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <Label>PM solicitante</Label>
             {pmOptions.length > 0 ? (
               <Select value={pmName} onValueChange={setPmName}>
                 <SelectTrigger><SelectValue placeholder="Selecione o PM/Responsável" /></SelectTrigger>
@@ -557,97 +472,13 @@ function CreateDialog({
               <Input placeholder="Nome do PM" value={pmName} onChange={(e) => setPmName(e.target.value)} />
             )}
           </div>
-          <div className="space-y-2">
-            <Label>Função solicitada *</Label>
-            {rows.map((r) => {
-              const rowShowWeld = isSoldador(r.fn);
-              const rowRequiresQuality = rowShowWeld
-                ? weldConfig.find((w) => w.weld_type_name === r.weldType)?.requires_quality_validation ?? false
-                : false;
-              return (
-                <div key={r.id} className="space-y-2 rounded-md border p-3">
-                  <div className="flex items-center gap-2">
-                    {smartsheetFunctions.length > 0 && !r.manual ? (
-                      <Select
-                        value={r.fn}
-                        onValueChange={(v) => v === "__custom__" ? updateRow(r.id, { manual: true, fn: "" }) : updateRow(r.id, { fn: v })}
-                      >
-                        <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione a função" /></SelectTrigger>
-                        <SelectContent>
-                          {smartsheetFunctions.map((sf) => <SelectItem key={sf} value={sf}>{sf}</SelectItem>)}
-                          <SelectItem value="__custom__">Outra (digitar)...</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <div className="flex flex-1 gap-2">
-                        <Input
-                          placeholder="Ex.: Soldador, Mecânico, Eletricista"
-                          value={r.fn}
-                          onChange={(e) => updateRow(r.id, { fn: e.target.value })}
-                          className="flex-1"
-                        />
-                        {smartsheetFunctions.length > 0 && (
-                          <Button type="button" variant="outline" size="sm" onClick={() => updateRow(r.id, { manual: false, fn: "" })}>
-                            Lista
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                    {rows.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeRow(r.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                  {rowShowWeld && (
-                    <div className="space-y-1">
-                      <Label className="text-xs">Tipo de solda</Label>
-                      {weldConfig.length > 0 ? (
-                        <Select value={r.weldType} onValueChange={(v) => updateRow(r.id, { weldType: v })}>
-                          <SelectTrigger><SelectValue placeholder="Selecione o tipo de solda" /></SelectTrigger>
-                          <SelectContent>
-                            {weldConfig.map((w) => (
-                              <SelectItem key={w.id} value={w.weld_type_name}>
-                                {w.weld_type_name}
-                                {w.requires_quality_validation && " (requer qualidade)"}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          placeholder="Tipo de solda (nenhum configurado ainda)"
-                          value={r.weldType}
-                          onChange={(e) => updateRow(r.id, { weldType: e.target.value })}
-                        />
-                      )}
-                      {rowRequiresQuality && (
-                        <p className="text-xs text-amber-700 font-medium">
-                          Este tipo de solda exige validação da qualidade.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            <Button type="button" variant="outline" size="sm" onClick={addRow} className="gap-1">
-              <Plus className="h-3.5 w-3.5" /> Adicionar função
-            </Button>
-          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Período — início *</Label>
+              <Label>Período — início</Label>
               <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <Label>Período — fim *</Label>
+              <Label>Período — fim</Label>
               <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
             </div>
           </div>
@@ -670,7 +501,7 @@ function CreateDialog({
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={() => create.mutate()} loading={create.isPending}>
-            {rows.filter((r) => r.fn.trim()).length > 1 ? "Criar nomeações" : "Criar nomeação"}
+            Criar nomeação
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -780,6 +611,513 @@ function WeldConfigPanel() {
   );
 }
 
+// ── Kanban de Nomeações ────────────────────────────────────────────────────────
+// 6 colunas fixas (ver KANBAN_COLUMNS em src/lib/nominations.ts). Card arrastável via
+// dnd-kit; o único bloqueio de avanço é sair de "Aprovação Técnica" sem a Validação de
+// Qualidade marcada, quando o tipo de solda exige (ver canMoveToColumn). "Apto" não tem
+// coluna própria — fica dentro de "Briefing SMS", com um selo de concluído.
+
+function NominationCard({
+  nomination,
+  highlighted,
+  onOpen,
+}: {
+  nomination: Nomination;
+  highlighted: boolean;
+  onOpen: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: nomination.id });
+  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+  const isApto = nomination.current_status === "apto";
+
+  return (
+    <div
+      id={`kanban-card-${nomination.id}`}
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      onClick={onOpen}
+      className={`cursor-grab rounded-lg border bg-background p-3 shadow-sm transition-shadow active:cursor-grabbing hover:shadow-md ${
+        isDragging ? "opacity-40" : ""
+      } ${highlighted ? "ring-2 ring-primary" : ""}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold leading-tight">{nomination.colaborador_nome}</p>
+        {isApto && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
+      </div>
+      <p className="mt-0.5 text-xs text-muted-foreground">{nomination.funcao}</p>
+      {nomination.requires_quality_validation && (
+        <span
+          className={`mt-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+            nomination.quality_validated
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-amber-200 bg-amber-50 text-amber-700"
+          }`}
+        >
+          {nomination.quality_validated ? "Qualidade validada" : "Qualidade pendente"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function KanbanColumn({
+  columnId,
+  label,
+  bg,
+  text,
+  nominations,
+  highlightedId,
+  onOpen,
+}: {
+  columnId: NominationStatus;
+  label: string;
+  bg: string;
+  text: string;
+  nominations: Nomination[];
+  highlightedId: string | null;
+  onOpen: (n: Nomination) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: columnId });
+  return (
+    <div className="flex w-64 shrink-0 flex-col rounded-lg border bg-muted/20">
+      <div
+        className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide"
+        style={{ backgroundColor: bg, color: text }}
+      >
+        {label} <span className="font-normal opacity-70">({nominations.length})</span>
+      </div>
+      <div
+        ref={setNodeRef}
+        className={`flex-1 space-y-2 p-2 min-h-[120px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
+      >
+        {nominations.map((n) => (
+          <NominationCard
+            key={n.id}
+            nomination={n}
+            highlighted={highlightedId === n.id}
+            onOpen={() => onOpen(n)}
+          />
+        ))}
+        {nominations.length === 0 && (
+          <p className="py-4 text-center text-[11px] text-muted-foreground/60">Nenhum card</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KanbanBoard({
+  nominations,
+  highlightedId,
+  onOpen,
+}: {
+  nominations: Nomination[];
+  highlightedId: string | null;
+  onOpen: (n: Nomination) => void;
+}) {
+  const qc = useQueryClient();
+  const { profile } = useAuth();
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const move = useMutation({
+    mutationFn: async ({ nomination, target }: { nomination: Nomination; target: NominationStatus }) => {
+      const patch: Partial<Nomination> = { current_status: target };
+      if (target !== "briefing_sms" && target !== "apto") patch.briefing_sms_realizado = false;
+      const { error } = await supabase.from("nominations").update(patch).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id:   nomination.id,
+        status:          target,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes:           null,
+      });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations"] }),
+    onError: (err: Error) => notify.error(err.message || "Erro ao mover nomeação."),
+  });
+
+  const byColumn = useMemo(() => {
+    const m = new Map<NominationStatus, Nomination[]>();
+    KANBAN_COLUMNS.forEach((c) => m.set(c.id, []));
+    nominations.forEach((n) => {
+      const col = columnIdForStatus(n.current_status);
+      m.get(col)?.push(n);
+    });
+    return m;
+  }, [nominations]);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+    const nomination = nominations.find((n) => n.id === active.id);
+    const target = over.id as NominationStatus;
+    if (!nomination || nomination.current_status === target) return;
+
+    const gate = canMoveToColumn(nomination, target);
+    if (!gate.ok) {
+      notify.error(gate.reason ?? "Não é possível mover este card.");
+      return;
+    }
+    move.mutate({ nomination, target });
+  };
+
+  return (
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {KANBAN_COLUMNS.map((c) => (
+          <KanbanColumn
+            key={c.id}
+            columnId={c.id}
+            label={c.label}
+            bg={c.bg}
+            text={c.text}
+            nominations={byColumn.get(c.id) ?? []}
+            highlightedId={highlightedId}
+            onOpen={onOpen}
+          />
+        ))}
+      </div>
+    </DndContext>
+  );
+}
+
+// ── Simulação de disponibilidade ───────────────────────────────────────────────
+// Status por dia vem do MESMO motor usado no Histograma Offshore (computeDayStatus, sobre
+// hist_novo_periodos) — cobre Embarcado/Férias/Folga/Atestado/Trabalho Externo/Hotel/etc.,
+// não só embarque. Função por colaborador continua vindo de timesheet_embarques (mesma base
+// do Timesheet Offshore) e do cadastro (hist_novo_colaboradores). Não cria nenhuma fonte de
+// dado paralela.
+
+// Os 3 status "de negócio" pedidos pela usuária (cartões/filtro) — um colaborador cai aqui só
+// quando TODOS os dias do período são de um desses tipos; quem tem qualquer dia de
+// Férias/Folga/Atestado/Trabalho Externo/Hotel/Programado no meio cai em "outro" e por isso
+// deixa de ser contado como disponível (era o bug relatado: afastado aparecia como disponível).
+type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
+type SimStatus = "disponivel" | "embarcado" | "desembarca";
+
+const SIM_STATUS_LABEL: Record<SimStatus, string> = {
+  disponivel: "Disponível",
+  embarcado: "Embarcado",
+  desembarca: "Desembarca",
+};
+
+// Histórico real de função por embarque (importado do relatório Access — ver migração
+// colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
+// nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
+interface FuncaoHistoricoRow {
+  colaborador_id: string;
+  funcao: string;
+  data_inicio: string;
+}
+
+interface SimColaborador {
+  id: string;
+  nome: string;
+  funcao: string | null;
+  funcao_operacao: string | null;
+}
+
+function defaultSimEnd(start: string): string {
+  return addDays(start, 6);
+}
+
+function SimulacaoTab() {
+  const hoje = todayStr();
+  const [periodoDe, setPeriodoDe] = useState(hoje);
+  const [periodoAte, setPeriodoAte] = useState(() => defaultSimEnd(hoje));
+  const [filterFuncao, setFilterFuncao] = useState("all");
+  const [filterStatus, setFilterStatus] = useState<SimStatus | "all">("all");
+  const [searchNome, setSearchNome] = useState("");
+  // Só pra visualização/simulação nessa tela — nunca grava em nenhuma tabela.
+  const [funcaoOverride, setFuncaoOverride] = useState<Record<string, string>>({});
+
+  const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
+    queryKey: ["sim-colaboradores"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hist_novo_colaboradores")
+        .select("id, nome, funcao, funcao_operacao")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as SimColaborador[];
+    },
+  });
+
+  // Todos os períodos (Embarque, Férias, Folga, Atestado, etc.) de todos os colaboradores —
+  // mesma tabela/critério de corte (DRAKE_DATA_CUTOFF) já usados no Histograma Offshore.
+  // Não dá pra filtrar só pelo período exibido: o cálculo de Desembarque olha o dia seguinte
+  // ao fim de um embarque, que pode cair fora da janela filtrada.
+  const { data: periodosTodos = [] } = useQuery<HistNovoPeriodo[]>({
+    queryKey: ["sim-periodos-todos"],
+    queryFn: () =>
+      selectAllPages<HistNovoPeriodo>((from, to) =>
+        supabase
+          .from("hist_novo_periodos")
+          .select("*")
+          .gte("data_fim", DRAKE_DATA_CUTOFF)
+          .order("data_inicio")
+          .range(from, to),
+      ),
+  });
+
+  // Histórico de função do ano vigente (todo o ano, não só o período filtrado) — alimenta o
+  // droplist de função por colaborador e as opções do filtro de Função no topo. Vem do Access
+  // (mais completo que timesheet_embarques.funcao_embarque, que foi achatado por um backfill
+  // anterior pra um valor único por colaborador).
+  const { data: funcoesHistorico = [] } = useQuery<FuncaoHistoricoRow[]>({
+    queryKey: ["sim-funcoes-historico-ano-vigente"],
+    queryFn: () => {
+      const ano = new Date().getFullYear();
+      return selectAllPages<FuncaoHistoricoRow>((from, to) =>
+        supabase
+          .from("colaborador_funcoes_historico")
+          .select("colaborador_id, funcao, data_inicio")
+          .gte("data_inicio", `${ano}-01-01`)
+          .lte("data_inicio", `${ano}-12-31`)
+          .order("data_inicio", { ascending: false })
+          .range(from, to),
+      );
+    },
+  });
+
+  const periodosPorColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodosTodos.forEach((p) => {
+      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
+      m.get(p.colaborador_id)!.push(p);
+    });
+    return m;
+  }, [periodosTodos]);
+
+  // Já vem ordenado por data_inicio desc (mais recente primeiro) pela query.
+  const funcoesAnoPorColaborador = useMemo(() => {
+    const m = new Map<string, string[]>();
+    funcoesHistorico.forEach((e) => {
+      if (!e.funcao) return;
+      if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []);
+      const arr = m.get(e.colaborador_id)!;
+      if (!arr.includes(e.funcao)) arr.push(e.funcao);
+    });
+    return m;
+  }, [funcoesHistorico]);
+
+  const funcaoOptions = useMemo(
+    () => Array.from(new Set(funcoesHistorico.map((e) => e.funcao).filter((f): f is string => !!f))).sort(),
+    [funcoesHistorico],
+  );
+
+  const dates = useMemo(
+    () => (periodoDe && periodoAte && periodoDe <= periodoAte ? generateDateRange(periodoDe, periodoAte) : []),
+    [periodoDe, periodoAte],
+  );
+
+  const linhasBase = useMemo(() => {
+    return colaboradores
+      .map((c) => {
+        const periodos = periodosPorColaborador.get(c.id) ?? [];
+        const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
+        const funcaoPadrao = funcoesAno[0] || c.funcao_operacao || c.funcao || "—";
+        const funcao = funcaoOverride[c.id] ?? funcaoPadrao;
+        const statusPorDia = dates.map((d) => computeDayStatus(periodos, d));
+        const codigos = statusPorDia.map((r) => r.status);
+        const temDesembarque = codigos.includes("DES");
+        const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
+        const todosDisponivel = codigos.every((s) => s === "STB");
+        const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
+        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket };
+      })
+      .filter((l) => filterFuncao === "all" || l.funcao === filterFuncao)
+      .filter((l) => !searchNome.trim() || l.colaborador.nome.toLowerCase().includes(searchNome.trim().toLowerCase()))
+      .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, funcaoOverride, filterFuncao, searchNome]);
+
+  // Grid principal ainda respeita o filtro de Status; os cartões por função abaixo, não —
+  // eles precisam mostrar a disponibilidade de TODO mundo daquela função, senão filtrar por
+  // "Embarcado" zeraria a lista de disponíveis em todos os cartões.
+  const linhas = useMemo(
+    () => linhasBase.filter((l) => filterStatus === "all" || l.bucket === filterStatus),
+    [linhasBase, filterStatus],
+  );
+
+  const cardCounts = useMemo(() => ({
+    disponiveis: linhas.filter((l) => l.bucket === "disponivel").length,
+    embarcados: linhas.filter((l) => l.bucket === "embarcado").length,
+    desembarcam: linhas.filter((l) => l.bucket === "desembarca").length,
+  }), [linhas]);
+
+  // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
+  // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
+  // quem está de férias/folga/atestado/etc. (bucket "outro"), não só quem está embarcado.
+  const funcaoCards = useMemo(() => {
+    const m = new Map<string, { total: number; disponiveis: string[] }>();
+    linhasBase.forEach((l) => {
+      if (!m.has(l.funcao)) m.set(l.funcao, { total: 0, disponiveis: [] });
+      const g = m.get(l.funcao)!;
+      g.total++;
+      if (l.bucket === "disponivel") g.disponiveis.push(l.colaborador.nome);
+    });
+    return Array.from(m.entries())
+      .map(([funcao, v]) => ({ funcao, total: v.total, disponiveis: v.disponiveis.sort() }))
+      .sort((a, b) => b.disponiveis.length - a.disponiveis.length || a.funcao.localeCompare(b.funcao));
+  }, [linhasBase]);
+
+  // Legenda dinâmica — só os status que realmente aparecem na grade filtrada, na ordem em que
+  // o motor do Histograma já prioriza (STB/E/DES primeiro, cobre os 3 status "de negócio").
+  const legendaStatus = useMemo(() => {
+    const presentes = new Set<ComputedStatus>();
+    linhas.forEach((l) => l.statusPorDia.forEach((r) => presentes.add(r.status)));
+    const ordem: ComputedStatus[] = ["STB", "E", "DES", "DB", "FI", "F", "FE", "AT", "TE", "HTL", "DDN", "P"];
+    return ordem.filter((s) => presentes.has(s));
+  }, [linhas]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-0.5">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
+          <Input type="date" className="h-8 w-40 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+        </div>
+        <div className="space-y-0.5">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
+          <Input type="date" className="h-8 w-40 text-xs" value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+        </div>
+        <div className="space-y-0.5 w-56">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+          <Input
+            placeholder="Buscar por nome..."
+            className="h-8 text-xs"
+            value={searchNome}
+            onChange={(e) => setSearchNome(e.target.value)}
+          />
+        </div>
+        <div className="space-y-0.5 w-56">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
+          <Select value={filterFuncao} onValueChange={setFilterFuncao}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todas</SelectItem>
+              {funcaoOptions.map((f) => <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-0.5 w-44">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
+          <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as SimStatus | "all")}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos</SelectItem>
+              <SelectItem value="disponivel" className="text-xs">Disponível</SelectItem>
+              <SelectItem value="embarcado" className="text-xs">Embarcado</SelectItem>
+              <SelectItem value="desembarca" className="text-xs">Desembarca</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground">Disponíveis no período</p>
+          <p className="mt-1 text-2xl font-semibold">{cardCounts.disponiveis}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground">Embarcados no período</p>
+          <p className="mt-1 text-2xl font-semibold">{cardCounts.embarcados}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground">Desembarcam no período</p>
+          <p className="mt-1 text-2xl font-semibold">{cardCounts.desembarcam}</p>
+        </Card>
+      </div>
+
+      <div className="flex flex-wrap gap-3 text-xs">
+        {legendaStatus.map((s) => (
+          <span key={s} className="flex items-center gap-1.5">
+            <span
+              className="flex h-5 min-w-5 items-center justify-center rounded-sm border px-1 text-[10px] font-bold"
+              style={{ backgroundColor: STATUS_COLOR[s], color: getContrastText(STATUS_COLOR[s]) }}
+            >
+              {displayAbbr(s)}
+            </span>
+            {STATUS_LABEL[s]}
+          </span>
+        ))}
+      </div>
+
+      <div className="max-h-[70vh] overflow-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="sticky left-0 top-0 z-20 w-56 bg-background">Colaborador</TableHead>
+              {dates.map((d) => (
+                <TableHead key={d} className="sticky top-0 z-10 bg-background text-center text-[10px] whitespace-nowrap">
+                  {weekdayAbbr(d)} {d.slice(8, 10)}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {linhas.map((l) => (
+              <TableRow key={l.colaborador.id}>
+                <TableCell className="sticky left-0 z-10 bg-background align-top">
+                  <p className="text-sm font-medium">{l.colaborador.nome}</p>
+                  {l.funcoesAno.length > 1 ? (
+                    <Select
+                      value={l.funcao}
+                      onValueChange={(v) => setFuncaoOverride((prev) => ({ ...prev, [l.colaborador.id]: v }))}
+                    >
+                      <SelectTrigger className="mt-1 h-6 w-48 text-[10px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {l.funcoesAno.map((f) => <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">{l.funcao}</p>
+                  )}
+                </TableCell>
+                {l.statusPorDia.map((r, i) => {
+                  const bg = getComputedColor(r);
+                  return (
+                    <TableCell key={dates[i]} className="p-0 text-center" style={{ backgroundColor: bg }} title={getComputedLabel(r)}>
+                      <div className="flex h-10 items-center justify-center text-xs font-bold" style={{ color: getContrastText(bg) }}>
+                        {displayAbbr(r.status)}
+                      </div>
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            ))}
+            {linhas.length === 0 && <EmptyStateRow colSpan={dates.length + 1} icon={User} title="Nenhum colaborador encontrado" />}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-medium">Disponíveis por função</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {funcaoCards.map((f) => (
+            <Card key={f.funcao} className="p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">{f.funcao}</p>
+                <Badge variant="secondary" className="text-xs">{f.disponiveis.length} / {f.total}</Badge>
+              </div>
+              {f.disponiveis.length > 0 ? (
+                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                  {f.disponiveis.map((nome) => <li key={nome}>{nome}</li>)}
+                </ul>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground/70">Nenhum disponível</p>
+              )}
+            </Card>
+          ))}
+          {funcaoCards.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma função encontrada.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function NominationsPage() {
@@ -787,6 +1125,7 @@ function NominationsPage() {
   const [showCreate, setShowCreate]   = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("todos");
   const [search, setSearch]           = useState("");
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const { data: nominations = [], isLoading } = useQuery<Nomination[]>({
     queryKey: ["nominations"],
@@ -815,8 +1154,9 @@ function NominationsPage() {
       const q = search.toLowerCase();
       list = list.filter(
         (n) =>
-          n.pm_name.toLowerCase().includes(q) ||
-          n.function_requested.toLowerCase().includes(q) ||
+          n.colaborador_nome.toLowerCase().includes(q) ||
+          n.funcao.toLowerCase().includes(q) ||
+          (n.pm_name ?? "").toLowerCase().includes(q) ||
           (n.project ?? "").toLowerCase().includes(q) ||
           (n.client ?? "").toLowerCase().includes(q),
       );
@@ -824,8 +1164,15 @@ function NominationsPage() {
     return list;
   }, [nominations, filterStatus, search]);
 
-  // Count pending (not embarcado)
-  const pendingCount = nominations.filter((n) => n.current_status !== "embarcado").length;
+  const pendingCount = nominations.filter((n) => n.current_status !== "apto").length;
+
+  const handleListClick = (nom: Nomination) => {
+    setHighlightedId(nom.id);
+    document
+      .getElementById(`kanban-card-${nom.id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    window.setTimeout(() => setHighlightedId((cur) => (cur === nom.id ? null : cur)), 2000);
+  };
 
   return (
     <div className="space-y-6">
@@ -841,20 +1188,25 @@ function NominationsPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="nomeacoes">
+      <Tabs defaultValue="simulacao">
         <TabsList>
+          <TabsTrigger value="simulacao">Simulação</TabsTrigger>
           <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
           <TabsTrigger value="config">
             <Settings className="mr-1.5 h-3.5 w-3.5" /> Configurações
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Lista de nomeações ── */}
+        {/* ── Simulação de disponibilidade ── */}
+        <TabsContent value="simulacao" className="pt-4">
+          <SimulacaoTab />
+        </TabsContent>
+
+        {/* ── Lista + Kanban lado a lado ── */}
         <TabsContent value="nomeacoes" className="space-y-4 pt-4">
-          {/* Filters */}
           <div className="flex flex-wrap gap-2">
             <Input
-              placeholder="Buscar PM, função, projeto..."
+              placeholder="Buscar colaborador, função, PM..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="max-w-xs h-8 text-sm"
@@ -875,50 +1227,46 @@ function NominationsPage() {
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : filtered.length === 0 ? (
-            <Card className="p-4">
-              <EmptyState icon={User} title="Nenhuma nomeação encontrada" description="Ajuste os filtros acima ou crie uma nova solicitação." />
-            </Card>
           ) : (
-            <div className="space-y-2">
-              {filtered.map((nom) => (
-                <Card
-                  key={nom.id}
-                  className="p-4 cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => setSelected(nom)}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm">{nom.function_requested}</span>
-                        {nom.weld_type && (
-                          <span className="text-xs text-muted-foreground">• {nom.weld_type}</span>
-                        )}
+            <div className="flex gap-4 items-start">
+              {/* Lista */}
+              <div className="w-80 shrink-0 space-y-1.5 max-h-[75vh] overflow-y-auto pr-1">
+                {nominations.length === 0 ? (
+                  <p className="p-4 text-center text-xs text-muted-foreground">Nenhuma nomeação encontrada. Crie uma nova nomeação acima.</p>
+                ) : filtered.length === 0 ? (
+                  <p className="p-4 text-center text-xs text-muted-foreground">Nenhuma nomeação com esse filtro.</p>
+                ) : (
+                  filtered.map((nom) => (
+                    <Card
+                      key={nom.id}
+                      className={`p-3 cursor-pointer transition-shadow hover:shadow-md ${
+                        highlightedId === nom.id ? "ring-2 ring-primary" : ""
+                      }`}
+                      onClick={() => handleListClick(nom)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{nom.colaborador_nome}</p>
+                          <p className="truncate text-xs text-muted-foreground">{nom.funcao}</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <User className="h-3 w-3" /> {nom.pm_name}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <CalendarDays className="h-3 w-3" />
-                          {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}
-                        </span>
-                        {nom.client && <span>{nom.client}</span>}
-                        {nom.project && <span>{nom.project}</span>}
+                      <div className="mt-1.5">
+                        <StatusBadge status={nom.current_status} />
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <StatusBadge status={nom.current_status} />
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  </div>
-                  {nom.approved_collaborator_name && (
-                    <div className="mt-2 text-xs text-green-700 font-medium">
-                      ✓ Colaborador: {nom.approved_collaborator_name}
-                    </div>
-                  )}
-                </Card>
-              ))}
+                    </Card>
+                  ))
+                )}
+              </div>
+
+              {/* Kanban — colunas sempre visíveis, mesmo sem nenhum card */}
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                <KanbanBoard
+                  nominations={filtered}
+                  highlightedId={highlightedId}
+                  onOpen={setSelected}
+                />
+              </div>
             </div>
           )}
         </TabsContent>
