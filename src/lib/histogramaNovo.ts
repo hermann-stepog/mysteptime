@@ -291,6 +291,18 @@ export interface DayStatusResult {
 //   - Desembarque: o Drake trata o último dia do embarque (data_fim) ainda como "Embarcado" —
 //     não existe um status próprio de desembarque lá. Pra bater com o Drake, o último dia do
 //     embarque aqui também é "E"; "Desembarque" vira só o 1º dia de Folga logo em seguida.
+// O Drake às vezes exporta o embarque ainda em aberto (sem desembarque confirmado) com uma
+// data de término "placeholder" bem distante no futuro (ex.: mais de 1 ano à frente), em vez
+// de deixar em branco. Um embarque legítimo não passa disso na prática (P99 de duração real
+// ficou em ~19 dias, com raríssimos casos até uns 49 — o próximo valor visto de fato foi 376).
+// Então, se a duração total ultrapassa esse limite, tratamos como embarque em aberto: conta
+// normalmente até hoje, mas não projeta Embarcado/Dobra pra dias futuros ainda incertos.
+const EMBARQUE_DURACAO_MAX_RAZOAVEL_DIAS = 90;
+
+function embarqueTemDataFimPlaceholder(p: HistNovoPeriodo): boolean {
+  return daysBetween(p.data_inicio, p.data_fim) + 1 > EMBARQUE_DURACAO_MAX_RAZOAVEL_DIAS;
+}
+
 export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): DayStatusResult {
   const covering = (tipo: string) => periodos.find((p) => p.tipo === tipo && date >= p.data_inicio && date <= p.data_fim);
 
@@ -300,7 +312,12 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   const fe = covering("FE");
   if (fe) return { status: "FE", periodo: fe };
 
-  const embarque = periodos.find((p) => p.tipo === "E" && date >= p.data_inicio && date <= p.data_fim);
+  const hoje = todayStr();
+  const embarque = periodos.find((p) => {
+    if (p.tipo !== "E" || date < p.data_inicio || date > p.data_fim) return false;
+    if (date > hoje && embarqueTemDataFimPlaceholder(p)) return false;
+    return true;
+  });
   if (embarque) {
     const folgaMesmoDia = covering("F");
     if (folgaMesmoDia) return { status: "FI", periodo: embarque };
