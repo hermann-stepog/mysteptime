@@ -49,6 +49,15 @@ function messageFromErrorPayload(event: DrakeProgressEvent): string {
   if (event.code === "DRAKE_TEMP_STORAGE_ERROR" || isInternalPathLeak(event.message ?? "")) {
     return "Não foi possível preparar os arquivos temporários da atualização.";
   }
+  if (event.code === "DRAKE_INTERACTIVE_AUTH_REQUIRED") {
+    return "O Drake solicitou uma confirmação adicional de login.";
+  }
+  if (event.code === "DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED") {
+    return "A autenticação do Drake precisa ser concluída manualmente uma vez.";
+  }
+  if (event.code === "DRAKE_SESSION_EXPIRED") {
+    return "A sessão do Drake expirou e precisa ser conectada novamente.";
+  }
   if (event.code) {
     const decoded = decodeAppAuthMessage(`${event.code}: ${event.message}`);
     if (decoded.code) return decoded.message;

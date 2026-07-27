@@ -42,15 +42,38 @@ export function getDrakeConfig() {
     DRAKE_TEMP_MAX_AGE_MINUTES: intEnv("DRAKE_TEMP_MAX_AGE_MINUTES", 60),
     DRAKE_LAST_DIAGNOSTIC_DIR: (process.env.DRAKE_LAST_DIAGNOSTIC_DIR ?? "").trim(),
     DRAKE_AUTH_HEADLESS: boolEnv("DRAKE_AUTH_HEADLESS", true),
+    /**
+     * Debug local: Chromium visível + screenshots sanitizados.
+     * Ignorado em DRAKE_BROWSER_MODE=remote (Lovable).
+     */
+    DRAKE_AUTH_DEBUG: boolEnv("DRAKE_AUTH_DEBUG", false),
     DRAKE_SESSION_CACHE_ENABLED: boolEnv("DRAKE_SESSION_CACHE_ENABLED", true),
     DRAKE_SESSION_CACHE_PATH: sessionCachePath,
     /** Alias legado — aponta para o cache de sessão. */
     DRAKE_STORAGE_STATE_PATH: sessionCachePath,
-    DRAKE_CONTEXT_NAME: process.env.DRAKE_CONTEXT_NAME ?? "Step",
+    DRAKE_CONTEXT_NAME:
+      (process.env.DRAKE_CLIENT_NAME ?? "").trim() ||
+      (process.env.DRAKE_CONTEXT_NAME ?? "").trim() ||
+      "STEP",
+    /** Alias preferencial — mesmo valor que DRAKE_CONTEXT_NAME. */
+    DRAKE_CLIENT_NAME:
+      (process.env.DRAKE_CLIENT_NAME ?? "").trim() ||
+      (process.env.DRAKE_CONTEXT_NAME ?? "").trim() ||
+      "STEP",
     DRAKE_TIMEOUT_MS: intEnv("DRAKE_TIMEOUT_MS", 60_000),
     DRAKE_LOGIN_DISCOVERY_TIMEOUT_MS: intEnv("DRAKE_LOGIN_DISCOVERY_TIMEOUT_MS", 90_000),
     /** Timeout para o Menu no BrowserContext retornar 200 após o login UI. */
     DRAKE_BROWSER_MENU_TIMEOUT_MS: intEnv("DRAKE_BROWSER_MENU_TIMEOUT_MS", 90_000),
+    /** Timeout do bootstrap interativo (usuário completa MFA manualmente). */
+    DRAKE_BOOTSTRAP_TIMEOUT_MS: intEnv("DRAKE_BOOTSTRAP_TIMEOUT_MS", 600_000),
+    /**
+     * Quando true no modo remote, o bootstrap pode usar Chromium CDP com perfil persistente.
+     * Lovable não tem filesystem persistente — sem isso o bootstrap remoto informa a limitação.
+     */
+    DRAKE_REMOTE_BROWSER_PERSISTENT_PROFILE: boolEnv(
+      "DRAKE_REMOTE_BROWSER_PERSISTENT_PROFILE",
+      false,
+    ),
     DRAKE_REPORT_DOWNLOAD_TIMEOUT_MS: intEnv("DRAKE_REPORT_DOWNLOAD_TIMEOUT_MS", 300_000),
     DRAKE_USER_AGENT:
       process.env.DRAKE_USER_AGENT ??

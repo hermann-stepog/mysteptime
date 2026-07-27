@@ -14,8 +14,9 @@ export function createLocalDrakeBrowserRuntime(): DrakeBrowserRuntime {
       let browser: import("playwright").Browser | null = null;
       try {
         const { chromium } = await import(/* @vite-ignore */ "playwright");
+        const headed = env.DRAKE_AUTH_DEBUG === true && env.DRAKE_AUTH_HEADLESS === false;
         browser = await chromium.launch({
-          headless: true,
+          headless: !headed,
           args: ["--disable-dev-shm-usage"],
         });
         const context = await browser.newContext({

@@ -10,6 +10,8 @@ import {
   DrakeAuthError,
   DRAKE_CREDENTIALS_NOT_CONFIGURED,
   DRAKE_INTERACTIVE_AUTH_REQUIRED,
+  DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED,
+  DRAKE_SESSION_EXPIRED,
 } from "./auth/errors";
 import { clearSessionCache } from "./auth/session-cache.server";
 import type { StorageState } from "./auth/types";
@@ -164,7 +166,7 @@ async function updateDrakeDataInner(
       return await operation(apiContext);
     } catch (error: unknown) {
       if (!renewedOnce && isSessionExpiredError(error)) {
-        logger.warn("drake-authentication", "Sessao expirada; renovando uma vez", {
+        logger.warn("drake-authentication", "Sessao expirada mid-run; renovando automaticamente", {
           stage: currentStage,
         });
         await authenticate(true);
@@ -206,7 +208,9 @@ async function updateDrakeDataInner(
         }
         if (
           error instanceof Error &&
-          (error as Error & { code?: string }).code === DRAKE_INTERACTIVE_AUTH_REQUIRED
+          ((error as Error & { code?: string }).code === DRAKE_INTERACTIVE_AUTH_REQUIRED ||
+            (error as Error & { code?: string }).code === DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED ||
+            (error as Error & { code?: string }).code === DRAKE_SESSION_EXPIRED)
         ) {
           throw error;
         }

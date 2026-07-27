@@ -43,6 +43,13 @@ describe("DrakeUpdateCard — UI e streaming", () => {
     expect(source).toMatch(/DRAKE_TEMP_STORAGE_ERROR/);
   });
 
+  it("bootstrap e sessao expirada mostram mensagens controladas", () => {
+    expect(source).toMatch(/DRAKE_INTERACTIVE_AUTH_REQUIRED/);
+    expect(source).toMatch(/O Drake solicitou uma confirmação adicional de login/);
+    expect(source).toMatch(/DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED/);
+    expect(source).toMatch(/DRAKE_SESSION_EXPIRED/);
+  });
+
   it("sucesso invalida caches do Histograma", () => {
     expect(source).toMatch(/hist-novo-colaboradores/);
     expect(source).toMatch(/hist-novo-periodos/);

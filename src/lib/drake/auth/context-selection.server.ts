@@ -9,12 +9,22 @@ import { sanitizeError } from "../sanitize-error.server";
 import { dumpContextControls, isExactContextLabel } from "./context-diagnostics.server";
 import { hasFilledPasswordField } from "./login-diagnostics.server";
 import { findPasswordField, type LocatedElement, usableFrames } from "./locate.server";
+import {
+  selectDrakeClient,
+  isClientSelectionScreen,
+} from "./client-selection.server";
+import {
+  DrakeAuthError,
+  DRAKE_CLIENT_NOT_FOUND,
+  DRAKE_CLIENT_SELECTION_FAILED,
+  clientSelectionFailedError,
+} from "./errors";
 
 const CONTEXT_HINTS =
   /empresa|company|ambiente|environment|configura[cç][aã]o|configuration|contexto|context|\bbase\b/i;
 
 const CONTEXT_CONTINUE_NAMES =
-  /continuar|continue|entrar|acessar|prosseguir|avan[cç]ar|avancar|next|selecionar|confirmar/i;
+  /^(continuar|continue|prosseguir|confirmar)$/i;
 
 const AVOID_CONTEXT_BUTTONS = /voltar|cancelar|sair|logout|configura[cç][aã]o|configuration/i;
 
@@ -52,14 +62,15 @@ function isLoginUrl(url: string): boolean {
 }
 
 export function isAuthenticatedRoute(url: string): boolean {
-  if (isLoginUrl(url)) {
+  const lower = url.toLowerCase();
+  if (lower.includes("/logon") || lower.includes("/m/public/")) {
     return false;
   }
   try {
     const current = new URL(url);
     return current.pathname.includes("/m/");
   } catch {
-    return url.includes("/m/");
+    return lower.includes("/m/");
   }
 }
 
@@ -346,7 +357,7 @@ function rankCombobox(candidate: LocatedElement): Promise<number> {
 
 async function findExactStepOptions(page: Page): Promise<RankedOption[]> {
   const ranked: RankedOption[] = [];
-  const expected = env.DRAKE_CONTEXT_NAME;
+  const expected = env.DRAKE_CLIENT_NAME || env.DRAKE_CONTEXT_NAME;
 
   for (const frame of usableFrames(page)) {
     const byRole = frame.getByRole("option", {
@@ -741,6 +752,10 @@ export async function findContextContinueButton(page: Page): Promise<LocatedElem
       if (AVOID_CONTEXT_BUTTONS.test(text)) {
         continue;
       }
+      // Evitar botões genéricos que não confirmam o tenant.
+      if (!/continuar|continue|prosseguir|confirmar/i.test(text)) {
+        continue;
+      }
       const visible = await button.isVisible().catch(() => false);
       const enabled = await button.isEnabled().catch(() => false);
       if (visible && enabled) {
@@ -811,6 +826,11 @@ async function waitForContextUi(page: Page): Promise<boolean> {
       (selects > 0 || combos.length > 0 || hasStep || hasHints) &&
       (enabledSelect || combos.length > 0 || hasStep)
     ) {
+      logger.info("drake-authentication", "Tela de seleção de cliente detectada", {
+        stage: "client-selection",
+        targetClientConfigured: true,
+        visibleCandidateCount: combos.length + (hasStep ? 1 : 0),
+      });
       logger.info("Tela de selecao de contexto detectada");
       return true;
     }
@@ -858,9 +878,30 @@ export async function selectDrakeContext(page: Page): Promise<void> {
   if (
     isAuthenticatedRoute(page.url()) &&
     !(await isContextSelectionScreen(page)) &&
+    !(await isClientSelectionScreen(page)) &&
     !(await findPasswordField(page))
   ) {
     return;
+  }
+
+  // Prioridade: cards/botões/links STEP (client-selection).
+  if (await isClientSelectionScreen(page)) {
+    const cardResult = await selectDrakeClient(page);
+    if (cardResult.selectionSucceeded) {
+      const continued = await clickContextContinue(page);
+      if (!continued && (await isContextSelectionScreen(page))) {
+        // Continuar opcional se a tela de contexto ainda exigir
+      }
+      if (
+        isAuthenticatedRoute(page.url()) ||
+        (!(await isContextSelectionScreen(page)) && !(await isClientSelectionScreen(page)))
+      ) {
+        logger.info("drake-authentication", "Sessão autenticada no ambiente selecionado", {
+          browserMenuStatus: "pending-menu-validation",
+        });
+        return;
+      }
+    }
   }
 
   const ready = await waitForContextUi(page);
@@ -868,12 +909,30 @@ export async function selectDrakeContext(page: Page): Promise<void> {
     if (isAuthenticatedRoute(page.url()) && !(await findPasswordField(page))) {
       return;
     }
+    // Tenta cards novamente antes de falhar
+    if (await isClientSelectionScreen(page)) {
+      const retry = await selectDrakeClient(page);
+      if (retry.selectionSucceeded) return;
+    }
     await dumpContextControls(page);
-    throw new Error("Tela de selecao de contexto nao apareceu.");
+    throw clientSelectionFailedError();
   }
 
   await dumpContextControls(page);
   logger.info("Diagnostico previo a selecao coletado");
+
+  // Cards/botões antes dos comboboxes
+  try {
+    const direct = await selectDrakeClient(page);
+    if (direct.selectionSucceeded) {
+      await clickContextContinue(page);
+      if (!(await isContextSelectionScreen(page)) || isAuthenticatedRoute(page.url())) {
+        return;
+      }
+    }
+  } catch (error: unknown) {
+    if (error instanceof DrakeAuthError) throw error;
+  }
 
   const strategies: Array<() => Promise<boolean>> = [
     () => tryNativeSelect(page),
@@ -898,6 +957,9 @@ export async function selectDrakeContext(page: Page): Promise<void> {
 
     if (await isSelectionConfirmed(page)) {
       logger.info("Selecao Step confirmada");
+      logger.info("drake-authentication", "Ambiente Drake selecionado", {
+        selectionSucceeded: true,
+      });
       await maybeScreenshot(page, "context-selected");
       break;
     }
@@ -908,13 +970,43 @@ export async function selectDrakeContext(page: Page): Promise<void> {
   if (!selected) {
     await dumpContextControls(page);
     logger.warn("Falha ao selecionar Step");
-    await runManualContextSelection(page);
-    return;
+    throw new DrakeAuthError(
+      DRAKE_CLIENT_NOT_FOUND,
+      "O ambiente configurado não foi encontrado na conta do Drake.",
+    );
   }
 
   const continued = await clickContextContinue(page);
   if (!continued) {
+    // Sem Continuar: se já saiu da tela de seleção, sucesso.
+    if (
+      !(await isContextSelectionScreen(page)) ||
+      isAuthenticatedRoute(page.url()) ||
+      (await isSelectionConfirmed(page))
+    ) {
+      logger.info("drake-authentication", "Ambiente Drake selecionado", {
+        selectionSucceeded: true,
+        continueButton: false,
+      });
+      return;
+    }
     logger.warn("Botao Continuar nao encontrado apos selecionar Step");
-    await runManualContextSelection(page);
+    // Seleção confirmada no combobox — segue para validação Menu no caller.
+    if (await isSelectionConfirmed(page)) {
+      logger.info("drake-authentication", "Ambiente Drake selecionado", {
+        selectionSucceeded: true,
+        continueButton: false,
+      });
+      return;
+    }
+    throw new DrakeAuthError(
+      DRAKE_CLIENT_SELECTION_FAILED,
+      "Não foi possível acessar o ambiente configurado no Drake.",
+    );
   }
+
+  logger.info("drake-authentication", "Ambiente Drake selecionado", {
+    selectionSucceeded: true,
+    continueButton: true,
+  });
 }

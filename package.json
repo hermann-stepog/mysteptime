@@ -20,6 +20,9 @@
     "drake:analyze:original-sequence": "tsx scripts/analyze-drake-original-sequence.ts",
     "drake:test:exact-sequence": "node scripts/drake-test-exact-sequence.mjs",
     "drake:test:auth-session": "node scripts/drake-test-auth-session.mjs",
+    "drake:test:auth-debug": "node scripts/drake-test-auth-debug.mjs",
+    "drake:auth:bootstrap": "node scripts/drake-auth-bootstrap.mjs",
+    "drake:auth:validate": "node scripts/drake-auth-validate.mjs",
     "drake:scheduler:test-times": "tsx scripts/drake-scheduler-test-times.ts",
     "drake:scheduler:run-now": "tsx scripts/drake-scheduler-run-now.ts",
     "drake:verify:lovable-bundle": "node scripts/drake-verify-lovable-bundle.mjs"

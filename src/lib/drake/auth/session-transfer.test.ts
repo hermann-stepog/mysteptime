@@ -218,8 +218,10 @@ describe("auth provider contracts", () => {
     expect(auth).toMatch(/waitForBrowserMenuAuthenticated/);
     expect(auth).toMatch(/validateHttpSessionTransfer|validateDrakeApiSession/);
     expect(auth).toMatch(/createDrakeHttpClientFromAuthenticatedSession/);
+    expect(auth).toMatch(/performHeadlessDrakeLogin/);
     expect(auth).not.toMatch(/from ["']playwright["']/);
     expect(auth).not.toMatch(/request\.newContext/);
+    expect(auth).not.toMatch(/interactiveBootstrapRequiredError/);
   });
 
   it("SignalR nao inicia antes da sessao validada", async () => {
@@ -230,6 +232,7 @@ describe("auth provider contracts", () => {
     expect(authIdx).toBeGreaterThan(-1);
     expect(signalrIdx).toBeGreaterThan(authIdx);
     expect(src).toMatch(/createDrakeApiContextFromAuthenticatedSession/);
+    expect(src).toMatch(/renovando automaticamente/);
   });
 
   it("imports de Playwright continuam dinamicos nos adaptadores", async () => {
@@ -266,7 +269,6 @@ describe("auth provider contracts", () => {
     const roots = ["src/lib/histograma", "src/components/histograma"];
     for (const root of roots) {
       if (!glob.existsSync(root)) continue;
-      // Apenas garante que validacao de sessao nao vazou para UI/importadores.
       const card = path.join("src/components/histograma/DrakeUpdateCard.tsx");
       if (glob.existsSync(card)) {
         const src = await fs.readFile(card, "utf8");

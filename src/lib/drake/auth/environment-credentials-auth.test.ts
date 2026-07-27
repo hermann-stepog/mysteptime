@@ -21,6 +21,23 @@ describe("Drake auth errors", () => {
     expect(err.message).toContain("confirmação interativa");
   });
 
+  it("bootstrap e sessao expirada usam mensagens de producao", async () => {
+    const {
+      interactiveBootstrapRequiredError,
+      sessionExpiredNeedsBootstrapError,
+      DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED,
+      DRAKE_SESSION_EXPIRED,
+    } = await import("./errors");
+    expect(interactiveBootstrapRequiredError()).toMatchObject({
+      code: DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED,
+      message: "A autenticação do Drake precisa ser concluída manualmente uma vez.",
+    });
+    expect(sessionExpiredNeedsBootstrapError()).toMatchObject({
+      code: DRAKE_SESSION_EXPIRED,
+      message: "A sessão do Drake expirou e precisa ser conectada novamente.",
+    });
+  });
+
   it("credenciais nao aparecem na sanitizacao", () => {
     const text = sanitizeSensitiveText(
       "Authorization: Bearer tokensecret Cookie: SapiensiaAuth=abc",
@@ -76,17 +93,35 @@ describe("headless auth contract", () => {
       "src/lib/drake/browser/local-drake-browser-runtime.server.ts",
       "utf8",
     );
+    expect(local).toMatch(/chromium\.launch\(\{/);
+    expect(local).toMatch(/headless:\s*!headed/);
+    expect(local).toMatch(/await import\(/);
+    expect(local).toMatch(/playwright/);
+  });
+
+  it("producao autentica com sessao ou login headless automatico", async () => {
+    const fs = await import("node:fs/promises");
     const auth = await fs.readFile(
       "src/lib/drake/auth/environment-credentials-auth.server.ts",
       "utf8",
     );
-    expect(local).toMatch(/chromium\.launch\(\{\s*headless:\s*true/);
-    expect(local).toMatch(/await import\(/);
-    expect(local).toMatch(/playwright/);
     expect(auth).toMatch(/createDrakeBrowserRuntime/);
+    expect(auth).toMatch(/performHeadlessDrakeLogin/);
     expect(auth).not.toMatch(/from ["']playwright["']/);
+    expect(auth).not.toMatch(/interactiveBootstrapRequiredError/);
     expect(auth).not.toMatch(/headless:\s*false/);
     expect(auth).not.toMatch(/page\.pause/);
+  });
+
+  it("bootstrap interativo permanece opcional (headed) fora do caminho normal", async () => {
+    const fs = await import("node:fs/promises");
+    const bootstrap = await fs.readFile(
+      "src/lib/drake/auth/interactive-bootstrap.server.ts",
+      "utf8",
+    );
+    expect(bootstrap).toMatch(/headless:\s*false/);
+    expect(bootstrap).toMatch(/waitForInteractiveBrowserMenu/);
+    expect(bootstrap).toMatch(/writeSessionCache/);
   });
 
   it("adaptador remoto usa connectOverCDP e nao lanca browser local", async () => {
@@ -132,16 +167,28 @@ describe("headless auth contract", () => {
 });
 
 describe("session cache", () => {
-  it("writeSessionCache e no-op quando desabilitado", async () => {
+  it("writeSessionCache em memoria mesmo com arquivo desabilitado", async () => {
     const prev = process.env.DRAKE_SESSION_CACHE_ENABLED;
+    const prevMode = process.env.DRAKE_BROWSER_MODE;
     try {
       process.env.DRAKE_SESSION_CACHE_ENABLED = "false";
+      process.env.DRAKE_BROWSER_MODE = "local";
       vi.resetModules();
-      const { writeSessionCache, readSessionCache } = await import("./session-cache.server");
+      const {
+        writeSessionCache,
+        readSessionCache,
+        clearSessionCache,
+        __resetSessionCacheMemoryForTests,
+      } = await import("./session-cache.server");
+      __resetSessionCacheMemoryForTests();
       await writeSessionCache({ cookies: [{ name: "x" }], origins: [] });
+      const cached = await readSessionCache();
+      expect(cached?.cookies?.[0]).toMatchObject({ name: "x" });
+      await clearSessionCache();
       expect(await readSessionCache()).toBeNull();
     } finally {
       process.env.DRAKE_SESSION_CACHE_ENABLED = prev;
+      process.env.DRAKE_BROWSER_MODE = prevMode;
       vi.resetModules();
     }
   });

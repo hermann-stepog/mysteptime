@@ -1,13 +1,19 @@
 import "@tanstack/react-start/server-only";
 import type { Page } from "playwright";
 import { env } from "../config.server";
+import { isDrakeBrowserRemoteMode } from "../browser/create-drake-browser-runtime.server";
 import { logger } from "../logger";
 import {
-  detectCaptchaOrMfa,
   fillAndSubmitCredentials,
+  handleNormalMicrosoftSteps,
   isAuthenticatedRoute,
   isLoginUrl,
 } from "./headless-login-helpers.server";
+import {
+  classifyLoginStep,
+  detectInteractiveChallenge,
+  logInteractiveChallengeDetection,
+} from "./interactive-challenge.server";
 import { isContextSelectionScreen, selectDrakeContext } from "./context-selection.server";
 import { findPasswordField } from "./locate.server";
 import { interactiveAuthRequiredError, DrakeAuthError, DRAKE_AUTH_FAILED } from "./errors";
@@ -15,6 +21,10 @@ import type { StorageState } from "./types";
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function allowNonHeadlessLocalAuth(): boolean {
+  return env.DRAKE_AUTH_DEBUG === true && !isDrakeBrowserRemoteMode();
 }
 
 async function confirmStableAuthenticatedSession(page: Page): Promise<void> {
@@ -45,13 +55,94 @@ async function confirmStableAuthenticatedSession(page: Page): Promise<void> {
   }
 }
 
+async function throwIfStrongInteractiveChallenge(page: Page): Promise<void> {
+  const detection = await detectInteractiveChallenge(page);
+  if (!detection.detected) return;
+  logInteractiveChallengeDetection(detection);
+  throw interactiveAuthRequiredError();
+}
+
 /**
- * Login headless exclusivo para autenticação.
- * Sempre headless:true. Sem page.pause, sem Inspector, sem janela visível.
+ * Após credenciais: trata etapas normais, aguarda redirects e só então
+ * classifica desafio interativo com evidência forte.
+ */
+async function waitAfterCredentials(page: Page): Promise<void> {
+  const deadline = Date.now() + env.DRAKE_LOGIN_DISCOVERY_TIMEOUT_MS;
+  let unknownStreakMs = 0;
+  let lastUrl = page.url();
+  const unknownGraceMs = 8_000;
+
+  while (Date.now() < deadline) {
+    if (await isContextSelectionScreen(page)) return;
+    if (await handleNormalMicrosoftSteps(page)) {
+      unknownStreakMs = 0;
+      await sleep(600);
+      continue;
+    }
+
+    await throwIfStrongInteractiveChallenge(page);
+
+    if (
+      isAuthenticatedRoute(page.url()) &&
+      !(await findPasswordField(page)) &&
+      !(await isContextSelectionScreen(page))
+    ) {
+      return;
+    }
+
+    const step = await classifyLoginStep(page);
+    if (step === "client-selection") {
+      unknownStreakMs = 0;
+      const { selectDrakeContext } = await import("./context-selection.server");
+      await selectDrakeContext(page);
+      return;
+    }
+    if (
+      step === "email" ||
+      step === "password" ||
+      step === "account-picker" ||
+      step === "stay-signed-in" ||
+      step === "login-callback"
+    ) {
+      unknownStreakMs = 0;
+      if (step === "email" || step === "password") {
+        const resumed = await fillAndSubmitCredentials(page);
+        if (!resumed) {
+          await throwIfStrongInteractiveChallenge(page);
+        }
+      }
+      await sleep(500);
+      continue;
+    }
+
+    const url = page.url();
+    if (url !== lastUrl) {
+      lastUrl = url;
+      unknownStreakMs = 0;
+    } else {
+      unknownStreakMs += 500;
+    }
+
+    // Página desconhecida: aguarda evolução do redirect antes de declarar MFA.
+    if (step === "unknown" && unknownStreakMs >= unknownGraceMs) {
+      const detection = await detectInteractiveChallenge(page);
+      if (detection.detected) {
+        logInteractiveChallengeDetection(detection);
+        throw interactiveAuthRequiredError();
+      }
+    }
+
+    await sleep(500);
+  }
+}
+
+/**
+ * Login headless (ou headed local com DRAKE_AUTH_DEBUG).
  * Fecha o browser no chamador após extrair storageState.
  */
 export async function performHeadlessDrakeLogin(page: Page): Promise<void> {
-  if (env.DRAKE_AUTH_HEADLESS !== true && env.DRAKE_HEADLESS !== true) {
+  const debugLocal = allowNonHeadlessLocalAuth();
+  if (env.DRAKE_AUTH_HEADLESS !== true && env.DRAKE_HEADLESS !== true && !debugLocal) {
     throw new DrakeAuthError(
       DRAKE_AUTH_FAILED,
       "Login do Drake exige modo headless (DRAKE_AUTH_HEADLESS=true).",
@@ -78,41 +169,20 @@ export async function performHeadlessDrakeLogin(page: Page): Promise<void> {
     }
   }
 
-  const challenge = await detectCaptchaOrMfa(page);
-  if (challenge) {
-    throw interactiveAuthRequiredError();
-  }
+  await handleNormalMicrosoftSteps(page);
+  await throwIfStrongInteractiveChallenge(page);
 
   const credentialsOk = await fillAndSubmitCredentials(page);
   if (!credentialsOk) {
-    const midChallenge = await detectCaptchaOrMfa(page);
-    if (midChallenge) throw interactiveAuthRequiredError();
+    await handleNormalMicrosoftSteps(page);
+    await throwIfStrongInteractiveChallenge(page);
     throw new DrakeAuthError(DRAKE_AUTH_FAILED, "Não foi possível autenticar no Drake.");
   }
 
-  // MFA/CAPTCHA após submit
-  const afterSubmit = await detectCaptchaOrMfa(page);
-  if (afterSubmit) throw interactiveAuthRequiredError();
-
-  if (!(await isContextSelectionScreen(page))) {
-    const waitDeadline = Date.now() + env.DRAKE_LOGIN_DISCOVERY_TIMEOUT_MS;
-    while (Date.now() < waitDeadline) {
-      if (await detectCaptchaOrMfa(page)) throw interactiveAuthRequiredError();
-      if (await isContextSelectionScreen(page)) break;
-      if (
-        isAuthenticatedRoute(page.url()) &&
-        !(await findPasswordField(page)) &&
-        !(await isContextSelectionScreen(page))
-      ) {
-        break;
-      }
-      await sleep(500);
-    }
-  }
+  await waitAfterCredentials(page);
 
   await selectDrakeContext(page);
   await confirmStableAuthenticatedSession(page);
-  // Critério forte (Menu 200) é aplicado em waitForBrowserMenuAuthenticated pelo provider.
   logger.info("Login UI do Drake estabilizado; aguardando validacao do Menu no navegador");
 }
 

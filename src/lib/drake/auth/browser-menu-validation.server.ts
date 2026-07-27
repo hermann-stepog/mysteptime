@@ -9,7 +9,11 @@ import {
   type DrakeAuthenticatedSession,
   type SanitizedSessionStructure,
 } from "./authenticated-session.server";
-import { detectCaptchaOrMfa, isAuthenticatedRoute, isLoginUrl } from "./headless-login-helpers.server";
+import { isAuthenticatedRoute, isLoginUrl } from "./headless-login-helpers.server";
+import {
+  detectInteractiveChallenge,
+  logInteractiveChallengeDetection,
+} from "./interactive-challenge.server";
 import { isContextSelectionScreen } from "./context-selection.server";
 import { findPasswordField } from "./locate.server";
 import { extractStorageStateFromPage } from "./headless-login.server";
@@ -21,6 +25,13 @@ import {
 import type { CookieRecord } from "../http/drake-cookie-jar.server";
 
 const MENU_PATH = "/api/v2/Authorization/Menu";
+
+async function throwIfInteractiveChallenge(page: Page): Promise<void> {
+  const detection = await detectInteractiveChallenge(page);
+  if (!detection.detected) return;
+  logInteractiveChallengeDetection(detection);
+  throw interactiveAuthRequiredError();
+}
 
 export type BrowserMenuProbeResult = {
   status: number;
@@ -53,9 +64,7 @@ function isCallbackOrIdentityUrl(url: string): boolean {
 export async function waitForPostLoginNavigation(page: Page, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await detectCaptchaOrMfa(page)) {
-      throw interactiveAuthRequiredError();
-    }
+    await throwIfInteractiveChallenge(page);
     const url = page.url();
     if (isCallbackOrIdentityUrl(url) || isLoginUrl(url)) {
       await sleep(500);
@@ -175,9 +184,7 @@ export async function waitForBrowserMenuAuthenticated(
   await waitForPostLoginNavigation(page, Math.min(timeoutMs, env.DRAKE_LOGIN_DISCOVERY_TIMEOUT_MS));
 
   while (Date.now() < deadline) {
-    if (await detectCaptchaOrMfa(page)) {
-      throw interactiveAuthRequiredError();
-    }
+    await throwIfInteractiveChallenge(page);
     if (isLoginUrl(page.url()) && (await findPasswordField(page))) {
       throw new DrakeAuthError(
         DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED,

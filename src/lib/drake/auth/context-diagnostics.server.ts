@@ -11,7 +11,8 @@ import { usableFrames } from "./locate.server";
 export { normalizeText };
 
 export function isExactContextLabel(text: string): boolean {
-  return normalizeText(text) === normalizeText(env.DRAKE_CONTEXT_NAME);
+  const expected = env.DRAKE_CLIENT_NAME || env.DRAKE_CONTEXT_NAME;
+  return normalizeText(text) === normalizeText(expected);
 }
 
 const COMBO_SELECTORS = [
