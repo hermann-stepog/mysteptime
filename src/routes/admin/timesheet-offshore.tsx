@@ -29,7 +29,7 @@ import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
   STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas,
   mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma,
-  UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno,
+  UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno, horasNoturnas, parseHHMM, daysBetweenStr,
   type TimesheetEmbarque, type TimesheetSemana, type TimesheetDia,
 } from "@/lib/timesheetOffshore";
 import { gerarSemanasEDias } from "@/lib/timesheetAutoGen";
@@ -148,59 +148,84 @@ export async function generateRelatorioRH(
   dataFim: string = defaultEnd(),
   unidadeFiltro = "all",
 ): Promise<void> {
-  const [{ data: colaboradores }, embarques] = await Promise.all([
+  const [{ data: colaboradores }, embarques, periodosFI] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    // Folga Indenizada (tipo "FI") já vem pronta do Drake no Histograma — não é lançada aqui,
+    // só somada nesse relatório (mesma coluna 413, mesmo adicional de 100%).
+    selectAllPages<HistNovoPeriodo>((from, to) =>
+      supabase.from("hist_novo_periodos").select("*").eq("tipo", "FI")
+        .lte("data_inicio", dataFim).gte("data_fim", dataInicio).order("id").range(from, to),
+    ),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
   const embarqueById = new Map(embarques.map((e) => [e.id, e]));
 
   const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
 
-  const byColab = new Map<string, { colaborador: HistNovoColaborador; dias: DiaComEmbarque[] }>();
+  // Agrupado por embarque (não por colaborador): quem teve mais de um embarque no período
+  // entra com uma linha por embarque, mesmo repetindo o nome — a função pode mudar de um
+  // embarque pro outro, e os adicionais são contados por embarque, não somados no colaborador.
+  const byEmbarque = new Map<string, { colaborador: HistNovoColaborador; embarque: TimesheetEmbarque; dias: DiaComEmbarque[] }>();
   diasNoPeriodo.forEach((d) => {
     const embarque = embarqueById.get(d.embarque_id);
     if (!embarque) return;
     if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
     const colaborador = colabById.get(embarque.colaborador_id);
     if (!colaborador) return;
-    if (!byColab.has(colaborador.id)) byColab.set(colaborador.id, { colaborador, dias: [] });
-    byColab.get(colaborador.id)!.dias.push(d);
+    if (!byEmbarque.has(embarque.id)) byEmbarque.set(embarque.id, { colaborador, embarque, dias: [] });
+    byEmbarque.get(embarque.id)!.dias.push(d);
   });
 
-  const linhas = Array.from(byColab.values()).map(({ colaborador, dias }) => {
+  const linhas = Array.from(byEmbarque.values()).map(({ colaborador, embarque, dias }) => {
     // 055/056/057/033 continuam por função (adicionaisPorFuncao). 208/209 são por evento do dia
     // (regra do Access, seção 16.5/16.6) — sem filtro de função, e sem contar Desembarque em 208.
     const counts: Record<AdicionalCode, number> = { "055": 0, "056": 0, "057": 0, "033": 0, "209": 0 };
     let sobreavisoDias = 0;
     let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasDias = 0;
+    adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code] = dias.length; });
     dias.forEach((d) => {
-      const embarque = embarqueById.get(d.embarque_id);
-      if (embarque) adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code]++; });
       if (isDiaSobreaviso(d.evento)) sobreavisoDias++;
       if (isDiaPericulosidade(d.evento)) counts["209"]++;
       horaExtra += d.horas_extras ?? 0;
-      if (d.adicional_noturno) horasNoturno += d.total_horas ?? 0;
+      if (d.adicional_noturno) horasNoturno += horasNoturnas(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
       // Feriado só conta nos dias de Embarque (não em folga/hotel/etc. que caiam num feriado).
       if (d.feriado && d.evento === "Embarque") feriadoDias++;
-      // 413 - Dobras a bordo conta dias/ocorrências (regra do Access, seção 13.3), não horas.
-      if (d.evento === "Dobra") dobrasDias++;
+      // 413 - Dobras a bordo (100%): marcação manual (evento "Dobra") OU automático a partir do
+      // 15º dia do MESMO embarque (regra confirmada com a usuária — antes de 15 dias é 50%
+      // normal, não entra em 413) — sem contar o mesmo dia duas vezes.
+      const diaDoEmbarque = daysBetweenStr(embarque.data_inicio_embarque, d.data) + 1;
+      if (d.evento === "Dobra" || diaDoEmbarque >= 15) dobrasDias++;
     });
     return {
-      colaborador, counts, sobreavisoDias,
+      colaborador, embarque, counts, sobreavisoDias,
       horaExtra: round2(horaExtra), horasNoturno: round2(horasNoturno),
       feriadoDias, dobrasDias,
     };
-  }).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
+  }).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome) || a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque));
+
+  // Folga Indenizada (100%) soma na mesma coluna 413 — o período FI não pertence a nenhum
+  // embarque (acontece entre dois embarques), então entra na linha do embarque seguinte desse
+  // colaborador; se não houver um embarque seguinte dentro do relatório, cai no mais recente.
+  periodosFI.forEach((p) => {
+    const linhasDoColaborador = linhas.filter((l) => l.colaborador.id === p.colaborador_id);
+    if (!linhasDoColaborador.length) return;
+    const dias = Math.max(0, daysBetweenStr(p.data_inicio, p.data_fim) + 1);
+    const seguinte = linhasDoColaborador
+      .filter((l) => l.embarque.data_inicio_embarque >= p.data_fim)
+      .sort((a, b) => a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque))[0];
+    const alvo = seguinte ?? linhasDoColaborador.sort((a, b) => b.embarque.data_inicio_embarque.localeCompare(a.embarque.data_inicio_embarque))[0];
+    alvo.dobrasDias += dias;
+  });
 
   const header = [
-    "Nome do Funcionário", "055 - Irata N1", "056 - Irata N2", "057 - Irata N3", "033 - Habitat",
+    "Nome do Funcionário", "Função", "055 - Irata N1", "056 - Irata N2", "057 - Irata N3", "033 - Habitat",
     "208 - Adic. Sobreaviso Prop. 20%", "209 - Adic. Periculosidade Prop. 30%",
-    "408 - Hora Extra a bordo +100%", "413 - Dobras a bordo", "220 - Feriado", "035 - Adicional Noturno",
+    "408 - Hora Extra a bordo +100%", "413 - Dobras a bordo", "035 - Adicional Noturno", "220 - Feriado",
   ];
   const dataRows = linhas.map((l) => [
-    l.colaborador.nome, l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
-    l.sobreavisoDias, l.counts["209"], l.horaExtra, l.dobrasDias, l.feriadoDias, l.horasNoturno,
+    l.colaborador.nome, l.embarque.funcao_embarque || "—", l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
+    l.sobreavisoDias, l.counts["209"], l.horaExtra, l.dobrasDias, l.horasNoturno, l.feriadoDias,
   ]);
   const aoa = [
     ["Step Oil & Gas"],
@@ -214,6 +239,88 @@ export async function generateRelatorioRH(
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Relatório RH");
   XLSX.writeFile(wb, `Relatorio_RH_${dataInicio}_${dataFim}.xlsx`);
+}
+
+// Turno (Diurno/Noturno) a partir do horário de entrada/saída — jornada que cruza a virada do
+// dia (saída "menor" que entrada) conta como Noturno, igual à convenção já usada no legado.
+function turnoDoDia(entrada: string | null, saida: string | null): string {
+  const e = parseHHMM(entrada);
+  const s = parseHHMM(saida);
+  if (e == null || s == null) return "—";
+  return s <= e ? "Noturno" : "Diurno";
+}
+
+// Exportação do Relatório "Timesheets Lançados" — usada pelo módulo de Relatórios. Uma linha
+// por dia lançado (timesheet_dias), no mesmo formato do relatório de migração do Access
+// (Colaborador/Unidade/BSP/datas de embarque/evento/função/jornada/hora extra/comentários).
+export async function generateRelatorioTimesheetsLancados(
+  dataInicio: string = defaultStart(),
+  dataFim: string = defaultEnd(),
+): Promise<void> {
+  const [{ data: colaboradores }, embarques] = await Promise.all([
+    supabase.from("hist_novo_colaboradores").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+  ]);
+  const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
+
+  const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
+
+  const linhas = diasNoPeriodo
+    .map((d) => {
+      const embarque = embarqueById.get(d.embarque_id);
+      const colaborador = embarque ? colabById.get(embarque.colaborador_id) : undefined;
+      if (!embarque || !colaborador) return null;
+      const turno = turnoDoDia(d.hora_entrada, d.hora_saida);
+      const jornadaDescricao = d.hora_entrada && d.hora_saida ? `${turno} ${d.hora_entrada}|${d.hora_saida}hs` : "—";
+      return {
+        data: d.data,
+        dataFmt: fmt(d.data),
+        colaborador: colaborador.nome,
+        unidade: embarque.unidade_operacional ?? "—",
+        bsp: d.bsp || embarque.bsp || "—",
+        dataEmbarque: fmt(embarque.data_inicio_embarque),
+        dataDesembarque: fmt(embarque.data_fim_embarque),
+        evento: d.evento ?? "—",
+        funcaoEmbarque: embarque.funcao_embarque || "—",
+        funcaoColaborador: colaborador.funcao_operacao || colaborador.funcao || "—",
+        turno,
+        jornadaDescricao,
+        jornadaInicio: d.hora_entrada ?? "—",
+        jornadaTermino: d.hora_saida ?? "—",
+        inicioHoraExtra: d.hora_entrada_extra ?? "—",
+        fimHoraExtra: d.hora_saida_extra ?? "—",
+        totalHoras: d.total_horas ?? 0,
+        comentarios: d.descricao_tarefa ?? "",
+      };
+    })
+    .filter((l): l is NonNullable<typeof l> => l !== null)
+    .sort((a, b) => a.colaborador.localeCompare(b.colaborador) || a.data.localeCompare(b.data));
+
+  const header = [
+    "Colaborador", "Data", "Unidade", "BSP", "Dt Embarque", "Dt Desembarque", "Descrição do Evento",
+    "Função de Embarque", "Função do Colaborador", "Turno", "Descrição da Jornada",
+    "Jornada Início", "Jornada Término", "Início Hora Extra", "Fim Hora Extra",
+    "Qtd. Horas Totais", "Comentários",
+  ];
+  const dataRows = linhas.map((l) => [
+    l.colaborador, l.dataFmt, l.unidade, l.bsp, l.dataEmbarque, l.dataDesembarque, l.evento,
+    l.funcaoEmbarque, l.funcaoColaborador, l.turno, l.jornadaDescricao,
+    l.jornadaInicio, l.jornadaTermino, l.inicioHoraExtra, l.fimHoraExtra,
+    l.totalHoras, l.comentarios,
+  ]);
+  const aoa = [
+    ["Step Oil & Gas"],
+    [`Timesheets Lançados — ${fmt(dataInicio)} a ${fmt(dataFim)}`],
+    [],
+    header,
+    ...dataRows,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = header.map(() => ({ wch: 20 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Timesheets Lançados");
+  XLSX.writeFile(wb, `Timesheets_Lancados_${dataInicio}_${dataFim}.xlsx`);
 }
 
 // Exportação do Relatório Medição — usada pelo módulo de Relatórios (card "Relatório Medição").
@@ -865,7 +972,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       const c = m.get(unidade)!;
       c.horasNormais += d.horas_normais ?? 0;
       c.horasExtras += d.horas_extras ?? 0;
-      if (d.adicional_noturno) c.adicionalNoturno += d.total_horas ?? 0;
+      if (d.adicional_noturno) c.adicionalNoturno += horasNoturnas(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
       if (d.evento === "Dobra") c.dobras++;
       c.dias++;
     });
@@ -1029,6 +1136,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
               embarque={lancandoEmbarque}
               colaborador={colabById.get(lancandoEmbarque.colaborador_id)}
               periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
+              periodos={periodos}
               diasFaltando={rows.find((r) => r.embarque.id === lancandoEmbarque.id)?.diasFaltando ?? []}
               readOnly={readOnly}
             />
@@ -1336,8 +1444,8 @@ function periodoCorrespondente(embarque: TimesheetEmbarque, periodosDoColaborado
 
 // Painel de lançamento semanal de horas de um embarque específico — aberto via o ícone
 // "Lançar horas" na linha do embarque (não existe mais como aba separada).
-function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, readOnly = false }: {
-  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; diasFaltando: string[]; readOnly?: boolean;
+function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, diasFaltando, readOnly = false }: {
+  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; diasFaltando: string[]; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const [selectedSemanaId, setSelectedSemanaId] = useState("");
@@ -1510,7 +1618,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
       )}
 
       {selectedSemana && (
-        <SemanaGrid semana={selectedSemana} colaborador={colaborador} periodo={periodo} embarque={embarque} readOnly={readOnly} />
+        <SemanaGrid semana={selectedSemana} colaborador={colaborador} periodo={periodo} periodos={periodos} embarque={embarque} readOnly={readOnly} />
       )}
 
       <Dialog open={!!editandoSemana} onOpenChange={(o) => !o && setEditandoSemana(null)}>
@@ -1597,10 +1705,18 @@ const EVENTO_OPCOES = ["Nenhum", ...EVENTOS_DIA];
 // Entrada, Saída, Horas Normais, Horas Extras, Evento), sem nenhum valor pré-calculado ou
 // assumido: só o físico em mãos define o que vai em cada campo. Total é o único campo
 // calculado (Normais + Extras), nunca digitado.
-function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }: {
-  semana: TimesheetSemana; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; embarque: TimesheetEmbarque; readOnly?: boolean;
+function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly = false }: {
+  semana: TimesheetSemana; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; embarque: TimesheetEmbarque; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
+  // BSPs já conhecidos pra unidade desse embarque — quando há mais de um, o campo BSP de cada
+  // dia vira lista em vez de texto livre (reduz erro de digitação); "Outro" mantém o texto
+  // livre pra um BSP novo que ainda não apareceu nessa unidade.
+  const bspOptions = useMemo(
+    () => bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? ""),
+    [periodos, embarque.unidade_operacional],
+  );
+  const [bspManualIds, setBspManualIds] = useState<Set<string>>(new Set());
 
   const { data: dias = [] } = useQuery({
     queryKey: ["timesheet-dias", semana.id],
@@ -1680,13 +1796,13 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
   });
 
   const totals = useMemo(() => draft.reduce((acc, d) => {
-    // Mesmo critério usado ao salvar e no Relatório RH: dia com adicional noturno conta o
-    // total_horas do dia inteiro como hora noturna (não decompõe em parte diurna/noturna).
+    // Mesmo critério usado ao salvar e no Relatório RH: só conta como hora noturna a parte do
+    // turno que de fato cai na janela 22h–05h, não o total_horas do dia inteiro.
     const ehNoturno = d.adicional_noturno || suggestAdicionalNoturno(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
     return {
       normais: acc.normais + (d.horas_normais ?? 0),
       extras: acc.extras + (d.horas_extras ?? 0),
-      noturno: acc.noturno + (ehNoturno ? (d.total_horas ?? 0) : 0),
+      noturno: acc.noturno + (ehNoturno ? horasNoturnas(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra) : 0),
       total: acc.total + (d.total_horas ?? 0),
     };
   }, { normais: 0, extras: 0, noturno: 0, total: 0 }), [draft]);
@@ -1736,10 +1852,26 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
                   </Select>
                 </TableCell>
                 <TableCell>
-                  <Input
-                    className="h-8 text-xs" disabled={readOnly} placeholder="BSP"
-                    value={d.bsp ?? ""} onChange={(e) => editarCampo(d.id, { bsp: e.target.value || null })}
-                  />
+                  {bspOptions.length > 1 && !bspManualIds.has(d.id) ? (
+                    <Select
+                      value={d.bsp ?? ""} disabled={readOnly}
+                      onValueChange={(v) => {
+                        if (v === "__outro__") { setBspManualIds((prev) => new Set(prev).add(d.id)); return; }
+                        editarCampo(d.id, { bsp: v || null });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                      <SelectContent>
+                        {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                        <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      className="h-8 text-xs" disabled={readOnly} placeholder="BSP"
+                      value={d.bsp ?? ""} onChange={(e) => editarCampo(d.id, { bsp: e.target.value || null })}
+                    />
+                  )}
                 </TableCell>
                 <TableCell>
                   <Input

@@ -226,6 +226,25 @@ export function suggestAdicionalNoturno(
   return overlapsNoite(entrada, saida) || overlapsNoite(entradaExtra, saidaExtra);
 }
 
+// Quantas horas do dia caem de fato na janela 22h–05h (não a duração do turno inteiro) —
+// soma o período normal e o extra, tratando a virada da meia-noite.
+export function horasNoturnas(
+  entrada: string | null, saida: string | null,
+  entradaExtra: string | null = null, saidaExtra: string | null = null,
+): number {
+  const overlapMinutos = (ini: string | null, fim: string | null) => {
+    const e = parseHHMM(ini);
+    const s = parseHHMM(fim);
+    if (e == null || s == null) return 0;
+    let totalMin = s - e;
+    if (totalMin <= 0) totalMin += 24 * 60;
+    const workEnd = e + totalMin;
+    const overlap = (aStart: number, aEnd: number) => Math.max(0, Math.min(workEnd, aEnd) - Math.max(e, aStart));
+    return overlap(22 * 60, 24 * 60) + overlap(24 * 60, 24 * 60 + 5 * 60);
+  };
+  return round2((overlapMinutos(entrada, saida) + overlapMinutos(entradaExtra, saidaExtra)) / 60);
+}
+
 // Compara os dias marcados como Embarcado (E) do colaborador no Histograma contra os dias que
 // ele realmente já teve horas salvas (via "Salvar semana") — retorna as datas de embarque que
 // ainda não foram efetivamente lançadas (não basta ter criado o embarque, precisa ter salvo).
