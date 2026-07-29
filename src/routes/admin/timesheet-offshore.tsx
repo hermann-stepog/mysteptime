@@ -27,7 +27,7 @@ import { cn, focusNextOnEnter } from "@/lib/utils";
 import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
-  STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas,
+  STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas, type StatusEntrega,
   mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma,
   UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno, horasNoturnas, parseHHMM, daysBetweenStr,
   type TimesheetEmbarque, type TimesheetSemana, type TimesheetDia,
@@ -132,6 +132,16 @@ interface PdfExtractRegistro {
 
 function normalizeName(s: string): string {
   return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase().replace(/\s+/g, " ").trim();
+}
+
+// O PDF físico às vezes traz só o apelido da unidade ("Paraty") em vez do nome oficial que o
+// Drake usa ("FPPA - CIDADE DE PARATY") — sem isso, o mesmo local vira duas unidades diferentes
+// nos cartões/filtros (bug real encontrado: "Paraty" e "Saquarema" fragmentados). Se o texto
+// bruto bater com uma das unidades já conhecidas (substring, sem acento/caixa), usa a oficial.
+function normalizarUnidadeOperacional(bruta: string, opcoes: string[]): string {
+  const norm = normalizeName(bruta);
+  const oficial = opcoes.find((o) => normalizeName(o).includes(norm));
+  return oficial ?? bruta;
 }
 
 // Mapeia o texto de evento do PDF pra um dos eventos que o app reconhece (EVENTOS_DIA) —
@@ -570,9 +580,13 @@ function TimesheetOffshore() {
       <Tabs defaultValue="embarques">
         <TabsList>
           <TabsTrigger value="embarques">Lançamento por período</TabsTrigger>
+          <TabsTrigger value="pendencias">Timesheets Pendentes</TabsTrigger>
         </TabsList>
         <TabsContent value="embarques" className="mt-4">
           <EmbarquesTab colaboradores={colaboradores} periodos={periodos} periodosE={periodosE} embarques={embarques} semanas={semanas} dias={dias} unidadeOptions={unidadeOptions} readOnly={readOnly} />
+        </TabsContent>
+        <TabsContent value="pendencias" className="mt-4">
+          <PendenciasTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} semanas={semanas} unidadeOptions={unidadeOptions} readOnly={readOnly} />
         </TabsContent>
       </Tabs>
     </div>
@@ -872,7 +886,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
           const { data: embarque, error: insErr } = await supabase.from("timesheet_embarques").insert({
             colaborador_id: colaboradorId, periodo_id: null,
-            unidade_operacional: ciclo[0].embarcacao || null,
+            unidade_operacional: ciclo[0].embarcacao ? normalizarUnidadeOperacional(ciclo[0].embarcacao, unidadeOptions) : null,
             bsp: ciclo[0].bsp || null,
             funcao_embarque: ciclo[0].funcao || "—",
             data_inicio_embarque: inicio, data_fim_embarque: fim,
@@ -1447,6 +1461,149 @@ function PendentesTab({ colaboradores, periodos, embarques, semanas, dias }: {
 // se sobrepõe com as datas do embarque lançado, só pra exibir dados auxiliares (ex.: BSP).
 function periodoCorrespondente(embarque: TimesheetEmbarque, periodosDoColaborador: HistNovoPeriodo[]): HistNovoPeriodo | undefined {
   return periodosDoColaborador.find((p) => p.data_fim >= embarque.data_inicio_embarque && p.data_inicio <= embarque.data_fim_embarque);
+}
+
+// ─── Aba 2: Timesheets Pendentes ────────────────────────────────────────────
+// Lista os embarques cujo timesheet físico ainda não foi recebido por completo (status_entrega
+// "pendente" ou "parcial") — pra cobrar do colaborador o físico que está faltando.
+function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOptions, readOnly = false }: {
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; unidadeOptions: string[]; readOnly?: boolean;
+}) {
+  const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
+  const periodosByColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodos.forEach((p) => {
+      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
+      m.get(p.colaborador_id)!.push(p);
+    });
+    return m;
+  }, [periodos]);
+  const semanasByEmbarqueId = useMemo(() => {
+    const m = new Map<string, TimesheetSemana[]>();
+    semanas.forEach((s) => {
+      if (!m.has(s.embarque_id)) m.set(s.embarque_id, []);
+      m.get(s.embarque_id)!.push(s);
+    });
+    return m;
+  }, [semanas]);
+
+  const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
+  const [filterNome, setFilterNome] = useState("");
+  const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
+
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
+
+  const pendencias = useMemo(() => embarques
+    .filter((e) => e.status_entrega !== "completo")
+    .map((e) => {
+      const semanasDoEmbarque = semanasByEmbarqueId.get(e.id) ?? [];
+      const recebidas = semanasDoEmbarque.filter((s) => s.recebido_fisico).length;
+      const total = totalSemanasEsperadas(e.data_inicio_embarque, e.data_fim_embarque);
+      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total };
+    })
+    .filter((r) =>
+      (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
+      (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
+      (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())),
+    )
+    .sort((a, b) => a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque)),
+  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome]);
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
+            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+          </div>
+          <div className="ml-auto text-xs text-muted-foreground">{pendencias.length} embarque(s) com físico pendente</div>
+        </div>
+      </Card>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Colaborador</TableHead>
+              <TableHead>Função</TableHead>
+              <TableHead>Unidade</TableHead>
+              <TableHead>BSP</TableHead>
+              <TableHead>Período do embarque</TableHead>
+              <TableHead>Semanas recebidas</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-16">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pendencias.length === 0 ? (
+              <EmptyStateRow colSpan={8} icon={CheckCircle2} title="Nenhum timesheet físico pendente" description="Todos os embarques já tiveram o físico recebido por completo." />
+            ) : pendencias.map((r) => (
+              <TableRow key={r.embarque.id}>
+                <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{r.embarque.funcao_embarque ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{r.embarque.bsp ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{fmt(r.embarque.data_inicio_embarque)} a {fmt(r.embarque.data_fim_embarque)}</TableCell>
+                <TableCell className="text-muted-foreground">{r.recebidas} / {r.total}</TableCell>
+                <TableCell>
+                  <StatusBadge tone={STATUS_ENTREGA_TONE[r.embarque.status_entrega as StatusEntrega]}>
+                    {STATUS_ENTREGA_LABEL[r.embarque.status_entrega as StatusEntrega]}
+                  </StatusBadge>
+                </TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" title="Lançar horas" onClick={() => setLancandoEmbarque(r.embarque)}>
+                    <Clock className="h-3.5 w-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <Dialog open={!!lancandoEmbarque} onOpenChange={(o) => !o && setLancandoEmbarque(null)}>
+        <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Lançamento de horas — {lancandoEmbarque ? colabById.get(lancandoEmbarque.colaborador_id)?.nome ?? "—" : ""}
+            </DialogTitle>
+          </DialogHeader>
+          {lancandoEmbarque && (
+            <EmbarqueTimesheetPanel
+              embarque={lancandoEmbarque}
+              colaborador={colabById.get(lancandoEmbarque.colaborador_id)}
+              periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
+              periodos={periodos}
+              diasFaltando={[]}
+              readOnly={readOnly}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 
 // Painel de lançamento semanal de horas de um embarque específico — aberto via o ícone
