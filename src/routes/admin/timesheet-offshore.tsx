@@ -53,6 +53,32 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Período (De/Até) do Timesheet Offshore salvo no navegador, pra continuar selecionado entre
+// acessos até a usuária trocar de novo.
+const PERIODO_STORAGE_KEY = "timesheet-offshore:periodo";
+
+function readPeriodoSalvo(): { de: string; ate: string } {
+  try {
+    const raw = localStorage.getItem(PERIODO_STORAGE_KEY);
+    if (!raw) return { de: "", ate: "" };
+    const parsed = JSON.parse(raw);
+    return {
+      de: typeof parsed.de === "string" ? parsed.de : "",
+      ate: typeof parsed.ate === "string" ? parsed.ate : "",
+    };
+  } catch {
+    return { de: "", ate: "" };
+  }
+}
+
+function salvarPeriodo(de: string, ate: string): void {
+  try {
+    localStorage.setItem(PERIODO_STORAGE_KEY, JSON.stringify({ de, ate }));
+  } catch {
+    /* localStorage indisponível (ex.: modo privado) — sem persistência, sem quebrar a tela */
+  }
+}
+
 function defaultStart() {
   const d = new Date();
   d.setDate(1);
@@ -768,8 +794,11 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
   const [filterNome, setFilterNome] = useState("");
-  const [filterDe, setFilterDe] = useState("");
-  const [filterAte, setFilterAte] = useState("");
+  // De/Até ficam salvos no navegador — o período escolhido permanece selecionado entre
+  // sessões até a usuária trocar de novo, em vez de voltar em branco a cada acesso.
+  const [filterDe, setFilterDe] = useState(() => readPeriodoSalvo().de);
+  const [filterAte, setFilterAte] = useState(() => readPeriodoSalvo().ate);
+  useEffect(() => { salvarPeriodo(filterDe, filterAte); }, [filterDe, filterAte]);
   const [novoOpen, setNovoOpen] = useState(false);
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
   const [editandoEmbarque, setEditandoEmbarque] = useState<TimesheetEmbarque | null>(null);
@@ -960,7 +989,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   const embarqueIdBySemanaId = useMemo(() => new Map(semanas.map((s) => [s.id, s.embarque_id])), [semanas]);
 
   const cardsPorUnidade = useMemo(() => {
-    const m = new Map<string, { horasNormais: number; horasExtras: number; adicionalNoturno: number; dobras: number; dias: number }>();
+    const unidades = new Set<string>();
     dias.forEach((d) => {
       if (filterDe && d.data < filterDe) return;
       if (filterAte && d.data > filterAte) return;
@@ -968,17 +997,9 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       const unidade = embarqueId ? unidadeByEmbarqueId.get(embarqueId) : null;
       if (!unidade) return;
       if (filterBsp !== "all" && (!embarqueId || bspByEmbarqueId.get(embarqueId) !== filterBsp)) return;
-      if (!m.has(unidade)) m.set(unidade, { horasNormais: 0, horasExtras: 0, adicionalNoturno: 0, dobras: 0, dias: 0 });
-      const c = m.get(unidade)!;
-      c.horasNormais += d.horas_normais ?? 0;
-      c.horasExtras += d.horas_extras ?? 0;
-      if (d.adicional_noturno) c.adicionalNoturno += horasNoturnas(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
-      if (d.evento === "Dobra") c.dobras++;
-      c.dias++;
+      unidades.add(unidade);
     });
-    return Array.from(m.entries())
-      .map(([unidade, v]) => ({ unidade, ...v }))
-      .sort((a, b) => a.unidade.localeCompare(b.unidade));
+    return Array.from(unidades).sort((a, b) => a.localeCompare(b));
   }, [dias, filterDe, filterAte, filterBsp, embarqueIdBySemanaId, unidadeByEmbarqueId, bspByEmbarqueId]);
 
   return (
@@ -1028,27 +1049,18 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       </Card>
 
       {cardsPorUnidade.length > 0 && (
-        <div className="grid grid-cols-4 gap-3">
-          {cardsPorUnidade.map((c) => (
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          {cardsPorUnidade.map((unidade) => (
             <Card
-              key={c.unidade}
+              key={unidade}
               role="button" tabIndex={0}
-              onClick={() => { setFilterUnidade(c.unidade === filterUnidade ? "all" : c.unidade); setFilterBsp("all"); }}
+              onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
               className={cn(
-                "cursor-pointer overflow-hidden rounded-xl p-0 text-[11px] shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md",
-                filterUnidade === c.unidade && "border-primary shadow-md",
+                "cursor-pointer overflow-hidden rounded-xl border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent p-3 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
               )}
             >
-              <div className="bg-gradient-to-b from-accent/20 via-accent/5 to-transparent px-2.5 pb-2.5 pt-2.5">
-                <p className="text-xs font-semibold">{c.unidade}</p>
-              </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 px-2.5 pb-2.5 text-muted-foreground">
-                <span>Normais: <strong className="text-foreground">{round2(c.horasNormais)}h</strong></span>
-                <span>Extras: <strong className="text-foreground">{round2(c.horasExtras)}h</strong></span>
-                <span>Adic. Not.: <strong className="text-foreground">{round2(c.adicionalNoturno)}h</strong></span>
-                <span>Dobras: <strong className="text-foreground">{c.dobras}</strong></span>
-                <span>Dias: <strong className="text-foreground">{c.dias}</strong></span>
-              </div>
+              <p className="text-xs font-semibold leading-snug text-primary">{unidade}</p>
             </Card>
           ))}
         </div>
