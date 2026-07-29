@@ -983,26 +983,21 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
   );
 
-  // Cartões por Unidade — soma as horas/dias lançados em timesheet_dias dentro do período
-  // De/Até selecionado (sem período, soma tudo). Clicar no cartão só aplica o mesmo filtro
-  // de Unidade Operacional já usado pela tabela abaixo.
-  const unidadeByEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.unidade_operacional])), [embarques]);
-  const bspByEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.bsp])), [embarques]);
-  const embarqueIdBySemanaId = useMemo(() => new Map(semanas.map((s) => [s.id, s.embarque_id])), [semanas]);
-
+  // Cartões por Unidade — mesmo critério de sobreposição de datas usado no filtro da tabela
+  // abaixo (por embarque, não por timesheet_dias já lançado): um colaborador cujo embarque
+  // cobre o período aparece mesmo que os dias ainda não tenham sido gerados/lançados um a um,
+  // senão o cartão ficava incompleto em relação à tabela que ele mesmo filtra ao ser clicado.
   const cardsPorUnidade = useMemo(() => {
     const unidades = new Set<string>();
-    dias.forEach((d) => {
-      if (filterDe && d.data < filterDe) return;
-      if (filterAte && d.data > filterAte) return;
-      const embarqueId = embarqueIdBySemanaId.get(d.semana_id);
-      const unidade = embarqueId ? unidadeByEmbarqueId.get(embarqueId) : null;
-      if (!unidade) return;
-      if (filterBsp !== "all" && (!embarqueId || bspByEmbarqueId.get(embarqueId) !== filterBsp)) return;
-      unidades.add(unidade);
+    embarques.forEach((e) => {
+      if (!e.unidade_operacional) return;
+      if (filterDe && e.data_fim_embarque < filterDe) return;
+      if (filterAte && e.data_inicio_embarque > filterAte) return;
+      if (filterBsp !== "all" && e.bsp !== filterBsp) return;
+      unidades.add(e.unidade_operacional);
     });
     return Array.from(unidades).sort((a, b) => a.localeCompare(b));
-  }, [dias, filterDe, filterAte, filterBsp, embarqueIdBySemanaId, unidadeByEmbarqueId, bspByEmbarqueId]);
+  }, [embarques, filterDe, filterAte, filterBsp]);
 
   return (
     <div className="space-y-3">
