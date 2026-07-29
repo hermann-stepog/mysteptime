@@ -1666,7 +1666,7 @@ function diaLabelCurto(d: TimesheetDia): string {
   return `${diaSemanaPt} ${diaMes}`;
 }
 
-function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: HistNovoPeriodo | undefined, embarque: TimesheetEmbarque, rows: TimesheetDia[], totals: { normais: number; extras: number; total: number }) {
+function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: HistNovoPeriodo | undefined, embarque: TimesheetEmbarque, rows: TimesheetDia[], totals: { normais: number; extras: number; total: number }, funcaoEfetiva?: string) {
   const win = window.open("", "_blank", "width=900,height=700");
   if (!win) return;
   const linhas = rows.map((r) => `
@@ -1691,7 +1691,7 @@ function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: H
       <div class="info"><strong>Unidade:</strong> ${embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"}</div>
       <div class="info"><strong>Nome:</strong> ${colaborador?.nome ?? "—"}</div>
       <div class="info"><strong>BSP:</strong> ${embarque.bsp ?? "—"}</div>
-      <div class="info"><strong>Função:</strong> ${embarque.funcao_embarque}</div>
+      <div class="info"><strong>Função:</strong> ${funcaoEfetiva ?? embarque.funcao_embarque}</div>
       <div class="info"><strong>Período:</strong> ${fmt(rows[0]?.data ?? embarque.data_inicio_embarque)} a ${fmt(rows[rows.length - 1]?.data ?? embarque.data_fim_embarque)}</div>
       <table>
         <thead><tr>
@@ -1726,6 +1726,27 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     [periodos, embarque.unidade_operacional],
   );
   const [bspManualIds, setBspManualIds] = useState<Set<string>>(new Set());
+
+  // Correção de função só pra essa semana — quando o físico não bate com o que veio do Drake
+  // (embarque.funcao_embarque). Não mexe nas outras semanas do mesmo embarque nem no cadastro
+  // do colaborador; sem edição, continua puxando do Drake normalmente.
+  const [editandoFuncao, setEditandoFuncao] = useState(false);
+  const [funcaoValor, setFuncaoValor] = useState(semana.funcao_override ?? embarque.funcao_embarque ?? "");
+  const funcaoEfetiva = semana.funcao_override || embarque.funcao_embarque || "—";
+
+  const salvarFuncaoOverride = useMutation({
+    mutationFn: async (valor: string | null) => {
+      const { error } = await supabase.from("timesheet_semanas").update({ funcao_override: valor }).eq("id", semana.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas", embarque.id] });
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
+      notify.success("Função da semana atualizada");
+      setEditandoFuncao(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
 
   const { data: dias = [] } = useQuery({
     queryKey: ["timesheet-dias", semana.id],
@@ -1820,11 +1841,33 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     <Card className="p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm space-y-0.5">
-          <div><strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong> {embarque.bsp ?? "—"} &nbsp;·&nbsp; <strong>Função:</strong> {embarque.funcao_embarque}</div>
+          <div className="flex flex-wrap items-center gap-x-1">
+            <strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong> {embarque.bsp ?? "—"} &nbsp;·&nbsp; <strong>Função:</strong>{" "}
+            {editandoFuncao ? (
+              <span className="inline-flex items-center gap-1">
+                <Input className="h-6 w-48 text-xs" value={funcaoValor} onChange={(e) => setFuncaoValor(e.target.value)} />
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarFuncaoOverride.isPending} onClick={() => salvarFuncaoOverride.mutate(funcaoValor.trim() || null)}>Salvar</Button>
+                {semana.funcao_override && (
+                  <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setFuncaoValor(embarque.funcao_embarque ?? ""); salvarFuncaoOverride.mutate(null); }}>Usar do Drake</Button>
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoFuncao(false); setFuncaoValor(semana.funcao_override ?? embarque.funcao_embarque ?? ""); }}>Cancelar</Button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                {funcaoEfetiva}
+                {semana.funcao_override && <span className="text-[10px] text-muted-foreground">(editado nessa semana)</span>}
+                {!readOnly && (
+                  <button type="button" title="Corrigir função só nessa semana" onClick={() => setEditandoFuncao(true)} className="text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
           <div className="text-xs text-muted-foreground">Período: {fmt(semana.data_inicio_semana)} a {fmt(semana.data_fim_semana)}</div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => imprimirSemana(colaborador, periodo, embarque, draft, totals)}>
+          <Button variant="outline" size="sm" onClick={() => imprimirSemana(colaborador, periodo, embarque, draft, totals, funcaoEfetiva)}>
             <Printer className="mr-1.5 h-3.5 w-3.5" />Visualizar / Imprimir
           </Button>
           {!readOnly && <Button size="sm" onClick={() => salvar.mutate()} disabled={draft.length === 0} loading={salvar.isPending}>Salvar semana</Button>}
