@@ -777,6 +777,7 @@ export type Database = {
           data_inicio_semana: string
           data_recebimento: string | null
           embarque_id: string
+          funcao_override: string | null
           id: string
           recebido_fisico: boolean
         }
@@ -786,6 +787,7 @@ export type Database = {
           data_inicio_semana: string
           data_recebimento?: string | null
           embarque_id: string
+          funcao_override?: string | null
           id?: string
           recebido_fisico?: boolean
         }
@@ -795,6 +797,7 @@ export type Database = {
           data_inicio_semana?: string
           data_recebimento?: string | null
           embarque_id?: string
+          funcao_override?: string | null
           id?: string
           recebido_fisico?: boolean
         }

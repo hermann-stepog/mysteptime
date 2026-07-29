@@ -21,6 +21,9 @@ export interface TimesheetSemana {
   recebido_fisico: boolean;
   data_recebimento: string | null;
   criado_em: string;
+  // Correção pontual de função só pra essa semana, quando o físico não bate com o que veio do
+  // Drake (embarque.funcao_embarque) — nula por padrão, continua puxando do Drake.
+  funcao_override: string | null;
 }
 
 export interface TimesheetDia {
