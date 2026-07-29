@@ -9,7 +9,7 @@ import { useState, type ElementType } from "react";
 import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2 } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
 import { generateRelatorioTransporte } from "./transport";
-import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH } from "./timesheet-offshore";
+import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH, generateRelatorioTimesheetsLancados } from "./timesheet-offshore";
 import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo } from "./histograma-novo";
 import { generateRelatorioCustos } from "./costs";
 
@@ -44,6 +44,7 @@ const REPORT_CARDS: ReportCard[] = [
   { id: "rh", label: "Relatório Folha Offshore RH", description: "Adicionais do período selecionado", icon: Users, run: (i, f) => generateRelatorioRH(i, f) },
   { id: "folha-rh", label: "Folha de Pagamento / RH", description: "Lançamentos detalhados no período (regra Con_FP_Novo)", icon: ClipboardList, run: (i, f) => generateRelatorioFolhaRH(i, f) },
   { id: "medicao", label: "Relatório Medição", description: "Horas por colaborador/BSP no período", icon: Ruler, run: (i, f) => generateRelatorioMedicao(i, f) },
+  { id: "timesheets-lancados", label: "Timesheets Lançados", description: "Um lançamento por dia, com jornada, hora extra e evento", icon: ClipboardList, run: (i, f) => generateRelatorioTimesheetsLancados(i, f) },
   { id: "custos", label: "Custos", description: "Lançamentos no período em CSV", icon: DollarSign, run: (i, f) => generateRelatorioCustos(i, f) },
 ];
 

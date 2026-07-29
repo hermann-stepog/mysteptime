@@ -13,7 +13,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2, Check, ChevronsUpDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { notify } from "@/lib/notify";
 import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
@@ -1170,6 +1172,45 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
   );
 }
 
+// Busca com autocomplete (digitar e escolher da lista) — mesmo padrão do CollaboratorMultiSelect,
+// só que single-select, pro filtro por colaborador do Quadro Detalhado.
+function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { data: collaborators = [] } = useCollaboratorsQuery();
+  const [open, setOpen] = useState(false);
+  const selected = collaborators.find((c) => c.id === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-48 justify-between font-normal">
+          <span className="truncate">{selected ? selected.full_name : "Todos"}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar colaborador..." />
+          <CommandList>
+            <CommandEmpty>Nenhum encontrado.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem value="Todos" onSelect={() => { onChange(""); setOpen(false); }}>
+                <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                Todos
+              </CommandItem>
+              {collaborators.map((c) => (
+                <CommandItem key={c.id} value={c.full_name} onSelect={() => { onChange(c.id); setOpen(false); }}>
+                  <Check className={cn("mr-2 h-4 w-4", value === c.id ? "opacity-100" : "opacity-0")} />
+                  {c.full_name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -1177,6 +1218,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [status, setStatus] = useState(initialStatus ?? "all");
   const [cliente, setCliente] = useState(initialCliente ?? "all");
   const [tipo, setTipo] = useState(initialTipo ?? "all");
+  const [colaboradorId, setColaboradorId] = useState("");
 
   const filtered = useMemo(() => {
     return (trips as Trip[]).filter((t) => {
@@ -1186,9 +1228,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (status !== "all" && t.status !== status) return false;
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
+      if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
     }).sort((a, b) => compareCarNumber(a.car_number, b.car_number));
-  }, [trips, from, to, tagId, status, cliente, tipo]);
+  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId]);
 
   return (
     <div className="space-y-3">
@@ -1238,6 +1281,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <SelectItem value="cancelado">Cancelado</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Colaborador</Label>
+          <ColaboradorFiltroCombobox value={colaboradorId} onChange={setColaboradorId} />
         </div>
       </div>
       <Card className="overflow-x-auto">
