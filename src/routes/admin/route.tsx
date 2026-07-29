@@ -15,6 +15,8 @@ const nav: NavItem[] = [
   { to: "/admin/timesheet-offshore", label: "Timesheet Offshore" },
   { to: "/admin/nominations",    label: "Nomeações" },
   { to: "/admin/transport",      label: "Transporte" },
+  { to: "/admin/hospedagem",     label: "Hospedagem" },
+  { to: "/admin/passagens-aereas", label: "Passagens Aéreas" },
   { to: "/admin/collaborators",  label: "Colaboradores" },
   { to: "/admin/costs",          label: "Custos" },
   { to: "/admin/rates",          label: "Rates" },
