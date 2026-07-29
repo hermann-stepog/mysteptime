@@ -873,6 +873,17 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
     () => new Map(timesheetEmbarques.filter((e): e is TimesheetEmbarque & { periodo_id: string } => !!e.periodo_id).map((e) => [e.periodo_id, e])),
     [timesheetEmbarques],
   );
+  // periodo_id normalmente vem nulo (Drake não vincula de propósito — ver ensureTimesheetParaPeriodo),
+  // então a função do embarque de um dia é resolvida por sobreposição de data com o mesmo
+  // colaborador, não pelo id do período.
+  const embarquesByColaboradorId = useMemo(() => {
+    const m = new Map<string, TimesheetEmbarque[]>();
+    timesheetEmbarques.forEach((e) => {
+      if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []);
+      m.get(e.colaborador_id)!.push(e);
+    });
+    return m;
+  }, [timesheetEmbarques]);
   const semanasByEmbarqueId = useMemo(() => {
     const m = new Map<string, TimesheetSemana[]>();
     timesheetSemanas.forEach((s) => {
@@ -1050,12 +1061,12 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
       {viewMode === "geral" ? (
         <GeralGrid
           colaboradores={visibleColaboradores} periodosByColaborador={periodosByColaborador} dates={gridDates} today={today}
-          embarqueByPeriodoId={embarqueByPeriodoId} semanasByEmbarqueId={semanasByEmbarqueId}
+          embarqueByPeriodoId={embarqueByPeriodoId} semanasByEmbarqueId={semanasByEmbarqueId} embarquesByColaboradorId={embarquesByColaboradorId}
         />
       ) : selectedColaborador ? (
         <ColaboradorGrid
           periodos={periodosByColaborador.get(selectedColaborador) ?? []} monthGroups={yearMonthGroups}
-          embarqueByPeriodoId={embarqueByPeriodoId} semanasByEmbarqueId={semanasByEmbarqueId}
+          embarqueByPeriodoId={embarqueByPeriodoId} semanasByEmbarqueId={semanasByEmbarqueId} embarquesByColaboradorId={embarquesByColaboradorId}
         />
       ) : (
         <div className="py-10 text-center text-sm text-muted-foreground">Selecione um colaborador.</div>
@@ -1079,9 +1090,27 @@ function resolveEColor(
   return recebido ? STATUS_COLOR.E : E_A_CONFIRMAR_COLOR;
 }
 
-function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqueByPeriodoId, semanasByEmbarqueId }: {
+// Nos dias embarcado (E) ou em Dobra (DB), acrescenta função/unidade/BSP do embarque no
+// tooltip (title nativo) da célula — discreto (só aparece no hover), mas visível. Função vem
+// do timesheet_embarques que cobre essa data (por sobreposição, não por periodo_id — ver
+// comentário em embarquesByColaboradorId); sem embarque correspondente, fica "—".
+function detalheEmbarqueTooltip(
+  result: DayStatusResult, date: string, embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>,
+): string {
+  if (!result.periodo || (result.status !== "E" && result.status !== "DB")) return "";
+  const p = result.periodo;
+  const embarque = (embarquesByColaboradorId.get(p.colaborador_id) ?? [])
+    .find((e) => date >= e.data_inicio_embarque && date <= e.data_fim_embarque);
+  const funcao = embarque?.funcao_embarque || "—";
+  const unidade = p.unidade_operacional || "—";
+  const bsp = bspDoPeriodo(p) || "—";
+  return ` · Função: ${funcao} · Unidade: ${unidade} · BSP: ${bsp}`;
+}
+
+function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqueByPeriodoId, semanasByEmbarqueId, embarquesByColaboradorId }: {
   colaboradores: HistNovoColaborador[]; periodosByColaborador: Map<string, HistNovoPeriodo[]>; dates: string[]; today: string;
   embarqueByPeriodoId: Map<string, TimesheetEmbarque>; semanasByEmbarqueId: Map<string, TimesheetSemana[]>;
+  embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>;
 }) {
   if (dates.length === 0) {
     return <div className="py-10 text-center text-sm text-muted-foreground">Selecione um intervalo De/Até válido.</div>;
@@ -1116,8 +1145,7 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
                 {dates.map((d) => {
                   const result = computeDayStatus(cPeriodos, d);
                   const color = resolveEColor(result, d, embarqueByPeriodoId, semanasByEmbarqueId);
-                  const bsp = result.periodo?.centro_de_custo;
-                  const title = `${c.nome} · ${d} · ${getComputedLabel(result)}${bsp ? ` · BSP: ${bsp}` : ""}`;
+                  const title = `${c.nome} · ${d} · ${getComputedLabel(result)}${detalheEmbarqueTooltip(result, d, embarquesByColaboradorId)}`;
                   return (
                     <td key={d} className="border border-border p-0 text-center" title={title}>
                       <div
@@ -1141,9 +1169,10 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
   );
 }
 
-function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasByEmbarqueId }: {
+function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasByEmbarqueId, embarquesByColaboradorId }: {
   periodos: HistNovoPeriodo[]; monthGroups: MonthGroup[];
   embarqueByPeriodoId: Map<string, TimesheetEmbarque>; semanasByEmbarqueId: Map<string, TimesheetSemana[]>;
+  embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>;
 }) {
   const maxDays = 31;
   const dayNumbers = Array.from({ length: maxDays }, (_, i) => i + 1);
@@ -1167,8 +1196,9 @@ function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasBy
                 if (!date) return <td key={dayNum} className="border border-border p-0 bg-muted/30" />;
                 const result = computeDayStatus(periodos, date);
                 const color = resolveEColor(result, date, embarqueByPeriodoId, semanasByEmbarqueId);
+                const title = `${date} · ${getComputedLabel(result)}${detalheEmbarqueTooltip(result, date, embarquesByColaboradorId)}`;
                 return (
-                  <td key={dayNum} className="border border-border p-0 text-center" title={`${date} · ${getComputedLabel(result)}`}>
+                  <td key={dayNum} className="border border-border p-0 text-center" title={title}>
                     <div
                       className="h-7 w-[26px] flex items-center justify-center text-[10px] font-bold"
                       style={{ backgroundColor: color, color: getContrastText(color) }}
