@@ -29,8 +29,10 @@ import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminRatesRouteImport } from './routes/admin/rates'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
+import { Route as AdminPassagensAereasRouteImport } from './routes/admin/passagens-aereas'
 import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
 import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
+import { Route as AdminHospedagemRouteImport } from './routes/admin/hospedagem'
 import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
@@ -138,6 +140,11 @@ const AdminPayrollRoute = AdminPayrollRouteImport.update({
   path: '/payroll',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminPassagensAereasRoute = AdminPassagensAereasRouteImport.update({
+  id: '/passagens-aereas',
+  path: '/passagens-aereas',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminNominationsRoute = AdminNominationsRouteImport.update({
   id: '/nominations',
   path: '/nominations',
@@ -146,6 +153,11 @@ const AdminNominationsRoute = AdminNominationsRouteImport.update({
 const AdminMaterialsRoute = AdminMaterialsRouteImport.update({
   id: '/materials',
   path: '/materials',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminHospedagemRoute = AdminHospedagemRouteImport.update({
+  id: '/hospedagem',
+  path: '/hospedagem',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminHistogramaNovoRoute = AdminHistogramaNovoRouteImport.update({
@@ -192,8 +204,10 @@ export interface FileRoutesByFullPath {
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
+  '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
+  '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -220,8 +234,10 @@ export interface FileRoutesByTo {
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
+  '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
+  '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -251,8 +267,10 @@ export interface FileRoutesById {
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
+  '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
+  '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -283,8 +301,10 @@ export interface FileRouteTypes {
     | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/histograma-novo'
+    | '/admin/hospedagem'
     | '/admin/materials'
     | '/admin/nominations'
+    | '/admin/passagens-aereas'
     | '/admin/payroll'
     | '/admin/rates'
     | '/admin/reports'
@@ -311,8 +331,10 @@ export interface FileRouteTypes {
     | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/histograma-novo'
+    | '/admin/hospedagem'
     | '/admin/materials'
     | '/admin/nominations'
+    | '/admin/passagens-aereas'
     | '/admin/payroll'
     | '/admin/rates'
     | '/admin/reports'
@@ -341,8 +363,10 @@ export interface FileRouteTypes {
     | '/admin/collaborators'
     | '/admin/costs'
     | '/admin/histograma-novo'
+    | '/admin/hospedagem'
     | '/admin/materials'
     | '/admin/nominations'
+    | '/admin/passagens-aereas'
     | '/admin/payroll'
     | '/admin/rates'
     | '/admin/reports'
@@ -512,6 +536,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPayrollRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/passagens-aereas': {
+      id: '/admin/passagens-aereas'
+      path: '/passagens-aereas'
+      fullPath: '/admin/passagens-aereas'
+      preLoaderRoute: typeof AdminPassagensAereasRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/nominations': {
       id: '/admin/nominations'
       path: '/nominations'
@@ -524,6 +555,13 @@ declare module '@tanstack/react-router' {
       path: '/materials'
       fullPath: '/admin/materials'
       preLoaderRoute: typeof AdminMaterialsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/hospedagem': {
+      id: '/admin/hospedagem'
+      path: '/hospedagem'
+      fullPath: '/admin/hospedagem'
+      preLoaderRoute: typeof AdminHospedagemRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/histograma-novo': {
@@ -577,8 +615,10 @@ interface AdminRouteRouteChildren {
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
   AdminCostsRoute: typeof AdminCostsRoute
   AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
+  AdminHospedagemRoute: typeof AdminHospedagemRoute
   AdminMaterialsRoute: typeof AdminMaterialsRoute
   AdminNominationsRoute: typeof AdminNominationsRoute
+  AdminPassagensAereasRoute: typeof AdminPassagensAereasRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
   AdminRatesRoute: typeof AdminRatesRoute
   AdminReportsRoute: typeof AdminReportsRoute
@@ -593,8 +633,10 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
   AdminCostsRoute: AdminCostsRoute,
   AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,
+  AdminHospedagemRoute: AdminHospedagemRoute,
   AdminMaterialsRoute: AdminMaterialsRoute,
   AdminNominationsRoute: AdminNominationsRoute,
+  AdminPassagensAereasRoute: AdminPassagensAereasRoute,
   AdminPayrollRoute: AdminPayrollRoute,
   AdminRatesRoute: AdminRatesRoute,
   AdminReportsRoute: AdminReportsRoute,
