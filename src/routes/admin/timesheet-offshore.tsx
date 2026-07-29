@@ -976,14 +976,24 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     return m;
   }, [dias, semanas, embarques]);
 
+  const semanasByEmbarqueIdRows = useMemo(() => {
+    const m = new Map<string, TimesheetSemana[]>();
+    semanas.forEach((s) => {
+      if (!m.has(s.embarque_id)) m.set(s.embarque_id, []);
+      m.get(s.embarque_id)!.push(s);
+    });
+    return m;
+  }, [semanas]);
+
   const rows = useMemo(() => embarques.map((embarque) => {
     const colaborador = colabById.get(embarque.colaborador_id);
     const diasFaltando = diasFaltandoNoHistograma(
       periodosEByColaborador.get(embarque.colaborador_id) ?? [],
       diasSalvosPorColaborador.get(embarque.colaborador_id) ?? new Set(),
     );
-    return { embarque, colaborador, diasFaltando };
-  }), [embarques, colabById, periodosEByColaborador, diasSalvosPorColaborador]);
+    const funcaoEfetiva = funcaoEfetivaDoEmbarque(embarque, semanasByEmbarqueIdRows.get(embarque.id) ?? []);
+    return { embarque, colaborador, diasFaltando, funcaoEfetiva };
+  }), [embarques, colabById, periodosEByColaborador, diasSalvosPorColaborador, semanasByEmbarqueIdRows]);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
 
@@ -1090,7 +1100,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
             {filtered.map((r) => (
               <TableRow key={r.embarque.id}>
                 <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.funcao_embarque}</TableCell>
+                <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.bsp ?? "—"}</TableCell>
                 <TableCell>
@@ -1463,6 +1473,14 @@ function periodoCorrespondente(embarque: TimesheetEmbarque, periodosDoColaborado
   return periodosDoColaborador.find((p) => p.data_fim >= embarque.data_inicio_embarque && p.data_inicio <= embarque.data_fim_embarque);
 }
 
+// Função exibida nas listas (não no formulário de lançamento em si) — reflete a correção feita
+// na semana mais recente daquele embarque, se houver (funcao_override), senão a do embarque
+// (Drake). Corrigir uma semana antiga não muda o que aparece aqui; só a mais recente "manda".
+function funcaoEfetivaDoEmbarque(embarque: TimesheetEmbarque, semanasDoEmbarque: TimesheetSemana[]): string {
+  const maisRecente = [...semanasDoEmbarque].sort((a, b) => b.data_fim_semana.localeCompare(a.data_fim_semana))[0];
+  return maisRecente?.funcao_override || embarque.funcao_embarque || "—";
+}
+
 // ─── Aba 2: Timesheets Pendentes ────────────────────────────────────────────
 // Lista os embarques cujo timesheet físico ainda não foi recebido por completo (status_entrega
 // "pendente" ou "parcial") — pra cobrar do colaborador o físico que está faltando.
@@ -1500,7 +1518,8 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       const semanasDoEmbarque = semanasByEmbarqueId.get(e.id) ?? [];
       const recebidas = semanasDoEmbarque.filter((s) => s.recebido_fisico).length;
       const total = totalSemanasEsperadas(e.data_inicio_embarque, e.data_fim_embarque);
-      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total };
+      const funcaoEfetiva = funcaoEfetivaDoEmbarque(e, semanasDoEmbarque);
+      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva };
     })
     .filter((r) =>
       (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
@@ -1562,7 +1581,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
             ) : pendencias.map((r) => (
               <TableRow key={r.embarque.id}>
                 <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.funcao_embarque ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.bsp ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{fmt(r.embarque.data_inicio_embarque)} a {fmt(r.embarque.data_fim_embarque)}</TableCell>
@@ -1816,9 +1835,9 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
 // Dia da semana + dia do mês juntos, ex: "Segunda 06" — em vez do "Segunda-feira / Monday"
 // cru guardado em dia_semana.
 function diaLabelCurto(d: TimesheetDia): string {
-  const diaSemanaPt = d.dia_semana.split(" / ")[0].replace("-feira", "");
-  const diaMes = d.data.slice(8, 10);
-  return `${diaSemanaPt} ${diaMes}`;
+  const diaSemanaAbrev = d.dia_semana.split(" / ")[0].slice(0, 3);
+  const [ano, mes, dia] = d.data.split("-");
+  return `${diaSemanaAbrev} - ${dia}/${mes}/${ano.slice(2)}`;
 }
 
 function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: HistNovoPeriodo | undefined, embarque: TimesheetEmbarque, rows: TimesheetDia[], totals: { normais: number; extras: number; total: number }, funcaoEfetiva?: string) {
@@ -2052,7 +2071,12 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
                 <TableCell>
                   <Select
                     value={d.evento ?? "Nenhum"} disabled={readOnly}
-                    onValueChange={(v) => editarCampo(d.id, { evento: v === "Nenhum" ? null : v })}
+                    onValueChange={(v) => {
+                      // "Nenhum" no evento significa que não houve nada nesse dia — não faz
+                      // sentido continuar puxando o BSP padrão do embarque nesse caso.
+                      if (v === "Nenhum") { editarCampo(d.id, { evento: null, bsp: null }); return; }
+                      editarCampo(d.id, { evento: v });
+                    }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>{EVENTO_OPCOES.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}</SelectContent>
@@ -2061,14 +2085,15 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
                 <TableCell>
                   {bspOptions.length > 1 && !bspManualIds.has(d.id) ? (
                     <Select
-                      value={d.bsp ?? ""} disabled={readOnly}
+                      value={d.bsp ?? "__nenhum__"} disabled={readOnly}
                       onValueChange={(v) => {
                         if (v === "__outro__") { setBspManualIds((prev) => new Set(prev).add(d.id)); return; }
-                        editarCampo(d.id, { bsp: v || null });
+                        editarCampo(d.id, { bsp: v === "__nenhum__" ? null : v });
                       }}
                     >
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
                         {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
                         <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
                       </SelectContent>
