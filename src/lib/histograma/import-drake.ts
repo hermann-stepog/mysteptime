@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import type { HistNovoColaborador } from "@/lib/histogramaNovo";
 import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
+import { selectAllPages } from "@/lib/supabasePaginate";
 
 export type DrakeField =
   | "empresa"
@@ -232,12 +233,14 @@ export async function importDrakeEmbarkation(
     }))
     .filter((p): p is typeof p & { colaborador_id: string } => !!p.colaborador_id);
 
-  const { data: drakeAntigos, error: drakeErr } = await supabase
-    .from("hist_novo_periodos")
-    .select("id")
-    .eq("origem", "drake");
-  if (drakeErr) throw drakeErr;
-  const drakeIds = (drakeAntigos ?? []).map((p: { id: string }) => p.id);
+  // select("id") sem paginação corta silenciosamente em 1000 linhas (limite padrão do
+  // PostgREST) — com mais de 1000 períodos de origem "drake" (caso comum), o restante nunca
+  // seria desvinculado de timesheet_embarques.periodo_id abaixo, e o DELETE que segue bateria
+  // na constraint de chave estrangeira ao tentar apagar um período ainda referenciado.
+  const drakeAntigos = await selectAllPages<{ id: string }>((from, to) =>
+    supabase.from("hist_novo_periodos").select("id").eq("origem", "drake").order("id").range(from, to),
+  );
+  const drakeIds = drakeAntigos.map((p) => p.id);
   if (drakeIds.length) {
     for (let i = 0; i < drakeIds.length; i += 500) {
       const lote = drakeIds.slice(i, i + 500);

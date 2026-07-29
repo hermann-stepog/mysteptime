@@ -17,11 +17,31 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function gotoQueryUrl(page: Page): Promise<void> {
+  try {
+    await page.goto(env.DRAKE_QUERY_URL, {
+      waitUntil: "domcontentloaded",
+      timeout: env.DRAKE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    // Numa sessão recém-autenticada (contexto do navegador zerado, sem "última página" salva),
+    // o próprio Drake dispara um redirecionamento inicial (hoje para /flow/#/inbox) que corre
+    // em paralelo com essa navegação explícita, derrubando o page.goto com "interrupted by
+    // another navigation". É um evento único por sessão — deixamos o redirecionamento do Drake
+    // assentar e repetimos a navegação uma vez; a segunda tentativa não corre mais contra nada.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/interrupted by another navigation/i.test(message)) throw error;
+    await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+    await sleep(500);
+    await page.goto(env.DRAKE_QUERY_URL, {
+      waitUntil: "domcontentloaded",
+      timeout: env.DRAKE_TIMEOUT_MS,
+    });
+  }
+}
+
 async function confirmStableAuthenticatedSession(page: Page): Promise<void> {
-  await page.goto(env.DRAKE_QUERY_URL, {
-    waitUntil: "domcontentloaded",
-    timeout: env.DRAKE_TIMEOUT_MS,
-  });
+  await gotoQueryUrl(page);
 
   const watchMs = 8_000;
   const started = Date.now();
