@@ -830,24 +830,8 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
   const [editandoEmbarque, setEditandoEmbarque] = useState<TimesheetEmbarque | null>(null);
 
-  // Edição rápida do BSP direto na linha da lista, sem precisar abrir o dialog "Editar".
-  const [editandoBspId, setEditandoBspId] = useState<string | null>(null);
-  const [bspListaValor, setBspListaValor] = useState("");
-  const [bspListaManual, setBspListaManual] = useState(false);
 
-  const salvarBspLista = useMutation({
-    mutationFn: async ({ embarqueId, valor }: { embarqueId: string; valor: string | null }) => {
-      const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarqueId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
-      notify.success("BSP atualizado");
-      setEditandoBspId(null);
-      setBspListaManual(false);
-    },
-    onError: (e: any) => notify.error(e.message),
-  });
+
 
   const excluirEmbarque = useMutation({
     mutationFn: async (embarque: TimesheetEmbarque) => {
