@@ -738,6 +738,8 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
         periodo_id: null,
         unidade_operacional: f.unidade_operacional.trim() || null,
         bsp: f.bsp.trim() || null,
+        bsp_2: f.bsp_2.trim() || null,
+
         funcao_embarque: f.funcao_embarque,
         data_inicio_embarque: f.data_inicio,
         data_fim_embarque: f.data_fim,
