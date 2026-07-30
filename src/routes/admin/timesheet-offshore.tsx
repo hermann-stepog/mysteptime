@@ -701,16 +701,23 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
   onCreated?: (embarque: TimesheetEmbarque) => void;
 }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+  const [f, setF] = useState({ colaboradorId: "", unidade_operacional: "", bsp: "", bsp_2: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
   // Quando a unidade escolhida já tem mais de um BSP conhecido no histórico, mostra uma lista
   // em vez de campo livre — reduz erro de digitação. "Outro" volta pro campo livre (BSP novo
   // que ainda não apareceu em nenhum período dessa unidade).
   const [bspManual, setBspManual] = useState(false);
+  const [bsp2Manual, setBsp2Manual] = useState(false);
+  // Segundo BSP é opcional — só aparece quando a usuária clica em "+ Adicionar mais um BSP".
+  const [mostrarBsp2, setMostrarBsp2] = useState(false);
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   useEffect(() => {
-    if (!open) { setF({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" }); setBspManual(false); }
+    if (!open) {
+      setF({ colaboradorId: "", unidade_operacional: "", bsp: "", bsp_2: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+      setBspManual(false); setBsp2Manual(false); setMostrarBsp2(false);
+    }
   }, [open]);
+
 
   const onSelectColaborador = (id: string) => {
     const c = colaboradores.find((x) => x.id === id);
