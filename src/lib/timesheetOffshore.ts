@@ -10,7 +10,7 @@ export interface TimesheetEmbarque {
   // padrão (mesma unidade, "lançamento quebrado") — puro dado informativo, exibido junto do
   // BSP principal nas listas; a atribuição de qual dia usa qual BSP continua sendo por dia
   // (timesheet_dias.bsp).
-  bsp_extra: string | null;
+  bsp_2: string | null;
   funcao_embarque: string;
   data_inicio_embarque: string;
   data_fim_embarque: string;
