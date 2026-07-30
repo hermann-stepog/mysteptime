@@ -56,12 +56,14 @@ function round2(n: number): number {
 }
 
 // Período (De/Até) do Timesheet Offshore salvo no navegador, pra continuar selecionado entre
-// acessos até a usuária trocar de novo.
+// acessos até a usuária trocar de novo. Cada aba (Lançamento por período, Timesheets Pendentes)
+// guarda o próprio período — trocar numa não deve afetar o filtro já escolhido na outra.
 const PERIODO_STORAGE_KEY = "timesheet-offshore:periodo";
+const PERIODO_STORAGE_KEY_PENDENCIAS = "timesheet-offshore:periodo-pendencias";
 
-function readPeriodoSalvo(): { de: string; ate: string } {
+function readPeriodoSalvo(key: string = PERIODO_STORAGE_KEY): { de: string; ate: string } {
   try {
-    const raw = localStorage.getItem(PERIODO_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return { de: "", ate: "" };
     const parsed = JSON.parse(raw);
     return {
@@ -73,9 +75,9 @@ function readPeriodoSalvo(): { de: string; ate: string } {
   }
 }
 
-function salvarPeriodo(de: string, ate: string): void {
+function salvarPeriodo(de: string, ate: string, key: string = PERIODO_STORAGE_KEY): void {
   try {
-    localStorage.setItem(PERIODO_STORAGE_KEY, JSON.stringify({ de, ate }));
+    localStorage.setItem(key, JSON.stringify({ de, ate }));
   } catch {
     /* localStorage indisponível (ex.: modo privado) — sem persistência, sem quebrar a tela */
   }
@@ -1602,6 +1604,11 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  // De/Até ficam salvos no navegador — o período escolhido nessa aba permanece selecionado
+  // entre sessões até a usuária trocar de novo, independente do período da aba de Lançamento.
+  const [filterDe, setFilterDe] = useState(() => readPeriodoSalvo(PERIODO_STORAGE_KEY_PENDENCIAS).de);
+  const [filterAte, setFilterAte] = useState(() => readPeriodoSalvo(PERIODO_STORAGE_KEY_PENDENCIAS).ate);
+  useEffect(() => { salvarPeriodo(filterDe, filterAte, PERIODO_STORAGE_KEY_PENDENCIAS); }, [filterDe, filterAte]);
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
@@ -1618,15 +1625,25 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
     .filter((r) =>
       (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
       (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
-      (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())),
+      (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())) &&
+      (!filterDe || r.embarque.data_fim_embarque >= filterDe) &&
+      (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
     )
     .sort((a, b) => a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque)),
-  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome]);
+  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome, filterDe, filterAte]);
 
   return (
     <div className="space-y-4">
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
+            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+          </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
             <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
