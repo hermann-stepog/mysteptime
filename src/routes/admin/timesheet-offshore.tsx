@@ -1294,24 +1294,30 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
   colaboradorNome: string; periodos: HistNovoPeriodo[]; unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+  const [f, setF] = useState({ unidade_operacional: "", bsp: "", bsp_2: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
   const [bound, setBound] = useState<string | null>(null);
   // Se o BSP já gravado no embarque não estiver entre as opções conhecidas da unidade, começa
   // em modo manual (campo livre) pra não esconder/perder o valor já salvo.
   const [bspManual, setBspManual] = useState(false);
+  const [bsp2Manual, setBsp2Manual] = useState(false);
+  const [mostrarBsp2, setMostrarBsp2] = useState(false);
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   if (open && embarque && bound !== embarque.id) {
     const bspAtual = embarque.bsp ?? "";
+    const bsp2Atual = (embarque as any).bsp_2 ?? "";
     const opcoesUnidade = bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? "");
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
       bsp: bspAtual,
+      bsp_2: bsp2Atual,
       funcao_embarque: embarque.funcao_embarque ?? "",
       data_inicio: embarque.data_inicio_embarque,
       data_fim: embarque.data_fim_embarque,
     });
     setBspManual(!!bspAtual && !opcoesUnidade.includes(bspAtual));
+    setBsp2Manual(!!bsp2Atual && !opcoesUnidade.includes(bsp2Atual));
+    setMostrarBsp2(!!bsp2Atual);
     setBound(embarque.id);
   }
   if (!open && bound !== null) setBound(null);
@@ -1322,6 +1328,8 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
       const { error } = await supabase.from("timesheet_embarques").update({
         unidade_operacional: f.unidade_operacional.trim() || null,
         bsp: f.bsp.trim() || null,
+        bsp_2: f.bsp_2.trim() || null,
+
         funcao_embarque: f.funcao_embarque,
         data_inicio_embarque: f.data_inicio,
         data_fim_embarque: f.data_fim,
