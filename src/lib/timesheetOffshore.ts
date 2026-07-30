@@ -6,6 +6,10 @@ export interface TimesheetEmbarque {
   periodo_id: string | null;
   unidade_operacional: string | null;
   bsp: string | null;
+  // Segundo BSP do mesmo embarque, quando parte dos dias é lançada numa BSP diferente da
+  // padrão (mesma unidade, "lançamento quebrado") — puro dado informativo; a atribuição de
+  // qual dia usa qual BSP continua sendo por dia (timesheet_dias.bsp).
+  bsp_2: string | null;
   funcao_embarque: string | null;
   data_inicio_embarque: string;
   data_fim_embarque: string;
