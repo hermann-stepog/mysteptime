@@ -2012,27 +2012,10 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     setBspManualValores((prev) => { const { [diaId]: _remove, ...resto } = prev; return resto; });
   };
 
-  // BSP do embarque (o "padrão" que aparece no cabeçalho, diferente do BSP por dia — esse é o
-  // valor que os dias herdam quando não têm um BSP próprio lançado). Editável em lista, igual
-  // ao campo por dia; se o valor digitado for novo, também entra pra lista de BSPs conhecidas.
-  const [editandoBsp, setEditandoBsp] = useState(false);
-  const [bspEditManual, setBspEditManual] = useState(false);
-  const [bspValor, setBspValor] = useState(embarque.bsp ?? "");
+  // O BSP do embarque (e o 2º BSP, quando houver) é definido no formulário de embarque —
+  // aqui no cabeçalho ele é apenas exibido.
 
-  const salvarBspEmbarque = useMutation({
-    mutationFn: async (valor: string | null) => {
-      const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarque.id);
-      if (error) throw error;
-    },
-    onSuccess: (_data, valor) => {
-      if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
-      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
-      notify.success("BSP do embarque atualizado");
-      setEditandoBsp(false);
-      setBspEditManual(false);
-    },
-    onError: (e: any) => notify.error(e.message),
-  });
+
 
   // Correção de função só pra essa semana — quando o físico não bate com o que veio do Drake
   // (embarque.funcao_embarque). Não mexe nas outras semanas do mesmo embarque nem no cadastro
