@@ -723,6 +723,7 @@ export type Database = {
       }
       hist_novo_periodos: {
         Row: {
+          bsp: string | null
           centro_de_custo: string | null
           colaborador_id: string
           created_at: string
@@ -735,6 +736,7 @@ export type Database = {
           unidade_operacional: string | null
         }
         Insert: {
+          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id: string
           created_at?: string
@@ -747,6 +749,7 @@ export type Database = {
           unidade_operacional?: string | null
         }
         Update: {
+          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id?: string
           created_at?: string
