@@ -226,7 +226,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       if (!semanaIds.length) return [];
 
       const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("data, evento, horas_extras, adicional_noturno, total_horas, semana_id")
+        .from("timesheet_dias").select("data, evento, horas_extras, adicional_noturno, total_horas, semana_id, bsp")
         .in("semana_id", semanaIds).gte("data", cab.periodStart).lte("data", cab.periodEnd);
       if (diasErr) throw diasErr;
 
@@ -240,15 +240,25 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       if (colabErr) throw colabErr;
       const nomeById = new Map<string, string>((colaboradoresData ?? []).map((c: any) => [c.id, c.nome]));
 
-      const diasComColaborador: TimesheetDiaComColaborador[] = (diasData ?? []).map((d: any) => {
-        const embarqueId = embarqueBySemanaId.get(d.semana_id) ?? "";
-        const embarque = embarqueById.get(embarqueId);
-        return {
-          data: d.data, evento: d.evento, horas_extras: d.horas_extras, adicional_noturno: d.adicional_noturno, total_horas: d.total_horas,
-          colaborador_id: embarque?.colaborador_id ?? "", colaborador_nome: nomeById.get(embarque?.colaborador_id) ?? "—",
-          funcao_embarque: embarque?.funcao_embarque ?? "—", bsp: embarque?.bsp ?? null,
-        };
-      }).filter((d: TimesheetDiaComColaborador) => d.colaborador_id);
+      // BSP efetivo do dia: o que foi lançado manualmente naquele dia específico (quando o
+      // colaborador foi realocado temporariamente pra outro BSP na mesma embarcação) tem
+      // prioridade sobre o BSP padrão do embarque — sem isso, um dia "quebrado" pra outro BSP
+      // ficava contado inteiro no BSP do embarque, e nunca aparecia na medição do BSP certo.
+      const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^bsp[\s-]*/i, "").trim().toLowerCase();
+      const bspAlvo = normalizarBsp(cab.bsp);
+
+      const diasComColaborador: TimesheetDiaComColaborador[] = (diasData ?? [])
+        .map((d: any) => {
+          const embarqueId = embarqueBySemanaId.get(d.semana_id) ?? "";
+          const embarque = embarqueById.get(embarqueId);
+          const bspEfetivo = d.bsp ?? embarque?.bsp ?? null;
+          return {
+            data: d.data, evento: d.evento, horas_extras: d.horas_extras, adicional_noturno: d.adicional_noturno, total_horas: d.total_horas,
+            colaborador_id: embarque?.colaborador_id ?? "", colaborador_nome: nomeById.get(embarque?.colaborador_id) ?? "—",
+            funcao_embarque: embarque?.funcao_embarque ?? "—", bsp: bspEfetivo,
+          };
+        })
+        .filter((d: TimesheetDiaComColaborador) => d.colaborador_id && (!bspAlvo || normalizarBsp(d.bsp) === bspAlvo));
 
       // Rate é buscado por Cliente+Embarcação+Função (bate com a planilha mestre de rates da
       // usuária) — não varia por BSP, então filtra só por cliente/embarcação aqui e deixa o

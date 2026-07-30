@@ -828,6 +828,25 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
   const [editandoEmbarque, setEditandoEmbarque] = useState<TimesheetEmbarque | null>(null);
 
+  // Edição rápida do BSP direto na linha da lista, sem precisar abrir o dialog "Editar".
+  const [editandoBspId, setEditandoBspId] = useState<string | null>(null);
+  const [bspListaValor, setBspListaValor] = useState("");
+  const [bspListaManual, setBspListaManual] = useState(false);
+
+  const salvarBspLista = useMutation({
+    mutationFn: async ({ embarqueId, valor }: { embarqueId: string; valor: string | null }) => {
+      const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarqueId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      notify.success("BSP atualizado");
+      setEditandoBspId(null);
+      setBspListaManual(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
   const excluirEmbarque = useMutation({
     mutationFn: async (embarque: TimesheetEmbarque) => {
       const { data: semanasDoEmbarque, error: semErr } = await supabase.from("timesheet_semanas").select("id").eq("embarque_id", embarque.id);
@@ -1113,7 +1132,56 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
                 <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.bsp ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {editandoBspId === r.embarque.id ? (
+                    <div className="flex items-center gap-1">
+                      {(() => {
+                        const opcoes = bspOptionsForUnidade(periodos, r.embarque.unidade_operacional ?? "");
+                        return opcoes.length > 0 && !bspListaManual ? (
+                          <Select
+                            value={bspListaValor || "__nenhum__"}
+                            onValueChange={(v) => {
+                              if (v === "__outro__") { setBspListaManual(true); return; }
+                              setBspListaValor(v === "__nenhum__" ? "" : v);
+                            }}
+                          >
+                            <SelectTrigger className="h-7 w-36 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                              {opcoes.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                              <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input className="h-7 w-36 text-xs" placeholder="BSP novo" value={bspListaValor} onChange={(e) => setBspListaValor(e.target.value)} />
+                        );
+                      })()}
+                      <Button
+                        size="sm" variant="ghost" className="h-7 px-1.5 text-xs"
+                        loading={salvarBspLista.isPending}
+                        onClick={() => salvarBspLista.mutate({ embarqueId: r.embarque.id, valor: bspListaValor.trim() || null })}
+                      >
+                        Salvar
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBspId(null); setBspListaManual(false); }}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="inline-flex items-center gap-1">
+                      {r.embarque.bsp ?? "—"}
+                      {!readOnly && (
+                        <button
+                          type="button" title="Editar BSP"
+                          onClick={() => { setEditandoBspId(r.embarque.id); setBspListaValor(r.embarque.bsp ?? ""); setBspListaManual(!!r.embarque.bsp && !bspOptionsForUnidade(periodos, r.embarque.unidade_operacional ?? "").includes(r.embarque.bsp)); }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <Button
@@ -1906,11 +1974,50 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
   // BSPs já conhecidos pra unidade desse embarque — quando há mais de um, o campo BSP de cada
   // dia vira lista em vez de texto livre (reduz erro de digitação); "Outro" mantém o texto
   // livre pra um BSP novo que ainda não apareceu nessa unidade.
-  const bspOptions = useMemo(
+  const bspOptionsConhecidas = useMemo(
     () => bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? ""),
     [periodos, embarque.unidade_operacional],
   );
+  // BSPs digitadas na hora (via "Outro") entram aqui pra ficar disponíveis na lista pros
+  // outros dias da mesma semana também, sem precisar redigitar uma por uma.
+  const [bspExtras, setBspExtras] = useState<string[]>([]);
+  const bspOptions = useMemo(
+    () => Array.from(new Set([...bspOptionsConhecidas, ...bspExtras])).sort(),
+    [bspOptionsConhecidas, bspExtras],
+  );
   const [bspManualIds, setBspManualIds] = useState<Set<string>>(new Set());
+  const [bspManualValores, setBspManualValores] = useState<Record<string, string>>({});
+
+  const adicionarBspExtra = (diaId: string, valor: string) => {
+    const limpo = valor.trim();
+    if (!limpo) return;
+    setBspExtras((prev) => (prev.includes(limpo) ? prev : [...prev, limpo]));
+    editarCampo(diaId, { bsp: limpo });
+    setBspManualIds((prev) => { const novo = new Set(prev); novo.delete(diaId); return novo; });
+    setBspManualValores((prev) => { const { [diaId]: _remove, ...resto } = prev; return resto; });
+  };
+
+  // BSP do embarque (o "padrão" que aparece no cabeçalho, diferente do BSP por dia — esse é o
+  // valor que os dias herdam quando não têm um BSP próprio lançado). Editável em lista, igual
+  // ao campo por dia; se o valor digitado for novo, também entra pra lista de BSPs conhecidas.
+  const [editandoBsp, setEditandoBsp] = useState(false);
+  const [bspEditManual, setBspEditManual] = useState(false);
+  const [bspValor, setBspValor] = useState(embarque.bsp ?? "");
+
+  const salvarBspEmbarque = useMutation({
+    mutationFn: async (valor: string | null) => {
+      const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarque.id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, valor) => {
+      if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      notify.success("BSP do embarque atualizado");
+      setEditandoBsp(false);
+      setBspEditManual(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
 
   // Correção de função só pra essa semana — quando o físico não bate com o que veio do Drake
   // (embarque.funcao_embarque). Não mexe nas outras semanas do mesmo embarque nem no cadastro
@@ -2027,7 +2134,41 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm space-y-0.5">
           <div className="flex flex-wrap items-center gap-x-1">
-            <strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong> {embarque.bsp ?? "—"} &nbsp;·&nbsp; <strong>Função:</strong>{" "}
+            <strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong>{" "}
+            {editandoBsp ? (
+              <span className="inline-flex items-center gap-1">
+                {bspOptions.length > 0 && !bspEditManual ? (
+                  <Select
+                    value={bspValor || "__nenhum__"}
+                    onValueChange={(v) => {
+                      if (v === "__outro__") { setBspEditManual(true); return; }
+                      setBspValor(v === "__nenhum__" ? "" : v);
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-44 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input className="h-6 w-44 text-xs" placeholder="BSP novo" value={bspValor} onChange={(e) => setBspValor(e.target.value)} />
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarBspEmbarque.isPending} onClick={() => salvarBspEmbarque.mutate(bspValor.trim() || null)}>Salvar</Button>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBsp(false); setBspEditManual(false); setBspValor(embarque.bsp ?? ""); }}>Cancelar</Button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                {embarque.bsp ?? "—"}
+                {!readOnly && (
+                  <button type="button" title="Editar BSP do embarque" onClick={() => setEditandoBsp(true)} className="text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            )}
+            {" "}&nbsp;·&nbsp; <strong>Função:</strong>{" "}
             {editandoFuncao ? (
               <span className="inline-flex items-center gap-1">
                 <Input className="h-6 w-48 text-xs" value={funcaoValor} onChange={(e) => setFuncaoValor(e.target.value)} />
@@ -2110,10 +2251,22 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
                       </SelectContent>
                     </Select>
                   ) : (
-                    <Input
-                      className="h-8 text-xs" disabled={readOnly} placeholder="BSP"
-                      value={d.bsp ?? ""} onChange={(e) => editarCampo(d.id, { bsp: e.target.value || null })}
-                    />
+                    <div className="flex items-center gap-1">
+                      <Input
+                        className="h-8 text-xs" disabled={readOnly} placeholder="BSP novo"
+                        value={bspManualValores[d.id] ?? d.bsp ?? ""}
+                        onChange={(e) => setBspManualValores((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === "Enter") adicionarBspExtra(d.id, bspManualValores[d.id] ?? ""); }}
+                      />
+                      {!readOnly && (bspManualValores[d.id] ?? "").trim() && (
+                        <Button
+                          type="button" size="sm" variant="ghost" className="h-8 px-1.5 text-xs shrink-0"
+                          title="Adicionar esse BSP à lista" onClick={() => adicionarBspExtra(d.id, bspManualValores[d.id] ?? "")}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </TableCell>
                 <TableCell>
