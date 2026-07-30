@@ -1370,8 +1370,37 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
               ) : (
                 <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
               )}
+              {!mostrarBsp2 && (
+                <Button type="button" variant="link" size="sm" className="h-6 px-0 text-xs" onClick={() => setMostrarBsp2(true)}>
+                  + Adicionar mais um BSP
+                </Button>
+              )}
             </div>
           </div>
+          {mostrarBsp2 && (
+            <div>
+              <Label className="text-xs">BSP 2 (opcional)</Label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  {bspOptions.length > 1 && !bsp2Manual ? (
+                    <Select value={f.bsp_2} onValueChange={(v) => v === "__outro__" ? setBsp2Manual(true) : setF({ ...f, bsp_2: v })}>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o 2º BSP" /></SelectTrigger>
+                      <SelectContent>
+                        {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Nº do 2º BSP" />
+                  )}
+                </div>
+                <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => { setF({ ...f, bsp_2: "" }); setBsp2Manual(false); setMostrarBsp2(false); }}>
+                  Remover
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div>
             <Label className="text-xs">Função do embarque</Label>
             <Select value={f.funcao_embarque} onValueChange={(v) => setF({ ...f, funcao_embarque: v })}>
