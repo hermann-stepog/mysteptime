@@ -228,7 +228,11 @@ export function suggestAdicionalNoturno(
     if (totalMin <= 0) totalMin += 24 * 60;
     const workEnd = e + totalMin;
     const overlaps = (aStart: number, aEnd: number) => e < aEnd && workEnd > aStart;
-    return overlaps(22 * 60, 24 * 60) || overlaps(24 * 60, 24 * 60 + 5 * 60);
+    // "24h–29h" cobre a virada da meia-noite quando o turno começa tarde (ex.: 22h–05h); "0h–5h"
+    // cobre separadamente o caso do período já ser digitado começando dentro da madrugada (ex.:
+    // HE Entrada 00:00, HE Saída 03:00) — sem essa 3ª janela esse caso não batia com nenhuma das
+    // outras duas e ficava de fora do adicional noturno.
+    return overlaps(22 * 60, 24 * 60) || overlaps(24 * 60, 24 * 60 + 5 * 60) || overlaps(0, 5 * 60);
   };
   return overlapsNoite(entrada, saida) || overlapsNoite(entradaExtra, saidaExtra);
 }
@@ -247,7 +251,9 @@ export function horasNoturnas(
     if (totalMin <= 0) totalMin += 24 * 60;
     const workEnd = e + totalMin;
     const overlap = (aStart: number, aEnd: number) => Math.max(0, Math.min(workEnd, aEnd) - Math.max(e, aStart));
-    return overlap(22 * 60, 24 * 60) + overlap(24 * 60, 24 * 60 + 5 * 60);
+    // Mesma correção do overlapsNoite acima: "0h–5h" cobre o período que já começa na madrugada
+    // (ex.: 00:00–03:00), que não é alcançado pela virada de meia-noite calculada via workEnd.
+    return overlap(22 * 60, 24 * 60) + overlap(24 * 60, 24 * 60 + 5 * 60) + overlap(0, 5 * 60);
   };
   return round2((overlapMinutos(entrada, saida) + overlapMinutos(entradaExtra, saidaExtra)) / 60);
 }
