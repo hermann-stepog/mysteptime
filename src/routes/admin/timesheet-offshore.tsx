@@ -184,7 +184,7 @@ export async function generateRelatorioRH(
   dataFim: string = defaultEnd(),
   unidadeFiltro = "all",
 ): Promise<void> {
-  const [{ data: colaboradores }, embarques, periodosFI] = await Promise.all([
+  const [{ data: colaboradores }, embarques, periodosFI, todasSemanas] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
     // Folga Indenizada (tipo "FI") já vem pronta do Drake no Histograma — não é lançada aqui,
@@ -193,9 +193,16 @@ export async function generateRelatorioRH(
       supabase.from("hist_novo_periodos").select("*").eq("tipo", "FI")
         .lte("data_inicio", dataFim).gte("data_fim", dataInicio).order("id").range(from, to),
     ),
+    selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
   const embarqueById = new Map(embarques.map((e) => [e.id, e]));
+  const semanaById = new Map(todasSemanas.map((s) => [s.id, s]));
+  const semanasByEmbarqueId = new Map<string, TimesheetSemana[]>();
+  todasSemanas.forEach((s) => {
+    if (!semanasByEmbarqueId.has(s.embarque_id)) semanasByEmbarqueId.set(s.embarque_id, []);
+    semanasByEmbarqueId.get(s.embarque_id)!.push(s);
+  });
 
   const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
 
@@ -214,13 +221,16 @@ export async function generateRelatorioRH(
   });
 
   const linhas = Array.from(byEmbarque.values()).map(({ colaborador, embarque, dias }) => {
-    // 055/056/057/033 continuam por função (adicionaisPorFuncao). 208/209 são por evento do dia
-    // (regra do Access, seção 16.5/16.6) — sem filtro de função, e sem contar Desembarque em 208.
+    // 055/056/057/033 são por função — mas a função pode ter sido corrigida numa semana
+    // específica (funcao_override, ver formulário de lançamento), então cada dia usa a função
+    // efetiva da SUA semana, não a do embarque inteiro. 208/209 são por evento do dia (regra do
+    // Access, seção 16.5/16.6) — sem filtro de função, e sem contar Desembarque em 208.
     const counts: Record<AdicionalCode, number> = { "055": 0, "056": 0, "057": 0, "033": 0, "209": 0 };
     let sobreavisoDias = 0;
     let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasDias = 0;
-    adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code] = dias.length; });
     dias.forEach((d) => {
+      const funcaoDoDia = semanaById.get(d.semana_id)?.funcao_override || embarque.funcao_embarque || "";
+      adicionaisPorFuncao(funcaoDoDia).forEach((code) => { counts[code]++; });
       if (isDiaSobreaviso(d.evento)) sobreavisoDias++;
       if (isDiaPericulosidade(d.evento)) counts["209"]++;
       horaExtra += d.horas_extras ?? 0;
@@ -260,7 +270,8 @@ export async function generateRelatorioRH(
     "408 - Hora Extra a bordo +100%", "413 - Dobras a bordo", "035 - Adicional Noturno", "220 - Feriado",
   ];
   const dataRows = linhas.map((l) => [
-    l.colaborador.nome, l.embarque.funcao_embarque || "—", l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
+    l.colaborador.nome, funcaoEfetivaDoEmbarque(l.embarque, semanasByEmbarqueId.get(l.embarque.id) ?? []),
+    l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
     l.sobreavisoDias, l.counts["209"], l.horaExtra, l.dobrasDias, l.horasNoturno, l.feriadoDias,
   ]);
   const aoa = [
