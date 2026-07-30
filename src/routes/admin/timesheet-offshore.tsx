@@ -1135,55 +1135,9 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {editandoBspId === r.embarque.id ? (
-                    <div className="flex items-center gap-1">
-                      {(() => {
-                        const opcoes = bspOptionsForUnidade(periodos, r.embarque.unidade_operacional ?? "");
-                        return opcoes.length > 0 && !bspListaManual ? (
-                          <Select
-                            value={bspListaValor || "__nenhum__"}
-                            onValueChange={(v) => {
-                              if (v === "__outro__") { setBspListaManual(true); return; }
-                              setBspListaValor(v === "__nenhum__" ? "" : v);
-                            }}
-                          >
-                            <SelectTrigger className="h-7 w-36 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
-                              {opcoes.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-                              <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input className="h-7 w-36 text-xs" placeholder="BSP novo" value={bspListaValor} onChange={(e) => setBspListaValor(e.target.value)} />
-                        );
-                      })()}
-                      <Button
-                        size="sm" variant="ghost" className="h-7 px-1.5 text-xs"
-                        loading={salvarBspLista.isPending}
-                        onClick={() => salvarBspLista.mutate({ embarqueId: r.embarque.id, valor: bspListaValor.trim() || null })}
-                      >
-                        Salvar
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBspId(null); setBspListaManual(false); }}>
-                        Cancelar
-                      </Button>
-                    </div>
-                  ) : (
-                    <span className="inline-flex items-center gap-1">
-                      {r.embarque.bsp ?? "—"}
-                      {!readOnly && (
-                        <button
-                          type="button" title="Editar BSP"
-                          onClick={() => { setEditandoBspId(r.embarque.id); setBspListaValor(r.embarque.bsp ?? ""); setBspListaManual(!!r.embarque.bsp && !bspOptionsForUnidade(periodos, r.embarque.unidade_operacional ?? "").includes(r.embarque.bsp)); }}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                      )}
-                    </span>
-                  )}
+                  {[r.embarque.bsp, (r.embarque as any).bsp_2].filter(Boolean).join(" · ") || "—"}
                 </TableCell>
+
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <Button
