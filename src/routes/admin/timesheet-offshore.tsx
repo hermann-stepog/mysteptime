@@ -1157,7 +1157,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {[r.embarque.bsp, (r.embarque as any).bsp_2].filter(Boolean).join(" · ") || "—"}
+                  {[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}
                 </TableCell>
 
                 <TableCell>
@@ -1305,7 +1305,7 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
 
   if (open && embarque && bound !== embarque.id) {
     const bspAtual = embarque.bsp ?? "";
-    const bsp2Atual = (embarque as any).bsp_2 ?? "";
+    const bsp2Atual = embarque.bsp_2 ?? "";
     const opcoesUnidade = bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? "");
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
@@ -1677,7 +1677,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
                 <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.bsp ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{fmt(r.embarque.data_inicio_embarque)} a {fmt(r.embarque.data_fim_embarque)}</TableCell>
                 <TableCell className="text-muted-foreground">{r.recebidas} / {r.total}</TableCell>
                 <TableCell>
@@ -1978,6 +1978,12 @@ function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: H
 
 const EVENTO_OPCOES = ["Nenhum", ...EVENTOS_DIA];
 
+// Referência estável pro fallback do useQuery abaixo — um array literal `[]` inline no
+// destructuring é recriado a cada render, o que faz o useEffect(() => setDraft(dias), [dias])
+// nunca estabilizar enquanto a query ainda está carregando e estoura "Maximum update depth
+// exceeded" (loop de render) assim que o formulário abre.
+const EMPTY_DIAS: TimesheetDia[] = [];
+
 // Formulário no padrão da folha física — uma linha editável por dia (Descrição, Nº Trabalho,
 // Entrada, Saída, Horas Normais, Horas Extras, Evento), sem nenhum valor pré-calculado ou
 // assumido: só o físico em mãos define o que vai em cada campo. Total é o único campo
@@ -2012,10 +2018,48 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     setBspManualValores((prev) => { const { [diaId]: _remove, ...resto } = prev; return resto; });
   };
 
-  // O BSP do embarque (e o 2º BSP, quando houver) é definido no formulário de embarque —
-  // aqui no cabeçalho ele é apenas exibido.
+  // BSP do embarque, editável direto no cabeçalho (igual à Função logo abaixo) — evita ter
+  // que fechar esse formulário e abrir o dialog "Editar" só pra corrigir o BSP.
+  const [editandoBsp, setEditandoBsp] = useState(false);
+  const [bspEditManual, setBspEditManual] = useState(false);
+  const [bspValor, setBspValor] = useState(embarque.bsp ?? "");
 
+  const salvarBspEmbarque = useMutation({
+    mutationFn: async (valor: string | null) => {
+      const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarque.id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, valor) => {
+      if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      notify.success("BSP do embarque atualizado");
+      setEditandoBsp(false);
+      setBspEditManual(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
 
+  // Segundo BSP do mesmo embarque — quando parte dos dias precisa ser lançada numa BSP
+  // diferente da padrão (mesma unidade, "lançamento quebrado"). Puramente informativo aqui;
+  // a atribuição de qual dia usa qual BSP continua sendo feita por dia, na tabela abaixo.
+  const [editandoBsp2, setEditandoBsp2] = useState(false);
+  const [bsp2EditManual, setBsp2EditManual] = useState(false);
+  const [bsp2Valor, setBsp2Valor] = useState(embarque.bsp_2 ?? "");
+
+  const salvarBsp2Embarque = useMutation({
+    mutationFn: async (valor: string | null) => {
+      const { error } = await supabase.from("timesheet_embarques").update({ bsp_2: valor }).eq("id", embarque.id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, valor) => {
+      if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      notify.success("2º BSP atualizado");
+      setEditandoBsp2(false);
+      setBsp2EditManual(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
 
   // Correção de função só pra essa semana — quando o físico não bate com o que veio do Drake
   // (embarque.funcao_embarque). Não mexe nas outras semanas do mesmo embarque nem no cadastro
@@ -2038,7 +2082,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     onError: (e: any) => notify.error(e.message),
   });
 
-  const { data: dias = [] } = useQuery({
+  const { data: dias = EMPTY_DIAS } = useQuery({
     queryKey: ["timesheet-dias", semana.id],
     queryFn: async () => {
       const { data, error } = await supabase.from("timesheet_dias").select("*").eq("semana_id", semana.id).order("data");
@@ -2133,8 +2177,82 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
         <div className="text-sm space-y-0.5">
           <div className="flex flex-wrap items-center gap-x-1">
             <strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong>{" "}
-            <span>{[embarque.bsp, (embarque as any).bsp_2].filter(Boolean).join(" · ") || "—"}</span>
-
+            {editandoBsp ? (
+              <span className="inline-flex items-center gap-1">
+                {bspOptions.length > 0 && !bspEditManual ? (
+                  <Select
+                    value={bspValor || "__nenhum__"}
+                    onValueChange={(v) => {
+                      if (v === "__outro__") { setBspEditManual(true); return; }
+                      setBspValor(v === "__nenhum__" ? "" : v);
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-44 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input className="h-6 w-44 text-xs" placeholder="BSP novo" value={bspValor} onChange={(e) => setBspValor(e.target.value)} />
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarBspEmbarque.isPending} onClick={() => salvarBspEmbarque.mutate(bspValor.trim() || null)}>Salvar</Button>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBsp(false); setBspEditManual(false); setBspValor(embarque.bsp ?? ""); }}>Cancelar</Button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                {embarque.bsp ?? "—"}
+                {!readOnly && (
+                  <button type="button" title="Editar BSP do embarque" onClick={() => setEditandoBsp(true)} className="text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            )}
+            {editandoBsp2 ? (
+              <span className="inline-flex items-center gap-1">
+                {bspOptions.length > 0 && !bsp2EditManual ? (
+                  <Select
+                    value={bsp2Valor || "__nenhum__"}
+                    onValueChange={(v) => {
+                      if (v === "__outro__") { setBsp2EditManual(true); return; }
+                      setBsp2Valor(v === "__nenhum__" ? "" : v);
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-44 text-xs"><SelectValue placeholder="2º BSP" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input className="h-6 w-44 text-xs" placeholder="Nº do 2º BSP" value={bsp2Valor} onChange={(e) => setBsp2Valor(e.target.value)} />
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarBsp2Embarque.isPending} onClick={() => salvarBsp2Embarque.mutate(bsp2Valor.trim() || null)}>Salvar</Button>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBsp2(false); setBsp2EditManual(false); setBsp2Valor(embarque.bsp_2 ?? ""); }}>Cancelar</Button>
+              </span>
+            ) : embarque.bsp_2 ? (
+              <span className="inline-flex items-center gap-1">
+                &nbsp;·&nbsp;{embarque.bsp_2}
+                {!readOnly && (
+                  <button type="button" title="Editar 2º BSP" onClick={() => setEditandoBsp2(true)} className="text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            ) : (
+              !readOnly && (
+                <button
+                  type="button" title="Adicionar mais um BSP (lançamento quebrado)"
+                  onClick={() => setEditandoBsp2(true)}
+                  className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="h-3 w-3" />BSP
+                </button>
+              )
+            )}
             {" "}&nbsp;·&nbsp; <strong>Função:</strong>{" "}
             {editandoFuncao ? (
               <span className="inline-flex items-center gap-1">
