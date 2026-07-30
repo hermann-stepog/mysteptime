@@ -723,6 +723,7 @@ export type Database = {
       }
       hist_novo_periodos: {
         Row: {
+          bsp: string | null
           centro_de_custo: string | null
           colaborador_id: string
           created_at: string
@@ -735,6 +736,7 @@ export type Database = {
           unidade_operacional: string | null
         }
         Insert: {
+          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id: string
           created_at?: string
@@ -747,6 +749,7 @@ export type Database = {
           unidade_operacional?: string | null
         }
         Update: {
+          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id?: string
           created_at?: string
@@ -1301,6 +1304,7 @@ export type Database = {
       timesheet_embarques: {
         Row: {
           bsp: string | null
+          bsp_2: string | null
           colaborador_id: string
           criado_em: string
           data_fim_embarque: string
@@ -1313,6 +1317,7 @@ export type Database = {
         }
         Insert: {
           bsp?: string | null
+          bsp_2?: string | null
           colaborador_id: string
           criado_em?: string
           data_fim_embarque: string
@@ -1325,6 +1330,7 @@ export type Database = {
         }
         Update: {
           bsp?: string | null
+          bsp_2?: string | null
           colaborador_id?: string
           criado_em?: string
           data_fim_embarque?: string
