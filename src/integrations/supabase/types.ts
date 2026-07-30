@@ -1304,6 +1304,7 @@ export type Database = {
       timesheet_embarques: {
         Row: {
           bsp: string | null
+          bsp_2: string | null
           colaborador_id: string
           criado_em: string
           data_fim_embarque: string
@@ -1316,6 +1317,7 @@ export type Database = {
         }
         Insert: {
           bsp?: string | null
+          bsp_2?: string | null
           colaborador_id: string
           criado_em?: string
           data_fim_embarque: string
@@ -1328,6 +1330,7 @@ export type Database = {
         }
         Update: {
           bsp?: string | null
+          bsp_2?: string | null
           colaborador_id?: string
           criado_em?: string
           data_fim_embarque?: string
