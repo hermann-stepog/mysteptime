@@ -2150,39 +2150,8 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
         <div className="text-sm space-y-0.5">
           <div className="flex flex-wrap items-center gap-x-1">
             <strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong>{" "}
-            {editandoBsp ? (
-              <span className="inline-flex items-center gap-1">
-                {bspOptions.length > 0 && !bspEditManual ? (
-                  <Select
-                    value={bspValor || "__nenhum__"}
-                    onValueChange={(v) => {
-                      if (v === "__outro__") { setBspEditManual(true); return; }
-                      setBspValor(v === "__nenhum__" ? "" : v);
-                    }}
-                  >
-                    <SelectTrigger className="h-6 w-44 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
-                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input className="h-6 w-44 text-xs" placeholder="BSP novo" value={bspValor} onChange={(e) => setBspValor(e.target.value)} />
-                )}
-                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarBspEmbarque.isPending} onClick={() => salvarBspEmbarque.mutate(bspValor.trim() || null)}>Salvar</Button>
-                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBsp(false); setBspEditManual(false); setBspValor(embarque.bsp ?? ""); }}>Cancelar</Button>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1">
-                {embarque.bsp ?? "—"}
-                {!readOnly && (
-                  <button type="button" title="Editar BSP do embarque" onClick={() => setEditandoBsp(true)} className="text-muted-foreground hover:text-foreground">
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                )}
-              </span>
-            )}
+            <span>{[embarque.bsp, (embarque as any).bsp_2].filter(Boolean).join(" · ") || "—"}</span>
+
             {" "}&nbsp;·&nbsp; <strong>Função:</strong>{" "}
             {editandoFuncao ? (
               <span className="inline-flex items-center gap-1">
