@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import type { HistNovoColaborador } from "@/lib/histogramaNovo";
+import { ORIGEM_PROGRAMADO, type HistNovoColaborador } from "@/lib/histogramaNovo";
 import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
@@ -232,6 +232,35 @@ export async function importDrakeEmbarkation(
       origem: "drake",
     }))
     .filter((p): p is typeof p & { colaborador_id: string } => !!p.colaborador_id);
+
+  // Quando o Drake confirma um embarque real pra alguém que só estava "programado" (via
+  // Lançar período manualmente), o dado real tem que substituir a programação — senão os dois
+  // períodos convivem em hist_novo_periodos e o status do dia fica ambíguo (depende de qual
+  // computeDayStatus encontra primeiro). Remove a programação (o "P" do 1º dia, origem=manual,
+  // e o "E a confirmar" do resto, origem=programado) que sobrepõe a data do embarque real
+  // recém-importado, pro mesmo colaborador.
+  const colaboradoresComEmbarque = Array.from(new Set(periodosToInsert.map((p) => p.colaborador_id)));
+  if (colaboradoresComEmbarque.length) {
+    const programados = await selectAllPages<{
+      id: string; colaborador_id: string; tipo: string; origem: string | null; data_inicio: string; data_fim: string;
+    }>((from, to) =>
+      supabase.from("hist_novo_periodos").select("id, colaborador_id, tipo, origem, data_inicio, data_fim")
+        .in("colaborador_id", colaboradoresComEmbarque)
+        .in("origem", ["manual", ORIGEM_PROGRAMADO])
+        .order("id").range(from, to),
+    );
+    const idsParaApagar = programados
+      .filter((p) => (p.tipo === "P" && p.origem === "manual") || (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO))
+      .filter((p) => periodosToInsert.some((novo) =>
+        novo.colaborador_id === p.colaborador_id && novo.data_fim >= p.data_inicio && novo.data_inicio <= p.data_fim,
+      ))
+      .map((p) => p.id);
+    for (let i = 0; i < idsParaApagar.length; i += 500) {
+      const lote = idsParaApagar.slice(i, i + 500);
+      const { error: progDelErr } = await supabase.from("hist_novo_periodos").delete().in("id", lote);
+      if (progDelErr) throw progDelErr;
+    }
+  }
 
   // select("id") sem paginação corta silenciosamente em 1000 linhas (limite padrão do
   // PostgREST) — com mais de 1000 períodos de origem "drake" (caso comum), o restante nunca
