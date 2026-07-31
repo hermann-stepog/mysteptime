@@ -553,6 +553,12 @@ export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: str
 
 type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
 
+// Valor sentinela do filtro de Evento pra "Desembarque" — não é um TipoPeriodo de verdade (nunca
+// é lançado, sempre calculado a partir do fim de um período "E", igual ao Histograma computa DES),
+// mas a usuária precisa achar "quem desembarca no dia X" direto nessa lista, com o filtro De/Até
+// de sempre, sem ficar limitado à janela de 7 dias do card "Próximos eventos".
+const EVENTO_FILTER_DESEMBARQUE = "__desembarque__";
+
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
 
@@ -715,17 +721,35 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     onError: (e: any) => notify.error(e.message),
   });
 
-  const filteredPeriodos = useMemo(() => periodos.filter((p) =>
-    // Disponibilidade (STB/Folga/etc. importado do relatório de disponibilidade) nunca tem
-    // unidade/BSP — são registros de "quando esse colaborador NÃO estava embarcado", não fazem
-    // sentido nessa lista de lançamentos (que é sobre embarque/programação, com BSP de verdade).
-    p.origem !== "disponibilidade" &&
-    (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
-    (filterTipo === "all" || p.tipo === filterTipo) &&
-    (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
-    (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
-    (!filterDe || p.data_fim >= filterDe) &&
-    (!filterAte || p.data_inicio <= filterAte),
+  const filteredPeriodos = useMemo(() => (
+    filterTipo === EVENTO_FILTER_DESEMBARQUE
+      // "Desembarque" nunca é um período de verdade — é o dia seguinte ao fim de cada período
+      // "E", igual ao Histograma computa DES. Monta uma linha virtual por embarque (mesmo
+      // critério de filtro de colaborador/unidade/BSP, mas De/Até compara com a data de
+      // desembarque, não com data_inicio/data_fim do embarque em si).
+      ? periodos
+        .filter((p) => p.tipo === "E")
+        .map((p) => ({ ...p, data_inicio: addDays(p.data_fim, 1), data_fim: addDays(p.data_fim, 1), dias: 1, tipo: "DES", id: `${p.id}::des` }))
+        .filter((p) =>
+          (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
+          (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
+          (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
+          (!filterDe || p.data_fim >= filterDe) &&
+          (!filterAte || p.data_inicio <= filterAte),
+        )
+      : periodos.filter((p) =>
+        // Disponibilidade (STB/Folga/etc. importado do relatório de disponibilidade) nunca tem
+        // unidade/BSP — são registros de "quando esse colaborador NÃO estava embarcado", não
+        // fazem sentido nessa lista de lançamentos (que é sobre embarque/programação, com BSP
+        // de verdade).
+        p.origem !== "disponibilidade" &&
+        (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
+        (filterTipo === "all" || p.tipo === filterTipo) &&
+        (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
+        (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
+        (!filterDe || p.data_fim >= filterDe) &&
+        (!filterAte || p.data_inicio <= filterAte),
+      )
   ).sort((a, b) => {
     if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
     const dir = sortDirection === "asc" ? 1 : -1;
@@ -762,7 +786,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       return {
         Colaborador: c?.nome ?? "—",
         Função: c?.funcao || c?.funcao_operacao || "—",
-        Evento: isTipoPeriodo(p.tipo) ? `${displayAbbr(p.tipo)} — ${TIPO_LABEL[p.tipo]}` : p.tipo,
+        Evento: p.tipo === "DES" ? `DES — ${STATUS_LABEL.DES}` : isTipoPeriodo(p.tipo) ? `${displayAbbr(p.tipo)} — ${TIPO_LABEL[p.tipo]}` : p.tipo,
         Unidade: p.unidade_operacional ?? "—",
         BSP: bspDoPeriodo(p) ?? "—",
         Início: p.data_inicio.split("-").reverse().join("/"),
@@ -871,6 +895,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todos</SelectItem>
                 {TIPO_ORDER.map((t) => <SelectItem key={t} value={t} className="text-xs">{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
+                <SelectItem value={EVENTO_FILTER_DESEMBARQUE} className="text-xs">DES — Desembarque</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -928,12 +953,24 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             {filteredPeriodos.map((p, i) => {
               const c = colaboradorById.get(p.colaborador_id);
               const tipo = isTipoPeriodo(p.tipo) ? p.tipo : null;
+              // Linha virtual de Desembarque (ver EVENTO_FILTER_DESEMBARQUE) — não é um período
+              // de verdade, então não tem ação de editar/excluir; usa a mesma cor do status
+              // "DES" computado no Histograma pra manter a linguagem visual consistente.
+              const isDesembarqueVirtual = p.tipo === "DES";
               return (
                 <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{c?.funcao || c?.funcao_operacao || "—"}</TableCell>
                   <TableCell>
-                    {tipo ? (
+                    {isDesembarqueVirtual ? (
+                      <span
+                        className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-bold"
+                        style={{ backgroundColor: STATUS_COLOR.DES, color: getContrastText(STATUS_COLOR.DES) }}
+                        title={STATUS_LABEL.DES}
+                      >
+                        DES
+                      </span>
+                    ) : tipo ? (
                       <span
                         className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-bold"
                         style={{ backgroundColor: getPeriodoColor(p)!, color: getContrastText(getPeriodoColor(p)!) }}
@@ -954,17 +991,19 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                   <TableCell>{p.data_fim.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.dias ?? "—"}</TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => { if (confirm(`Excluir este período de "${c?.nome ?? ""}"? Esta ação não pode ser desfeita.`)) deletePeriodo.mutate(p.id); }}
-                        loading={deletePeriodo.isPending && deletePeriodo.variables === p.id}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                    {!isDesembarqueVirtual && (
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => { if (confirm(`Excluir este período de "${c?.nome ?? ""}"? Esta ação não pode ser desfeita.`)) deletePeriodo.mutate(p.id); }}
+                          loading={deletePeriodo.isPending && deletePeriodo.variables === p.id}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </FadeInRow>
               );
