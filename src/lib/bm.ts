@@ -73,6 +73,37 @@ export interface BmLineLogistica {
   is_manual: boolean;
 }
 
+// Correção pontual de um dia específico de um colaborador, só pra efeito de medição desse
+// BM — não altera timesheet_dias (o físico real do colaborador continua intacto). observacao
+// é obrigatória: justifica pro time por que a medição divergiu do que está no timesheet.
+export interface BmDiaOverride {
+  id: string;
+  bm_id: string;
+  colaborador_id: string;
+  data: string;
+  evento: string | null;
+  horas_extras: number | null;
+  adicional_noturno: boolean;
+  total_horas: number | null;
+  observacao: string;
+}
+
+// Custo de logística de Mob/Desmob, lançado manualmente por enquanto (ver comentário na
+// migration) — independente de um bm_id específico, igual cost_logs: consultado por
+// BSP/período direto na aba, não fica preso a um BM já gerado.
+export interface BmMobDesmobCost {
+  id: string;
+  created_at: string;
+  nome: string;
+  bsp: string;
+  data: string;
+  qtd: number;
+  valor: number;
+  markup: number | null;
+  total_cost: number;
+  notes: string | null;
+}
+
 export type MaterialCategoria = "habitat" | "rental" | "consumable";
 
 export interface BmLineMateriais {

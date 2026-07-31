@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -22,20 +23,23 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
-import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins } from "lucide-react";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
+import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert } from "lucide-react";
 import { CLIENTES } from "@/lib/clientes";
-import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
+import { UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import {
-  type Bm, type BmLineMo, type BmLineLogistica, type BmLineMateriais, type MaterialCategoria,
+  type Bm, type BmStatus, type BmLineMo, type BmLineLogistica, type BmLineMateriais, type BmDiaOverride, type MaterialCategoria,
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { DRAKE_DATA_CUTOFF } from "@/lib/histogramaNovo";
 import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
+import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
 import { getPoInfo, getBmHistoryForPo, recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
 import { pageTitle } from "@/lib/pageTitle";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/bm")({ head: () => pageTitle("Boletim de Medição"), component: BmPage });
 
@@ -44,6 +48,32 @@ function fmt(d: string): string {
 }
 function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+const EVENTO_OPCOES_BM = ["Nenhum", ...EVENTOS_DIA];
+
+// Referência estável pro fallback do useQuery de diasBase abaixo — um array literal `[]`
+// inline no destructuring é recriado a cada render enquanto a query ainda carrega, o que
+// propaga uma referência nova pra cada useMemo encadeado (diasComOverrides -> maoDeObraCalculada)
+// e faz o useEffect que sincroniza linesMo rodar sem parar ("Maximum update depth exceeded").
+const EMPTY_DIAS_BM: TimesheetDiaComColaborador[] = [];
+// Mesmo motivo — rates entra no useMemo de maoDeObraCalculada, então também precisa de uma
+// referência estável enquanto a query carrega.
+const EMPTY_RATES_BM: Rate[] = [];
+const EMPTY_COLABORADORES_MEDIDOS = new Set<string>();
+
+// Chave de override por dia — colaborador + data já é único dentro de um BM (um vessel/período
+// por vez), não precisa do id da linha real do timesheet.
+function chaveDiaOverride(colaboradorId: string, data: string): string {
+  return `${colaboradorId}::${data}`;
+}
+
+interface DiaOverrideEdit {
+  evento: string | null;
+  horas_extras: number | null;
+  adicional_noturno: boolean;
+  total_horas: number | null;
+  observacao: string;
 }
 
 function BmPage() {
@@ -57,10 +87,14 @@ function BmPage() {
       <Tabs defaultValue="gerar">
         <TabsList>
           <TabsTrigger value="gerar">Gerar Novo BM</TabsTrigger>
+          <TabsTrigger value="mob-desmob">Logística Mob/Desmob</TabsTrigger>
           <TabsTrigger value="historico">Histórico de BMs</TabsTrigger>
         </TabsList>
         <TabsContent value="gerar" className="mt-4">
           <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+        </TabsContent>
+        <TabsContent value="mob-desmob" className="mt-4">
+          <MobDesmobTab />
         </TabsContent>
         <TabsContent value="historico" className="mt-4">
           <HistoricoBmsTab onReopen={setReopenBm} />
@@ -95,6 +129,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [linesMo, setLinesMo] = useState<Omit<BmLineMo, "id" | "bm_id">[]>([]);
   const [linesLogistica, setLinesLogistica] = useState<Omit<BmLineLogistica, "id" | "bm_id">[]>([]);
   const [linesMateriais, setLinesMateriais] = useState<Omit<BmLineMateriais, "id" | "bm_id">[]>([]);
+  // Correção pontual de dia — chave colaborador::data (ver chaveDiaOverride) — só pra efeito
+  // dessa medição, nunca grava em timesheet_dias. observacao é obrigatória pra justificar.
+  const [diasOverrides, setDiasOverrides] = useState<Record<string, DiaOverrideEdit>>({});
   const [markupEnabled, setMarkupEnabled] = useState(false);
   const [markupPct, setMarkupPct] = useState(15);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
@@ -119,11 +156,24 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setMarkupEnabled(reopenBm.markup_enabled);
     setMarkupPct(reopenBm.markup_pct);
     setReopenBmId(reopenBm.id);
+    (async () => {
+      const { data, error } = await supabase.from("bm_dias_overrides").select("*").eq("bm_id", reopenBm.id);
+      if (error) { notify.error(error.message); return; }
+      const restaurado: Record<string, DiaOverrideEdit> = {};
+      (data ?? []).forEach((o: BmDiaOverride) => {
+        restaurado[chaveDiaOverride(o.colaborador_id, o.data)] = {
+          evento: o.evento, horas_extras: o.horas_extras, adicional_noturno: o.adicional_noturno,
+          total_horas: o.total_horas, observacao: o.observacao,
+        };
+      });
+      setDiasOverrides(restaurado);
+    })();
     onConsumedReopen();
   }, [reopenBm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetWizard = () => {
     setStep(0); setCab(CABECALHO_VAZIO); setLinesMo([]); setLinesLogistica([]); setLinesMateriais([]);
+    setDiasOverrides({});
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
     setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
   };
@@ -206,9 +256,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     }
   };
 
-  // ── Step 2: Mão de Obra ────────────────────────────────────────────────────
-  const { data: maoDeObraCalculada, isFetching: carregandoMo } = useQuery({
-    queryKey: ["bm-mo", cab.vessel, cab.periodStart, cab.periodEnd, cab.bsp],
+  // ── Step 1: Horas do Timesheet (compilado editável, alimenta a Mão de Obra) ─────────────
+  // Busca os dias "crus" do timesheet real pro vessel/período/BSP escolhidos — sem agregar
+  // ainda. A aba "Horas do Timesheet" deixa corrigir um dia específico (ver diasOverrides);
+  // o resultado com as correções aplicadas é que alimenta a agregação de Mão de Obra abaixo,
+  // nunca o timesheet_dias em si.
+  const { data: diasBase = EMPTY_DIAS_BM, isFetching: carregandoDias } = useQuery({
+    queryKey: ["bm-dias", cab.vessel, cab.periodStart, cab.periodEnd, cab.bsp],
     enabled: headerCompleto,
     queryFn: async () => {
       const { data: embarquesData, error: embErr } = await supabase
@@ -260,22 +314,71 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         })
         .filter((d: TimesheetDiaComColaborador) => d.colaborador_id && (!bspAlvo || normalizarBsp(d.bsp) === bspAlvo));
 
-      // Rate é buscado por Cliente+Embarcação+Função (bate com a planilha mestre de rates da
-      // usuária) — não varia por BSP, então filtra só por cliente/embarcação aqui e deixa o
-      // cruzamento de função (com fallback de nível) por conta de findRate (bmRateEngine.ts).
-      const { data: ratesData, error: ratesErr } = await supabase
-        .from("rates").select("*").eq("client", cab.client).eq("vessel", cab.vessel).eq("active", true);
-      if (ratesErr) throw ratesErr;
-
-      return aggregateMaoDeObra(diasComColaborador, (ratesData ?? []) as Rate[], cab.client, cab.vessel);
+      return diasComColaborador.sort((a, b) => a.colaborador_nome.localeCompare(b.colaborador_nome) || a.data.localeCompare(b.data));
     },
   });
 
+  // Aplica as correções pontuais (diasOverrides) por cima dos dias reais — só pra efeito de
+  // cálculo/exibição no BM, sem tocar no dado original em diasBase.
+  const diasComOverrides = useMemo<TimesheetDiaComColaborador[]>(() => diasBase.map((d) => {
+    const ov = diasOverrides[chaveDiaOverride(d.colaborador_id, d.data)];
+    if (!ov) return d;
+    return { ...d, evento: ov.evento, horas_extras: ov.horas_extras, adicional_noturno: ov.adicional_noturno, total_horas: ov.total_horas };
+  }), [diasBase, diasOverrides]);
+
+  // Quem já apareceu em Mão de Obra de outro BM (qualquer status) do mesmo vessel com período
+  // sobrepondo o escolhido aqui — colaborador que está no compilado mas não está nesse conjunto
+  // ainda não foi medido em nenhum BM pra esse intervalo (ver flag piscando na aba Horas do
+  // Timesheet). Exclui o próprio BM sendo reaberto, senão ele "já mediu a si mesmo".
+  const { data: colaboradoresJaMedidos = EMPTY_COLABORADORES_MEDIDOS } = useQuery({
+    queryKey: ["bm-colaboradores-medidos", cab.vessel, cab.periodStart, cab.periodEnd, reopenBmId],
+    enabled: headerCompleto,
+    queryFn: async () => {
+      const { data: bmsData, error: bmsErr } = await supabase
+        .from("bms").select("id").eq("vessel", cab.vessel)
+        .lte("period_start", cab.periodEnd).gte("period_end", cab.periodStart);
+      if (bmsErr) throw bmsErr;
+      const bmIds = (bmsData ?? []).map((b: any) => b.id).filter((id: string) => id !== reopenBmId);
+      if (!bmIds.length) return new Set<string>();
+      const { data: linesData, error: linesErr } = await supabase.from("bm_lines_mo").select("colaborador_id").in("bm_id", bmIds);
+      if (linesErr) throw linesErr;
+      return new Set<string>((linesData ?? []).map((l: any) => l.colaborador_id).filter(Boolean));
+    },
+  });
+
+  // Rate é buscado por Cliente+Embarcação+Função (bate com a planilha mestre de rates da
+  // usuária) — não varia por BSP, então filtra só por cliente/embarcação aqui e deixa o
+  // cruzamento de função (com fallback de nível) por conta de findRate (bmRateEngine.ts).
+  const { data: rates = EMPTY_RATES_BM } = useQuery({
+    queryKey: ["bm-rates", cab.client, cab.vessel],
+    enabled: headerCompleto,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("rates").select("*").eq("client", cab.client).eq("vessel", cab.vessel).eq("active", true);
+      if (error) throw error;
+      return (data ?? []) as Rate[];
+    },
+  });
+
+  const carregandoMo = carregandoDias;
+
+  const maoDeObraCalculada = useMemo(
+    () => (headerCompleto ? aggregateMaoDeObra(diasComOverrides, rates, cab.client, cab.vessel) : []),
+    [diasComOverrides, rates, cab.client, cab.vessel, headerCompleto],
+  );
+
   useEffect(() => {
-    if (maoDeObraCalculada) setLinesMo(maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => rest));
+    setLinesMo(maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => rest));
   }, [maoDeObraCalculada]);
 
   const hasRateMissing = linesMo.some((l) => l.rate_missing);
+
+  const salvarDiaOverride = (colaboradorId: string, data: string, edit: DiaOverrideEdit | null) => {
+    const key = chaveDiaOverride(colaboradorId, data);
+    setDiasOverrides((prev) => {
+      if (!edit) { const { [key]: _removido, ...resto } = prev; return resto; }
+      return { ...prev, [key]: edit };
+    });
+  };
 
   // ── Step 3: Logística ──────────────────────────────────────────────────────
   const { data: costLogsCalculados, isFetching: carregandoLogistica } = useQuery({
@@ -347,6 +450,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         await supabase.from("bm_lines_mo").delete().eq("bm_id", bmId);
         await supabase.from("bm_lines_logistica").delete().eq("bm_id", bmId);
         await supabase.from("bm_lines_materiais").delete().eq("bm_id", bmId);
+        await supabase.from("bm_dias_overrides").delete().eq("bm_id", bmId);
       } else {
         const { data, error } = await supabase.from("bms").insert(payload).select("*").single();
         if (error) throw error;
@@ -367,6 +471,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         savedLogistica = (data ?? []) as BmLineLogistica[];
       }
       if (linesMateriais.length) { const { error } = await supabase.from("bm_lines_materiais").insert(linesMateriais.map((l) => ({ ...l, bm_id: bmId }))); if (error) throw error; }
+
+      const overridesToSave = Object.entries(diasOverrides).map(([key, ov]) => {
+        const [colaborador_id, data] = key.split("::");
+        return { bm_id: bmId, colaborador_id, data, evento: ov.evento, horas_extras: ov.horas_extras, adicional_noturno: ov.adicional_noturno, total_horas: ov.total_horas, observacao: ov.observacao };
+      });
+      if (overridesToSave.length) { const { error } = await supabase.from("bm_dias_overrides").insert(overridesToSave); if (error) throw error; }
 
       if (targetStatus === "pending_pm") {
         const { error } = await supabase.from("bm_status_history").insert({ bm_id: bmId, status: "pending_pm", changed_by_name: "Operador", notes: null });
@@ -404,7 +514,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   return (
     <Card className="p-4 space-y-4">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {["Cabeçalho", "Mão de Obra", "Logística", "Resumo"].map((label, i) => (
+        {["Cabeçalho", "Horas do Timesheet", "Mão de Obra", "Logística", "Resumo"].map((label, i) => (
           <span key={label} className={i === step ? "font-semibold text-foreground" : undefined}>
             {i > 0 && <span className="mx-1.5">→</span>}{label}
           </span>
@@ -459,6 +569,16 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       )}
 
       {step === 1 && (
+        <HorasTimesheetStep
+          diasBase={diasBase}
+          overrides={diasOverrides}
+          onSalvarOverride={salvarDiaOverride}
+          colaboradoresJaMedidos={colaboradoresJaMedidos}
+          carregando={carregandoDias}
+        />
+      )}
+
+      {step === 2 && (
         <div className="space-y-2">
           {carregandoMo && <p className="text-xs text-muted-foreground">Calculando mão de obra…</p>}
           <Table>
@@ -520,9 +640,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         </div>
       )}
 
-      {step === 2 && <LogisticaStep lines={linesLogistica} setLines={setLinesLogistica} />}
+      {step === 3 && <LogisticaStep lines={linesLogistica} setLines={setLinesLogistica} />}
 
-      {step === 3 && (
+      {step === 4 && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="space-y-1">
@@ -590,7 +710,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               Gerar BM
             </Button>
           )}
-          {step < 3 && (
+          {step < 4 && (
             <Button size="sm" disabled={step === 0 && !podeAvancarStep0} onClick={() => setStep(step + 1)}>
               Próximo<ArrowRight className="ml-1.5 h-3.5 w-3.5" />
             </Button>
@@ -603,6 +723,112 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ─── Step 1: Horas do Timesheet ─────────────────────────────────────────────
+// Compilado, em forma de planilha, dos dias reais puxados do timesheet pro vessel/período/BSP
+// escolhidos no Cabeçalho. Cada campo é editável direto na célula — a correção fica só nesse
+// BM (grava em bm_dias_overrides ao salvar), nunca em timesheet_dias. Editar qualquer campo
+// sem preencher Observação ainda salva a correção, mas o campo fica com borda de aviso —
+// a ideia é sempre justificar por que a medição divergiu do físico.
+function HorasTimesheetStep({ diasBase, overrides, onSalvarOverride, colaboradoresJaMedidos, carregando }: {
+  diasBase: TimesheetDiaComColaborador[];
+  overrides: Record<string, DiaOverrideEdit>;
+  onSalvarOverride: (colaboradorId: string, data: string, edit: DiaOverrideEdit | null) => void;
+  colaboradoresJaMedidos: Set<string>;
+  carregando: boolean;
+}) {
+  const efetivo = (d: TimesheetDiaComColaborador): DiaOverrideEdit => {
+    const ov = overrides[chaveDiaOverride(d.colaborador_id, d.data)];
+    return ov ?? { evento: d.evento, horas_extras: d.horas_extras, adicional_noturno: d.adicional_noturno, total_horas: d.total_horas, observacao: "" };
+  };
+
+  const atualizarCampo = (d: TimesheetDiaComColaborador, patch: Partial<DiaOverrideEdit>) => {
+    const atual = efetivo(d);
+    const novo = { ...atual, ...patch };
+    const igualOriginal = novo.evento === d.evento && novo.horas_extras === d.horas_extras
+      && novo.adicional_noturno === d.adicional_noturno && novo.total_horas === d.total_horas && !novo.observacao.trim();
+    onSalvarOverride(d.colaborador_id, d.data, igualOriginal ? null : novo);
+  };
+
+  return (
+    <div className="space-y-2">
+      {carregando && <p className="text-xs text-muted-foreground">Carregando horas do timesheet…</p>}
+      <p className="text-xs text-muted-foreground">
+        Compilado direto do Timesheet Offshore pro período/embarcação escolhidos. Dá pra corrigir um dia específico
+        aqui sem alterar o timesheet real do colaborador — só descreva o motivo em Observação.
+      </p>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Colaborador</TableHead>
+              <TableHead>Data</TableHead>
+              <TableHead>Evento</TableHead>
+              <TableHead>Horas Extras</TableHead>
+              <TableHead>Adic. Noturno</TableHead>
+              <TableHead>Total</TableHead>
+              <TableHead className="min-w-[220px]">Observação</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {diasBase.map((d) => {
+              const ed = efetivo(d);
+              const alterado = !!overrides[chaveDiaOverride(d.colaborador_id, d.data)];
+              const jaMedido = colaboradoresJaMedidos.has(d.colaborador_id);
+              return (
+                <TableRow key={`${d.colaborador_id}-${d.data}`} className={alterado ? "bg-warning/10" : undefined}>
+                  <TableCell className="font-medium">
+                    <span className="inline-flex items-center gap-1.5">
+                      {!jaMedido && (
+                        <span title="Ainda não medido em nenhum BM desse período/embarcação">
+                          <CircleAlert className="h-3.5 w-3.5 shrink-0 animate-pulse text-destructive" />
+                        </span>
+                      )}
+                      {d.colaborador_nome}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{fmt(d.data)}</TableCell>
+                  <TableCell>
+                    <Select value={ed.evento ?? "Nenhum"} onValueChange={(v) => atualizarCampo(d, { evento: v === "Nenhum" ? null : v })}>
+                      <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{EVENTO_OPCOES_BM.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      type="number" className="h-7 w-20 text-xs" value={ed.horas_extras ?? ""}
+                      onChange={(e) => atualizarCampo(d, { horas_extras: e.target.value === "" ? null : Number(e.target.value) })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox checked={ed.adicional_noturno} onCheckedChange={(v) => atualizarCampo(d, { adicional_noturno: !!v })} />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      type="number" className="h-7 w-20 text-xs" value={ed.total_horas ?? ""}
+                      onChange={(e) => atualizarCampo(d, { total_horas: e.target.value === "" ? null : Number(e.target.value) })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      className={cn("h-7 text-xs", alterado && !ed.observacao.trim() && "border-destructive")}
+                      placeholder={alterado ? "Justifique a alteração..." : "—"}
+                      value={ed.observacao}
+                      onChange={(e) => atualizarCampo(d, { observacao: e.target.value })}
+                    />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {diasBase.length === 0 && !carregando && (
+              <EmptyStateRow colSpan={7} icon={Coins} title="Nenhum dia de timesheet lançado nesse período/embarcação" />
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
 }
 
 // ─── Step 3: Logística ───────────────────────────────────────────────────────
@@ -704,11 +930,18 @@ function MateriaisStep({ lines, setLines, clientAtual, poNumber }: {
 
 // ─── Histórico de BMs ────────────────────────────────────────────────────────
 
+type BmListSortColumn = "numero" | "cliente" | "embarcacao" | "periodo" | "total" | "status";
+
+// draft -> pending_pm -> approved/rejected -> sent_client (ver STATUS_LABELS em src/lib/bm.ts)
+// — ordena pela ordem lógica do fluxo, não alfabeticamente.
+const BM_STATUS_ORDER: Record<BmStatus, number> = { draft: 0, pending_pm: 1, approved: 2, rejected: 3, sent_client: 4 };
+
 function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
   const qc = useQueryClient();
   const [filterClient, setFilterClient] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [viewingBm, setViewingBm] = useState<Bm | null>(null);
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<BmListSortColumn>();
 
   const { data: viewingLinhas } = useQuery({
     queryKey: ["bm-linhas", viewingBm?.id],
@@ -765,7 +998,28 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
   });
 
   const clientesNaLista = useMemo(() => Array.from(new Set(bms.map((b) => b.client_name))).sort(), [bms]);
-  const filtered = bms.filter((b) => (filterClient === "all" || b.client_name === filterClient) && (filterStatus === "all" || b.current_status === filterStatus));
+  const filtered = bms
+    .filter((b) => (filterClient === "all" || b.client_name === filterClient) && (filterStatus === "all" || b.current_status === filterStatus))
+    .sort((a, b) => {
+      if (!sortColumn) return 0;
+      const dir = sortDirection === "asc" ? 1 : -1;
+      switch (sortColumn) {
+        case "numero":
+          return dir * (a.numero_bm ?? "").localeCompare(b.numero_bm ?? "");
+        case "cliente":
+          return dir * (a.client_name ?? "").localeCompare(b.client_name ?? "");
+        case "embarcacao":
+          return dir * (a.vessel ?? "").localeCompare(b.vessel ?? "");
+        case "periodo":
+          return dir * (a.period_start ?? "").localeCompare(b.period_start ?? "");
+        case "total":
+          return dir * (a.total_geral - b.total_geral);
+        case "status":
+          return dir * (BM_STATUS_ORDER[a.current_status] - BM_STATUS_ORDER[b.current_status]);
+        default:
+          return 0;
+      }
+    });
 
   return (
     <div className="space-y-3">
@@ -794,8 +1048,13 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nº BM</TableHead><TableHead>Cliente</TableHead><TableHead>Embarcação</TableHead>
-              <TableHead>Período</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead><TableHead className="w-20"></TableHead>
+              <SortableHead label="Nº BM" column="numero" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Cliente" column="cliente" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Embarcação" column="embarcacao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Período" column="periodo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Total" column="total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
