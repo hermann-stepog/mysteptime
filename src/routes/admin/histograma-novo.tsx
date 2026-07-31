@@ -541,7 +541,7 @@ export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: str
 
 // ─── Lançamentos tab ─────────────────────────────────────────────────────────
 
-type LancamentosSortColumn = "colaborador" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
+type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
 
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
@@ -716,6 +716,11 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     switch (sortColumn) {
       case "colaborador":
         return dir * (colaboradorById.get(a.colaborador_id)?.nome ?? "").localeCompare(colaboradorById.get(b.colaborador_id)?.nome ?? "");
+      case "funcao": {
+        const fa = colaboradorById.get(a.colaborador_id);
+        const fb = colaboradorById.get(b.colaborador_id);
+        return dir * (fa?.funcao || fa?.funcao_operacao || "").localeCompare(fb?.funcao || fb?.funcao_operacao || "");
+      }
       case "evento":
         return dir * a.tipo.localeCompare(b.tipo);
       case "unidade":
@@ -857,6 +862,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           <TableHeader>
             <TableRow>
               <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Evento" column="evento" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
@@ -873,6 +879,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               return (
                 <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{c?.funcao || c?.funcao_operacao || "—"}</TableCell>
                   <TableCell>
                     {tipo ? (
                       <span
@@ -906,7 +913,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               );
             })}
             {filteredPeriodos.length === 0 && (
-              <EmptyStateRow colSpan={8} icon={Inbox} title="Nenhum período encontrado" description="Ajuste os filtros acima ou lance um novo período manualmente." />
+              <EmptyStateRow colSpan={9} icon={Inbox} title="Nenhum período encontrado" description="Ajuste os filtros acima ou lance um novo período manualmente." />
             )}
           </TableBody>
         </Table>

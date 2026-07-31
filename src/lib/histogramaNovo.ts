@@ -2,9 +2,9 @@
 // "DI" substitui o antigo "D" (Disponível); "FI" agora significa Folga Indenizada
 // (era Feriado — removido do módulo). "EC" continua lançável, mas na grade sempre
 // aparece computado como DI (ver computeDayStatus).
-export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL";
+export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC";
 
-export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL"];
+export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL", "CANC"];
 
 export const TIPO_COLOR: Record<TipoPeriodo, string> = {
   P: "#d1d5db",   // programado — cinza claro
@@ -19,6 +19,7 @@ export const TIPO_COLOR: Record<TipoPeriodo, string> = {
   DI: "#e5e7eb",  // disponível — cinza claro
   FI: "#ED93B1",  // folga indenizada — rosa
   HTL: "#F2A9AE", // hotel — rosa salmão (igual ao Drake)
+  CANC: "#A78BFA", // embarque cancelado — roxo claro
 };
 
 // Sigla exibida na grade — separada da chave interna (usada em dados/lógica) pra poder
@@ -27,6 +28,10 @@ export const TIPO_COLOR: Record<TipoPeriodo, string> = {
 export const DISPLAY_ABBR: Record<string, string> = {
   HTL: "H",
   DB: "D",
+  // "EC" já é a chave interna de "Empresa em Casa", mas esse tipo nunca aparece cru na
+  // grade (computeDayStatus sempre converte pra STB) — então não colide de fato com o
+  // "EC" pedido pela usuária pra Embarque Cancelado, que é a sigla exibida aqui.
+  CANC: "EC",
 };
 
 export function displayAbbr(code: string): string {
@@ -46,6 +51,7 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
   DI: "Disponível",
   FI: "Folga Indenizada",
   HTL: "Hotel",
+  CANC: "Embarque Cancelado",
 };
 
 // Status computado por dia por colaborador (o que a grade exibe), derivado por prioridade
@@ -53,9 +59,9 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
 // (Dobra), que nunca são lançados diretamente, só calculados. "DI" (Disponível) foi retirado
 // como status computado — quem não tem período cobrindo o dia (ou tem EC/DI cru) agora
 // aparece como "STB" (Standby), que passou a representar quem está realmente disponível.
-export type ComputedStatus = "P" | "E" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "DDN" | "DES" | "FI" | "DB";
+export type ComputedStatus = "P" | "E" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "DDN" | "DES" | "FI" | "DB" | "CANC";
 
-export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "AT", "FE", "STB", "F", "TE", "HTL", "DDN", "DES", "FI", "DB"];
+export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "AT", "FE", "STB", "F", "TE", "HTL", "DDN", "DES", "FI", "DB", "CANC"];
 
 export const STATUS_COLOR: Record<ComputedStatus, string> = {
   P: "#d1d5db",
@@ -70,6 +76,7 @@ export const STATUS_COLOR: Record<ComputedStatus, string> = {
   DES: "#f59e0b",  // desembarque — âmbar
   FI: "#ED93B1",
   DB: "#DC2626",   // dobra — vermelho, cor de alerta (sigla exibida vira "D", ver DISPLAY_ABBR)
+  CANC: "#A78BFA", // embarque cancelado — roxo claro
 };
 
 export const STATUS_LABEL: Record<ComputedStatus, string> = {
@@ -85,6 +92,7 @@ export const STATUS_LABEL: Record<ComputedStatus, string> = {
   DES: "Desembarque",
   FI: "Folga Indenizada",
   DB: "Dobra",
+  CANC: "Embarque Cancelado",
 };
 
 // Cor do "E" gerado automaticamente ao programar um colaborador (dias após o 1º dia
@@ -281,7 +289,7 @@ export interface DayStatusResult {
 // um embarque). Ordem de prioridade definida com a equipe:
 //   Atestado > Férias > Embarcado > Folga (1º dia = Desembarque) >
 //   Desembarque em Dia Não Útil (só sáb/dom da faixa — dias úteis da mesma faixa viram Desembarque) >
-//   Trabalho Externo > Hotel > Empresa em Casa (computado como Standby) > Programado > Standby
+//   Trabalho Externo > Hotel > Embarque Cancelado > Empresa em Casa (computado como Standby) > Programado > Standby
 // Quem não tem nenhum período cobrindo o dia (ou tem período cru "DI"/"EC") aparece como
 // Standby — é quem está realmente disponível; não existe mais um status "Disponível" separado.
 // Casos especiais:
@@ -347,11 +355,19 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   const htl = covering("HTL");
   if (htl) return { status: "HTL", periodo: htl };
 
+  const canc = covering("CANC");
+  if (canc) return { status: "CANC", periodo: canc };
+
   const ec = covering("EC");
   if (ec) return { status: "STB", periodo: ec };
 
+  // Um "P" (Programado) marca o dia da mobilização — assim que esse dia passa, o colaborador
+  // já embarcou de fato, mesmo que o Drake ainda não tenha confirmado (ver import-drake.ts,
+  // que substitui esse "P" pelo embarque real assim que aparece); até lá, mostra como
+  // Embarcado "a confirmar" (mesma cor/rótulo já usados pra continuação de uma programação
+  // multi-dia), em vez de continuar mostrando Programado indefinidamente pro passado.
   const programado = covering("P");
-  if (programado) return { status: "P", periodo: programado };
+  if (programado) return date <= hoje ? { status: "E", periodo: programado } : { status: "P", periodo: programado };
 
   const di = covering("DI");
   if (di) return { status: "STB", periodo: di };
@@ -362,12 +378,19 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   return { status: "STB" };
 }
 
+// "E a confirmar": tanto a continuação gerada pro resto de uma programação multi-dia
+// (origem=programado) quanto um "P" cujo dia de mobilização já passou (ver computeDayStatus) —
+// em ambos os casos o Drake ainda não confirmou o embarque de verdade.
+function isEAConfirmarComputado(r: DayStatusResult): boolean {
+  return r.status === "E" && (r.periodo?.origem === ORIGEM_PROGRAMADO || r.periodo?.tipo === "P");
+}
+
 export function getComputedColor(r: DayStatusResult): string {
-  if (r.status === "E" && r.periodo?.origem === ORIGEM_PROGRAMADO) return E_A_CONFIRMAR_COLOR;
+  if (isEAConfirmarComputado(r)) return E_A_CONFIRMAR_COLOR;
   return STATUS_COLOR[r.status];
 }
 
 export function getComputedLabel(r: DayStatusResult): string {
   const base = STATUS_LABEL[r.status];
-  return r.status === "E" && r.periodo?.origem === ORIGEM_PROGRAMADO ? `${base} (a confirmar)` : base;
+  return isEAConfirmarComputado(r) ? `${base} (a confirmar)` : base;
 }
