@@ -24,6 +24,7 @@ import {
 } from "./drake-files.server";
 import { DrakeIntegrationError, toDrakeIntegrationError } from "./integration-error.server";
 import { persistIntegrationFailure } from "./last-error.server";
+import { recordDrakeSyncRun } from "./sync-runs.server";
 import {
   createExecutionId,
   getDrakeLogContext,
@@ -54,6 +55,11 @@ import {
 
 type DbClient = SupabaseClient;
 
+export interface DrakeUpdateTrigger {
+  triggeredBy: string | null;
+  triggeredByLabel: string | null;
+}
+
 /**
  * Orquestra autenticação Drake, download HTTP e importadores.
  * Progresso é emitido via callback (stream NDJSON) — sem gravar em tabela.
@@ -61,17 +67,18 @@ type DbClient = SupabaseClient;
 export async function updateDrakeData(
   db: DbClient,
   onProgress: DrakeProgressCallback,
+  trigger: DrakeUpdateTrigger,
 ): Promise<DrakeUpdateResult> {
   const existing = getDrakeLogContext();
   const executionId = existing?.executionId ?? createExecutionId();
   const startedAtMs = existing?.startedAtMs ?? Date.now();
 
   if (existing) {
-    return updateDrakeDataInner(db, onProgress, startedAtMs);
+    return updateDrakeDataInner(db, onProgress, startedAtMs, trigger);
   }
 
   return runWithDrakeLogContext({ executionId, startedAtMs, stage: "queued", progress: 0 }, () =>
-    updateDrakeDataInner(db, onProgress, startedAtMs),
+    updateDrakeDataInner(db, onProgress, startedAtMs, trigger),
   );
 }
 
@@ -79,6 +86,7 @@ async function updateDrakeDataInner(
   db: DbClient,
   onProgress: DrakeProgressCallback,
   startedAtMs: number,
+  trigger: DrakeUpdateTrigger,
 ): Promise<DrakeUpdateResult> {
   let apiContext: APIRequestContext | null = null;
   let storageState: StorageState | null = null;
@@ -380,6 +388,17 @@ async function updateDrakeDataInner(
         report14DurationMs,
         import14DurationMs,
       });
+      await recordDrakeSyncRun(db, {
+        startedAtMs,
+        status: "success",
+        triggeredBy: trigger.triggeredBy,
+        triggeredByLabel: trigger.triggeredByLabel,
+        embarquesCriados: embarkationSummary?.created,
+        embarquesAtualizados: embarkationSummary?.updated,
+        embarquesEventos: embarkationSummary?.insertedEvents,
+        disponibilidadeEventos: availabilitySummary?.insertedEvents,
+        skipped: result.skipped,
+      });
       return result;
     });
   } catch (error: unknown) {
@@ -408,6 +427,21 @@ async function updateDrakeDataInner(
     });
 
     await persistIntegrationFailure(integration).catch(() => undefined);
+    // "Parcial": o relatório de embarque já tinha importado (embarkationSummary setado) quando
+    // o de disponibilidade falhou depois — os dois relatórios rodam em sequência, então nesse
+    // ponto uma parte real do trabalho já foi persistida, mesmo a execução terminando em erro.
+    await recordDrakeSyncRun(db, {
+      startedAtMs,
+      status: embarkationSummary ? "partial" : "error",
+      triggeredBy: trigger.triggeredBy,
+      triggeredByLabel: trigger.triggeredByLabel,
+      embarquesCriados: embarkationSummary?.created,
+      embarquesAtualizados: embarkationSummary?.updated,
+      embarquesEventos: embarkationSummary?.insertedEvents,
+      disponibilidadeEventos: availabilitySummary?.insertedEvents,
+      skipped: (embarkationSummary?.skipped ?? 0) + (availabilitySummary?.skipped ?? 0),
+      errorMessage: integration.message,
+    });
 
     // Anexar statuses atuais no erro para o mapper da rota
     (

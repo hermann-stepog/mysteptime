@@ -225,6 +225,7 @@ export interface HistNovoPeriodo {
   data_fim: string;
   dias: number | null;
   origem: string | null;
+  created_at: string;
 }
 
 // Encontra o período cujo intervalo [data_inicio, data_fim] cobre a data informada.
