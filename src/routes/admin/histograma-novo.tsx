@@ -15,6 +15,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +54,18 @@ export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pag
 function fmtDiaCurto(d: string): string {
   return `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 }
+
+// "YYYY-MM-DD" → "DD/MM/YYYY" — usado nos avisos de conflito ao lançar período manualmente.
+function fmtData(d: string): string {
+  return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+}
+
+// Texto curto pro aviso de ausência ao lançar período manualmente (ver LancamentosTab).
+const AUSENCIA_LABEL: Record<"F" | "FE" | "AT", string> = {
+  F: "de folga",
+  FE: "de férias",
+  AT: "com atestado",
+};
 
 function useColaboradoresQuery() {
   return useQuery({
@@ -488,6 +504,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   );
 
   const [form, setForm] = useState({ colaboradorId: "", tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+  // BSP em lista quando a unidade escolhida já tem BSP conhecido (evita erro de digitação);
+  // "Outro" volta pro campo livre pra um BSP novo que ainda não apareceu nessa unidade.
+  const [formBspManual, setFormBspManual] = useState(false);
+  const formBspOptions = useMemo(() => bspOptionsForUnidade(periodos, form.unidade_operacional), [periodos, form.unidade_operacional]);
   // Os campos de filtro só valem depois de clicar em "Buscar" — os "*Input" guardam o que o
   // usuário está digitando/selecionando, e os "filter*" guardam o que realmente filtra a tabela.
   const [colaboradorInput, setColaboradorInput] = useState("all");
@@ -552,9 +572,30 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       notify.success("Período lançado");
       setForm({ colaboradorId: "", tipo: "E", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+      setFormBspManual(false);
     },
     onError: (e: any) => notify.error(e.message),
   });
+
+  // Antes de lançar, avisa se o colaborador já tem período sobrepondo a data pedida — evita
+  // criar um "Programado"/"Embarcado" duplicado sem querer (oferece editar o existente) e
+  // avisa se ele está de folga/férias/atestado nesse intervalo (deixa continuar mesmo assim,
+  // caso seja intencional — ex.: corrigir uma folga marcada errada).
+  const [conflitoProgramado, setConflitoProgramado] = useState<HistNovoPeriodo | null>(null);
+  const [avisoAusencia, setAvisoAusencia] = useState<HistNovoPeriodo | null>(null);
+
+  const handleLancarClick = () => {
+    if (!form.colaboradorId) { notify.error("Selecione um colaborador."); return; }
+    if (!form.data_inicio || !form.data_fim) { notify.error("Informe as datas de início e fim."); return; }
+    const sobrepondo = periodos.filter((p) =>
+      p.colaborador_id === form.colaboradorId && p.data_fim >= form.data_inicio && p.data_inicio <= form.data_fim,
+    );
+    const programado = sobrepondo.find((p) => p.tipo === "P" || p.tipo === "E");
+    if (programado) { setConflitoProgramado(programado); return; }
+    const ausencia = sobrepondo.find((p) => p.tipo === "F" || p.tipo === "FE" || p.tipo === "AT");
+    if (ausencia) { setAvisoAusencia(ausencia); return; }
+    createPeriodo.mutate();
+  };
 
   const updatePeriodo = useMutation({
     mutationFn: async (p: HistNovoPeriodo) => {
@@ -625,7 +666,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               </div>
               <div>
                 <Label className="text-xs">Unidade Operacional</Label>
-                <Select value={form.unidade_operacional} onValueChange={(v) => setForm({ ...form, unidade_operacional: v })}>
+                <Select value={form.unidade_operacional} onValueChange={(v) => { setForm({ ...form, unidade_operacional: v, bsp: "" }); setFormBspManual(false); }}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
@@ -636,7 +677,17 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs">BSP</Label>
-                <Input value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} />
+                {formBspOptions.length > 0 && !formBspManual ? (
+                  <Select value={form.bsp} onValueChange={(v) => v === "__outro__" ? setFormBspManual(true) : setForm({ ...form, bsp: v })}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                    <SelectContent>
+                      {formBspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                      <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
+                )}
               </div>
               <div>
                 <Label className="text-xs">Data início</Label>
@@ -647,7 +698,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                 <Input type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
               </div>
             </div>
-            <Button onClick={() => createPeriodo.mutate()} loading={createPeriodo.isPending}>Lançar período</Button>
+            <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>Lançar período</Button>
           </div>
         </Card>
       </div>
@@ -822,6 +873,40 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!conflitoProgramado} onOpenChange={(o) => !o && setConflitoProgramado(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Esse período já está programado</AlertDialogTitle>
+            <AlertDialogDescription>
+              {conflitoProgramado && (
+                <>{colaboradorById.get(conflitoProgramado.colaborador_id)?.nome ?? "Colaborador"} já tem {getPeriodoLabel(conflitoProgramado)} lançado de {fmtData(conflitoProgramado.data_inicio)} a {fmtData(conflitoProgramado.data_fim)}. Deseja editar esse período em vez de criar um novo?</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConflitoProgramado(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setEditing(conflitoProgramado); setConflitoProgramado(null); }}>Editar período</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!avisoAusencia} onOpenChange={(o) => !o && setAvisoAusencia(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {avisoAusencia && `${colaboradorById.get(avisoAusencia.colaborador_id)?.nome ?? "Colaborador"} está ${AUSENCIA_LABEL[avisoAusencia.tipo as "F" | "FE" | "AT"]} nesse período`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {avisoAusencia && <>{fmtData(avisoAusencia.data_inicio)} a {fmtData(avisoAusencia.data_fim)}. Deseja continuar com a programação mesmo assim?</>}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setAvisoAusencia(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { createPeriodo.mutate(); setAvisoAusencia(null); }}>Continuar mesmo assim</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
