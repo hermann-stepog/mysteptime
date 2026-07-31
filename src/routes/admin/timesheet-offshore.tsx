@@ -1545,7 +1545,12 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
       (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
       (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())) &&
-      (!filterDe || r.embarque.data_fim_embarque >= filterDe) &&
+      // Diferente da aba de Lançamento (que usa sobreposição de data, pra achar quem esteve
+      // embarcado em algum dia do intervalo): aqui o período filtra pelo início do embarque —
+      // um embarque começado bem antes do período selecionado (ex.: maio) não deve reaparecer
+      // só porque a cauda dele encosta no intervalo (ex.: início de julho), senão pendência
+      // antiga de outro mês fica "grudada" no período atual.
+      (!filterDe || r.embarque.data_inicio_embarque >= filterDe) &&
       (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
     )
     .sort((a, b) => a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque)),
