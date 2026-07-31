@@ -26,7 +26,7 @@ import { FadeInView } from "@/components/FadeInView";
 import { CLIENTES } from "@/lib/clientes";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { cn, matchesNameSearch } from "@/lib/utils";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 import { pageTitle } from "@/lib/pageTitle";
 
@@ -70,6 +70,8 @@ type Trip = {
   arrival_time: string | null;
   status: TripStatus;
   custo: number | null;
+  custo_2: number | null;
+  custo_3: number | null;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
   materials: { material_id: string; quantidade: number | null }[];
@@ -94,6 +96,11 @@ function todayISO() {
 }
 function fmtTime(iso: string) {
   return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+}
+// Soma o valor rateado entre os até 3 BSPs de uma viagem (null quando nenhum foi preenchido).
+function custoTotal(t: Trip): number | null {
+  const valores = [t.custo, t.custo_2, t.custo_3].filter((v): v is number => v != null);
+  return valores.length ? valores.reduce((a, b) => a + b, 0) : null;
 }
 function compareCarNumber(a: string, b: string) {
   const na = parseInt((a.match(/\d+/) ?? ["0"])[0], 10);
@@ -144,6 +151,8 @@ export async function generateRelatorioTransporte(dataInicio?: string, dataFim?:
     Observações: t.notes ?? "",
     Status: STATUS_LABEL[t.status],
     Custo: t.custo ?? "",
+    "Custo 2": t.custo_2 ?? "",
+    "Custo 3": t.custo_3 ?? "",
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -398,7 +407,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     origens_extras: string[]; destinos_extras: string[];
     notes: string;
     tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
-    custo: string;
+    custo: string; custo_2: string; custo_3: string;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -414,6 +423,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
       unidade: t.unidade ?? "", status: t.status,
       custo: t.custo != null ? String(t.custo) : "",
+      custo_2: t.custo_2 != null ? String(t.custo_2) : "",
+      custo_3: t.custo_3 != null ? String(t.custo_3) : "",
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -428,7 +439,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       bsp: "", bsp_2: "", bsp_3: "",
       cliente: "", cliente_2: "", cliente_3: "",
       unidade: "", status: "em_andamento",
-      custo: "",
+      custo: "", custo_2: "", custo_3: "",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
@@ -457,6 +468,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         unidade: f.unidade.trim() || null,
         status: f.status,
         custo: f.custo.trim() ? Number(f.custo.trim()) : null,
+        custo_2: f.custo_2.trim() ? Number(f.custo_2.trim()) : null,
+        custo_3: f.custo_3.trim() ? Number(f.custo_3.trim()) : null,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
       };
       let id = f.id;
@@ -585,19 +598,46 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
 
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Cliente/BSP/Valor em até 3 linhas — cobre o caso raro de uma mesma viagem levar
+              colaboradores de BSPs diferentes, ratear o custo entre eles preenchendo mais de
+              uma linha. Na maioria das viagens só a primeira linha é usada. */}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente" value={f.cliente} onChange={(v) => setF({ ...f, cliente: v })} />
             <div><Label>BSP (opcional)</Label><Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Número do BSP" /></div>
+            <div>
+              <Label>Valor (opcional)</Label>
+              <Input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })}
+                placeholder="R$ 0,00"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente 2 (opcional)" value={f.cliente_2} onChange={(v) => setF({ ...f, cliente_2: v })} />
             <div><Label>BSP 2 (opcional)</Label><Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Número do BSP" /></div>
+            <div>
+              <Label>Valor 2 (opcional)</Label>
+              <Input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={f.custo_2} onChange={(e) => setF({ ...f, custo_2: e.target.value })}
+                placeholder="R$ 0,00"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente 3 (opcional)" value={f.cliente_3} onChange={(v) => setF({ ...f, cliente_3: v })} />
             <div><Label>BSP 3 (opcional)</Label><Input value={f.bsp_3} onChange={(e) => setF({ ...f, bsp_3: e.target.value })} placeholder="Número do BSP" /></div>
+            <div>
+              <Label>Valor 3 (opcional)</Label>
+              <Input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={f.custo_3} onChange={(e) => setF({ ...f, custo_3: e.target.value })}
+                placeholder="R$ 0,00"
+              />
+            </div>
           </div>
 
           <div><Label>Unidade</Label><Input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value })} placeholder="Preenchido automaticamente ao selecionar colaborador" /></div>
@@ -612,27 +652,17 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
           <div><Label>Observações</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} /></div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label>Status</Label>
-              <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v as TripStatus })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                  <SelectItem value="realizado">Realizado</SelectItem>
-                  <SelectItem value="faturado">Faturado</SelectItem>
-                  <SelectItem value="cancelado">Cancelado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Custo do transporte (opcional)</Label>
-              <Input
-                type="number" step="0.01" min="0" inputMode="decimal"
-                value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })}
-                placeholder="R$ 0,00"
-              />
-            </div>
+          <div>
+            <Label>Status</Label>
+            <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v as TripStatus })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="em_andamento">Em Andamento</SelectItem>
+                <SelectItem value="realizado">Realizado</SelectItem>
+                <SelectItem value="faturado">Faturado</SelectItem>
+                <SelectItem value="cancelado">Cancelado</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <DialogFooter className="gap-2">
@@ -1188,7 +1218,7 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command>
+        <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
           <CommandInput placeholder="Buscar colaborador..." />
           <CommandList>
             <CommandEmpty>Nenhum encontrado.</CommandEmpty>
@@ -1324,7 +1354,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                     : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
-                <TableCell>{t.custo != null ? fmtMoney(t.custo) : "—"}</TableCell>
+                <TableCell>{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   {onDuplicate && (
                     <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">

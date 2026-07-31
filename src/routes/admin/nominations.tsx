@@ -11,6 +11,7 @@ import {
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS,
   columnIdForStatus, canMoveToColumn, fmtDate, fmtDatetime, isSoldador,
 } from "@/lib/nominations";
+import { matchesNameSearch } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -929,7 +930,7 @@ function SimulacaoTab() {
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket };
       })
       .filter((l) => filterFuncao === "all" || l.funcao === filterFuncao)
-      .filter((l) => !searchNome.trim() || l.colaborador.nome.toLowerCase().includes(searchNome.trim().toLowerCase()))
+      .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
   }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, funcaoOverride, filterFuncao, searchNome]);
 
@@ -1154,7 +1155,7 @@ function NominationsPage() {
       const q = search.toLowerCase();
       list = list.filter(
         (n) =>
-          n.colaborador_nome.toLowerCase().includes(q) ||
+          matchesNameSearch(n.colaborador_nome, search) ||
           n.funcao.toLowerCase().includes(q) ||
           (n.pm_name ?? "").toLowerCase().includes(q) ||
           (n.project ?? "").toLowerCase().includes(q) ||

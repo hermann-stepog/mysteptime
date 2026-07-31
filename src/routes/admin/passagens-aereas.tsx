@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+import { matchesNameSearch } from "@/lib/utils";
 // passagens_aereas ainda não está nos tipos gerados (mesmo padrão de hospedagem.tsx/
 // nominations.tsx) — cast local pra não bloquear o build.
 const supabase: any = supabaseTyped;
@@ -29,6 +30,7 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { TIPOS_PASSAGEM, STATUS_PASSAGEM, type PassagemAerea } from "@/lib/passagensAereas";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 
 export const Route = createFileRoute("/admin/passagens-aereas")({ head: () => pageTitle("Passagens Aéreas"), component: PassagensAereasPage });
 
@@ -43,6 +45,12 @@ function fmtMoney(n: number): string {
 const STATUS_BADGE: Record<string, "default" | "destructive" | "secondary"> = {
   Confirmada: "default", Cancelada: "destructive", Remarcada: "secondary",
 };
+
+type PassagensSortColumn = "unidade" | "bsp" | "nome" | "companhia" | "origemDestino" | "ida" | "volta" | "tipo" | "valor" | "status" | "motivo";
+
+// Ordem de prioridade lógica do status (não alfabética) — Confirmada (ativa) antes de
+// Remarcada, e Cancelada (estado terminal) por último.
+const STATUS_PASSAGEM_ORDER: Record<string, number> = { Confirmada: 0, Remarcada: 1, Cancelada: 2 };
 
 function usePassagensQuery() {
   return useQuery<PassagemAerea[]>({
@@ -249,6 +257,10 @@ function PassagensAereasPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PassagemAerea | null>(null);
 
+  // Ordenação clicável no cabeçalho — aplicada só nos dados já filtrados na tela. Sem coluna
+  // escolhida, mantém a ordem padrão vinda da consulta (data de ida mais recente primeiro).
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<PassagensSortColumn>();
+
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
   const motivosVistos = useMemo(
     () => Array.from(new Set(passagens.map((p) => p.motivo).filter((m): m is string => !!m))).sort(),
@@ -272,8 +284,37 @@ function PassagensAereasPage() {
     (filterBsp === "all" || p.bsp === filterBsp) &&
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
-    (!filterNome || p.nome_usuario.toLowerCase().includes(filterNome.toLowerCase())),
-  ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome]);
+    (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)),
+  ).sort((a, b) => {
+    if (!sortColumn) return 0;
+    const dir = sortDirection === "asc" ? 1 : -1;
+    switch (sortColumn) {
+      case "unidade":
+        return dir * a.unidade.localeCompare(b.unidade);
+      case "bsp":
+        return dir * a.bsp.localeCompare(b.bsp);
+      case "nome":
+        return dir * a.nome_usuario.localeCompare(b.nome_usuario);
+      case "companhia":
+        return dir * (a.companhia_aerea ?? "").localeCompare(b.companhia_aerea ?? "");
+      case "origemDestino":
+        return dir * `${a.origem ?? ""} ${a.destino ?? ""}`.localeCompare(`${b.origem ?? ""} ${b.destino ?? ""}`);
+      case "ida":
+        return dir * a.data_ida.localeCompare(b.data_ida);
+      case "volta":
+        return dir * (a.data_volta ?? "").localeCompare(b.data_volta ?? "");
+      case "tipo":
+        return dir * a.tipo.localeCompare(b.tipo);
+      case "valor":
+        return dir * (a.valor - b.valor);
+      case "status":
+        return dir * (STATUS_PASSAGEM_ORDER[a.status] - STATUS_PASSAGEM_ORDER[b.status]);
+      case "motivo":
+        return dir * (a.motivo ?? "").localeCompare(b.motivo ?? "");
+      default:
+        return 0;
+    }
+  }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, sortColumn, sortDirection]);
 
   const consolidadoPorBsp = useMemo(() => {
     const m = new Map<string, number>();
@@ -391,17 +432,17 @@ function PassagensAereasPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Unidade</TableHead>
-              <TableHead>BSP</TableHead>
-              <TableHead>Nome do usuário</TableHead>
-              <TableHead>Companhia</TableHead>
-              <TableHead>Origem → Destino</TableHead>
-              <TableHead>Ida</TableHead>
-              <TableHead>Volta</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead className="text-right">Valor</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Motivo</TableHead>
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Nome do usuário" column="nome" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Companhia" column="companhia" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Origem → Destino" column="origemDestino" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Ida" column="ida" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Volta" column="volta" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Tipo" column="tipo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Valor" column="valor" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-28" />
             </TableRow>
           </TableHeader>
