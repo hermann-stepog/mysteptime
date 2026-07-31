@@ -291,6 +291,18 @@ export interface DayStatusResult {
 //   - Desembarque: o Drake trata o último dia do embarque (data_fim) ainda como "Embarcado" —
 //     não existe um status próprio de desembarque lá. Pra bater com o Drake, o último dia do
 //     embarque aqui também é "E"; "Desembarque" vira só o 1º dia de Folga logo em seguida.
+// O Drake às vezes exporta o embarque ainda em aberto (sem desembarque confirmado) com uma
+// data de término "placeholder" bem distante no futuro (ex.: mais de 1 ano à frente), em vez
+// de deixar em branco. Um embarque legítimo não passa disso na prática (P99 de duração real
+// ficou em ~19 dias, com raríssimos casos até uns 49 — o próximo valor visto de fato foi 376).
+// Então, se a duração total ultrapassa esse limite, tratamos como embarque em aberto: conta
+// normalmente até hoje, mas não projeta Embarcado/Dobra pra dias futuros ainda incertos.
+const EMBARQUE_DURACAO_MAX_RAZOAVEL_DIAS = 90;
+
+function embarqueTemDataFimPlaceholder(p: HistNovoPeriodo): boolean {
+  return daysBetween(p.data_inicio, p.data_fim) + 1 > EMBARQUE_DURACAO_MAX_RAZOAVEL_DIAS;
+}
+
 export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): DayStatusResult {
   const covering = (tipo: string) => periodos.find((p) => p.tipo === tipo && date >= p.data_inicio && date <= p.data_fim);
 
@@ -300,17 +312,23 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   const fe = covering("FE");
   if (fe) return { status: "FE", periodo: fe };
 
-  const embarque = periodos.find((p) => p.tipo === "E" && date >= p.data_inicio && date <= p.data_fim);
+  const hoje = todayStr();
+  const embarque = periodos.find((p) => {
+    if (p.tipo !== "E" || date < p.data_inicio || date > p.data_fim) return false;
+    if (date > hoje && embarqueTemDataFimPlaceholder(p)) return false;
+    return true;
+  });
   if (embarque) {
     const folgaMesmoDia = covering("F");
     if (folgaMesmoDia) return { status: "FI", periodo: embarque };
     const diaNum = daysBetween(embarque.data_inicio, date) + 1;
-    // Ciclo offshore: máx. 14 dias embarcado. Para dias futuros (ou embarques "a confirmar"
-    // vindos de programação), projeta-se o ciclo teórico — dias 1-14 = E, 15-28 = F,
-    // 29+ = STB. Embarque confirmado (Drake) já ocorrido respeita o dado real e a Dobra
-    // continua marcando do 15º dia em diante.
-    const projetado = isEAConfirmar(embarque) || date > todayStr();
-    if (projetado) {
+    // Ciclo offshore: máx. 14 dias embarcado. Só projeta o ciclo teórico (dias 1-14 = E,
+    // 15-28 = F, 29+ = STB) pra período "a confirmar" (origem=programado, sem data real do
+    // Drake ainda) — um embarque confirmado pelo Drake segue os dados reais mesmo quando o
+    // dia consultado é no futuro (ele só embarcou/desembarcou de fato quando o Drake diz que
+    // embarcou/desembarcou; não tem por que inventar uma folga teórica no meio de um embarque
+    // real ainda em curso). A Dobra continua marcando do 15º dia em diante em qualquer caso.
+    if (isEAConfirmar(embarque)) {
       if (diaNum <= 14) return { status: "E", periodo: embarque };
       if (diaNum <= 28) return { status: "F", periodo: embarque };
       return { status: "STB", periodo: embarque };
