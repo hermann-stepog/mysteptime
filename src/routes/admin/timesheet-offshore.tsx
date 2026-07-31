@@ -24,7 +24,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
-import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload } from "lucide-react";
+import { Plus, Check, ChevronsUpDown, ArrowUp, ArrowDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload } from "lucide-react";
 import { cn, focusNextOnEnter } from "@/lib/utils";
 import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
@@ -1580,6 +1580,36 @@ function funcaoEfetivaDoEmbarque(embarque: TimesheetEmbarque, semanasDoEmbarque:
 // ─── Aba 2: Timesheets Pendentes ────────────────────────────────────────────
 // Lista os embarques cujo timesheet físico ainda não foi recebido por completo (status_entrega
 // "pendente" ou "parcial") — pra cobrar do colaborador o físico que está faltando.
+
+type PendenciasSortColumn = "colaborador" | "funcao" | "unidade" | "bsp" | "periodo" | "semanas" | "status";
+
+// Cabeçalho clicável no estilo do Explorador de Arquivos do Windows: clica pra ordenar por
+// aquela coluna (1º clique ascendente, 2º clique na mesma coluna inverte), com seta indicando
+// a direção; colunas não ativas mostram uma seta dupla neutra e mais apagada.
+function SortableHead({ label, column, sortColumn, sortDirection, onSort, className }: {
+  label: string; column: PendenciasSortColumn;
+  sortColumn: PendenciasSortColumn | null; sortDirection: "asc" | "desc";
+  onSort: (column: PendenciasSortColumn) => void; className?: string;
+}) {
+  const active = sortColumn === column;
+  return (
+    <TableHead className={cn("cursor-pointer select-none hover:text-foreground", className)} onClick={() => onSort(column)}>
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active ? (
+          sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+        ) : (
+          <ChevronsUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </span>
+    </TableHead>
+  );
+}
+
+// Ordem de prioridade lógica do status (não alfabética) — Pendente antes de Parcial antes de
+// Completo (embora Completo não apareça aqui, já filtrado fora da lista de pendências).
+const STATUS_ENTREGA_ORDER: Record<StatusEntrega, number> = { pendente: 0, parcial: 1, completo: 2 };
+
 function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOptions, readOnly = false }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; unidadeOptions: string[]; readOnly?: boolean;
 }) {
@@ -1611,6 +1641,20 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
   useEffect(() => { salvarPeriodo(filterDe, filterAte, PERIODO_STORAGE_KEY_PENDENCIAS); }, [filterDe, filterAte]);
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
 
+  // Ordenação clicável no cabeçalho — aplicada só nos dados já carregados/filtrados na tela,
+  // sem refazer a consulta ao banco. Sem coluna escolhida, mantém a ordem padrão (período de
+  // início do embarque, mais antigo primeiro).
+  const [sortColumn, setSortColumn] = useState<PendenciasSortColumn | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const toggleSort = (column: PendenciasSortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
 
   const pendencias = useMemo(() => embarques
@@ -1638,8 +1682,29 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       (!filterDe || r.embarque.data_inicio_embarque >= filterDe) &&
       (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
     )
-    .sort((a, b) => a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque)),
-  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome, filterDe, filterAte]);
+    .sort((a, b) => {
+      if (!sortColumn) return a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque);
+      const dir = sortDirection === "asc" ? 1 : -1;
+      switch (sortColumn) {
+        case "colaborador":
+          return dir * (a.colaborador?.nome ?? "").localeCompare(b.colaborador?.nome ?? "");
+        case "funcao":
+          return dir * a.funcaoEfetiva.localeCompare(b.funcaoEfetiva);
+        case "unidade":
+          return dir * (a.embarque.unidade_operacional ?? "").localeCompare(b.embarque.unidade_operacional ?? "");
+        case "bsp":
+          return dir * ([a.embarque.bsp, a.embarque.bsp_2].filter(Boolean).join(" · ")).localeCompare([b.embarque.bsp, b.embarque.bsp_2].filter(Boolean).join(" · "));
+        case "periodo":
+          return dir * a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque);
+        case "semanas":
+          return dir * (a.recebidas - b.recebidas);
+        case "status":
+          return dir * (STATUS_ENTREGA_ORDER[a.embarque.status_entrega as StatusEntrega] - STATUS_ENTREGA_ORDER[b.embarque.status_entrega as StatusEntrega]);
+        default:
+          return 0;
+      }
+    }),
+  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
 
   return (
     <div className="space-y-4">
@@ -1685,13 +1750,13 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Colaborador</TableHead>
-              <TableHead>Função</TableHead>
-              <TableHead>Unidade</TableHead>
-              <TableHead>BSP</TableHead>
-              <TableHead>Período do embarque</TableHead>
-              <TableHead>Semanas recebidas</TableHead>
-              <TableHead>Status</TableHead>
+              <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Período do embarque" column="periodo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Semanas recebidas" column="semanas" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-16">Ações</TableHead>
             </TableRow>
           </TableHeader>
