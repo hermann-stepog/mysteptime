@@ -877,7 +877,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               const c = colaboradorById.get(p.colaborador_id);
               const tipo = isTipoPeriodo(p.tipo) ? p.tipo : null;
               return (
-                <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
+                <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b bg-warning/10 transition-colors duration-150 hover:bg-warning/20 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{c?.funcao || c?.funcao_operacao || "—"}</TableCell>
                   <TableCell>
