@@ -317,13 +317,20 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
           <CommandList>
             <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
             <CommandGroup>
-              {colaboradores.map((c) => (
-                <CommandItem key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => toggle(c.id)}>
-                  <Check className={cn("mr-2 h-4 w-4", value.includes(c.id) ? "opacity-100" : "opacity-0")} />
-                  <span className="flex-1 truncate">{c.nome}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{c.matricula}</span>
-                </CommandItem>
-              ))}
+              {colaboradores.map((c) => {
+                const isSelected = value.includes(c.id);
+                return (
+                  <CommandItem key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => toggle(c.id)}>
+                    {isSelected ? (
+                      <X className="mr-2 h-4 w-4 shrink-0 text-destructive" />
+                    ) : (
+                      <Check className="mr-2 h-4 w-4 shrink-0 opacity-0" />
+                    )}
+                    <span className="flex-1 truncate">{c.nome}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{c.matricula}</span>
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -553,6 +560,12 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   const unidadesExistentes = useMemo(
     () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
     [periodos],
+  );
+  // Cor por unidade na tabela de lançamentos — mesma paleta usada no Dashboard, pra ficar
+  // fácil identificar visualmente qual unidade é qual sem precisar ler a coluna toda.
+  const unidadeCorLancamentos = useMemo(
+    () => new Map(unidadesExistentes.map((u, i) => [u, DASH_UNIT_PALETTE[i % DASH_UNIT_PALETTE.length]])),
+    [unidadesExistentes],
   );
 
   const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
@@ -803,7 +816,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       </div>
 
       {/* ── Tabela de períodos ── */}
-      <Card className="bg-warning/5 p-4 space-y-3">
+      <Card className="p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
           <div className="space-y-0.5 w-56">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
@@ -891,7 +904,12 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                       </span>
                     ) : p.tipo}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{p.unidade_operacional ?? "—"}</TableCell>
+                  <TableCell
+                    className={p.unidade_operacional ? "font-medium" : "text-muted-foreground"}
+                    style={p.unidade_operacional ? { color: unidadeCorLancamentos.get(p.unidade_operacional) } : undefined}
+                  >
+                    {p.unidade_operacional ?? "—"}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{bspDoPeriodo(p) ?? "—"}</TableCell>
                   <TableCell>{p.data_inicio.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.data_fim.split("-").reverse().join("/")}</TableCell>
