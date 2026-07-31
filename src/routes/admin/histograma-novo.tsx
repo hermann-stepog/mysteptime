@@ -1079,13 +1079,31 @@ function resolveEColor(
   result: DayStatusResult, date: string,
   embarqueByPeriodoId: Map<string, TimesheetEmbarque>, semanasByEmbarqueId: Map<string, TimesheetSemana[]>,
 ): string {
-  if (result.status !== "E" || !result.periodo) return getComputedColor(result);
-  if (result.periodo.origem === ORIGEM_PROGRAMADO) return E_A_CONFIRMAR_COLOR;
-  const embarque = embarqueByPeriodoId.get(result.periodo.id);
-  if (!embarque) return E_A_CONFIRMAR_COLOR;
-  const semanas = semanasByEmbarqueId.get(embarque.id) ?? [];
-  const recebido = semanas.some((s) => s.recebido_fisico && date >= s.data_inicio_semana && date <= s.data_fim_semana);
-  return recebido ? STATUS_COLOR.E : E_A_CONFIRMAR_COLOR;
+  const cor = ((): string => {
+    if (result.status !== "E" || !result.periodo) return getComputedColor(result);
+    if (result.periodo.origem === ORIGEM_PROGRAMADO) return E_A_CONFIRMAR_COLOR;
+    const embarque = embarqueByPeriodoId.get(result.periodo.id);
+    if (!embarque) return E_A_CONFIRMAR_COLOR;
+    const semanas = semanasByEmbarqueId.get(embarque.id) ?? [];
+    const recebido = semanas.some((s) => s.recebido_fisico && date >= s.data_inicio_semana && date <= s.data_fim_semana);
+    return recebido ? STATUS_COLOR.E : E_A_CONFIRMAR_COLOR;
+  })();
+  return fadeColorDiaFuturo(cor, date);
+}
+
+// Dia depois de hoje mostra o mesmo status computado (é o que o Drake projeta até agora),
+// mas com a cor mais apagada — sinaliza visualmente que ainda não aconteceu de fato e pode
+// mudar até a data chegar, igual à distinção que o próprio Drake faz. Continua em hex (não
+// rgb()) porque getContrastText só sabe parsear "#RRGGBB".
+function fadeColorDiaFuturo(color: string, date: string): string {
+  if (date <= todayStr()) return color;
+  const hex = color.replace("#", "");
+  if (hex.length !== 6) return color;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const clarear = (c: number) => Math.round(c + (255 - c) * 0.55).toString(16).padStart(2, "0");
+  return `#${clarear(r)}${clarear(g)}${clarear(b)}`;
 }
 
 // Nos dias embarcado (E) ou em Dobra (DB), acrescenta função/unidade/BSP do embarque no
