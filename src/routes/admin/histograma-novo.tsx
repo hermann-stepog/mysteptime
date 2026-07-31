@@ -803,7 +803,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       </div>
 
       {/* ── Tabela de períodos ── */}
-      <Card className="p-4 space-y-3">
+      <Card className="bg-warning/5 p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
           <div className="space-y-0.5 w-56">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
@@ -877,7 +877,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               const c = colaboradorById.get(p.colaborador_id);
               const tipo = isTipoPeriodo(p.tipo) ? p.tipo : null;
               return (
-                <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b bg-warning/10 transition-colors duration-150 hover:bg-warning/20 data-[state=selected]:bg-muted">
+                <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{c?.funcao || c?.funcao_operacao || "—"}</TableCell>
                   <TableCell>
