@@ -23,7 +23,7 @@ export const DISPONIBILIDADE_EVENTO_MAP: Record<string, TipoPeriodo | null> = {
   periculosidade: null,
   sobreaviso: null,
   hotel: "HTL",
-  "embarque cancelado": null,
+  "embarque cancelado": "CANC",
   falta: null,
   treinamento: null,
   "no show": null,

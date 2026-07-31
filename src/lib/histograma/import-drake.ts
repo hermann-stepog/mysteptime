@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import { ORIGEM_PROGRAMADO, type HistNovoColaborador } from "@/lib/histogramaNovo";
+import { ORIGEM_PROGRAMADO, addDays, type HistNovoColaborador } from "@/lib/histogramaNovo";
 import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
@@ -251,9 +251,17 @@ export async function importDrakeEmbarkation(
     );
     const idsParaApagar = programados
       .filter((p) => (p.tipo === "P" && p.origem === "manual") || (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO))
-      .filter((p) => periodosToInsert.some((novo) =>
-        novo.colaborador_id === p.colaborador_id && novo.data_fim >= p.data_inicio && novo.data_inicio <= p.data_fim,
-      ))
+      .filter((p) => periodosToInsert.some((novo) => {
+        if (novo.colaborador_id !== p.colaborador_id) return false;
+        // O marcador "P" (1 dia, lançado manualmente) representa o dia da mobilização — o
+        // embarque de fato só começa no dia seguinte (mesma regra usada pra criar o "E a
+        // confirmar" na continuação do formulário manual). Por isso o embarque real do Drake
+        // não precisa começar exatamente nesse dia pra superar o "P": começando até 1 dia
+        // depois do fim do "P" já conta (sem essa folga, o "P" ficava esquecido pra sempre,
+        // duplicado ao lado do "E" real que o Drake acabou de confirmar).
+        const fimConsiderado = p.tipo === "P" ? addDays(p.data_fim, 1) : p.data_fim;
+        return novo.data_fim >= p.data_inicio && novo.data_inicio <= fimConsiderado;
+      }))
       .map((p) => p.id);
     for (let i = 0; i < idsParaApagar.length; i += 500) {
       const lote = idsParaApagar.slice(i, i + 500);

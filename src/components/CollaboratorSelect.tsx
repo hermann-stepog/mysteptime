@@ -9,7 +9,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Check, ChevronsUpDown, Plus, X, UserPlus, MapPin, Pencil } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, matchesNameSearch } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 
 export type Collaborator = { id: string; full_name: string; role: string | null; city: string | null; unit: string | null; active: boolean };
@@ -149,7 +149,7 @@ export function CollaboratorMultiSelect({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0 pointer-events-auto" align="start">
-          <Command>
+          <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
             <CommandInput placeholder="Buscar colaborador..." />
             <CommandList>
               <CommandEmpty>Nenhum encontrado.</CommandEmpty>

@@ -7,10 +7,11 @@ export interface TimesheetEmbarque {
   unidade_operacional: string | null;
   bsp: string | null;
   // Segundo BSP do mesmo embarque, quando parte dos dias é lançada numa BSP diferente da
-  // padrão (mesma unidade, "lançamento quebrado") — puro dado informativo; a atribuição de
-  // qual dia usa qual BSP continua sendo por dia (timesheet_dias.bsp).
+  // padrão (mesma unidade, "lançamento quebrado") — puro dado informativo, exibido junto do
+  // BSP principal nas listas; a atribuição de qual dia usa qual BSP continua sendo por dia
+  // (timesheet_dias.bsp).
   bsp_2: string | null;
-  funcao_embarque: string | null;
+  funcao_embarque: string;
   data_inicio_embarque: string;
   data_fim_embarque: string;
   status_entrega: string;
@@ -34,7 +35,7 @@ export interface TimesheetDia {
   id: string;
   semana_id: string;
   data: string;
-  dia_semana: string | null;
+  dia_semana: string;
   descricao_tarefa: string | null;
   numero_tarefa: string | null;
   evento: string | null;
@@ -46,8 +47,8 @@ export interface TimesheetDia {
   horas_normais: number | null;
   horas_extras: number | null;
   total_horas: number | null;
-  adicional_noturno: boolean | null;
-  feriado: boolean | null;
+  adicional_noturno: boolean;
+  feriado: boolean;
   criado_em: string;
 }
 

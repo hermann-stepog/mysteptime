@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+import { matchesNameSearch } from "@/lib/utils";
 // hoteis_fornecedores/hospedagens ainda não estão nos tipos gerados (types.ts não é
 // regerado automaticamente neste projeto — ver mesmo padrão em nominations.tsx); cast local
 // para não bloquear o build.
@@ -13,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -318,6 +320,9 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
 }
 
 // ─── Aba Lançamentos ────────────────────────────────────────────────────────
+type HospedagensSortColumn =
+  | "unidade" | "bsp" | "nome_usuario" | "hotel" | "check_in" | "check_out" | "diarias" | "valor_diaria" | "valor_total" | "motivo";
+
 function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidadeOptions, prefill, onPrefillConsumed }: {
   hoteis: HotelFornecedor[]; hospedagens: Hospedagem[]; periodosE: HistNovoPeriodo[];
   colaboradores: { id: string; nome: string }[]; unidadeOptions: string[];
@@ -331,6 +336,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
   const [filterNome, setFilterNome] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Hospedagem | null>(null);
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<HospedagensSortColumn>();
 
   useEffect(() => {
     if (prefill) { setEditing(null); setDialogOpen(true); onPrefillConsumed?.(); }
@@ -356,8 +362,37 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     (filterBsp === "all" || h.bsp === filterBsp) &&
     (filterHotel === "all" || h.hotel_id === filterHotel) &&
     (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
-    (!filterNome || h.nome_usuario.toLowerCase().includes(filterNome.toLowerCase())),
-  ), [hospedagens, filterUnidade, filterBsp, filterHotel, filterMotivo, filterNome]);
+    (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
+  ).sort((a, b) => {
+    // Sem coluna escolhida, mantém a ordem que já vem da consulta (check-in desc, mais recente
+    // primeiro — ver useHospedagensQuery).
+    if (!sortColumn) return 0;
+    const dir = sortDirection === "asc" ? 1 : -1;
+    switch (sortColumn) {
+      case "unidade":
+        return dir * a.unidade.localeCompare(b.unidade);
+      case "bsp":
+        return dir * a.bsp.localeCompare(b.bsp);
+      case "nome_usuario":
+        return dir * a.nome_usuario.localeCompare(b.nome_usuario);
+      case "hotel":
+        return dir * (hotelById.get(a.hotel_id)?.nome ?? "").localeCompare(hotelById.get(b.hotel_id)?.nome ?? "");
+      case "check_in":
+        return dir * a.check_in.localeCompare(b.check_in);
+      case "check_out":
+        return dir * a.check_out.localeCompare(b.check_out);
+      case "diarias":
+        return dir * (a.diarias - b.diarias);
+      case "valor_diaria":
+        return dir * (a.valor_diaria - b.valor_diaria);
+      case "valor_total":
+        return dir * (a.valor_total - b.valor_total);
+      case "motivo":
+        return dir * (a.motivo ?? "").localeCompare(b.motivo ?? "");
+      default:
+        return 0;
+    }
+  }), [hospedagens, filterUnidade, filterBsp, filterHotel, filterMotivo, filterNome, sortColumn, sortDirection, hotelById]);
 
   const consolidadoPorBsp = useMemo(() => {
     const m = new Map<string, number>();
@@ -441,16 +476,16 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Unidade</TableHead>
-              <TableHead>BSP</TableHead>
-              <TableHead>Nome do usuário</TableHead>
-              <TableHead>Hotel</TableHead>
-              <TableHead>Check-in</TableHead>
-              <TableHead>Check-out</TableHead>
-              <TableHead className="text-right">Diárias</TableHead>
-              <TableHead className="text-right">Valor diária</TableHead>
-              <TableHead className="text-right">Valor total</TableHead>
-              <TableHead>Motivo</TableHead>
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Nome do usuário" column="nome_usuario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Hotel" column="hotel" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Check-in" column="check_in" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Check-out" column="check_out" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Diárias" column="diarias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
+              <SortableHead label="Valor diária" column="valor_diaria" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
+              <SortableHead label="Valor total" column="valor_total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
+              <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
@@ -513,12 +548,15 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
 }
 
 // ─── Aba Hotéis (CRUD) ──────────────────────────────────────────────────────
+type HoteisSortColumn = "nome" | "cidade" | "estado";
+
 function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<HotelFornecedor | null>(null);
   const [creating, setCreating] = useState(false);
   const [f, setF] = useState({ nome: "", cidade: "", estado: "" });
   const [bound, setBound] = useState<string | null>(null);
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<HoteisSortColumn>();
 
   if (editing && bound !== editing.id) {
     setF({ nome: editing.nome, cidade: editing.cidade, estado: editing.estado });
@@ -560,6 +598,22 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
   const dialogOpen = editing !== null || creating;
   const closeDialog = () => { setEditing(null); setCreating(false); setBound(null); };
 
+  const ordenados = useMemo(() => [...hoteis].sort((a, b) => {
+    // Sem coluna escolhida, mantém a ordem que já vem da consulta (nome asc — ver useHoteisQuery).
+    if (!sortColumn) return 0;
+    const dir = sortDirection === "asc" ? 1 : -1;
+    switch (sortColumn) {
+      case "nome":
+        return dir * a.nome.localeCompare(b.nome);
+      case "cidade":
+        return dir * a.cidade.localeCompare(b.cidade);
+      case "estado":
+        return dir * a.estado.localeCompare(b.estado);
+      default:
+        return 0;
+    }
+  }), [hoteis, sortColumn, sortDirection]);
+
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
@@ -571,16 +625,16 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Cidade</TableHead>
-              <TableHead>Estado</TableHead>
+              <SortableHead label="Nome" column="nome" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Cidade" column="cidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Estado" column="estado" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {hoteis.length === 0 ? (
+            {ordenados.length === 0 ? (
               <EmptyStateRow colSpan={4} icon={Hotel} title="Nenhum hotel cadastrado" />
-            ) : hoteis.map((h) => (
+            ) : ordenados.map((h) => (
               <TableRow key={h.id}>
                 <TableCell>{h.nome}</TableCell>
                 <TableCell>{h.cidade}</TableCell>
