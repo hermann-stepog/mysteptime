@@ -59,9 +59,9 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
 // (Dobra), que nunca são lançados diretamente, só calculados. "DI" (Disponível) foi retirado
 // como status computado — quem não tem período cobrindo o dia (ou tem EC/DI cru) agora
 // aparece como "STB" (Standby), que passou a representar quem está realmente disponível.
-export type ComputedStatus = "P" | "E" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "DDN" | "DES" | "FI" | "DB" | "CANC";
+export type ComputedStatus = "P" | "E" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC";
 
-export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "AT", "FE", "STB", "F", "TE", "HTL", "DDN", "DES", "FI", "DB", "CANC"];
+export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "AT", "FE", "STB", "F", "TE", "HTL", "FIH", "DDN", "DES", "FI", "DB", "CANC"];
 
 export const STATUS_COLOR: Record<ComputedStatus, string> = {
   P: "#d1d5db",
@@ -72,6 +72,7 @@ export const STATUS_COLOR: Record<ComputedStatus, string> = {
   F: "#E8DCC0",   // folga — bege claro (igual ao Drake)
   TE: "#BA7517",
   HTL: "#F2A9AE", // hotel — rosa salmão (igual ao Drake)
+  FIH: "#D46A8C",  // foi embarcar e ficou no hotel antes — rosa mais escuro que Hotel puro
   DDN: "#F3F6F8", // branco gelo
   DES: "#f59e0b",  // desembarque — âmbar
   FI: "#ED93B1",
@@ -88,6 +89,7 @@ export const STATUS_LABEL: Record<ComputedStatus, string> = {
   F: "Folga",
   TE: "Trabalho Externo",
   HTL: "Hotel",
+  FIH: "Foi Embarcar e Ficou no Hotel",
   DDN: "Desembarque em Dia Não Útil",
   DES: "Desembarque",
   FI: "Folga Indenizada",
@@ -354,7 +356,19 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   if (te) return { status: "TE", periodo: te };
 
   const htl = covering("HTL");
-  if (htl) return { status: "HTL", periodo: htl };
+  if (htl) {
+    // "Foi embarcar e ficou no hotel antes de embarcar" (FIH): esse hotel não é qualquer
+    // hospedagem, é especificamente a estadia logo antes de um embarque real do mesmo
+    // colaborador — reconhecido quando existe um período "E" começando em até 3 dias depois
+    // do fim desse hotel (janela curta o bastante pra não confundir com uma hospedagem
+    // qualquer sem relação com o próximo embarque).
+    const embarqueLogoDepois = periodos.some((p) => {
+      if (p.tipo !== "E") return false;
+      const gap = daysBetween(htl.data_fim, p.data_inicio);
+      return gap >= 0 && gap <= 3;
+    });
+    return { status: embarqueLogoDepois ? "FIH" : "HTL", periodo: htl };
+  }
 
   const canc = covering("CANC");
   if (canc) return { status: "CANC", periodo: canc };

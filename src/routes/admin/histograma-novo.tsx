@@ -793,7 +793,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
         </div>
 
-        <Card className="p-4 space-y-3">
+        <Card className="self-start p-4 space-y-3">
           <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
           <div className="grid gap-3">
             <div>
