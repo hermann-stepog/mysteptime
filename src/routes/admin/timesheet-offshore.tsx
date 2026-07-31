@@ -1537,7 +1537,11 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
     .map((e) => {
       const semanasDoEmbarque = semanasByEmbarqueId.get(e.id) ?? [];
       const recebidas = semanasDoEmbarque.filter((s) => s.recebido_fisico).length;
-      const total = totalSemanasEsperadas(e.data_inicio_embarque, e.data_fim_embarque);
+      // Nunca menos que as semanas que realmente existem — mesmo ajuste feito ao gravar
+      // status_entrega (ver salvar/excluirSemana em SemanaGrid): embarque editado (data
+      // encurtada) depois que as semanas já existiam com intervalo mais largo não pode
+      // mostrar "1/1" quando na real tem 2 semanas, uma delas ainda não recebida.
+      const total = Math.max(totalSemanasEsperadas(e.data_inicio_embarque, e.data_fim_embarque), semanasDoEmbarque.length);
       const funcaoEfetiva = funcaoEfetivaDoEmbarque(e, semanasDoEmbarque);
       return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva };
     })
@@ -1753,7 +1757,12 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
       if (error) throw error;
       const restantes = semanas.filter((s) => s.id !== semana.id);
       const recebidas = restantes.filter((s) => s.recebido_fisico).length;
-      const total = totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque);
+      // Nunca menos que as semanas que realmente existem — se o embarque foi editado (data
+      // encurtada) depois que as semanas já tinham sido criadas com um intervalo mais largo,
+      // o cálculo teórico por data ficava menor que a contagem real e podia marcar como
+      // "completo" um embarque que ainda tem semana não recebida sobrando fora do intervalo
+      // atual do embarque.
+      const total = Math.max(totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque), restantes.length);
       const status = computeStatusEntrega(recebidas, total);
       await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
     },
@@ -2087,7 +2096,8 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
       const { data: todasSemanas, error: listErr } = await supabase.from("timesheet_semanas").select("recebido_fisico").eq("embarque_id", embarque.id);
       if (listErr) throw listErr;
       const recebidas = (todasSemanas ?? []).filter((s) => s.recebido_fisico).length;
-      const total = totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque);
+      // Nunca menos que as semanas que realmente existem — ver mesmo comentário em excluirSemana.
+      const total = Math.max(totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque), (todasSemanas ?? []).length);
       const status = computeStatusEntrega(recebidas, total);
       await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
     },
