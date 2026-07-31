@@ -212,7 +212,7 @@ describe("updateDrakeData ordem dos relatorios", () => {
         embarkationStatus: ev.embarkationStatus,
         availabilityStatus: ev.availabilityStatus,
       });
-    });
+    }, { triggeredBy: null, triggeredByLabel: "test" });
 
     expect(importEmbark).toHaveBeenCalledTimes(1);
     expect(importEmbark.mock.calls[0]?.[1]).toEqual(Buffer.from("xlsx-1"));

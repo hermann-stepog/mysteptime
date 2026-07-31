@@ -31,6 +31,7 @@ import {
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
+  Download,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
@@ -44,6 +45,8 @@ import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
+import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
+import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
 export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshoreNovo });
@@ -751,11 +754,44 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     }
   }), [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
 
+  // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
+  // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
+  const exportarLancamentos = () => {
+    const rows = filteredPeriodos.map((p) => {
+      const c = colaboradorById.get(p.colaborador_id);
+      return {
+        Colaborador: c?.nome ?? "—",
+        Função: c?.funcao || c?.funcao_operacao || "—",
+        Evento: isTipoPeriodo(p.tipo) ? `${displayAbbr(p.tipo)} — ${TIPO_LABEL[p.tipo]}` : p.tipo,
+        Unidade: p.unidade_operacional ?? "—",
+        BSP: bspDoPeriodo(p) ?? "—",
+        Início: p.data_inicio.split("-").reverse().join("/"),
+        Fim: p.data_fim.split("-").reverse().join("/"),
+        Dias: p.dias ?? "—",
+      };
+    });
+    if (rows.length === 0) { notify.error("Nenhum período pra exportar com os filtros atuais."); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Lançamentos");
+    XLSX.writeFile(wb, `lancamentos_${todayStr()}.xlsx`);
+  };
+
   return (
     <div className="space-y-4">
       {/* ── Atualização Drake e lançamento manual ── */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <DrakeUpdateCard />
+        <div className="space-y-4">
+          <DrakeUpdateCard />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr]">
+            <ProximosEventosCard
+              periodos={periodos}
+              colaboradorById={colaboradorById}
+              onSelecionarColaborador={(id) => { setColaboradorInput(id); setFilterColaborador(id); }}
+            />
+            <DrakeSyncLogList />
+          </div>
+        </div>
 
         <Card className="p-4 space-y-3">
           <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
@@ -868,6 +904,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
           <Button size="sm" className="h-8" onClick={aplicarFiltro}>
             <Search className="mr-1.5 h-3.5 w-3.5" />Buscar
+          </Button>
+          <Button size="sm" variant="outline" className="h-8" onClick={exportarLancamentos}>
+            <Download className="mr-1.5 h-3.5 w-3.5" />Exportar
           </Button>
         </div>
 

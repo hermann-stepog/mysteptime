@@ -1,14 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDaysStr, weekdayLabel, daysBetweenStr } from "@/lib/timesheetOffshore";
+import { addDaysStr, weekdayLabel, daysBetweenStr, mondayOf } from "@/lib/timesheetOffshore";
 import { todayStr } from "@/lib/histogramaNovo";
 
-// Corta [dataInicio, dataFim] em blocos de 7 dias corridos a partir da data real de início
-// do embarque (não alinhado à segunda-feira, ao contrário do botão manual "+ Nova Semana") —
-// o último bloco fica com menos de 7 linhas se a duração não for múltipla de 7. Cria uma
-// timesheet_semana por bloco e um timesheet_dia por dia (entrada/saída/horas em branco, nada
-// de valor padrão, fica pra digitação manual a partir do físico). Evento nasce "Embarque" nos
-// primeiros 14 dias contados a partir do início desse embarque e "Dobra" do 15º dia em diante —
-// mesmo ciclo que o próprio Drake já projeta automaticamente, mesmo sem desembarque confirmado.
+// Corta [dataInicio, dataFim] em semanas de calendário segunda-a-domingo — sempre alinhado à
+// segunda-feira (mesmo critério do botão manual "+ Nova Semana", via mondayOf), nunca em blocos
+// crus de 7 dias a partir da data real de início do embarque. A semana em si (timesheet_semanas)
+// cobre sempre a semana inteira; só os timesheet_dias ficam restritos a [dataInicio, dataFim] —
+// dias de calendário fora do embarque (ex.: 2ª/3ª da semana em que o embarque só começou na
+// 4ª) não geram linha. Evento nasce "Embarque" nos primeiros 14 dias contados a partir do
+// início desse embarque e "Dobra" do 15º dia em diante — mesmo ciclo que o próprio Drake já
+// projeta automaticamente, mesmo sem desembarque confirmado.
 export async function gerarSemanasEDias(
   supabase: SupabaseClient,
   embarqueId: string,
@@ -16,14 +17,13 @@ export async function gerarSemanasEDias(
   dataFim: string,
   bsp: string | null = null,
 ): Promise<void> {
-  let inicioBloco = dataInicio;
-  while (inicioBloco <= dataFim) {
-    const fimBlocoCru = addDaysStr(inicioBloco, 6);
-    const fimBloco = fimBlocoCru > dataFim ? dataFim : fimBlocoCru;
+  let semanaInicio = mondayOf(dataInicio);
+  while (semanaInicio <= dataFim) {
+    const semanaFim = addDaysStr(semanaInicio, 6);
 
     const { data: semana, error: semErr } = await supabase
       .from("timesheet_semanas")
-      .insert({ embarque_id: embarqueId, data_inicio_semana: inicioBloco, data_fim_semana: fimBloco, recebido_fisico: false })
+      .insert({ embarque_id: embarqueId, data_inicio_semana: semanaInicio, data_fim_semana: semanaFim, recebido_fisico: false })
       .select("id")
       .single();
     if (semErr) throw semErr;
@@ -32,17 +32,21 @@ export async function gerarSemanasEDias(
     // ser lançados numa BSP diferente (realocação temporária), por isso fica editável por dia
     // no formulário em vez de só herdar do embarque pra sempre.
     const diasToInsert: Record<string, unknown>[] = [];
-    let d = inicioBloco;
-    while (d <= fimBloco) {
-      const diaDoEmbarque = daysBetweenStr(dataInicio, d) + 1;
-      const evento = diaDoEmbarque >= 15 ? "Dobra" : "Embarque";
-      diasToInsert.push({ semana_id: (semana as { id: string }).id, data: d, dia_semana: weekdayLabel(d), evento, bsp });
+    let d = semanaInicio;
+    while (d <= semanaFim) {
+      if (d >= dataInicio && d <= dataFim) {
+        const diaDoEmbarque = daysBetweenStr(dataInicio, d) + 1;
+        const evento = diaDoEmbarque >= 15 ? "Dobra" : "Embarque";
+        diasToInsert.push({ semana_id: (semana as { id: string }).id, data: d, dia_semana: weekdayLabel(d), evento, bsp });
+      }
       d = addDaysStr(d, 1);
     }
-    const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasToInsert);
-    if (diasErr) throw diasErr;
+    if (diasToInsert.length) {
+      const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasToInsert);
+      if (diasErr) throw diasErr;
+    }
 
-    inicioBloco = addDaysStr(fimBloco, 1);
+    semanaInicio = addDaysStr(semanaFim, 1);
   }
 }
 
