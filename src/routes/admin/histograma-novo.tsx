@@ -31,6 +31,7 @@ import {
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
+  Download,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
@@ -44,6 +45,8 @@ import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
+import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
+import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
 export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshoreNovo });
@@ -317,13 +320,20 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
           <CommandList>
             <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
             <CommandGroup>
-              {colaboradores.map((c) => (
-                <CommandItem key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => toggle(c.id)}>
-                  <Check className={cn("mr-2 h-4 w-4", value.includes(c.id) ? "opacity-100" : "opacity-0")} />
-                  <span className="flex-1 truncate">{c.nome}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{c.matricula}</span>
-                </CommandItem>
-              ))}
+              {colaboradores.map((c) => {
+                const isSelected = value.includes(c.id);
+                return (
+                  <CommandItem key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => toggle(c.id)}>
+                    {isSelected ? (
+                      <X className="mr-2 h-4 w-4 shrink-0 text-destructive" />
+                    ) : (
+                      <Check className="mr-2 h-4 w-4 shrink-0 opacity-0" />
+                    )}
+                    <span className="flex-1 truncate">{c.nome}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{c.matricula}</span>
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -554,6 +564,12 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
     [periodos],
   );
+  // Cor por unidade na tabela de lançamentos — mesma paleta usada no Dashboard, pra ficar
+  // fácil identificar visualmente qual unidade é qual sem precisar ler a coluna toda.
+  const unidadeCorLancamentos = useMemo(
+    () => new Map(unidadesExistentes.map((u, i) => [u, DASH_UNIT_PALETTE[i % DASH_UNIT_PALETTE.length]])),
+    [unidadesExistentes],
+  );
 
   const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
   // BSP em lista quando a unidade escolhida já tem BSP conhecido (evita erro de digitação);
@@ -738,11 +754,44 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     }
   }), [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
 
+  // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
+  // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
+  const exportarLancamentos = () => {
+    const rows = filteredPeriodos.map((p) => {
+      const c = colaboradorById.get(p.colaborador_id);
+      return {
+        Colaborador: c?.nome ?? "—",
+        Função: c?.funcao || c?.funcao_operacao || "—",
+        Evento: isTipoPeriodo(p.tipo) ? `${displayAbbr(p.tipo)} — ${TIPO_LABEL[p.tipo]}` : p.tipo,
+        Unidade: p.unidade_operacional ?? "—",
+        BSP: bspDoPeriodo(p) ?? "—",
+        Início: p.data_inicio.split("-").reverse().join("/"),
+        Fim: p.data_fim.split("-").reverse().join("/"),
+        Dias: p.dias ?? "—",
+      };
+    });
+    if (rows.length === 0) { notify.error("Nenhum período pra exportar com os filtros atuais."); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Lançamentos");
+    XLSX.writeFile(wb, `lancamentos_${todayStr()}.xlsx`);
+  };
+
   return (
     <div className="space-y-4">
       {/* ── Atualização Drake e lançamento manual ── */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <DrakeUpdateCard />
+        <div className="space-y-4">
+          <DrakeUpdateCard />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr]">
+            <ProximosEventosCard
+              periodos={periodos}
+              colaboradorById={colaboradorById}
+              onSelecionarColaborador={(id) => { setColaboradorInput(id); setFilterColaborador(id); }}
+            />
+            <DrakeSyncLogList />
+          </div>
+        </div>
 
         <Card className="p-4 space-y-3">
           <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
@@ -803,7 +852,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       </div>
 
       {/* ── Tabela de períodos ── */}
-      <Card className="bg-warning/5 p-4 space-y-3">
+      <Card className="p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
           <div className="space-y-0.5 w-56">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
@@ -856,6 +905,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           <Button size="sm" className="h-8" onClick={aplicarFiltro}>
             <Search className="mr-1.5 h-3.5 w-3.5" />Buscar
           </Button>
+          <Button size="sm" variant="outline" className="h-8" onClick={exportarLancamentos}>
+            <Download className="mr-1.5 h-3.5 w-3.5" />Exportar
+          </Button>
         </div>
 
         <Table>
@@ -891,7 +943,12 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                       </span>
                     ) : p.tipo}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{p.unidade_operacional ?? "—"}</TableCell>
+                  <TableCell
+                    className={p.unidade_operacional ? "font-medium" : "text-muted-foreground"}
+                    style={p.unidade_operacional ? { color: unidadeCorLancamentos.get(p.unidade_operacional) } : undefined}
+                  >
+                    {p.unidade_operacional ?? "—"}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{bspDoPeriodo(p) ?? "—"}</TableCell>
                   <TableCell>{p.data_inicio.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.data_fim.split("-").reverse().join("/")}</TableCell>

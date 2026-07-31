@@ -70,7 +70,8 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
                   });
 
                   const { authenticateAppRequest } = await import("@/lib/supabase/app-auth.server");
-                  const { client } = await authenticateAppRequest(accessToken);
+                  const { client, userId, developmentBypass, triggeredByLabel } =
+                    await authenticateAppRequest(accessToken);
 
                   await send({
                     type: "progress",
@@ -82,7 +83,10 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
                   });
 
                   const { updateDrakeData } = await import("@/lib/drake/update-service.server");
-                  const result = await updateDrakeData(client, send);
+                  const result = await updateDrakeData(client, send, {
+                    triggeredBy: developmentBypass ? null : userId,
+                    triggeredByLabel,
+                  });
 
                   await send({
                     type: "completed",
