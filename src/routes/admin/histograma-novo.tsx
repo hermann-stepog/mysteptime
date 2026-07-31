@@ -488,6 +488,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   );
 
   const [form, setForm] = useState({ colaboradorId: "", tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+  // BSP em lista quando a unidade escolhida já tem BSP conhecido (evita erro de digitação);
+  // "Outro" volta pro campo livre pra um BSP novo que ainda não apareceu nessa unidade.
+  const [formBspManual, setFormBspManual] = useState(false);
+  const formBspOptions = useMemo(() => bspOptionsForUnidade(periodos, form.unidade_operacional), [periodos, form.unidade_operacional]);
   // Os campos de filtro só valem depois de clicar em "Buscar" — os "*Input" guardam o que o
   // usuário está digitando/selecionando, e os "filter*" guardam o que realmente filtra a tabela.
   const [colaboradorInput, setColaboradorInput] = useState("all");
@@ -552,6 +556,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       notify.success("Período lançado");
       setForm({ colaboradorId: "", tipo: "E", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+      setFormBspManual(false);
     },
     onError: (e: any) => notify.error(e.message),
   });
@@ -625,7 +630,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               </div>
               <div>
                 <Label className="text-xs">Unidade Operacional</Label>
-                <Select value={form.unidade_operacional} onValueChange={(v) => setForm({ ...form, unidade_operacional: v })}>
+                <Select value={form.unidade_operacional} onValueChange={(v) => { setForm({ ...form, unidade_operacional: v, bsp: "" }); setFormBspManual(false); }}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
@@ -636,7 +641,17 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs">BSP</Label>
-                <Input value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} />
+                {formBspOptions.length > 0 && !formBspManual ? (
+                  <Select value={form.bsp} onValueChange={(v) => v === "__outro__" ? setFormBspManual(true) : setForm({ ...form, bsp: v })}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                    <SelectContent>
+                      {formBspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                      <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
+                )}
               </div>
               <div>
                 <Label className="text-xs">Data início</Label>
