@@ -6,6 +6,25 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+// Busca por nome "referente", não exata: ignora acentos e casa cada palavra digitada
+// em qualquer lugar do nome, em qualquer ordem — assim "Gustavo Rodrigues" encontra
+// "Gustavo Rangel Rodrigues" mesmo com um nome do meio entre as duas palavras buscadas.
+export function matchesNameSearch(name: string, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+  const normalizedName = normalizeSearchText(name);
+  const words = normalizedQuery.split(/\s+/).filter(Boolean);
+  return words.every((word) => normalizedName.includes(word));
+}
+
 // button[role="combobox"] é o trigger do <Select> do Radix — visualmente/semanticamente é um
 // campo de formulário (não uma ação), por isso entra na navegação mesmo sendo um <button>.
 const FOCUSABLE_SELECTOR = 'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button[role="combobox"]:not([disabled]), [tabindex]:not([tabindex="-1"])';

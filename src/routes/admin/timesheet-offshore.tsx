@@ -3,9 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
-import { supabase as supabaseTyped } from "@/integrations/supabase/client";
-// hist_novo_periodos.bsp ainda não está nos tipos gerados — mesmo cast padrão dos outros módulos.
-const supabase: any = supabaseTyped;
+import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,8 +22,9 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
-import { Plus, Check, ChevronsUpDown, ArrowUp, ArrowDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload } from "lucide-react";
-import { cn, focusNextOnEnter } from "@/lib/utils";
+import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload } from "lucide-react";
+import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
@@ -651,7 +650,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-          <Command>
+          <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
             <CommandInput placeholder="Buscar por nome ou matrícula..." />
             <CommandList>
               <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
@@ -703,23 +702,16 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
   onCreated?: (embarque: TimesheetEmbarque) => void;
 }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ colaboradorId: "", unidade_operacional: "", bsp: "", bsp_2: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+  const [f, setF] = useState({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
   // Quando a unidade escolhida já tem mais de um BSP conhecido no histórico, mostra uma lista
   // em vez de campo livre — reduz erro de digitação. "Outro" volta pro campo livre (BSP novo
   // que ainda não apareceu em nenhum período dessa unidade).
   const [bspManual, setBspManual] = useState(false);
-  const [bsp2Manual, setBsp2Manual] = useState(false);
-  // Segundo BSP é opcional — só aparece quando a usuária clica em "+ Adicionar mais um BSP".
-  const [mostrarBsp2, setMostrarBsp2] = useState(false);
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   useEffect(() => {
-    if (!open) {
-      setF({ colaboradorId: "", unidade_operacional: "", bsp: "", bsp_2: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
-      setBspManual(false); setBsp2Manual(false); setMostrarBsp2(false);
-    }
+    if (!open) { setF({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" }); setBspManual(false); }
   }, [open]);
-
 
   const onSelectColaborador = (id: string) => {
     const c = colaboradores.find((x) => x.id === id);
@@ -740,8 +732,6 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
         periodo_id: null,
         unidade_operacional: f.unidade_operacional.trim() || null,
         bsp: f.bsp.trim() || null,
-        bsp_2: f.bsp_2.trim() || null,
-
         funcao_embarque: f.funcao_embarque,
         data_inicio_embarque: f.data_inicio,
         data_fim_embarque: f.data_fim,
@@ -777,7 +767,7 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Unidade Operacional</Label>
-              <Select value={f.unidade_operacional} onValueChange={(v) => { setF({ ...f, unidade_operacional: v, bsp: "", bsp_2: "" }); setBspManual(false); setBsp2Manual(false); }}>
+              <Select value={f.unidade_operacional} onValueChange={(v) => { setF({ ...f, unidade_operacional: v, bsp: "" }); setBspManual(false); }}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
@@ -795,38 +785,9 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
               ) : (
                 <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
               )}
-              {!mostrarBsp2 && (
-                <Button type="button" variant="link" size="sm" className="h-6 px-0 text-xs" onClick={() => setMostrarBsp2(true)}>
-                  + Adicionar mais um BSP
-                </Button>
-              )}
             </div>
           </div>
-          {mostrarBsp2 && (
-            <div>
-              <Label className="text-xs">BSP 2 (opcional)</Label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  {bspOptions.length > 1 && !bsp2Manual ? (
-                    <Select value={f.bsp_2} onValueChange={(v) => v === "__outro__" ? setBsp2Manual(true) : setF({ ...f, bsp_2: v })}>
-                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o 2º BSP" /></SelectTrigger>
-                      <SelectContent>
-                        {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-                        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Nº do 2º BSP" />
-                  )}
-                </div>
-                <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => { setF({ ...f, bsp_2: "" }); setBsp2Manual(false); setMostrarBsp2(false); }}>
-                  Remover
-                </Button>
-              </div>
-            </div>
-          )}
           <div>
-
             <Label className="text-xs">Função do embarque</Label>
             <Select value={f.funcao_embarque} onValueChange={(v) => setF({ ...f, funcao_embarque: v })}>
               <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
@@ -854,6 +815,8 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
 
 // ─── Aba 1: Embarques ────────────────────────────────────────────────────────
 
+type EmbarquesSortColumn = "colaborador" | "funcao" | "unidade" | "bsp";
+
 function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, dias, unidadeOptions, readOnly = false }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; periodosE: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; dias: TimesheetDia[]; unidadeOptions: string[]; readOnly?: boolean;
 }) {
@@ -869,15 +832,13 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   const [novoOpen, setNovoOpen] = useState(false);
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
   const [editandoEmbarque, setEditandoEmbarque] = useState<TimesheetEmbarque | null>(null);
-
-
-
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<EmbarquesSortColumn>();
 
   const excluirEmbarque = useMutation({
     mutationFn: async (embarque: TimesheetEmbarque) => {
       const { data: semanasDoEmbarque, error: semErr } = await supabase.from("timesheet_semanas").select("id").eq("embarque_id", embarque.id);
       if (semErr) throw semErr;
-      const semanaIds = (semanasDoEmbarque ?? []).map((s: any) => s.id);
+      const semanaIds = (semanasDoEmbarque ?? []).map((s) => s.id);
       if (semanaIds.length) {
         const { error: diasErr } = await supabase.from("timesheet_dias").delete().in("semana_id", semanaIds);
         if (diasErr) throw diasErr;
@@ -1056,10 +1017,25 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   const filtered = rows.filter((r) =>
     (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
     (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
-    (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())) &&
+    (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
     (!filterDe || r.embarque.data_fim_embarque >= filterDe) &&
     (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
-  );
+  ).sort((a, b) => {
+    if (!sortColumn) return 0;
+    const dir = sortDirection === "asc" ? 1 : -1;
+    switch (sortColumn) {
+      case "colaborador":
+        return dir * (a.colaborador?.nome ?? "").localeCompare(b.colaborador?.nome ?? "");
+      case "funcao":
+        return dir * a.funcaoEfetiva.localeCompare(b.funcaoEfetiva);
+      case "unidade":
+        return dir * (a.embarque.unidade_operacional ?? "").localeCompare(b.embarque.unidade_operacional ?? "");
+      case "bsp":
+        return dir * [a.embarque.bsp, a.embarque.bsp_2].filter(Boolean).join(" · ").localeCompare([b.embarque.bsp, b.embarque.bsp_2].filter(Boolean).join(" · "));
+      default:
+        return 0;
+    }
+  });
 
   // Cartões por Unidade — mesmo critério de sobreposição de datas usado no filtro da tabela
   // abaixo (por embarque, não por timesheet_dias já lançado): um colaborador cujo embarque
@@ -1145,10 +1121,10 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Colaborador</TableHead>
-              <TableHead>Função</TableHead>
-              <TableHead>Unidade</TableHead>
-              <TableHead>BSP</TableHead>
+              <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-16">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -1161,7 +1137,6 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
                 <TableCell className="text-muted-foreground">
                   {[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}
                 </TableCell>
-
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <Button
@@ -1296,30 +1271,24 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
   colaboradorNome: string; periodos: HistNovoPeriodo[]; unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ unidade_operacional: "", bsp: "", bsp_2: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+  const [f, setF] = useState({ unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
   const [bound, setBound] = useState<string | null>(null);
   // Se o BSP já gravado no embarque não estiver entre as opções conhecidas da unidade, começa
   // em modo manual (campo livre) pra não esconder/perder o valor já salvo.
   const [bspManual, setBspManual] = useState(false);
-  const [bsp2Manual, setBsp2Manual] = useState(false);
-  const [mostrarBsp2, setMostrarBsp2] = useState(false);
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   if (open && embarque && bound !== embarque.id) {
     const bspAtual = embarque.bsp ?? "";
-    const bsp2Atual = embarque.bsp_2 ?? "";
     const opcoesUnidade = bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? "");
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
       bsp: bspAtual,
-      bsp_2: bsp2Atual,
-      funcao_embarque: embarque.funcao_embarque ?? "",
+      funcao_embarque: embarque.funcao_embarque,
       data_inicio: embarque.data_inicio_embarque,
       data_fim: embarque.data_fim_embarque,
     });
     setBspManual(!!bspAtual && !opcoesUnidade.includes(bspAtual));
-    setBsp2Manual(!!bsp2Atual && !opcoesUnidade.includes(bsp2Atual));
-    setMostrarBsp2(!!bsp2Atual);
     setBound(embarque.id);
   }
   if (!open && bound !== null) setBound(null);
@@ -1330,8 +1299,6 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
       const { error } = await supabase.from("timesheet_embarques").update({
         unidade_operacional: f.unidade_operacional.trim() || null,
         bsp: f.bsp.trim() || null,
-        bsp_2: f.bsp_2.trim() || null,
-
         funcao_embarque: f.funcao_embarque,
         data_inicio_embarque: f.data_inicio,
         data_fim_embarque: f.data_fim,
@@ -1372,37 +1339,8 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
               ) : (
                 <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
               )}
-              {!mostrarBsp2 && (
-                <Button type="button" variant="link" size="sm" className="h-6 px-0 text-xs" onClick={() => setMostrarBsp2(true)}>
-                  + Adicionar mais um BSP
-                </Button>
-              )}
             </div>
           </div>
-          {mostrarBsp2 && (
-            <div>
-              <Label className="text-xs">BSP 2 (opcional)</Label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  {bspOptions.length > 1 && !bsp2Manual ? (
-                    <Select value={f.bsp_2} onValueChange={(v) => v === "__outro__" ? setBsp2Manual(true) : setF({ ...f, bsp_2: v })}>
-                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o 2º BSP" /></SelectTrigger>
-                      <SelectContent>
-                        {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-                        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Nº do 2º BSP" />
-                  )}
-                </div>
-                <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => { setF({ ...f, bsp_2: "" }); setBsp2Manual(false); setMostrarBsp2(false); }}>
-                  Remover
-                </Button>
-              </div>
-            </div>
-          )}
-
           <div>
             <Label className="text-xs">Função do embarque</Label>
             <Select value={f.funcao_embarque} onValueChange={(v) => setF({ ...f, funcao_embarque: v })}>
@@ -1583,29 +1521,6 @@ function funcaoEfetivaDoEmbarque(embarque: TimesheetEmbarque, semanasDoEmbarque:
 
 type PendenciasSortColumn = "colaborador" | "funcao" | "unidade" | "bsp" | "periodo" | "semanas" | "status";
 
-// Cabeçalho clicável no estilo do Explorador de Arquivos do Windows: clica pra ordenar por
-// aquela coluna (1º clique ascendente, 2º clique na mesma coluna inverte), com seta indicando
-// a direção; colunas não ativas mostram uma seta dupla neutra e mais apagada.
-function SortableHead({ label, column, sortColumn, sortDirection, onSort, className }: {
-  label: string; column: PendenciasSortColumn;
-  sortColumn: PendenciasSortColumn | null; sortDirection: "asc" | "desc";
-  onSort: (column: PendenciasSortColumn) => void; className?: string;
-}) {
-  const active = sortColumn === column;
-  return (
-    <TableHead className={cn("cursor-pointer select-none hover:text-foreground", className)} onClick={() => onSort(column)}>
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {active ? (
-          sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-        ) : (
-          <ChevronsUpDown className="h-3 w-3 opacity-40" />
-        )}
-      </span>
-    </TableHead>
-  );
-}
-
 // Ordem de prioridade lógica do status (não alfabética) — Pendente antes de Parcial antes de
 // Completo (embora Completo não apareça aqui, já filtrado fora da lista de pendências).
 const STATUS_ENTREGA_ORDER: Record<StatusEntrega, number> = { pendente: 0, parcial: 1, completo: 2 };
@@ -1644,16 +1559,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
   // Ordenação clicável no cabeçalho — aplicada só nos dados já carregados/filtrados na tela,
   // sem refazer a consulta ao banco. Sem coluna escolhida, mantém a ordem padrão (período de
   // início do embarque, mais antigo primeiro).
-  const [sortColumn, setSortColumn] = useState<PendenciasSortColumn | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const toggleSort = (column: PendenciasSortColumn) => {
-    if (sortColumn === column) {
-      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<PendenciasSortColumn>();
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
 
@@ -1673,7 +1579,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
     .filter((r) =>
       (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
       (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
-      (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())) &&
+      (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
       // Diferente da aba de Lançamento (que usa sobreposição de data, pra achar quem esteve
       // embarcado em algum dia do intervalo): aqui o período filtra pelo início do embarque —
       // um embarque começado bem antes do período selecionado (ex.: maio) não deve reaparecer
@@ -1873,10 +1779,10 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
       const { data: diasAtuais, error: diasErr } = await supabase.from("timesheet_dias").select("*").eq("semana_id", semana.id);
       if (diasErr) throw diasErr;
       const novasDatas = generateDateRange(novaDataInicio, novaDataFim);
-      const datasExistentes = new Set((diasAtuais ?? []).map((d: any) => d.data));
-      const foraDoIntervalo = (diasAtuais ?? []).filter((d: any) => !novasDatas.includes(d.data));
+      const datasExistentes = new Set((diasAtuais ?? []).map((d) => d.data));
+      const foraDoIntervalo = (diasAtuais ?? []).filter((d) => !novasDatas.includes(d.data));
       if (foraDoIntervalo.length) {
-        const { error: delErr } = await supabase.from("timesheet_dias").delete().in("id", foraDoIntervalo.map((d: any) => d.id));
+        const { error: delErr } = await supabase.from("timesheet_dias").delete().in("id", foraDoIntervalo.map((d) => d.id));
         if (delErr) throw delErr;
       }
       const faltantes = novasDatas.filter((d) => !datasExistentes.has(d)).map((d) => ({ semana_id: semana.id, data: d, dia_semana: weekdayLabel(d) }));
@@ -2025,7 +1931,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
 // Dia da semana + dia do mês juntos, ex: "Segunda 06" — em vez do "Segunda-feira / Monday"
 // cru guardado em dia_semana.
 function diaLabelCurto(d: TimesheetDia): string {
-  const diaSemanaAbrev = (d.dia_semana ?? "").split(" / ")[0].slice(0, 3);
+  const diaSemanaAbrev = d.dia_semana.split(" / ")[0].slice(0, 3);
   const [ano, mes, dia] = d.data.split("-");
   return `${diaSemanaAbrev} - ${dia}/${mes}/${ano.slice(2)}`;
 }
@@ -2114,8 +2020,9 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     setBspManualValores((prev) => { const { [diaId]: _remove, ...resto } = prev; return resto; });
   };
 
-  // BSP do embarque, editável direto no cabeçalho (igual à Função logo abaixo) — evita ter
-  // que fechar esse formulário e abrir o dialog "Editar" só pra corrigir o BSP.
+  // BSP do embarque (o "padrão" que aparece no cabeçalho, diferente do BSP por dia — esse é o
+  // valor que os dias herdam quando não têm um BSP próprio lançado). Editável em lista, igual
+  // ao campo por dia; se o valor digitado for novo, também entra pra lista de BSPs conhecidas.
   const [editandoBsp, setEditandoBsp] = useState(false);
   const [bspEditManual, setBspEditManual] = useState(false);
   const [bspValor, setBspValor] = useState(embarque.bsp ?? "");
@@ -2230,7 +2137,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
           total_horas: d.total_horas,
           evento: d.evento || null,
           adicional_noturno: adicionalNoturno,
-        }).eq("id", d.id).then(({ error }: any) => { if (error) throw error; });
+        }).eq("id", d.id).then(({ error }) => { if (error) throw error; });
       }));
 
       const { error: semErr } = await supabase.from("timesheet_semanas").update({
@@ -2240,7 +2147,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
 
       const { data: todasSemanas, error: listErr } = await supabase.from("timesheet_semanas").select("recebido_fisico").eq("embarque_id", embarque.id);
       if (listErr) throw listErr;
-      const recebidas = (todasSemanas ?? []).filter((s: any) => s.recebido_fisico).length;
+      const recebidas = (todasSemanas ?? []).filter((s) => s.recebido_fisico).length;
       // Nunca menos que as semanas que realmente existem — ver mesmo comentário em excluirSemana.
       const total = Math.max(totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque), (todasSemanas ?? []).length);
       const status = computeStatusEntrega(recebidas, total);

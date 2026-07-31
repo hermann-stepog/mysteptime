@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MOTIVOS_LOGISTICA } from "@/lib/logistica";
+import { matchesNameSearch } from "@/lib/utils";
 
 // Campos de formulário compartilhados entre os módulos de logística (Hospedagem, Passagens
 // Aéreas, e o que mais vier depois) — evita duplicar a mesma lógica de combobox em cada módulo.
@@ -15,8 +16,8 @@ export function NomeUsuarioField({ value, onChange, colaboradores }: {
 }) {
   const [open, setOpen] = useState(false);
   const sugestoes = useMemo(() => {
-    const q = value.trim().toLowerCase();
-    const lista = q ? colaboradores.filter((c) => c.nome.toLowerCase().includes(q)) : colaboradores;
+    const q = value.trim();
+    const lista = q ? colaboradores.filter((c) => matchesNameSearch(c.nome, q)) : colaboradores;
     return lista.slice(0, 20);
   }, [value, colaboradores]);
 
