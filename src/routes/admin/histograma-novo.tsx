@@ -23,15 +23,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FadeInView, FadeInRow } from "@/components/FadeInView";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList,
   PieChart, Pie, Cell,
 } from "recharts";
 import {
-  Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search,
-  Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox,
+  Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
+  Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, matchesNameSearch } from "@/lib/utils";
 import {
   TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
@@ -238,7 +239,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-          <Command>
+          <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
             <CommandInput placeholder="Buscar por nome ou matrícula..." />
             <CommandList>
               <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
@@ -280,6 +281,57 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
   );
 }
 
+// ─── Combobox multi-seleção de colaborador (lançamento manual em lote) ──────
+// Usado só no formulário "Lançar período manualmente" — quando uma equipe inteira embarca
+// no mesmo dia com a mesma BSP, evita repetir o formulário um colaborador por vez.
+
+function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
+  colaboradores: HistNovoColaborador[]; value: string[]; onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = colaboradores.filter((c) => value.includes(c.id));
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="h-auto min-h-9 w-full justify-between py-1.5 font-normal">
+          {selected.length === 0 ? (
+            <span className="text-muted-foreground">Selecionar colaborador(es)</span>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {selected.map((c) => (
+                <span key={c.id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs">
+                  {c.nome}
+                  <X className="h-3 w-3 cursor-pointer" onClick={(e) => { e.stopPropagation(); toggle(c.id); }} />
+                </span>
+              ))}
+            </div>
+          )}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
+          <CommandInput placeholder="Buscar por nome ou matrícula..." />
+          <CommandList>
+            <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
+            <CommandGroup>
+              {colaboradores.map((c) => (
+                <CommandItem key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => toggle(c.id)}>
+                  <Check className={cn("mr-2 h-4 w-4", value.includes(c.id) ? "opacity-100" : "opacity-0")} />
+                  <span className="flex-1 truncate">{c.nome}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{c.matricula}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // Exportação do Relatório de Embarques — usada pelo módulo de Relatórios (card "Embarques").
 // Lista todos os períodos do tipo "E" (embarcado) lançados no Histograma Offshore.
 export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: string): Promise<void> {
@@ -306,7 +358,7 @@ export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: 
       empresa: c?.empresa ?? "—",
       funcao: c?.funcao || c?.funcao_operacao || "—",
       unidade_operacional: p.unidade_operacional ?? "—",
-      BSP: p.centro_de_custo ?? "—",
+      BSP: bspDoPeriodo(p) ?? "—",
       data_inicio: p.data_inicio,
       data_fim: p.data_fim,
       dias: p.dias ?? "—",
@@ -489,6 +541,8 @@ export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: str
 
 // ─── Lançamentos tab ─────────────────────────────────────────────────────────
 
+type LancamentosSortColumn = "colaborador" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
+
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
 
@@ -501,7 +555,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     [periodos],
   );
 
-  const [form, setForm] = useState({ colaboradorId: "", tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+  const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
   // BSP em lista quando a unidade escolhida já tem BSP conhecido (evita erro de digitação);
   // "Outro" volta pro campo livre pra um BSP novo que ainda não apareceu nessa unidade.
   const [formBspManual, setFormBspManual] = useState(false);
@@ -530,75 +584,86 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     setFilterAte(ateInput);
   };
   const [editing, setEditing] = useState<HistNovoPeriodo | null>(null);
+  // Ordenação clicável no cabeçalho — aplicada só nos períodos já filtrados na tela; sem
+  // coluna escolhida, mantém a ordem padrão (data de início, mais antiga primeiro).
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<LancamentosSortColumn>();
 
   const createPeriodo = useMutation({
-    mutationFn: async () => {
-      if (!form.colaboradorId) throw new Error("Selecione um colaborador.");
+    mutationFn: async (colaboradorIds: string[]) => {
+      if (colaboradorIds.length === 0) throw new Error("Selecione ao menos um colaborador.");
       if (!form.data_inicio || !form.data_fim) throw new Error("Informe as datas de início e fim.");
 
       const diasTotal = Math.round((new Date(form.data_fim).getTime() - new Date(form.data_inicio).getTime()) / 86400000) + 1;
-      const base = {
-        colaborador_id: form.colaboradorId,
-        unidade_operacional: form.unidade_operacional.trim() || null,
-        bsp: form.bsp.trim() || null,
-      };
-
-      if (form.tipo === "P") {
-        // Programado: "P" só no 1º dia; do 2º dia em diante já lança como Embarcado a confirmar.
-        const registros = [{ ...base, tipo: "P", data_inicio: form.data_inicio, data_fim: form.data_inicio, dias: 1, origem: "manual" }];
-        if (form.data_fim > form.data_inicio) {
-          const inicioEmbarque = addDays(form.data_inicio, 1);
-          const diasEmbarque = Math.round((new Date(form.data_fim).getTime() - new Date(inicioEmbarque).getTime()) / 86400000) + 1;
-          registros.push({ ...base, tipo: "E", data_inicio: inicioEmbarque, data_fim: form.data_fim, dias: diasEmbarque, origem: ORIGEM_PROGRAMADO });
+      const registros: any[] = [];
+      for (const colaboradorId of colaboradorIds) {
+        const base = {
+          colaborador_id: colaboradorId,
+          unidade_operacional: form.unidade_operacional.trim() || null,
+          bsp: form.bsp.trim() || null,
+        };
+        if (form.tipo === "P") {
+          // Programado: "P" só no 1º dia; do 2º dia em diante já lança como Embarcado a confirmar.
+          registros.push({ ...base, tipo: "P", data_inicio: form.data_inicio, data_fim: form.data_inicio, dias: 1, origem: "manual" });
+          if (form.data_fim > form.data_inicio) {
+            const inicioEmbarque = addDays(form.data_inicio, 1);
+            const diasEmbarque = Math.round((new Date(form.data_fim).getTime() - new Date(inicioEmbarque).getTime()) / 86400000) + 1;
+            registros.push({ ...base, tipo: "E", data_inicio: inicioEmbarque, data_fim: form.data_fim, dias: diasEmbarque, origem: ORIGEM_PROGRAMADO });
+          }
+        } else {
+          registros.push({ ...base, tipo: form.tipo, data_inicio: form.data_inicio, data_fim: form.data_fim, dias: diasTotal > 0 ? diasTotal : null, origem: "manual" });
         }
-        const { error } = await supabase.from("hist_novo_periodos").insert(registros);
-        if (error) throw error;
-        return;
       }
 
-      const { error } = await supabase.from("hist_novo_periodos").insert({
-        ...base,
-        tipo: form.tipo,
-        data_inicio: form.data_inicio,
-        data_fim: form.data_fim,
-        dias: diasTotal > 0 ? diasTotal : null,
-        origem: "manual",
-      });
+      const { data, error } = await supabase.from("hist_novo_periodos").insert(registros).select("*");
       if (error) throw error;
+      return (data ?? []) as HistNovoPeriodo[];
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
-      notify.success("Período lançado");
-      setForm({ colaboradorId: "", tipo: "E", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+    onSuccess: (novos) => {
+      // Atualiza o cache direto em vez de invalidar/refazer a busca inteira — com ~5 mil
+      // períodos carregados (39 requisições em paralelo pra paginar tudo de novo), invalidar
+      // a cada período lançado deixava a tela travando por vários segundos a cada clique,
+      // pra só acrescentar 1 ou 2 linhas nesse universo. Já sabemos exatamente o que foi
+      // inserido (o insert devolve a linha via .select()), então só precisa somar ao array já
+      // carregado.
+      qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => (old ? [...novos, ...old] : novos));
+      notify.success(novos.length > 1 ? "Períodos lançados" : "Período lançado");
+      setForm({ colaboradorIds: [], tipo: "E", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
       setFormBspManual(false);
     },
     onError: (e: any) => notify.error(e.message),
   });
 
-  // Antes de lançar, avisa se o colaborador já tem período sobrepondo a data pedida — evita
-  // criar um "Programado"/"Embarcado" duplicado sem querer (oferece editar o existente) e
-  // avisa se ele está de folga/férias/atestado nesse intervalo (deixa continuar mesmo assim,
-  // caso seja intencional — ex.: corrigir uma folga marcada errada).
-  const [conflitoProgramado, setConflitoProgramado] = useState<HistNovoPeriodo | null>(null);
-  const [avisoAusencia, setAvisoAusencia] = useState<HistNovoPeriodo | null>(null);
+  // Antes de lançar, avisa se algum colaborador selecionado já tem período sobrepondo a data
+  // pedida — evita criar um "Programado"/"Embarcado" duplicado sem querer (com um só
+  // colaborador, oferece editar o existente; com vários, lista quem está em conflito e deixa
+  // lançar só para os demais) e avisa se algum está de folga/férias/atestado nesse intervalo
+  // (deixa continuar mesmo assim, caso seja intencional — ex.: corrigir uma folga marcada errada).
+  const [conflitosProgramados, setConflitosProgramados] = useState<HistNovoPeriodo[]>([]);
+  const [avisosAusencia, setAvisosAusencia] = useState<HistNovoPeriodo[]>([]);
 
   const handleLancarClick = () => {
-    if (!form.colaboradorId) { notify.error("Selecione um colaborador."); return; }
+    if (form.colaboradorIds.length === 0) { notify.error("Selecione ao menos um colaborador."); return; }
     if (!form.data_inicio || !form.data_fim) { notify.error("Informe as datas de início e fim."); return; }
-    const sobrepondo = periodos.filter((p) =>
-      p.colaborador_id === form.colaboradorId && p.data_fim >= form.data_inicio && p.data_inicio <= form.data_fim,
-    );
-    const programado = sobrepondo.find((p) => p.tipo === "P" || p.tipo === "E");
-    if (programado) { setConflitoProgramado(programado); return; }
-    const ausencia = sobrepondo.find((p) => p.tipo === "F" || p.tipo === "FE" || p.tipo === "AT");
-    if (ausencia) { setAvisoAusencia(ausencia); return; }
-    createPeriodo.mutate();
+    const conflitos: HistNovoPeriodo[] = [];
+    const ausencias: HistNovoPeriodo[] = [];
+    for (const colaboradorId of form.colaboradorIds) {
+      const sobrepondo = periodos.filter((p) =>
+        p.colaborador_id === colaboradorId && p.data_fim >= form.data_inicio && p.data_inicio <= form.data_fim,
+      );
+      const programado = sobrepondo.find((p) => p.tipo === "P" || p.tipo === "E");
+      if (programado) { conflitos.push(programado); continue; }
+      const ausencia = sobrepondo.find((p) => p.tipo === "F" || p.tipo === "FE" || p.tipo === "AT");
+      if (ausencia) ausencias.push(ausencia);
+    }
+    if (conflitos.length > 0) { setConflitosProgramados(conflitos); return; }
+    if (ausencias.length > 0) { setAvisosAusencia(ausencias); return; }
+    createPeriodo.mutate(form.colaboradorIds);
   };
 
   const updatePeriodo = useMutation({
     mutationFn: async (p: HistNovoPeriodo) => {
       const dias = Math.round((new Date(p.data_fim).getTime() - new Date(p.data_inicio).getTime()) / 86400000) + 1;
-      const { error } = await supabase.from("hist_novo_periodos").update({
+      const { data, error } = await supabase.from("hist_novo_periodos").update({
         colaborador_id: p.colaborador_id,
         tipo: p.tipo,
         unidade_operacional: p.unidade_operacional,
@@ -607,11 +672,14 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         data_inicio: p.data_inicio,
         data_fim: p.data_fim,
         dias: dias > 0 ? dias : null,
-      }).eq("id", p.id);
+      }).eq("id", p.id).select("*").single();
       if (error) throw error;
+      return data as HistNovoPeriodo;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
+    onSuccess: (atualizado) => {
+      // Mesmo motivo do createPeriodo acima: atualiza só essa linha no cache em vez de
+      // reconsultar as ~5 mil linhas inteiras.
+      qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => old?.map((p) => (p.id === atualizado.id ? atualizado : p)) ?? old);
       notify.success("Período atualizado");
       setEditing(null);
     },
@@ -622,22 +690,48 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("hist_novo_periodos").delete().eq("id", id);
       if (error) throw error;
+      return id;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
+    onSuccess: (id) => {
+      qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => old?.filter((p) => p.id !== id) ?? old);
       notify.success("Período excluído");
     },
     onError: (e: any) => notify.error(e.message),
   });
 
   const filteredPeriodos = useMemo(() => periodos.filter((p) =>
+    // Disponibilidade (STB/Folga/etc. importado do relatório de disponibilidade) nunca tem
+    // unidade/BSP — são registros de "quando esse colaborador NÃO estava embarcado", não fazem
+    // sentido nessa lista de lançamentos (que é sobre embarque/programação, com BSP de verdade).
+    p.origem !== "disponibilidade" &&
     (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
     (filterTipo === "all" || p.tipo === filterTipo) &&
     (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
     (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
     (!filterDe || p.data_fim >= filterDe) &&
     (!filterAte || p.data_inicio <= filterAte),
-  ).sort((a, b) => a.data_inicio.localeCompare(b.data_inicio)), [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterDe, filterAte]);
+  ).sort((a, b) => {
+    if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
+    const dir = sortDirection === "asc" ? 1 : -1;
+    switch (sortColumn) {
+      case "colaborador":
+        return dir * (colaboradorById.get(a.colaborador_id)?.nome ?? "").localeCompare(colaboradorById.get(b.colaborador_id)?.nome ?? "");
+      case "evento":
+        return dir * a.tipo.localeCompare(b.tipo);
+      case "unidade":
+        return dir * (a.unidade_operacional ?? "").localeCompare(b.unidade_operacional ?? "");
+      case "bsp":
+        return dir * (bspDoPeriodo(a) ?? "").localeCompare(bspDoPeriodo(b) ?? "");
+      case "inicio":
+        return dir * a.data_inicio.localeCompare(b.data_inicio);
+      case "fim":
+        return dir * a.data_fim.localeCompare(b.data_fim);
+      case "dias":
+        return dir * ((a.dias ?? 0) - (b.dias ?? 0));
+      default:
+        return 0;
+    }
+  }), [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
 
   return (
     <div className="space-y-4">
@@ -649,8 +743,8 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
           <div className="grid gap-3">
             <div>
-              <Label className="text-xs">Colaborador</Label>
-              <ColaboradorCombobox colaboradores={colaboradores} value={form.colaboradorId} onChange={(id) => setForm({ ...form, colaboradorId: id })} />
+              <Label className="text-xs">Colaborador(es)</Label>
+              <ColaboradoresMultiCombobox colaboradores={colaboradores} value={form.colaboradorIds} onChange={(ids) => setForm({ ...form, colaboradorIds: ids })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -696,7 +790,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                 <Input type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
               </div>
             </div>
-            <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>Lançar período</Button>
+            <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>
+              {form.colaboradorIds.length > 1 ? `Lançar período (${form.colaboradorIds.length} colaboradores)` : "Lançar período"}
+            </Button>
           </div>
         </Card>
       </div>
@@ -760,14 +856,13 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Colaborador</TableHead>
-              <TableHead>Evento</TableHead>
-              <TableHead>Unidade</TableHead>
-              <TableHead>BSP</TableHead>
-              <TableHead>Início</TableHead>
-              <TableHead>Fim</TableHead>
-              <TableHead>Dias</TableHead>
-              <TableHead>Origem</TableHead>
+              <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Evento" column="evento" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Início" column="inicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Fim" column="fim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Dias" column="dias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
@@ -790,11 +885,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                     ) : p.tipo}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{p.unidade_operacional ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.centro_de_custo ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{bspDoPeriodo(p) ?? "—"}</TableCell>
                   <TableCell>{p.data_inicio.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.data_fim.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.dias ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.origem ?? "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button size="icon" variant="ghost" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
@@ -812,7 +906,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               );
             })}
             {filteredPeriodos.length === 0 && (
-              <EmptyStateRow colSpan={9} icon={Inbox} title="Nenhum período encontrado" description="Ajuste os filtros acima ou lance um novo período manualmente." />
+              <EmptyStateRow colSpan={8} icon={Inbox} title="Nenhum período encontrado" description="Ajuste os filtros acima ou lance um novo período manualmente." />
             )}
           </TableBody>
         </Table>
@@ -872,36 +966,67 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!conflitoProgramado} onOpenChange={(o) => !o && setConflitoProgramado(null)}>
+      <AlertDialog open={conflitosProgramados.length > 0} onOpenChange={(o) => !o && setConflitosProgramados([])}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Esse período já está programado</AlertDialogTitle>
-            <AlertDialogDescription>
-              {conflitoProgramado && (
-                <>{colaboradorById.get(conflitoProgramado.colaborador_id)?.nome ?? "Colaborador"} já tem {getPeriodoLabel(conflitoProgramado)} lançado de {fmtData(conflitoProgramado.data_inicio)} a {fmtData(conflitoProgramado.data_fim)}. Deseja editar esse período em vez de criar um novo?</>
+            <AlertDialogTitle>
+              {conflitosProgramados.length === 1 ? "Esse período já está programado" : "Alguns colaboradores já têm período nessa data"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {conflitosProgramados.length === 1 ? (
+                <div>{colaboradorById.get(conflitosProgramados[0].colaborador_id)?.nome ?? "Colaborador"} já tem {getPeriodoLabel(conflitosProgramados[0])} lançado de {fmtData(conflitosProgramados[0].data_inicio)} a {fmtData(conflitosProgramados[0].data_fim)}. Deseja editar esse período em vez de criar um novo?</div>
+              ) : (
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {conflitosProgramados.map((p) => (
+                    <li key={p.id}>{colaboradorById.get(p.colaborador_id)?.nome ?? "Colaborador"} — já tem {getPeriodoLabel(p)} de {fmtData(p.data_inicio)} a {fmtData(p.data_fim)}</li>
+                  ))}
+                </ul>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setConflitoProgramado(null)}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setEditing(conflitoProgramado); setConflitoProgramado(null); }}>Editar período</AlertDialogAction>
+            <AlertDialogCancel onClick={() => setConflitosProgramados([])}>Cancelar</AlertDialogCancel>
+            {conflitosProgramados.length === 1 ? (
+              <AlertDialogAction onClick={() => { setEditing(conflitosProgramados[0]); setConflitosProgramados([]); }}>Editar período</AlertDialogAction>
+            ) : (() => {
+              const idsComConflito = new Set(conflitosProgramados.map((p) => p.colaborador_id));
+              const idsSemConflito = form.colaboradorIds.filter((id) => !idsComConflito.has(id));
+              return idsSemConflito.length > 0 && (
+                <AlertDialogAction onClick={() => { createPeriodo.mutate(idsSemConflito); setConflitosProgramados([]); }}>
+                  Lançar para os demais ({idsSemConflito.length})
+                </AlertDialogAction>
+              );
+            })()}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!avisoAusencia} onOpenChange={(o) => !o && setAvisoAusencia(null)}>
+      <AlertDialog open={avisosAusencia.length > 0} onOpenChange={(o) => !o && setAvisosAusencia([])}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {avisoAusencia && `${colaboradorById.get(avisoAusencia.colaborador_id)?.nome ?? "Colaborador"} está ${AUSENCIA_LABEL[avisoAusencia.tipo as "F" | "FE" | "AT"]} nesse período`}
+              {avisosAusencia.length === 1
+                ? `${colaboradorById.get(avisosAusencia[0].colaborador_id)?.nome ?? "Colaborador"} está ${AUSENCIA_LABEL[avisosAusencia[0].tipo as "F" | "FE" | "AT"]} nesse período`
+                : "Alguns colaboradores estão de folga/férias/atestado nesse período"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {avisoAusencia && <>{fmtData(avisoAusencia.data_inicio)} a {fmtData(avisoAusencia.data_fim)}. Deseja continuar com a programação mesmo assim?</>}
+            <AlertDialogDescription asChild>
+              {avisosAusencia.length === 1 ? (
+                <div>{fmtData(avisosAusencia[0].data_inicio)} a {fmtData(avisosAusencia[0].data_fim)}. Deseja continuar com a programação mesmo assim?</div>
+              ) : (
+                <div className="space-y-1.5">
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {avisosAusencia.map((p) => (
+                      <li key={p.id}>{colaboradorById.get(p.colaborador_id)?.nome ?? "Colaborador"} — {AUSENCIA_LABEL[p.tipo as "F" | "FE" | "AT"]} de {fmtData(p.data_inicio)} a {fmtData(p.data_fim)}</li>
+                    ))}
+                  </ul>
+                  <div>Deseja continuar com a programação mesmo assim, para todos os selecionados?</div>
+                </div>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setAvisoAusencia(null)}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { createPeriodo.mutate(); setAvisoAusencia(null); }}>Continuar mesmo assim</AlertDialogAction>
+            <AlertDialogCancel onClick={() => setAvisosAusencia([])}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { createPeriodo.mutate(form.colaboradorIds); setAvisosAusencia([]); }}>Continuar mesmo assim</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -935,12 +1060,19 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const [statusFilter, setStatusFilter] = useState<ComputedStatus | "">("");
   const [unidadeFilter, setUnidadeFilter] = useState("all");
   const [bspFilter, setBspFilter] = useState("all");
+  const [funcaoFilter, setFuncaoFilter] = useState("all");
 
   const unidadeOptions = useMemo(
     () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
     [periodos],
   );
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFilter), [periodos, unidadeFilter]);
+  // "funcao" é a função de embarque do colaborador (a que bate com os rates cadastrados);
+  // "funcao_operacao" é só usada como reserva pra quem não tem funcao preenchida.
+  const funcaoOptions = useMemo(
+    () => Array.from(new Set(colaboradores.map((c) => c.funcao || c.funcao_operacao).filter((f): f is string => !!f))).sort(),
+    [colaboradores],
+  );
 
   // Indicador de timesheet físico recebido (verde escuro) vs. embarcado com timesheet pendente
   // (verde claro) nas células "E" — ver Timesheet Offshore.
@@ -1011,15 +1143,17 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   }, [statusFilter, colaboradores, periodosByColaborador, activeColaboradores, gridDates]);
 
   const visibleColaboradores = useMemo(() => {
-    if (unidadeFilter === "all" && bspFilter === "all") return statusFiltered;
-    return statusFiltered.filter((c) =>
-      (periodosByColaborador.get(c.id) ?? []).some((p) =>
+    if (unidadeFilter === "all" && bspFilter === "all" && funcaoFilter === "all") return statusFiltered;
+    return statusFiltered.filter((c) => {
+      if (funcaoFilter !== "all" && (c.funcao || c.funcao_operacao) !== funcaoFilter) return false;
+      if (unidadeFilter === "all" && bspFilter === "all") return true;
+      return (periodosByColaborador.get(c.id) ?? []).some((p) =>
         (unidadeFilter === "all" || p.unidade_operacional === unidadeFilter) &&
         (bspFilter === "all" || bspDoPeriodo(p) === bspFilter) &&
         p.data_fim >= gridDe && p.data_inicio <= gridAte,
-      ),
-    );
-  }, [statusFiltered, unidadeFilter, bspFilter, periodosByColaborador, gridDe, gridAte]);
+      );
+    });
+  }, [statusFiltered, unidadeFilter, bspFilter, funcaoFilter, periodosByColaborador, gridDe, gridAte]);
 
   // Conta pessoas únicas por nome (evita contar duas vezes cadastros duplicados do mesmo colaborador).
   const visibleCount = useMemo(
@@ -1074,6 +1208,16 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
                 <SelectContent>
                   <SelectItem value="all" className="text-xs">Todos</SelectItem>
                   {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
+              <Select value={funcaoFilter} onValueChange={setFuncaoFilter}>
+                <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                  {funcaoOptions.map((f) => <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -1208,21 +1352,51 @@ function detalheEmbarqueTooltip(
   return ` · Função: ${funcao} · Unidade: ${unidade} · BSP: ${bsp}`;
 }
 
+type GeralGridSortColumn = "colaborador" | "unidade";
+
 function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqueByPeriodoId, semanasByEmbarqueId, embarquesByColaboradorId }: {
   colaboradores: HistNovoColaborador[]; periodosByColaborador: Map<string, HistNovoPeriodo[]>; dates: string[]; today: string;
   embarqueByPeriodoId: Map<string, TimesheetEmbarque>; semanasByEmbarqueId: Map<string, TimesheetSemana[]>;
   embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>;
 }) {
+  // Ordenação clicável no cabeçalho (Colaborador/Unidade), no mesmo padrão já aplicado nas
+  // tabelas de Lançamentos e Histórico de BMs — sem coluna escolhida, mantém a ordem recebida
+  // (já vem ordenada por status/última atividade de fora deste componente).
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<GeralGridSortColumn>();
+  const sortedColaboradores = useMemo(() => {
+    if (!sortColumn) return colaboradores;
+    const dir = sortDirection === "asc" ? 1 : -1;
+    return [...colaboradores].sort((a, b) => {
+      if (sortColumn === "colaborador") return dir * a.nome.localeCompare(b.nome);
+      const ua = latestPeriodo(periodosByColaborador.get(a.id) ?? [])?.unidade_operacional ?? "";
+      const ub = latestPeriodo(periodosByColaborador.get(b.id) ?? [])?.unidade_operacional ?? "";
+      return dir * ua.localeCompare(ub);
+    });
+  }, [colaboradores, periodosByColaborador, sortColumn, sortDirection]);
+
   if (dates.length === 0) {
     return <div className="py-10 text-center text-sm text-muted-foreground">Selecione um intervalo De/Até válido.</div>;
   }
+  const sortIcon = (column: GeralGridSortColumn) => sortColumn === column ? (
+    sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+  ) : <ChevronsUpDown className="h-3 w-3 opacity-40" />;
   return (
     <div className="rounded-lg border border-border overflow-auto max-h-[70vh]">
       <table className="min-w-max border-collapse text-[10px]">
         <thead className="sticky top-0 z-20">
           <tr>
-            <th className="sticky left-0 z-30 bg-muted border border-border px-2 py-1.5 text-left font-medium min-w-[160px]">Colaborador</th>
-            <th className="sticky left-[160px] z-30 bg-muted border border-border px-1.5 py-1.5 text-left font-medium min-w-[90px]">Unidade</th>
+            <th
+              className="sticky left-0 z-30 bg-muted border border-border px-2 py-1.5 text-left font-medium min-w-[160px] cursor-pointer select-none hover:text-foreground"
+              onClick={() => toggleSort("colaborador")}
+            >
+              <span className="inline-flex items-center gap-1">Colaborador{sortIcon("colaborador")}</span>
+            </th>
+            <th
+              className="sticky left-[160px] z-30 bg-muted border border-border px-1.5 py-1.5 text-left font-medium min-w-[90px] cursor-pointer select-none hover:text-foreground"
+              onClick={() => toggleSort("unidade")}
+            >
+              <span className="inline-flex items-center gap-1">Unidade{sortIcon("unidade")}</span>
+            </th>
             {dates.map((d) => (
               <th
                 key={d}
@@ -1236,7 +1410,7 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
           </tr>
         </thead>
         <tbody>
-          {colaboradores.map((c, i) => {
+          {sortedColaboradores.map((c, i) => {
             const cPeriodos = periodosByColaborador.get(c.id) ?? [];
             const latest = latestPeriodo(cPeriodos);
             return (
@@ -1484,9 +1658,7 @@ function DashboardTab({ colaboradores, periodos }: {
     dates.forEach((d) => {
       activeColaboradores.forEach((c) => {
         const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], d);
-        // "bsp" aqui é na verdade o centro de custo do período — só chamamos de BSP na tela
-        // a pedido do usuário.
-        recs.push({ date: d, bucket: toOldBucket(result.status), unidade: result.periodo?.unidade_operacional ?? null, bsp: result.periodo?.centro_de_custo ?? null });
+        recs.push({ date: d, bucket: toOldBucket(result.status), unidade: result.periodo?.unidade_operacional ?? null, bsp: result.periodo ? bspDoPeriodo(result.periodo) : null });
       });
     });
     return recs;
