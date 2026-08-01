@@ -743,6 +743,15 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         // fazem sentido nessa lista de lançamentos (que é sobre embarque/programação, com BSP
         // de verdade).
         p.origem !== "disponibilidade" &&
+        // Um "P" (Programado) que já tem um "E" (real ou a confirmar) começando logo em
+        // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
+        // programação em aberto — o embarque em si já está representado por esse "E". Manter
+        // as duas linhas juntas na lista parecia um conflito/duplicidade; assim que existe o
+        // "E" correspondente, o "P" some da lista (continua no banco, só não aparece aqui).
+        !(p.tipo === "P" && periodos.some((e) =>
+          e.colaborador_id === p.colaborador_id && e.tipo === "E" &&
+          (e.data_inicio === p.data_fim || e.data_inicio === addDays(p.data_fim, 1)),
+        )) &&
         (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
         (filterTipo === "all" || p.tipo === filterTipo) &&
         (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
@@ -1028,7 +1037,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Tipo</Label>
-                  <Select value={editing.tipo} onValueChange={(v) => setEditing({ ...editing, tipo: v })}>
+                  <Select
+                    value={editing.tipo}
+                    onValueChange={(v) => setEditing({ ...editing, tipo: v, ...(v === "P" ? { data_fim: editing.data_inicio } : {}) })}
+                  >
                     <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
@@ -1054,11 +1066,22 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Data início</Label>
-                  <Input type="date" value={editing.data_inicio} onChange={(e) => setEditing({ ...editing, data_inicio: e.target.value })} />
+                  <Input
+                    type="date" value={editing.data_inicio}
+                    onChange={(e) => setEditing({ ...editing, data_inicio: e.target.value, ...(editing.tipo === "P" ? { data_fim: e.target.value } : {}) })}
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">Data fim</Label>
-                  <Input type="date" value={editing.data_fim} onChange={(e) => setEditing({ ...editing, data_fim: e.target.value })} />
+                  <Input
+                    type="date" value={editing.data_fim} disabled={editing.tipo === "P"}
+                    onChange={(e) => setEditing({ ...editing, data_fim: e.target.value })}
+                  />
+                  {editing.tipo === "P" && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      "Programado" é sempre 1 dia (o dia da mobilização) — o resto do embarque é lançado à parte, como "Embarcado".
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

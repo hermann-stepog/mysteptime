@@ -166,10 +166,18 @@ export async function importDrakeEmbarkation(
     funcao: string | null;
     funcao_operacao: string | null;
   }> = [];
-  const seen = new Set<string>();
+  // Uma mesma matrícula pode aparecer em mais de uma linha do relatório (embarque antigo ainda
+  // dentro da janela do período + o embarque atual) — usa sempre a linha de data_fim mais
+  // recente pra decidir nome/empresa/função, nunca a primeira que aparecer na planilha. Sem
+  // isso, se a pessoa mudou de função entre um embarque e outro, a ordem (não necessariamente
+  // cronológica) das linhas na planilha decidia por acaso qual função "vencia", às vezes
+  // deixando uma função antiga/errada gravada mesmo com o Drake já reportando a atual.
+  const linhaMaisRecentePorMatricula = new Map<string, ParsedDrakeRow>();
   for (const r of rows) {
-    if (seen.has(r.matricula)) continue;
-    seen.add(r.matricula);
+    const atual = linhaMaisRecentePorMatricula.get(r.matricula);
+    if (!atual || r.data_fim > atual.data_fim) linhaMaisRecentePorMatricula.set(r.matricula, r);
+  }
+  for (const r of linhaMaisRecentePorMatricula.values()) {
     const ex = byMatricula.get(r.matricula);
     if (!ex) {
       toInsert.push({
