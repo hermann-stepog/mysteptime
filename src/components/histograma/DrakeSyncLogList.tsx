@@ -81,7 +81,7 @@ export function DrakeSyncLogList() {
       {runs.length === 0 ? (
         <p className="py-6 text-center text-xs text-muted-foreground">Nenhuma sincronização registrada ainda.</p>
       ) : (
-        <div className="max-h-72 space-y-1.5 overflow-auto pr-1">
+        <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
           {runs.map((run) => (
             <div key={run.id} className="flex items-start gap-2 rounded-md border border-border/60 p-2">
               <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", STATUS_DOT[run.status])} title={STATUS_LABEL[run.status]} />
