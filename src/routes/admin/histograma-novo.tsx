@@ -298,7 +298,7 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className="h-auto min-h-9 w-full justify-between py-1.5 font-normal">
+        <Button variant="outline" role="combobox" className="h-auto min-h-11 w-full justify-between py-2 text-base font-normal">
           {selected.length === 0 ? (
             <span className="text-muted-foreground">Selecionar colaborador(es)</span>
           ) : (
@@ -837,7 +837,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div>
                 <Label className="text-xs">Tipo</Label>
                 <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo })}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-11 text-base"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
                   </SelectContent>
@@ -846,7 +846,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div>
                 <Label className="text-xs">Unidade Operacional</Label>
                 <Select value={form.unidade_operacional} onValueChange={(v) => { setForm({ ...form, unidade_operacional: v, bsp: "" }); setFormBspManual(false); }}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger className="h-11 text-base"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
                   </SelectContent>
@@ -858,23 +858,23 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                 <Label className="text-xs">BSP</Label>
                 {formBspOptions.length > 0 && !formBspManual ? (
                   <Select value={form.bsp} onValueChange={(v) => v === "__outro__" ? setFormBspManual(true) : setForm({ ...form, bsp: v })}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                    <SelectTrigger className="h-11 text-base"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
                     <SelectContent>
                       {formBspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
                       <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
+                  <Input className="h-11 text-base" value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
                 )}
               </div>
               <div>
                 <Label className="text-xs">Data início</Label>
-                <Input type="date" value={form.data_inicio} onChange={(e) => setForm({ ...form, data_inicio: e.target.value })} />
+                <Input className="h-11 text-base" type="date" value={form.data_inicio} onChange={(e) => setForm({ ...form, data_inicio: e.target.value })} />
               </div>
               <div>
                 <Label className="text-xs">Data fim</Label>
-                <Input type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
+                <Input className="h-11 text-base" type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
               </div>
             </div>
             <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>
