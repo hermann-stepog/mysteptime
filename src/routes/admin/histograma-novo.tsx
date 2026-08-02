@@ -747,11 +747,14 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
         // programação em aberto — o embarque em si já está representado por esse "E". Manter
         // as duas linhas juntas na lista parecia um conflito/duplicidade; assim que existe o
-        // "E" correspondente, o "P" some da lista (continua no banco, só não aparece aqui).
-        !(p.tipo === "P" && periodos.some((e) =>
+        // "E" correspondente, o "P" some da lista NA VISÃO PADRÃO (sem filtro de Evento) — mas
+        // se ela filtrar explicitamente por "P — Programado", precisa continuar vendo todos os
+        // "P" de verdade, mesmo os que já têm um "E" associado (senão a contagem nunca bate com
+        // o que aparece no card "Próximos eventos", que conta todo "P" sem essa exclusão).
+        (filterTipo === "P" || !(p.tipo === "P" && periodos.some((e) =>
           e.colaborador_id === p.colaborador_id && e.tipo === "E" &&
           (e.data_inicio === p.data_fim || e.data_inicio === addDays(p.data_fim, 1)),
-        )) &&
+        ))) &&
         (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
         (filterTipo === "all" || p.tipo === filterTipo) &&
         (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
