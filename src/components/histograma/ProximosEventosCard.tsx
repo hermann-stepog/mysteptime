@@ -3,7 +3,7 @@ import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
-  addDays, todayStr, weekdayAbbr, ORIGEM_PROGRAMADO,
+  addDays, todayStr, weekdayAbbr, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 
@@ -12,6 +12,12 @@ interface ProximoEvento {
   colaboradorId: string;
   colaboradorNome: string;
   tipo: "embarque" | "desembarque";
+  // Só relevante pra tipo "embarque": "P" (Programado) ainda não foi confirmado pelo Drake,
+  // é só o dia da mobilização — diferente de um "E" já confirmado. Mostrado com cor/rótulo
+  // diferentes pra não parecer a mesma coisa que um embarque de verdade (ver feedback:
+  // filtrar por "E — Embarcado" na tabela de Lançamentos não encontra um "P", já que são
+  // tipos diferentes por baixo).
+  confirmado: boolean;
   unidade: string | null;
 }
 
@@ -31,12 +37,12 @@ function useProximosEventos(periodos: HistNovoPeriodo[], colaboradorById: Map<st
       const c = colaboradorById.get(p.colaborador_id);
       if (!c) return;
       if ((p.tipo === "P" || p.tipo === "E") && p.origem !== ORIGEM_PROGRAMADO && p.data_inicio >= hoje && p.data_inicio <= limite) {
-        eventos.push({ data: p.data_inicio, colaboradorId: p.colaborador_id, colaboradorNome: c.nome, tipo: "embarque", unidade: p.unidade_operacional });
+        eventos.push({ data: p.data_inicio, colaboradorId: p.colaborador_id, colaboradorNome: c.nome, tipo: "embarque", confirmado: p.tipo === "E", unidade: p.unidade_operacional });
       }
       if (p.tipo === "E") {
         const dataDesembarque = addDays(p.data_fim, 1);
         if (dataDesembarque >= hoje && dataDesembarque <= limite) {
-          eventos.push({ data: dataDesembarque, colaboradorId: p.colaborador_id, colaboradorNome: c.nome, tipo: "desembarque", unidade: p.unidade_operacional });
+          eventos.push({ data: dataDesembarque, colaboradorId: p.colaborador_id, colaboradorNome: c.nome, tipo: "desembarque", confirmado: true, unidade: p.unidade_operacional });
         }
       }
     });
@@ -108,9 +114,10 @@ export function ProximosEventosCard({ periodos, colaboradorById, onSelecionarCol
             >
               <div
                 className={cn(
-                  "flex min-w-[42px] shrink-0 flex-col items-center justify-center rounded px-2 py-1 text-[10px] font-bold leading-tight text-white",
-                  ev.tipo === "embarque" ? "bg-emerald-600" : "bg-orange-500",
+                  "flex min-w-[42px] shrink-0 flex-col items-center justify-center rounded px-2 py-1 text-[10px] font-bold leading-tight",
+                  ev.tipo === "desembarque" ? "bg-orange-500 text-white" : ev.confirmado ? "bg-emerald-600 text-white" : "text-emerald-950",
                 )}
+                style={ev.tipo === "embarque" && !ev.confirmado ? { backgroundColor: E_A_CONFIRMAR_COLOR } : undefined}
               >
                 <span>{fmtDiaMes(ev.data)}</span>
                 <span className="text-[9px] opacity-80">{weekdayAbbr(ev.data)}</span>
@@ -122,11 +129,12 @@ export function ProximosEventosCard({ periodos, colaboradorById, onSelecionarCol
               <span
                 className={cn(
                   "inline-flex shrink-0 items-center gap-1 text-[11px] font-medium",
-                  ev.tipo === "embarque" ? "text-emerald-600" : "text-orange-600",
+                  ev.tipo === "desembarque" ? "text-orange-600" : ev.confirmado ? "text-emerald-600" : "text-emerald-700/70",
                 )}
+                title={ev.tipo === "embarque" && !ev.confirmado ? "Ainda não confirmado pelo Drake — só o dia de mobilização foi lançado" : undefined}
               >
                 {ev.tipo === "embarque" ? <ArrowDownToLine className="h-3 w-3" /> : <ArrowUpFromLine className="h-3 w-3" />}
-                {ev.tipo === "embarque" ? "Embarque" : "Desembarque"}
+                {ev.tipo === "desembarque" ? "Desembarque" : ev.confirmado ? "Embarque" : "Embarque (programado)"}
               </span>
             </button>
           ))}
