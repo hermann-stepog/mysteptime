@@ -98,7 +98,7 @@ export function ProximosEventosCard({ periodos, colaboradorById, onSelecionarCol
           {filtroTipo === "todos" ? `Nenhum evento programado para os próximos ${JANELA_DIAS} dias.` : "Nenhum evento desse tipo nos próximos dias."}
         </p>
       ) : (
-        <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
+        <div className="max-h-72 space-y-1.5 overflow-auto pr-1">
           {eventos.map((ev, i) => (
             <button
               key={`${ev.colaboradorId}-${ev.tipo}-${ev.data}-${i}`}

@@ -826,9 +826,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
         </div>
 
-        <Card className="self-start p-4 space-y-3">
+        <Card className="flex flex-col p-4 space-y-3">
           <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
-          <div className="grid gap-3">
+          <div className="flex flex-1 flex-col justify-between gap-4">
             <div>
               <Label className="text-xs">Colaborador(es)</Label>
               <ColaboradoresMultiCombobox colaboradores={colaboradores} value={form.colaboradorIds} onChange={(ids) => setForm({ ...form, colaboradorIds: ids })} />
