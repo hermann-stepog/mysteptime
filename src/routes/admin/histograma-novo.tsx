@@ -38,12 +38,13 @@ import {
   TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
-  isEAConfirmarComputado, isEAConfirmar,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional,
   toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
+  calcularHistoricoOcupacaoColaborador,
   type OldBucket,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
+  type HistoricoOcupacaoColaborador,
 } from "@/lib/histogramaNovo";
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
@@ -1121,7 +1122,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                         style={{ backgroundColor: getPeriodoColor(p)!, color: getContrastText(getPeriodoColor(p)!) }}
                         title={getPeriodoLabel(p)}
                       >
-                        {isEAConfirmar(p) ? displayAbbr("E") : displayAbbr(tipo)}
+                        {p.origem === ORIGEM_PROGRAMADO ? displayAbbr("P") : displayAbbr(tipo)}
                       </span>
                     ) : p.tipo}
                   </TableCell>
@@ -1559,10 +1560,18 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
           embarqueByPeriodoId={embarqueByPeriodoId} semanasByEmbarqueId={semanasByEmbarqueId} embarquesByColaboradorId={embarquesByColaboradorId}
         />
       ) : selectedColaborador ? (
-        <ColaboradorGrid
-          periodos={periodosByColaborador.get(selectedColaborador) ?? []} monthGroups={yearMonthGroups}
-          embarqueByPeriodoId={embarqueByPeriodoId} semanasByEmbarqueId={semanasByEmbarqueId} embarquesByColaboradorId={embarquesByColaboradorId}
-        />
+        <div className="grid gap-4 items-start lg:grid-cols-[280px_1fr]">
+          <IndiceIndividualCard
+            historico={calcularHistoricoOcupacaoColaborador(
+              selectedColaborador, periodosByColaborador.get(selectedColaborador) ?? [],
+              yearDates[0], yearDates[yearDates.length - 1],
+            )}
+          />
+          <ColaboradorGrid
+            periodos={periodosByColaborador.get(selectedColaborador) ?? []} monthGroups={yearMonthGroups}
+            embarqueByPeriodoId={embarqueByPeriodoId} semanasByEmbarqueId={semanasByEmbarqueId} embarquesByColaboradorId={embarquesByColaboradorId}
+          />
+        </div>
       ) : (
         <div className="py-10 text-center text-sm text-muted-foreground">Selecione um colaborador.</div>
       )}
@@ -1578,7 +1587,6 @@ function resolveEColor(
 ): string {
   const cor = ((): string => {
     if (result.status !== "E" || !result.periodo) return getComputedColor(result);
-    if (result.periodo.origem === ORIGEM_PROGRAMADO) return E_A_CONFIRMAR_COLOR;
     const embarque = embarqueByPeriodoId.get(result.periodo.id);
     if (!embarque) return E_A_CONFIRMAR_COLOR;
     const semanas = semanasByEmbarqueId.get(embarque.id) ?? [];
@@ -1712,6 +1720,72 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
   );
 }
 
+// Painel de índice individual — ao lado da grade do colaborador selecionado na aba
+// Histograma, resume o ano inteiro (mesmo "Ano" já escolhido no filtro ao lado): quantas
+// vezes embarcou, média de dias entre embarques, quando foi o último embarque, e quantos
+// dias ele passou em cada categoria — pra investigar rápido "por que essa pessoa não está
+// embarcando com a frequência esperada".
+function IndiceIndividualCard({ historico }: { historico: HistoricoOcupacaoColaborador }) {
+  const categorias = STATUS_ORDER
+    .filter((s) => (historico.diasPorCategoria[s] ?? 0) > 0)
+    .map((s) => ({ status: s, label: STATUS_LABEL[s], color: STATUS_COLOR[s], value: historico.diasPorCategoria[s] ?? 0 }));
+
+  return (
+    <Card className="self-start space-y-4 p-4">
+      <div>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Índice de Ocupação no Ano</p>
+        <p
+          className="mt-1 text-3xl font-bold"
+          style={{ backgroundImage: "linear-gradient(135deg, #1e3a5f, #4a7bb5)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+        >
+          {historico.indiceOcupacao}%
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 border-t pt-3">
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Embarques no Ano</p>
+          <p className="mt-1 text-xl font-bold">{historico.numeroDeEmbarques}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Média entre Embarques</p>
+          <p className="mt-1 text-xl font-bold">
+            {historico.diasMedioEntreEmbarques ?? "—"}
+            {historico.diasMedioEntreEmbarques != null && <span className="ml-1 text-xs font-normal text-muted-foreground">dias</span>}
+          </p>
+        </div>
+      </div>
+
+      <div className="border-t pt-3">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Último Embarque</p>
+        <p className="mt-1 text-sm font-semibold">
+          {historico.dataUltimoEmbarque ? fmtDiaCurto(historico.dataUltimoEmbarque) : "—"}
+        </p>
+        {historico.diasDesdeUltimoEmbarque != null && (
+          <p className="text-xs text-muted-foreground">{historico.diasDesdeUltimoEmbarque} dias atrás</p>
+        )}
+      </div>
+
+      <div className="border-t pt-3">
+        <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Dias por Categoria</p>
+        {categorias.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Sem dados no ano.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {categorias.map((c) => (
+              <div key={c.status} className="flex items-center gap-2 text-xs">
+                <div className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: c.color }} />
+                <span className="text-muted-foreground">{c.label}</span>
+                <span className="ml-auto font-semibold">{c.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasByEmbarqueId, embarquesByColaboradorId }: {
   periodos: HistNovoPeriodo[]; monthGroups: MonthGroup[];
   embarqueByPeriodoId: Map<string, TimesheetEmbarque>; semanasByEmbarqueId: Map<string, TimesheetSemana[]>;
@@ -1779,15 +1853,15 @@ function DashboardTab({ colaboradores, periodos }: {
 }) {
   const today = todayStr();
   const anoAtual = new Date().getFullYear();
-  const hoje = new Date();
-  const mesInicioDefault = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-01`;
-  const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
-  const mesFimDefault = `${ultimoDiaMes.getFullYear()}-${String(ultimoDiaMes.getMonth() + 1).padStart(2, "0")}-${String(ultimoDiaMes.getDate()).padStart(2, "0")}`;
-  // O filtro nasce sempre fixado no mês vigente — define quem conta como colaborador "ativo"
-  // nos KPIs e no "Status por Unidade" (quem não tiver nenhum período nesse intervalo é
-  // considerado inativo/fora da folha e não entra na contagem).
-  const [dataInicio, setDataInicio] = useState(mesInicioDefault);
-  const [dataFim, setDataFim] = useState(mesFimDefault);
+  // O filtro nasce sempre fixado em hoje (De=Até=hoje) — assim os cartões, a rosquinha e
+  // tudo mais partem sempre do mesmo dia de referência, sem divergir entre "foto de hoje" e
+  // "total do período". Continua editável pra ela investigar um dia específico do passado
+  // (ou alargar De/Até se quiser ver um intervalo maior nos gráficos que aceitam isso, como
+  // POB por Unidade × Dia). Quem conta como colaborador "ativo" nos KPIs/"Status por
+  // Unidade" ainda é definido a partir do MÊS que contém esse dia (ver activeColaboradores),
+  // não só o dia exato.
+  const [dataInicio, setDataInicio] = useState(today);
+  const [dataFim, setDataFim] = useState(today);
   // Filtros extras pra investigar particularidades: um colaborador específico e/ou uma
   // unidade específica — afetam todos os cartões e gráficos abaixo.
   const [filterColaborador, setFilterColaborador] = useState("all");
@@ -1842,6 +1916,19 @@ function DashboardTab({ colaboradores, periodos }: {
     () => (dataInicio && dataFim && dataInicio <= dataFim ? generateDateRange(dataInicio, dataFim) : []),
     [dataInicio, dataFim],
   );
+
+  // "POB por Unidade × Dia" e "Mão de Obra por Semana" só fazem sentido com vários dias —
+  // ficam desacoplados do filtro De/Até de cima (que agora nasce em hoje/hoje pros
+  // cartões/rosquinha baterem entre si) e sempre mostram o MÊS ATUAL inteiro, independente
+  // do que estiver selecionado no De/Até.
+  const inicioMesAtual = `${today.slice(0, 7)}-01`;
+  const [anoMesAtual, mesMesAtual] = today.slice(0, 7).split("-").map(Number);
+  const fimMesAtual = `${today.slice(0, 7)}-${String(new Date(anoMesAtual, mesMesAtual, 0).getDate()).padStart(2, "0")}`;
+  const datesMesAtual = useMemo(() => generateDateRange(inicioMesAtual, fimMesAtual), [inicioMesAtual, fimMesAtual]);
+  const activeColaboradoresMesAtual = useMemo(() => colaboradoresFiltrados.filter((c) => {
+    const ps = periodosByColaborador.get(c.id) ?? [];
+    return ps.some((p) => p.data_fim >= inicioMesAtual && p.data_inicio <= fimMesAtual);
+  }), [colaboradoresFiltrados, periodosByColaborador, inicioMesAtual, fimMesAtual]);
 
   const unidades = useMemo(
     () => Array.from(new Set([
@@ -1940,14 +2027,14 @@ function DashboardTab({ colaboradores, periodos }: {
   // cálculo de computeDayStatus pra cada gráfico separadamente. ──
   const dailyRecords = useMemo(() => {
     const recs: { date: string; bucket: OldBucket; unidade: string | null; bsp: string | null }[] = [];
-    dates.forEach((d) => {
-      activeColaboradores.forEach((c) => {
+    datesMesAtual.forEach((d) => {
+      activeColaboradoresMesAtual.forEach((c) => {
         const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], d);
         recs.push({ date: d, bucket: pobBucket(result), unidade: result.periodo?.unidade_operacional ?? null, bsp: result.periodo ? bspDoPeriodo(result.periodo) : null });
       });
     });
     return recs;
-  }, [dates, activeColaboradores, periodosByColaborador]);
+  }, [datesMesAtual, activeColaboradoresMesAtual, periodosByColaborador]);
 
   // ── Ocupação (donut) — quebra pelo status exato de hoje (mesmas cores/labels do
   // Histograma), em vez de um balde genérico "Outros" que escondia Folga/Férias/Atestado/
@@ -2035,7 +2122,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const weeklyData = useMemo(() => {
     const weekMap = new Map<string, { label: string; dates: string[] }>();
     const weekOrder: string[] = [];
-    dates.forEach((d) => {
+    datesMesAtual.forEach((d) => {
       const dt = new Date(d + "T12:00:00");
       const dow = dt.getDay() || 7;
       const mon = new Date(dt);
@@ -2067,7 +2154,7 @@ function DashboardTab({ colaboradores, periodos }: {
       });
       return { label, Embarcado: Math.round(emb / n), "Folga/Férias": Math.round(folga / n), Disponível: Math.round(disp / n) };
     });
-  }, [dates, dailyRecords]);
+  }, [datesMesAtual, dailyRecords]);
 
   // ── NOVO: POB por Mês (do início do ano até hoje, agregado — independente do filtro
   // De/Até acima, que serve só pros KPIs e pros gráficos de unidade/semana) ──
@@ -2307,11 +2394,11 @@ function DashboardTab({ colaboradores, periodos }: {
       {/* ── POB por Unidade × Dia (com BSP) ── */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold">POB por Unidade × Dia</h3>
-        <p className="text-xs text-muted-foreground mb-3">Embarcados por dia, por unidade e por BSP, no período selecionado</p>
-        {dates.length === 0 ? (
+        <p className="text-xs text-muted-foreground mb-3">Embarcados por dia, por unidade e por BSP, no mês atual</p>
+        {datesMesAtual.length === 0 ? (
           <EmptyState icon={CalendarDays} title="Selecione um período válido" />
         ) : unidadeBspRows.length === 0 ? (
-          <EmptyState icon={Ship} title="Nenhuma unidade com embarcado no período selecionado" />
+          <EmptyState icon={Ship} title="Nenhuma unidade com embarcado no mês atual" />
         ) : (
           <div className="rounded border border-border">
             {/* table-fixed + sem min-w: as colunas de dia dividem o espaço disponível em partes
@@ -2320,12 +2407,12 @@ function DashboardTab({ colaboradores, periodos }: {
             <table className="w-full table-fixed border-collapse text-xs">
               <colgroup>
                 <col className="w-[140px]" />
-                {dates.map((d) => <col key={d} />)}
+                {datesMesAtual.map((d) => <col key={d} />)}
               </colgroup>
               <thead className="sticky top-0 z-10">
                 <tr>
                   <th className="sticky left-0 z-20 bg-muted border border-border px-2 py-1.5 text-left font-medium">Unidade / BSP</th>
-                  {dates.map((d) => (
+                  {datesMesAtual.map((d) => (
                     <th
                       key={d}
                       className="border border-border px-0.5 py-1 text-center font-normal overflow-hidden"
@@ -2347,7 +2434,7 @@ function DashboardTab({ colaboradores, periodos }: {
                         {isFirstDaUnidade && (
                           <tr>
                             <td
-                              colSpan={1 + dates.length}
+                              colSpan={1 + datesMesAtual.length}
                               className="sticky left-0 z-10 border border-border bg-muted/70 px-2 py-1 font-semibold"
                             >
                               {row.unidade}
@@ -2356,7 +2443,7 @@ function DashboardTab({ colaboradores, periodos }: {
                         )}
                         <tr className="hover:bg-muted/40">
                           <td className="sticky left-0 z-10 bg-background border border-border px-2 py-1 pl-5 text-muted-foreground truncate">{row.bsp}</td>
-                          {dates.map((d) => {
+                          {datesMesAtual.map((d) => {
                             const count = row.countByDate.get(d) ?? 0;
                             return (
                               <td
