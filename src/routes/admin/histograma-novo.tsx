@@ -31,7 +31,7 @@ import {
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
-  Download, BedDouble,
+  Download, BedDouble, Info, Building2,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
@@ -1862,19 +1862,20 @@ function DashboardTab({ colaboradores, periodos }: {
   // Programado (mobilização já lançada, a vaga já está reservada pra esse colaborador mesmo
   // antes do Drake confirmar o embarque).
   const kpis = useMemo(() => {
-    let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0, folga = 0, ocupados = 0;
+    let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0, folga = 0, naBase = 0, ocupados = 0;
     activeColaboradores.forEach((c) => {
       const bucket = toOldBucket(computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status);
       if (bucket === "E") embarcados++;
       else if (bucket === "FO") folga++;
       else if (bucket === "P") programados++;
+      else if (bucket === "BASE") naBase++;
       else if (bucket === "B") disponiveis++;
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
       if (isOcupadoBucket(bucket)) ocupados++;
     });
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
-    return { total, embarcados, programados, disponiveis, naoDisp, folga, utilizacao };
+    return { total, embarcados, programados, disponiveis, naoDisp, folga, naBase, utilizacao };
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
 
   const kpiCards = [
@@ -1882,6 +1883,7 @@ function DashboardTab({ colaboradores, periodos }: {
     { label: "Embarcados", value: kpis.embarcados, icon: Ship },
     { label: "Programados", value: kpis.programados, icon: CalendarDays },
     { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
+    { label: "Na Base", value: kpis.naBase, icon: Building2 },
     { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
@@ -1902,6 +1904,26 @@ function DashboardTab({ colaboradores, periodos }: {
       avgTimeOff: avg(periodosAtivos.filter((p) => p.tipo === "F").map(dur)),
     };
   }, [periodos, activeColaboradores, dataInicio, dataFim]);
+
+  // ── Taxa de Ocupação média no período filtrado — a rosquinha acima é sempre a foto de UM
+  // dia (pobReferenceDate); aqui calcula o % de ocupados em CADA dia do período (mesmo
+  // conceito de "ocupado" de isOcupadoBucket) e tira a média, sobre o mesmo headcount total
+  // (activeColaboradores) usado no resto do card. Só considera dias até hoje — dias futuros
+  // do período (ex.: resto do mês corrente) ainda não têm dado nenhum lançado pra maioria dos
+  // colaboradores, então entrariam quase todos como Standby e derrubariam a média sem
+  // significar nada de verdade.
+  const datesAteHoje = useMemo(() => dates.filter((d) => d <= today), [dates, today]);
+  const mediaOcupacaoPeriodo = useMemo(() => {
+    if (datesAteHoje.length === 0 || activeColaboradores.length === 0) return 0;
+    let somaOcupados = 0;
+    datesAteHoje.forEach((d) => {
+      activeColaboradores.forEach((c) => {
+        const bucket = toOldBucket(computeDayStatus(periodosByColaborador.get(c.id) ?? [], d).status);
+        if (isOcupadoBucket(bucket)) somaOcupados++;
+      });
+    });
+    return Math.round((somaOcupados / (datesAteHoje.length * activeColaboradores.length)) * 100);
+  }, [datesAteHoje, activeColaboradores, periodosByColaborador]);
 
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
@@ -2143,7 +2165,7 @@ function DashboardTab({ colaboradores, periodos }: {
       </Card>
 
       {/* ── KPIs ── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         {kpiCards.map((k, i) => (
           <FadeInView key={k.label} delay={i * 0.05}>
           <Card className="bg-gradient-to-br from-white to-slate-50 p-4">
@@ -2161,7 +2183,28 @@ function DashboardTab({ colaboradores, periodos }: {
 
       {/* ── Ocupação ── */}
       <Card className="p-4">
-        <h3 className="text-sm font-semibold">Taxa de Ocupação</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold">Taxa de Ocupação</h3>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="O que é considerado na Taxa de Ocupação">
+                <Info className="h-3.5 w-3.5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 space-y-2 text-xs" align="start">
+              <p>
+                <span className="font-semibold" style={{ color: DASH_COLORS.navy }}>Ocupado</span> (fatia azul): Embarcado, Dobra, Folga
+                Indenizada, Folga de Embarque, Trabalho Externo, Programado e Na Base — vaga comprometida no ciclo de rotação, mesmo
+                quando a pessoa não está fisicamente a bordo naquele dia (folga do ciclo, mobilização já lançada, ou trabalhando na
+                base em vez de offshore).
+              </p>
+              <p>
+                <span className="font-semibold" style={{ color: "#c2410c" }}>Fora da ocupação</span> (fatia laranja): Standby (Aguardando
+                Escala), Férias e Atestado — sem vaga reservada em nenhuma unidade no momento.
+              </p>
+            </PopoverContent>
+          </Popover>
+        </div>
         <p className="text-xs text-muted-foreground mb-3">
           {pobReferenceDate === today ? "Status de hoje" : `Status em ${fmtDiaCurto(pobReferenceDate)}`}, por colaborador ativo no período filtrado
         </p>
@@ -2223,7 +2266,16 @@ function DashboardTab({ colaboradores, periodos }: {
             </div>
           </div>
         </div>
-        <div className="border-t mt-5 pt-4 grid grid-cols-2 gap-4">
+        <div className="border-t mt-5 pt-4 grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Taxa de Ocupação Média no período (até hoje)</p>
+            <p
+              className="mt-1 text-2xl font-bold"
+              style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+            >
+              {mediaOcupacaoPeriodo}%
+            </p>
+          </div>
           <div>
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio Offshore no período</p>
             <p
