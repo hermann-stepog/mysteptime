@@ -1820,11 +1820,21 @@ function DashboardTab({ colaboradores, periodos }: {
     return true;
   }), [colaboradores, periodosByColaborador, filterColaborador, filterUnidade, filterBsp]);
 
+  // "Ativo" sempre olha o MÊS INTEIRO de dataInicio/dataFim, não o intervalo exato escolhido
+  // no filtro — se ela estreitar De/Até pra um único dia (ex.: só hoje), um colaborador que
+  // tenha um "buraco" de 1 dia sem nenhum período lançado (ex.: entre o desembarque e a
+  // próxima disponibilidade chegar do Drake) não pode sumir do Headcount Total só por causa
+  // desse buraco pontual — ele continua contando enquanto tiver algo lançado em algum lugar
+  // do mês. Pra um filtro do mês inteiro (o padrão), isso não muda nada; só importa quando
+  // ela estreita o filtro pra investigar um dia específico.
   const activeColaboradores = useMemo(() => {
     if (!dataInicio || !dataFim) return colaboradoresFiltrados;
+    const inicioJanela = `${dataInicio.slice(0, 7)}-01`;
+    const [anoFim, mesFim] = dataFim.split("-").map(Number);
+    const fimJanela = `${dataFim.slice(0, 7)}-${String(new Date(anoFim, mesFim, 0).getDate()).padStart(2, "0")}`;
     return colaboradoresFiltrados.filter((c) => {
       const ps = periodosByColaborador.get(c.id) ?? [];
-      return ps.some((p) => p.data_fim >= dataInicio && p.data_inicio <= dataFim);
+      return ps.some((p) => p.data_fim >= inicioJanela && p.data_inicio <= fimJanela);
     });
   }, [colaboradoresFiltrados, periodosByColaborador, dataInicio, dataFim]);
 
