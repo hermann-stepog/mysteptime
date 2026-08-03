@@ -41,6 +41,8 @@ import {
   isEAConfirmarComputado, isEAConfirmar,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional,
+  toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
+  type OldBucket,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
 } from "@/lib/histogramaNovo";
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
@@ -1771,81 +1773,6 @@ const DASH_COLORS = {
 };
 
 const DASH_UNIT_PALETTE = ["#1e3a5f", "#2563eb", "#0288d1", "#f97316", "#22c55e", "#8b5cf6", "#eab308", "#94a3b8", "#f43f5e", "#14b8a6"];
-
-// Paleta só em tons de azul pro donut de Taxa de Ocupação — independente das cores de status
-// do Histograma (que usam cores bem distintas entre si, verde/laranja/roxo/vermelho etc.).
-const OCUPACAO_BLUE_PALETTE = ["#0f2744", "#1e3a5f", "#2c5282", "#2563eb", "#3b82f6", "#0ea5e9", "#38bdf8", "#7dd3fc", "#60a5fa", "#93c5fd", "#bae6fd", "#dbeafe"];
-
-// Paleta em tons de amarelo/laranja pro donut "contrário" (fora da ocupação) — pra distinguir
-// visualmente de cara do donut azul de quem está ocupado. Ordem pensada pra que as fatias
-// vizinhas (esse donut normalmente só tem 2-3 categorias: Standby/Férias/Atestado) fiquem
-// bem diferentes entre si, em vez de tons parecidos lado a lado.
-// "#7c2d12" fica de fora dessa lista de propósito — é a cor fixa reservada pra Férias em
-// NAO_OCUPACAO_COLOR logo abaixo, pra nenhum outro status cair nela por coincidência do ciclo.
-const OCUPACAO_WARM_PALETTE = ["#fbbf24", "#f97316", "#fde68a", "#c2410c", "#fdba74", "#9a3412", "#fcd34d", "#ea580c", "#fed7aa"];
-
-// Cores fixas por status (em vez de ciclar a paleta) pro donut "fora da ocupação" — Standby
-// vira cinza (não é bem "quente" como os outros, é só quem está sem alocação) e Férias
-// mantém o tom marrom-escuro original. Qualquer outro status (Atestado, Desembarque em Dia
-// Não Útil etc.) cai de volta na paleta quente cíclica.
-const NAO_OCUPACAO_COLOR: Partial<Record<ComputedStatus, string>> = {
-  STB: "#94a3b8",
-  FE: "#7c2d12",
-};
-
-type OldBucket = "E" | "P" | "D" | "B" | "FO" | "FE" | "TE" | "IND" | "OTHER";
-
-// Traduz o status computado do novo módulo (E/P/AT/FE/STB/F/TE/DDN/DES/FI/DB) pros
-// mesmos "baldes" que o dashboard antigo usava (E/P/D/B/FO/FE/TE/IND), pra reaproveitar
-// exatamente a mesma lógica de gráficos. "STB" agora é quem está realmente disponível
-// (substituiu o antigo "DI"), por isso cai no balde "B" (Disponível), não mais em "IND".
-function toOldBucket(status: ComputedStatus): OldBucket {
-  switch (status) {
-    case "E":
-    case "DB":
-    // Folga Indenizada: o colaborador embarcou (fisicamente a bordo) num dia que também caía
-    // como folga — pra taxa de ocupação/POB ele conta como embarcado normalmente, a folga vira
-    // só uma questão de compensação (pagamento), não de presença física.
-    case "FI":
-      return "E";
-    case "P":
-      return "P";
-    case "DES":
-      return "D";
-    case "STB":
-      return "B";
-    case "F":
-      return "FO";
-    case "FE":
-      return "FE";
-    case "TE":
-      return "TE";
-    case "AT":
-    case "DDN":
-      return "IND";
-    default:
-      return "OTHER";
-  }
-}
-
-// Balde de status pra fins de POB (presença física de verdade — POB por Unidade/Dia/Mês,
-// Mão de Obra por Semana): um "E (a confirmar)" — seja a continuação de uma programação
-// manual (origem=ORIGEM_PROGRAMADO, dias 2+) ou o próprio dia da mobilização "P" já passado
-// (ver isEAConfirmarComputado) — ainda não foi confirmado pelo Drake, então não deve contar
-// como presença física. Só quando o Drake substituir esse registro pelo embarque real
-// (origem="drake") é que a pessoa passa a contar no POB. Reclassificado pro balde "P" (mesmo
-// tratamento de quem ainda não embarcou de fato), não "E".
-function pobBucket(result: DayStatusResult): OldBucket {
-  const bucket = toOldBucket(result.status);
-  if (bucket === "E" && isEAConfirmarComputado(result)) return "P";
-  return bucket;
-}
-
-// Quem tem a vaga "ocupada" no ciclo de rotação pra fins da Taxa de Ocupação — embarcado
-// (E, já cobre Dobra/Folga Indenizada via toOldBucket), Folga de embarque (FO), Trabalho
-// Externo (TE) e Programado (P). O resto (Standby, Férias, Atestado, Desembarque em Dia Não
-// Útil etc.) é quem sobra pro lado "fora da ocupação".
-const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P";
 
 function DashboardTab({ colaboradores, periodos }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[];
