@@ -4,16 +4,6 @@ import {
   extractProvenRequestHeaders,
   isBrowserDefaultHeaderName,
 } from "./authenticated-session.server";
-import {
-  classifySessionAuthFailure,
-  isLoginCompleteByUrlOnly,
-} from "./browser-menu-validation.server";
-import {
-  DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED,
-  DRAKE_SESSION_TRANSFER_FAILED,
-  browserSessionNotAuthenticatedError,
-  sessionTransferFailedError,
-} from "./errors";
 import { sanitizeSensitiveText } from "../sanitize-error.server";
 import {
   DrakeCookieJar,
@@ -21,39 +11,6 @@ import {
   parseSingleSetCookie,
   pathMatches,
 } from "../http/drake-cookie-jar.server";
-import { DRAKE_ERROR_MESSAGES } from "../update-types";
-
-describe("login completion criteria", () => {
-  it("nao considera login concluido apenas por URL", () => {
-    expect(isLoginCompleteByUrlOnly("https://drake.bz/m/queries/query", false)).toBe(false);
-  });
-
-  it("nao considera login concluido apenas por cookies de load balancer", () => {
-    expect(isLoginCompleteByUrlOnly("https://drake.bz/m/", true)).toBe(false);
-  });
-
-  it("Browser Menu 401 classifica DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED", () => {
-    expect(classifySessionAuthFailure({ browserMenuStatus: 401, httpMenuStatus: 401 })).toBe(
-      DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED,
-    );
-    expect(browserSessionNotAuthenticatedError().message).toBe(
-      DRAKE_ERROR_MESSAGES[DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED],
-    );
-  });
-
-  it("Browser Menu 200 e HTTP Menu 401 classifica DRAKE_SESSION_TRANSFER_FAILED", () => {
-    expect(classifySessionAuthFailure({ browserMenuStatus: 200, httpMenuStatus: 401 })).toBe(
-      DRAKE_SESSION_TRANSFER_FAILED,
-    );
-    expect(sessionTransferFailedError().message).toBe(
-      DRAKE_ERROR_MESSAGES[DRAKE_SESSION_TRANSFER_FAILED],
-    );
-  });
-
-  it("Browser Menu 200 e HTTP Menu 200 permite continuar", () => {
-    expect(classifySessionAuthFailure({ browserMenuStatus: 200, httpMenuStatus: 200 })).toBeNull();
-  });
-});
 
 describe("session diagnostics sanitization", () => {
   it("valores de cookies e Authorization nao aparecem na sanitizacao", () => {
@@ -209,16 +166,16 @@ describe("DrakeCookieJar", () => {
 });
 
 describe("auth provider contracts", () => {
-  it("local e remoto usam a mesma validacao de Menu no BrowserContext", async () => {
+  it("login HTTP valida a sessao pelo Menu antes de continuar", async () => {
     const fs = await import("node:fs/promises");
     const auth = await fs.readFile(
       "src/lib/drake/auth/environment-credentials-auth.server.ts",
       "utf8",
     );
-    expect(auth).toMatch(/waitForBrowserMenuAuthenticated/);
     expect(auth).toMatch(/validateHttpSessionTransfer|validateDrakeApiSession/);
     expect(auth).toMatch(/createDrakeHttpClientFromAuthenticatedSession/);
-    expect(auth).toMatch(/performHeadlessDrakeLogin/);
+    expect(auth).toMatch(/loginWithDrakeHttpCredentials/);
+    expect(auth).not.toMatch(/performHeadlessDrakeLogin/);
     expect(auth).not.toMatch(/from ["']playwright["']/);
     expect(auth).not.toMatch(/request\.newContext/);
     expect(auth).not.toMatch(/interactiveBootstrapRequiredError/);
@@ -233,22 +190,6 @@ describe("auth provider contracts", () => {
     expect(signalrIdx).toBeGreaterThan(authIdx);
     expect(src).toMatch(/createDrakeApiContextFromAuthenticatedSession/);
     expect(src).toMatch(/renovando automaticamente/);
-  });
-
-  it("imports de Playwright continuam dinamicos nos adaptadores", async () => {
-    const fs = await import("node:fs/promises");
-    const local = await fs.readFile(
-      "src/lib/drake/browser/local-drake-browser-runtime.server.ts",
-      "utf8",
-    );
-    const remote = await fs.readFile(
-      "src/lib/drake/browser/remote-drake-browser-runtime.server.ts",
-      "utf8",
-    );
-    expect(local).toMatch(/await import\(/);
-    expect(remote).toMatch(/await import\(/);
-    expect(local).not.toMatch(/^import \{[^}]*chromium[^}]*\} from ["']playwright["']/m);
-    expect(remote).not.toMatch(/^import \{[^}]*chromium[^}]*\} from ["']playwright-core["']/m);
   });
 
   it("nenhum token e persistido no cache de sessao", async () => {

@@ -35,29 +35,31 @@ describe("Drake scheduler crons", () => {
 describe("Drake scheduler registration", () => {
   afterEach(() => {
     delete process.env.DRAKE_SCHEDULER_ENABLED;
-    const g = globalThis as { __drakeSchedulerStarted?: unknown };
-    delete g.__drakeSchedulerStarted;
+    delete process.env.DRAKE_SCHEDULER_TIMEZONE;
+    vi.doUnmock("./run-drake-update.server");
+    vi.resetModules();
   });
 
-  it("não registra quando desabilitado", async () => {
+  it("não executa quando desabilitado", async () => {
     process.env.DRAKE_SCHEDULER_ENABLED = "false";
     vi.resetModules();
-    const { ensureDrakeSchedulerRegistered } = await import("./drake-scheduler.server");
-    const status = ensureDrakeSchedulerRegistered();
-    expect(status.enabled).toBe(false);
-    expect(status.registered).toBe(false);
+    const { runDueDrakeSchedule } = await import("./drake-scheduler.server");
+    expect(await runDueDrakeSchedule(new Date("2026-07-31T16:00:00.000Z"))).toBe(false);
   });
 
-  it("registra uma única vez", async () => {
+  it("executa cada janela uma única vez por isolate", async () => {
     process.env.DRAKE_SCHEDULER_ENABLED = "true";
     process.env.DRAKE_SCHEDULER_TIMEZONE = "America/Sao_Paulo";
+    const runScheduledDrakeUpdate = vi.fn().mockResolvedValue({});
+    vi.doMock("./run-drake-update.server", () => ({ runScheduledDrakeUpdate }));
     vi.resetModules();
-    const mod = await import("./drake-scheduler.server");
-    const a = mod.ensureDrakeSchedulerRegistered();
-    const b = mod.ensureDrakeSchedulerRegistered();
-    expect(a.enabled).toBe(true);
-    expect(b.enabled).toBe(true);
-    expect(a.timezone).toBe("America/Sao_Paulo");
+    const scheduler = await import("./drake-scheduler.server");
+    scheduler.__resetDrakeSchedulerForTests();
+    const now = new Date("2026-07-31T16:00:00.000Z");
+    expect(scheduler.getDueDrakeSchedule(now).trigger).toBe("scheduled-noon");
+    expect(await scheduler.runDueDrakeSchedule(now)).toBe(true);
+    expect(await scheduler.runDueDrakeSchedule(now)).toBe(false);
+    expect(runScheduledDrakeUpdate).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -235,6 +237,7 @@ describe("scheduler boundaries", () => {
     expect(src).not.toMatch(/\bfetch\s*\(/);
     expect(src).not.toMatch(/from ["']react["']/);
     expect(src).not.toMatch(/localStorage|setInterval/);
+    expect(src).not.toMatch(/node-cron/);
     expect(src).not.toMatch(/playwright|chromium|Browser/);
     await expect(
       fs.access("src/routes/api/internal/drake/scheduled-update.ts"),
@@ -281,16 +284,13 @@ describe("scheduler boundaries", () => {
     expect(card).not.toContain("authenticateMyStepTimeAutomationUser");
   });
 
-  it("bootstrap do scheduler ocorre só no boot do servidor", async () => {
+  it("runtime do Lovable agenda em background durante as requisições", async () => {
     const fs = await import("node:fs/promises");
     const serverSrc = await fs.readFile("src/server.ts", "utf8");
-    const matches = serverSrc.match(/bootstrapDrakeSchedulerOnce/g) ?? [];
-    expect(matches.length).toBe(2);
-    const fetchBlock = serverSrc.slice(
-      serverSrc.indexOf("async fetch"),
-      serverSrc.indexOf("};", serverSrc.indexOf("async fetch")) + 2,
-    );
-    expect(fetchBlock).not.toMatch(/bootstrapDrakeSchedulerOnce/);
+    expect(serverSrc).toMatch(/scheduleDrakeUpdateForRequest\(ctx\)/);
+    expect(serverSrc).toMatch(/runDueDrakeSchedule/);
+    expect(serverSrc).toMatch(/waitUntil/);
+    expect(serverSrc).not.toMatch(/setInterval|node-cron/);
   });
 
   it("nenhuma tabela de job é criada", async () => {

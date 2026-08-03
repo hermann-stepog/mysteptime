@@ -1,6 +1,6 @@
 import type { DrakeAuthenticatedSession } from "./authenticated-session.server";
 
-/** Subconjunto tipado do storageState do Playwright (sem logar conteúdo). */
+/** Estado HTTP serializavel da sessao do Drake (sem logar conteudo). */
 export interface StorageState {
   cookies: Array<Record<string, unknown>>;
   origins: Array<Record<string, unknown>>;
@@ -15,7 +15,7 @@ export interface DrakeAuthResult {
 
 export interface DrakeAuthProvider {
   /**
-   * Obtém uma sessão autenticada (cache válido ou novo login headless).
+   * Obtem uma sessao autenticada (cache valido ou novo login HTTP).
    * Nunca retorna username/password.
    */
   authenticate(): Promise<DrakeAuthResult>;

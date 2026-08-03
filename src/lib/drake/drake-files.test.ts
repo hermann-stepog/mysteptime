@@ -32,17 +32,6 @@ describe("drake-files lifecycle", () => {
     expect(JSON.parse(raw)).toEqual({ ok: true });
   });
 
-  it("context-controls nao grava quando diagnostico desabilitado", async () => {
-    process.env.DRAKE_DIAGNOSTICS_ENABLED = "false";
-    vi.resetModules();
-    const fs = await import("node:fs/promises");
-    const src = await fs.readFile("src/lib/drake/auth/context-diagnostics.server.ts", "utf8");
-    expect(src).toMatch(/if \(!env\.DRAKE_DIAGNOSTICS_ENABLED\)/);
-    expect(src).toMatch(/context-controls\.json/);
-    expect(src).toMatch(/writeJsonAtomic/);
-    expect(src).not.toMatch(/withTimestamp\(["']context-controls/);
-  });
-
   it("diagnostico nao e criado quando desabilitado", async () => {
     process.env.DRAKE_DIAGNOSTICS_ENABLED = "false";
     vi.resetModules();

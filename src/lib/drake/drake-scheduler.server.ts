@@ -1,34 +1,71 @@
 import "@tanstack/react-start/server-only";
-import {
-  DRAKE_SCHEDULER_TIMEZONE_DEFAULT,
-  getDrakeSchedulerConfig,
-} from "./scheduler-config.server";
+import { DrakeIntegrationError } from "./integration-error.server";
 import { logger } from "./logger";
 import { runScheduledDrakeUpdate } from "./run-drake-update.server";
-import type { DrakeUpdateTrigger } from "./update-types";
-import { DRAKE_UPDATE_ALREADY_RUNNING } from "./update-types";
-import { DrakeIntegrationError } from "./integration-error.server";
+import { getDrakeSchedulerConfig } from "./scheduler-config.server";
+import {
+  DRAKE_UPDATE_ALREADY_RUNNING,
+  type DrakeUpdateTrigger,
+} from "./update-types";
 
-const GLOBAL_KEY = "__drakeSchedulerStarted" as const;
+type ScheduledTrigger = Extract<
+  DrakeUpdateTrigger,
+  "scheduled-midnight" | "scheduled-noon"
+>;
+
+type DueSchedule = {
+  key: string;
+  trigger: ScheduledTrigger;
+};
+
+const GLOBAL_KEY = "__drakeLovableSchedulerState" as const;
 
 type GlobalSchedulerState = {
-  started: boolean;
-  tasks: Array<{ stop: () => void }>;
+  attemptedSlots: Set<string>;
 };
 
 function getGlobalState(): GlobalSchedulerState {
-  const g = globalThis as typeof globalThis & {
+  const global = globalThis as typeof globalThis & {
     [GLOBAL_KEY]?: GlobalSchedulerState;
   };
-  if (!g[GLOBAL_KEY]) {
-    g[GLOBAL_KEY] = { started: false, tasks: [] };
-  }
-  return g[GLOBAL_KEY];
+  if (!global[GLOBAL_KEY]) global[GLOBAL_KEY] = { attemptedSlots: new Set() };
+  return global[GLOBAL_KEY];
 }
 
-async function safeRunScheduled(
-  trigger: Extract<DrakeUpdateTrigger, "scheduled-midnight" | "scheduled-noon">,
-): Promise<void> {
+function zonedParts(now: Date, timezone: string) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  ) as Record<string, string>;
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+  };
+}
+
+/** Retorna a janela mais recente que ja venceu no fuso configurado. */
+export function getDueDrakeSchedule(
+  now = new Date(),
+  timezone = getDrakeSchedulerConfig().timezone,
+): DueSchedule {
+  const parts = zonedParts(now, timezone);
+  const noonReached = parts.hour > 12 || (parts.hour === 12 && parts.minute >= 30);
+  const trigger: ScheduledTrigger = noonReached ? "scheduled-noon" : "scheduled-midnight";
+  return { key: `${parts.date}:${trigger}`, trigger };
+}
+
+async function safeRunScheduled(trigger: ScheduledTrigger): Promise<void> {
   try {
     await runScheduledDrakeUpdate(trigger);
   } catch (error: unknown) {
@@ -38,7 +75,6 @@ async function safeRunScheduled(
         : error instanceof Error && "code" in error
           ? String((error as Error & { code?: string }).code ?? "")
           : "";
-
     if (code === DRAKE_UPDATE_ALREADY_RUNNING) {
       logger.info("drake-scheduler", "Execucao automatica ignorada", {
         trigger,
@@ -46,8 +82,6 @@ async function safeRunScheduled(
       });
       return;
     }
-
-    // Nunca derrubar o processo: a próxima janela deve ocorrer normalmente.
     logger.error("drake-scheduler", "Falha isolada na execucao automatica", {
       trigger,
       errorCode: code || "UNKNOWN",
@@ -58,91 +92,33 @@ async function safeRunScheduled(
 }
 
 /**
- * Agendamento automático Drake executado no processo Node.
- * Não utiliza endpoint HTTP, segredo próprio ou sessão de usuário do navegador.
- *
- * Registra node-cron uma única vez por processo (quando habilitado).
- * Chama runScheduledDrakeUpdate → autenticação da conta de automação → runDrakeUpdate.
+ * Scheduler oportunista do runtime Lovable. A primeira requisicao depois de cada
+ * janela dispara a atualizacao em background, sem processo residente ou servico extra.
  */
-export function ensureDrakeSchedulerRegistered(): {
-  enabled: boolean;
-  registered: boolean;
-  timezone: string;
-  schedules: string[];
-} {
-  const cfg = getDrakeSchedulerConfig();
+export async function runDueDrakeSchedule(now = new Date()): Promise<boolean> {
+  const config = getDrakeSchedulerConfig();
+  if (!config.enabled) return false;
+
+  const due = getDueDrakeSchedule(now, config.timezone);
   const state = getGlobalState();
+  if (state.attemptedSlots.has(due.key)) return false;
+  state.attemptedSlots.add(due.key);
 
-  if (!cfg.enabled) {
-    if (!state.started) {
-      logger.info("drake-scheduler", "Scheduler desabilitado");
-      state.started = true;
-    }
-    return {
-      enabled: false,
-      registered: false,
-      timezone: cfg.timezone,
-      schedules: cfg.schedules,
-    };
+  while (state.attemptedSlots.size > 4) {
+    const oldest = state.attemptedSlots.values().next().value as string | undefined;
+    if (!oldest) break;
+    state.attemptedSlots.delete(oldest);
   }
 
-  if (state.started && state.tasks.length > 0) {
-    return {
-      enabled: true,
-      registered: true,
-      timezone: cfg.timezone,
-      schedules: cfg.schedules,
-    };
-  }
+  logger.info("drake-scheduler", "Janela automatica iniciada pelo Lovable", {
+    trigger: due.trigger,
+    timezone: config.timezone,
+  });
+  await safeRunScheduled(due.trigger);
+  return true;
+}
 
-  state.started = true;
-
-  void import("node-cron")
-    .then((cronMod) => {
-      const live = getDrakeSchedulerConfig();
-      if (!live.enabled) return;
-      if (state.tasks.length > 0) return;
-
-      const scheduleFn =
-        typeof (cronMod as { schedule?: unknown }).schedule === "function"
-          ? (cronMod as { schedule: typeof import("node-cron").schedule }).schedule
-          : (cronMod as { default: { schedule: typeof import("node-cron").schedule } }).default
-              .schedule;
-
-      const timezone = live.timezone || DRAKE_SCHEDULER_TIMEZONE_DEFAULT;
-
-      const midnight = scheduleFn(
-        live.cronMidnight,
-        () => {
-          void safeRunScheduled("scheduled-midnight");
-        },
-        { timezone, name: "drake-midnight" },
-      );
-      const noon = scheduleFn(
-        live.cronNoon,
-        () => {
-          void safeRunScheduled("scheduled-noon");
-        },
-        { timezone, name: "drake-noon" },
-      );
-      state.tasks.push(midnight, noon);
-      logger.info("drake-scheduler", "Scheduler registrado", {
-        timezone,
-        schedules: live.schedules,
-      });
-    })
-    .catch((error: unknown) => {
-      state.started = false;
-      state.tasks = [];
-      logger.error("drake-scheduler", "Falha ao registrar node-cron", {
-        sanitizedMessage: error instanceof Error ? error.message : String(error),
-      });
-    });
-
-  return {
-    enabled: true,
-    registered: true,
-    timezone: cfg.timezone,
-    schedules: cfg.schedules,
-  };
+/** Apenas para testes. */
+export function __resetDrakeSchedulerForTests(): void {
+  getGlobalState().attemptedSlots.clear();
 }

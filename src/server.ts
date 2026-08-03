@@ -9,38 +9,25 @@ type ServerEntry = {
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
-/**
- * Agendamento automático Drake executado no processo Node.
- * Não utiliza endpoint HTTP, segredo próprio ou sessão de usuário.
- * Protegido contra hot reload via flag de módulo + globalThis no scheduler.
- */
-function bootstrapDrakeSchedulerOnce() {
-  const g = globalThis as typeof globalThis & {
-    __drakeSchedulerBootstrapDone?: boolean;
-  };
-  if (g.__drakeSchedulerBootstrapDone) return;
-  g.__drakeSchedulerBootstrapDone = true;
-
-  void import("./lib/drake/drake-scheduler.server")
-    .then((mod) => {
-      mod.ensureDrakeSchedulerRegistered();
-    })
-    .catch(() => {
-      /* scheduler opcional no boot */
-    });
+function scheduleDrakeUpdateForRequest(ctx: unknown): void {
+  const task = import("./lib/drake/drake-scheduler.server")
+    .then((module) => module.runDueDrakeSchedule())
+    .then(() => undefined)
+    .catch(() => undefined);
+  const execution = ctx as { waitUntil?: (promise: Promise<unknown>) => void } | null;
+  if (typeof execution?.waitUntil === "function") execution.waitUntil(task);
+  else void task;
 }
 
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
-      (m) => (m.default ?? m) as ServerEntry,
+      (module) => (module.default ?? module) as ServerEntry,
     );
   }
   return serverEntryPromise;
 }
 
-// h3 swallows in-handler throws into a normal 500 Response with body
-// {"unhandled":true,"message":"HTTPError"} — try/catch alone never fires for those.
 async function normalizeCatastrophicSsrResponse(response: Response): Promise<Response> {
   if (response.status < 500) return response;
   const contentType = response.headers.get("content-type") ?? "";
@@ -60,6 +47,7 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    scheduleDrakeUpdateForRequest(ctx);
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
@@ -73,6 +61,3 @@ export default {
     }
   },
 };
-
-// Única chamada: boot do processo server-side (não por request).
-bootstrapDrakeSchedulerOnce();

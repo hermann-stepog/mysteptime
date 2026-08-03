@@ -9,8 +9,6 @@ import {
   LogLevel,
   type HttpRequest,
 } from "@microsoft/signalr";
-import { Agent, fetch as undiciFetch } from "undici";
-import { env } from "./config.server";
 import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { DrakeIntegrationError } from "./integration-error.server";
 import { logger } from "./logger";
@@ -55,11 +53,9 @@ export interface DrakeSignalRSession {
 }
 
 /**
- * HttpClient SignalR com Agent undici dedicado por request.
- * Long poll + POST de handshake precisam de conexões TCP paralelas;
- * um Agent compartilhado (keep-alive) serializa e quebra o handshake.
+ * HttpClient SignalR baseado no fetch nativo do runtime Lovable.
  */
-class PlaywrightSignalRHttpClient extends HttpClient {
+class DrakeSignalRHttpClient extends HttpClient {
   override async send(request: HttpRequest): Promise<HttpResponse> {
     if (!request.url) {
       throw new Error("SignalR request sem URL.");
@@ -85,16 +81,8 @@ class PlaywrightSignalRHttpClient extends HttpClient {
     const timeoutMs = Math.max(request.timeout ?? 60_000, 120_000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const dispatcher = new Agent({
-      connect: env.DRAKE_IGNORE_HTTPS_ERRORS
-        ? { rejectUnauthorized: false }
-        : undefined,
-      connections: 1,
-      pipelining: 0,
-    });
-
     try {
-      const response = await undiciFetch(request.url, {
+      const response = await globalThis.fetch(request.url, {
         method: request.method ?? "GET",
         headers,
         body:
@@ -103,13 +91,11 @@ class PlaywrightSignalRHttpClient extends HttpClient {
             : content,
         redirect: "follow",
         signal: controller.signal,
-        dispatcher,
       });
       const text = await response.text();
       return new HttpResponse(response.status, response.statusText, text);
     } finally {
       clearTimeout(timer);
-      await dispatcher.close().catch(() => undefined);
     }
   }
 }
@@ -232,7 +218,7 @@ export async function openDrakeSignalRSession(
     connection = new HubConnectionBuilder()
       .withUrl(hubUrl, {
         accessTokenFactory: async () => accessToken,
-        httpClient: new PlaywrightSignalRHttpClient(),
+        httpClient: new DrakeSignalRHttpClient(),
         // WebSocket costuma falhar atrás de proxy corporativo; LongPolling usa HttpClient dedicado.
         transport: HttpTransportType.LongPolling,
       })

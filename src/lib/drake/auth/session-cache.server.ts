@@ -3,14 +3,12 @@ import { access, mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { StorageState } from "./types";
 import { env } from "../config.server";
-import { isDrakeBrowserRemoteMode } from "../browser/create-drake-browser-runtime.server";
 
 /** Sessão em memória do processo — usada em local e remote (Lovable efêmero). */
 let memorySession: StorageState | null = null;
 
 function allowFileSessionCache(): boolean {
-  if (isDrakeBrowserRemoteMode()) return false;
-  return env.DRAKE_SESSION_CACHE_ENABLED;
+  return env.DRAKE_SESSION_CACHE_ENABLED && process.env.NODE_ENV !== "production";
 }
 
 export async function readSessionCache(): Promise<StorageState | null> {
@@ -33,7 +31,7 @@ export async function readSessionCache(): Promise<StorageState | null> {
 }
 
 export async function writeSessionCache(state: StorageState): Promise<void> {
-  // Sempre em memória — permite reutilizar sessão no remoto sem Chromium a cada request.
+  // Sempre em memoria; em producao o login HTTP recria a sessao apos um cold start.
   memorySession = state;
 
   if (!allowFileSessionCache()) return;

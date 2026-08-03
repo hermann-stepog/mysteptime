@@ -1,5 +1,4 @@
 import "@tanstack/react-start/server-only";
-import { Agent, fetch as undiciFetch, type Dispatcher } from "undici";
 import { env } from "../config.server";
 import type { DrakeAuthenticatedSession } from "../auth/authenticated-session.server";
 import type { StorageState } from "../auth/types";
@@ -24,18 +23,6 @@ function headersToRecord(headers: Headers): DrakeHttpHeaders {
     out[key.toLowerCase()] = value;
   });
   return out;
-}
-
-function createDrakeDispatcher(): Dispatcher {
-  // pipelining:0 é obrigatório: long polling do SignalR + POST de handshake concorrentes
-  // quebram com pipeline HTTP/1.1 (poll fica 204/404 e o handshake não completa).
-  return new Agent({
-    connect: env.DRAKE_IGNORE_HTTPS_ERRORS
-      ? { rejectUnauthorized: false }
-      : undefined,
-    connections: 16,
-    pipelining: 0,
-  });
 }
 
 function readSetCookieHeaders(response: Response): string[] {
@@ -90,7 +77,6 @@ function createClient(
   requiredHeaders: Record<string, string>,
 ): DrakeHttpClient {
   const baseURL = env.DRAKE_BASE_URL;
-  const dispatcher = createDrakeDispatcher();
   const defaultHeaders: DrakeHttpHeaders = {
     Accept: "application/json, text/plain, */*",
     "Accept-Language": "pt-BR",
@@ -149,10 +135,9 @@ function createClient(
           body: currentMethod === "GET" || currentMethod === "HEAD" ? undefined : currentBody,
           redirect: "manual" as const,
           signal: controller.signal,
-          dispatcher,
         };
 
-        response = (await undiciFetch(currentUrl, init)) as unknown as Response;
+        response = await globalThis.fetch(currentUrl, init);
 
         const status = response.status;
         const location = response.headers.get("location");

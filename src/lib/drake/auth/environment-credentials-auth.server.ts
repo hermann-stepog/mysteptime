@@ -1,14 +1,9 @@
 import "@tanstack/react-start/server-only";
-import { assertDrakeCredentialsConfigured, env } from "../config.server";
-import { createDrakeBrowserRuntime } from "../browser/create-drake-browser-runtime.server";
+import { assertDrakeCredentialsConfigured } from "../config.server";
 import {
   buildAuthenticatedSessionFromStorageState,
   type DrakeAuthenticatedSession,
 } from "./authenticated-session.server";
-import {
-  exportAuthenticatedSessionAfterBrowserMenu,
-  waitForBrowserMenuAuthenticated,
-} from "./browser-menu-validation.server";
 import {
   createDrakeHttpClientFromAuthenticatedSession,
   createDrakeHttpClientFromStorageState,
@@ -20,14 +15,12 @@ import { DrakeSessionExpiredError, validateDrakeApiSession } from "../api-sessio
 import {
   credentialsNotConfiguredError,
   DrakeAuthError,
-  DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED,
   DRAKE_CREDENTIALS_NOT_CONFIGURED,
   DRAKE_INTERACTIVE_AUTH_REQUIRED,
-  DRAKE_SESSION_TRANSFER_FAILED,
   interactiveAuthRequiredError,
   sessionTransferFailedError,
 } from "./errors";
-import { performHeadlessDrakeLogin } from "./headless-login.server";
+import { loginWithDrakeHttpCredentials } from "./http-credentials-login.server";
 import { clearSessionCache, readSessionCache, writeSessionCache } from "./session-cache.server";
 import type { DrakeAuthProvider, DrakeAuthResult, StorageState } from "./types";
 
@@ -89,8 +82,8 @@ async function validateHttpSessionTransfer(session: DrakeAuthenticatedSession): 
 
 /**
  * Autenticação via DRAKE_USERNAME / DRAKE_PASSWORD.
- * Reutiliza sessão válida sem navegador; senão tenta login automático headless.
- * MFA/interação só após evidência concreta durante a tentativa real.
+ * Reutiliza sessao valida e, quando necessario, autentica por HTTP no Microsoft B2C.
+ * Nenhuma etapa cria ou controla navegador.
  */
 export class EnvironmentCredentialsDrakeAuthProvider implements DrakeAuthProvider {
   constructor(private readonly onProgress?: AuthProgressCallback) {}
@@ -110,7 +103,7 @@ export class EnvironmentCredentialsDrakeAuthProvider implements DrakeAuthProvide
       if (validSession) {
         logger.info(
           "drake-authentication",
-          "Sessão existente válida; navegador não necessário",
+          "Sessao HTTP existente valida",
         );
         await this.onProgress?.("session-confirmed");
         return {
@@ -130,7 +123,7 @@ export class EnvironmentCredentialsDrakeAuthProvider implements DrakeAuthProvide
     await this.onProgress?.("connecting-drake");
     await this.onProgress?.("authenticating");
 
-    const authenticatedSession = await this.loginHeadless();
+    const authenticatedSession = await this.loginHttp();
 
     await this.onProgress?.("confirming-tenant");
     await validateHttpSessionTransfer(authenticatedSession);
@@ -146,26 +139,12 @@ export class EnvironmentCredentialsDrakeAuthProvider implements DrakeAuthProvide
     };
   }
 
-  private async loginHeadless(): Promise<DrakeAuthenticatedSession> {
-    if (env.DRAKE_AUTH_HEADLESS === false) {
-      logger.warn("DRAKE_AUTH_HEADLESS=false ignorado; login permanece headless");
-    }
-
-    const runtime = createDrakeBrowserRuntime();
-    const session = await runtime.createAuthenticatedContext();
+  private async loginHttp(): Promise<DrakeAuthenticatedSession> {
     try {
-      await performHeadlessDrakeLogin(session.page);
-      const { probe } = await waitForBrowserMenuAuthenticated(session.page);
-      const authenticated = await exportAuthenticatedSessionAfterBrowserMenu(
-        session.page,
-        probe,
-      );
-      logger.info("drake-authentication", "Sessao autenticada no BrowserContext", {
+      const authenticated = await loginWithDrakeHttpCredentials();
+      logger.info("drake-authentication", "Sessao autenticada diretamente por HTTP", {
         stage: "authenticating",
-        browserMenuStatus: probe.status,
         cookieNameCount: authenticated.cookieJar.cookieNames().length,
-        hasAuthHeader: Boolean(authenticated.authorizationHeader),
-        requiredHeaderNames: Object.keys(authenticated.requiredHeaders),
       });
       return authenticated;
     } catch (error: unknown) {
@@ -186,17 +165,7 @@ export class EnvironmentCredentialsDrakeAuthProvider implements DrakeAuthProvide
         );
         throw interactiveAuthRequiredError();
       }
-      if (
-        safe.message.includes(DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED) ||
-        safe.message.includes(DRAKE_SESSION_TRANSFER_FAILED)
-      ) {
-        throw error instanceof DrakeAuthError
-          ? error
-          : new DrakeAuthError(DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED, safe.message);
-      }
       throw new DrakeAuthError("DRAKE_AUTH_FAILED", safe.message);
-    } finally {
-      await session.close().catch(() => undefined);
     }
   }
 }

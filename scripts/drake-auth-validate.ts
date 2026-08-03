@@ -1,29 +1,11 @@
-/**
- * Valida a sessão Drake persistida sem abrir navegador.
- */
-import { readSessionCache } from "../src/lib/drake/auth/session-cache.server";
-import { tryValidateExistingSession } from "../src/lib/drake/auth/environment-credentials-auth.server";
-import { createDrakeHttpClientFromAuthenticatedSession } from "../src/lib/drake/http/create-drake-http-client.server";
+/** Valida o login completo pelo mesmo fluxo HTTP usado no Lovable. */
+import { EnvironmentCredentialsDrakeAuthProvider } from "../src/lib/drake/auth/environment-credentials-auth.server";
 import { env } from "../src/lib/drake/config.server";
+import { createDrakeHttpClientFromAuthenticatedSession } from "../src/lib/drake/http/create-drake-http-client.server";
 
 async function main(): Promise<void> {
-  const cached = await readSessionCache();
-  if (!cached) {
-    console.log("Drake session: missing");
-    console.log("Authorization/Menu: n/a");
-    console.log("Browser required: true");
-    process.exit(1);
-  }
-
-  const session = await tryValidateExistingSession(cached);
-  if (!session) {
-    console.log("Drake session: expired");
-    console.log("Authorization/Menu: 401");
-    console.log("Browser required: true");
-    process.exit(1);
-  }
-
-  const http = createDrakeHttpClientFromAuthenticatedSession(session);
+  const result = await new EnvironmentCredentialsDrakeAuthProvider().authenticate();
+  const http = createDrakeHttpClientFromAuthenticatedSession(result.authenticatedSession);
   try {
     const response = await http.get("/api/v2/Authorization/Menu", {
       failOnStatusCode: false,
@@ -33,7 +15,8 @@ async function main(): Promise<void> {
     const status = response.status();
     console.log("Drake session: valid");
     console.log(`Authorization/Menu: ${status}`);
-    console.log("Browser required: false");
+    console.log(`Session cache reused: ${result.reusedCache}`);
+    console.log("Authentication mode: HTTP only");
     if (status !== 200) process.exit(1);
   } finally {
     await http.dispose();

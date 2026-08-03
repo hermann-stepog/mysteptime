@@ -132,15 +132,9 @@ export function isTlsCertificateError(error: unknown): boolean {
 }
 
 export function formatTlsCertificateErrorMessage(): string {
-  if (env.DRAKE_IGNORE_HTTPS_ERRORS !== true) {
-    return [
-      "Falha de validacao TLS ao acessar o Drake.",
-      "O ambiente utiliza uma cadeia de certificados nao reconhecida. Configure a CA corporativa ou habilite DRAKE_IGNORE_HTTPS_ERRORS somente neste ambiente autorizado.",
-    ].join("\n");
-  }
   return [
     "Falha de validacao TLS ao acessar o Drake.",
-    "DRAKE_IGNORE_HTTPS_ERRORS esta habilitado, mas o contexto HTTP nao recebeu a configuracao corretamente.",
+    "O certificado HTTPS apresentado ao runtime do Lovable nao foi reconhecido.",
   ].join("\n");
 }
 

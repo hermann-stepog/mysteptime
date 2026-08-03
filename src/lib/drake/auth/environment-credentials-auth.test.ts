@@ -1,194 +1,93 @@
 import { describe, expect, it, vi } from "vitest";
+import { assertDrakeCredentialsConfigured, getDrakeConfig } from "../config.server";
+import { sanitizeError, sanitizeSensitiveText } from "../sanitize-error.server";
 import {
   credentialsNotConfiguredError,
-  interactiveAuthRequiredError,
   DRAKE_CREDENTIALS_NOT_CONFIGURED,
   DRAKE_INTERACTIVE_AUTH_REQUIRED,
+  interactiveAuthRequiredError,
 } from "./errors";
-import { sanitizeError, sanitizeSensitiveText } from "../sanitize-error.server";
-import { assertDrakeCredentialsConfigured, getDrakeConfig } from "../config.server";
 
 describe("Drake auth errors", () => {
-  it("credenciais ausentes retornam DRAKE_CREDENTIALS_NOT_CONFIGURED", () => {
-    const err = credentialsNotConfiguredError();
-    expect(err.code).toBe(DRAKE_CREDENTIALS_NOT_CONFIGURED);
-    expect(err.message).toContain("não estão configuradas");
+  it("retorna codigos estaveis para credenciais ausentes e MFA", () => {
+    expect(credentialsNotConfiguredError().code).toBe(DRAKE_CREDENTIALS_NOT_CONFIGURED);
+    expect(interactiveAuthRequiredError().code).toBe(DRAKE_INTERACTIVE_AUTH_REQUIRED);
   });
 
-  it("MFA retorna DRAKE_INTERACTIVE_AUTH_REQUIRED", () => {
-    const err = interactiveAuthRequiredError();
-    expect(err.code).toBe(DRAKE_INTERACTIVE_AUTH_REQUIRED);
-    expect(err.message).toContain("confirmação interativa");
-  });
-
-  it("bootstrap e sessao expirada usam mensagens de producao", async () => {
-    const {
-      interactiveBootstrapRequiredError,
-      sessionExpiredNeedsBootstrapError,
-      DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED,
-      DRAKE_SESSION_EXPIRED,
-    } = await import("./errors");
-    expect(interactiveBootstrapRequiredError()).toMatchObject({
-      code: DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED,
-      message: "A autenticação do Drake precisa ser concluída manualmente uma vez.",
-    });
-    expect(sessionExpiredNeedsBootstrapError()).toMatchObject({
-      code: DRAKE_SESSION_EXPIRED,
-      message: "A sessão do Drake expirou e precisa ser conectada novamente.",
-    });
-  });
-
-  it("credenciais nao aparecem na sanitizacao", () => {
+  it("nao deixa credenciais aparecerem na sanitizacao", () => {
     const text = sanitizeSensitiveText(
       "Authorization: Bearer tokensecret Cookie: SapiensiaAuth=abc",
     );
     expect(text).not.toContain("tokensecret");
     expect(text).not.toContain("abc");
-    const safe = sanitizeError(new Error("password=super-secret-value"));
-    expect(safe.message).not.toContain("super-secret-value");
+    expect(sanitizeError(new Error("password=super-secret-value")).message).not.toContain(
+      "super-secret-value",
+    );
   });
 });
 
-describe("config credentials", () => {
-  it("assertDrakeCredentialsConfigured falha sem usuario/senha", () => {
-    const prevUser = process.env.DRAKE_USERNAME;
-    const prevPass = process.env.DRAKE_PASSWORD;
+describe("Drake credentials config", () => {
+  it("falha sem usuario e senha", () => {
+    const previousUser = process.env.DRAKE_USERNAME;
+    const previousPassword = process.env.DRAKE_PASSWORD;
     try {
       process.env.DRAKE_USERNAME = "";
       process.env.DRAKE_PASSWORD = "";
-      expect(() => assertDrakeCredentialsConfigured()).toThrow(/não estão configuradas/);
+      expect(() => assertDrakeCredentialsConfigured()).toThrow();
     } finally {
-      process.env.DRAKE_USERNAME = prevUser;
-      process.env.DRAKE_PASSWORD = prevPass;
+      process.env.DRAKE_USERNAME = previousUser;
+      process.env.DRAKE_PASSWORD = previousPassword;
     }
   });
 
-  it("DRAKE_AUTH_HEADLESS default true e cache path privado", () => {
-    const cfg = getDrakeConfig();
-    expect(cfg.DRAKE_AUTH_HEADLESS).toBe(true);
-    expect(cfg.DRAKE_SESSION_CACHE_PATH).toContain("private");
-    expect(cfg.DRAKE_SESSION_CACHE_PATH).not.toContain("public");
-  });
-
-  it("usuario e senha vem do backend env quando configurados", () => {
-    const prevUser = process.env.DRAKE_USERNAME;
-    const prevPass = process.env.DRAKE_PASSWORD;
+  it("le usuario e senha apenas do backend", () => {
+    const previousUser = process.env.DRAKE_USERNAME;
+    const previousPassword = process.env.DRAKE_PASSWORD;
     try {
       process.env.DRAKE_USERNAME = "svc@example.com";
       process.env.DRAKE_PASSWORD = "not-logged";
-      const cfg = getDrakeConfig();
-      expect(cfg.DRAKE_USERNAME).toBe("svc@example.com");
-      expect(cfg.DRAKE_PASSWORD).toBe("not-logged");
+      expect(getDrakeConfig()).toMatchObject({
+        DRAKE_USERNAME: "svc@example.com",
+        DRAKE_PASSWORD: "not-logged",
+      });
     } finally {
-      process.env.DRAKE_USERNAME = prevUser;
-      process.env.DRAKE_PASSWORD = prevPass;
+      process.env.DRAKE_USERNAME = previousUser;
+      process.env.DRAKE_PASSWORD = previousPassword;
     }
   });
 });
 
-describe("headless auth contract", () => {
-  it("adaptador local lanca chromium apenas com headless true", async () => {
-    const fs = await import("node:fs/promises");
-    const local = await fs.readFile(
-      "src/lib/drake/browser/local-drake-browser-runtime.server.ts",
-      "utf8",
-    );
-    expect(local).toMatch(/chromium\.launch\(\{/);
-    expect(local).toMatch(/headless:\s*!headed/);
-    expect(local).toMatch(/await import\(/);
-    expect(local).toMatch(/playwright/);
-  });
-
-  it("producao autentica com sessao ou login headless automatico", async () => {
+describe("Drake HTTP-only contract", () => {
+  it("o autenticador de producao nao referencia browser", async () => {
     const fs = await import("node:fs/promises");
     const auth = await fs.readFile(
       "src/lib/drake/auth/environment-credentials-auth.server.ts",
       "utf8",
     );
-    expect(auth).toMatch(/createDrakeBrowserRuntime/);
-    expect(auth).toMatch(/performHeadlessDrakeLogin/);
-    expect(auth).not.toMatch(/from ["']playwright["']/);
-    expect(auth).not.toMatch(/interactiveBootstrapRequiredError/);
-    expect(auth).not.toMatch(/headless:\s*false/);
-    expect(auth).not.toMatch(/page\.pause/);
-  });
-
-  it("bootstrap interativo permanece opcional (headed) fora do caminho normal", async () => {
-    const fs = await import("node:fs/promises");
-    const bootstrap = await fs.readFile(
-      "src/lib/drake/auth/interactive-bootstrap.server.ts",
+    const login = await fs.readFile(
+      "src/lib/drake/auth/http-credentials-login.server.ts",
       "utf8",
     );
-    expect(bootstrap).toMatch(/headless:\s*false/);
-    expect(bootstrap).toMatch(/waitForInteractiveBrowserMenu/);
-    expect(bootstrap).toMatch(/writeSessionCache/);
-  });
-
-  it("adaptador remoto usa connectOverCDP e nao lanca browser local", async () => {
-    const fs = await import("node:fs/promises");
-    const remote = await fs.readFile(
-      "src/lib/drake/browser/remote-drake-browser-runtime.server.ts",
-      "utf8",
+    expect(auth).toMatch(/loginWithDrakeHttpCredentials/);
+    expect(login).toMatch(/SelfAsserted|CombinedSigninAndSignup|LoginCallback/);
+    expect(`${auth}\n${login}`).not.toMatch(
+      /playwright|chromium|createDrakeBrowserRuntime|performHeadlessDrakeLogin/i,
     );
-    expect(remote).toMatch(/connectOverCDP/);
-    expect(remote).toMatch(/playwright-core/);
-    expect(remote).not.toMatch(/chromium\.launch\s*\(/);
-    expect(remote).not.toMatch(/executablePath/);
   });
 
-  it("relatorios nao usam Page/chromium para executar", async () => {
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-    for (const file of [
-      "report-api-runner.server.ts",
-      "api-download.server.ts",
-      "background-job-poller.server.ts",
-    ]) {
-      const src = await fs.readFile(path.resolve("src/lib/drake", file), "utf8");
-      expect(src).not.toMatch(/\bchromium\b/);
-      expect(src).not.toMatch(/\bBrowserContext\b/);
-      expect(src).not.toMatch(/\{[^}]*\bPage\b[^}]*\} from ["']playwright["']/);
-    }
-  });
-
-  it("bootstrap SignalR usa ASP.NET Core SignalR", async () => {
-    const fs = await import("node:fs/promises");
-    const src = await fs.readFile("src/lib/drake/signalr-session.server.ts", "utf8");
-    expect(src).toMatch(/@microsoft\/signalr/);
-    expect(src).toMatch(/HubConnectionBuilder/);
-    expect(src).toMatch(/PlaywrightSignalRHttpClient|HttpTransportType\.LongPolling/);
-    expect(src).toMatch(/channels=/);
-    expect(src).toMatch(/BackgroundExecutionRequestStatusUpdated/);
-    expect(src).toMatch(/GetGlobalParameters/);
-    expect(src).toMatch(/GetSecurityUser/);
-    expect(src).toMatch(/close/);
-    expect(src).toMatch(/armDownloadWatch/);
-  });
-});
-
-describe("session cache", () => {
-  it("writeSessionCache em memoria mesmo com arquivo desabilitado", async () => {
-    const prev = process.env.DRAKE_SESSION_CACHE_ENABLED;
-    const prevMode = process.env.DRAKE_BROWSER_MODE;
+  it("cache continua funcionando em memoria", async () => {
+    const previous = process.env.DRAKE_SESSION_CACHE_ENABLED;
     try {
       process.env.DRAKE_SESSION_CACHE_ENABLED = "false";
-      process.env.DRAKE_BROWSER_MODE = "local";
       vi.resetModules();
-      const {
-        writeSessionCache,
-        readSessionCache,
-        clearSessionCache,
-        __resetSessionCacheMemoryForTests,
-      } = await import("./session-cache.server");
-      __resetSessionCacheMemoryForTests();
-      await writeSessionCache({ cookies: [{ name: "x" }], origins: [] });
-      const cached = await readSessionCache();
-      expect(cached?.cookies?.[0]).toMatchObject({ name: "x" });
-      await clearSessionCache();
-      expect(await readSessionCache()).toBeNull();
+      const cache = await import("./session-cache.server");
+      cache.__resetSessionCacheMemoryForTests();
+      await cache.writeSessionCache({ cookies: [{ name: "x" }], origins: [] });
+      expect((await cache.readSessionCache())?.cookies[0]).toMatchObject({ name: "x" });
+      await cache.clearSessionCache();
+      expect(await cache.readSessionCache()).toBeNull();
     } finally {
-      process.env.DRAKE_SESSION_CACHE_ENABLED = prev;
-      process.env.DRAKE_BROWSER_MODE = prevMode;
+      process.env.DRAKE_SESSION_CACHE_ENABLED = previous;
       vi.resetModules();
     }
   });

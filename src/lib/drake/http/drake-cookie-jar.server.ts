@@ -155,6 +155,14 @@ export class DrakeCookieJar {
     return [...new Set(this.cookies.map((c) => c.name))].sort();
   }
 
+  /** Exporta a sessao no formato neutro usado pelo cache HTTP. */
+  toStorageState(): StorageState {
+    return {
+      cookies: this.cookies.map((cookie) => ({ ...cookie })),
+      origins: [],
+    };
+  }
+
   cookieHeaderFor(url: string): string {
     let parsed: URL;
     try {
