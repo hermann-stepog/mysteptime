@@ -25,6 +25,9 @@ export const DRAKE_UPDATE_STAGES = [
   "validating-availability-file",
   "importing-availability",
   "availability-completed",
+  "loading-qualification-needs",
+  "importing-qualification-needs",
+  "qualification-needs-completed",
   "finalizing",
   "completed",
   "completed-with-errors",
@@ -81,6 +84,9 @@ export const DRAKE_STAGE_PROGRESS: Record<DrakeUpdateStage, number> = {
   "validating-availability-file": 92,
   "importing-availability": 96,
   "availability-completed": 96,
+  "loading-qualification-needs": 97,
+  "importing-qualification-needs": 98,
+  "qualification-needs-completed": 99,
   finalizing: 99,
   completed: 100,
   "completed-with-errors": 100,
@@ -112,6 +118,9 @@ export const DRAKE_STAGE_MESSAGE: Record<DrakeUpdateStage, string> = {
   "validating-availability-file": "Validando relatório de disponibilidade...",
   "importing-availability": "Atualizando períodos de disponibilidade...",
   "availability-completed": "Relatório de disponibilidade atualizado.",
+  "loading-qualification-needs": "Buscando necessidades e vencimentos de cursos...",
+  "importing-qualification-needs": "Atualizando matrizes e aptidão dos colaboradores...",
+  "qualification-needs-completed": "Cursos e requisitos de aptidão atualizados.",
   finalizing: "Finalizando atualização...",
   completed: "Dados atualizados com sucesso.",
   "completed-with-errors": "Atualização concluída com pendências.",
@@ -128,6 +137,11 @@ export interface DrakeUpdateResult {
   import1DurationMs?: number;
   report14DurationMs?: number;
   import14DurationMs?: number;
+  qualificationNeeds?: number;
+  qualificationWorkers?: number;
+  qualificationContexts?: number;
+  qualificationRequirements?: number;
+  qualificationSyncDurationMs?: number;
   totalDurationMs?: number;
 }
 
@@ -138,6 +152,7 @@ export type DrakeProgressEvent = {
   message: string;
   embarkationStatus: DrakeReportStatus;
   availabilityStatus: DrakeReportStatus;
+  qualificationStatus?: DrakeReportStatus;
   result?: DrakeUpdateResult;
   code?: string;
 };
@@ -166,6 +181,7 @@ export const DRAKE_AVAILABILITY_EXPORT_FAILED = "DRAKE_AVAILABILITY_EXPORT_FAILE
 export const DRAKE_FILE_VALIDATION_FAILED = "DRAKE_FILE_VALIDATION_FAILED";
 export const DRAKE_EMBARKATION_IMPORT_FAILED = "DRAKE_EMBARKATION_IMPORT_FAILED";
 export const DRAKE_AVAILABILITY_IMPORT_FAILED = "DRAKE_AVAILABILITY_IMPORT_FAILED";
+export const DRAKE_QUALIFICATION_IMPORT_FAILED = "DRAKE_QUALIFICATION_IMPORT_FAILED";
 export const DRAKE_TEMP_STORAGE_ERROR = "DRAKE_TEMP_STORAGE_ERROR";
 export const DRAKE_UPDATE_ALREADY_RUNNING = "DRAKE_UPDATE_ALREADY_RUNNING";
 export const DRAKE_BROWSER_MODE_INVALID = "DRAKE_BROWSER_MODE_INVALID";
@@ -219,6 +235,8 @@ export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
   [DRAKE_FILE_VALIDATION_FAILED]: "O arquivo recebido do Drake é inválido.",
   [DRAKE_EMBARKATION_IMPORT_FAILED]: "Não foi possível atualizar os dados de embarque.",
   [DRAKE_AVAILABILITY_IMPORT_FAILED]: "Não foi possível atualizar os dados de disponibilidade.",
+  [DRAKE_QUALIFICATION_IMPORT_FAILED]:
+    "Não foi possível atualizar os cursos e requisitos de aptidão.",
   [DRAKE_UPDATE_IN_PROGRESS]: "Já existe uma atualização em andamento.",
   [DRAKE_TEMP_STORAGE_ERROR]:
     "Não foi possível preparar os arquivos temporários da atualização.",

@@ -4,6 +4,7 @@ import {
   DRAKE_AUTH_FAILED,
   DRAKE_AVAILABILITY_EXPORT_FAILED,
   DRAKE_AVAILABILITY_IMPORT_FAILED,
+  DRAKE_QUALIFICATION_IMPORT_FAILED,
   DRAKE_BACKGROUND_JOB_FAILED,
   DRAKE_BACKGROUND_JOB_NOT_CREATED,
   DRAKE_CREDENTIALS_NOT_CONFIGURED,
@@ -41,6 +42,7 @@ export interface MappedDrakeError {
   message: string;
   embarkationStatus: DrakeReportStatus;
   availabilityStatus: DrakeReportStatus;
+  qualificationStatus?: DrakeReportStatus;
   progress: number;
   stage: DrakeUpdateStage | string;
   reportCode?: number;
@@ -149,6 +151,7 @@ export function mapDrakeError(
   embarkationStatus: DrakeReportStatus = "waiting",
   availabilityStatus: DrakeReportStatus = "waiting",
   progress = 0,
+  qualificationStatus: DrakeReportStatus = "waiting",
 ): MappedDrakeError {
   if (error instanceof DrakeAuthError) {
     const code = error.code || DRAKE_AUTH_FAILED;
@@ -164,6 +167,19 @@ export function mapDrakeError(
 
   if (error instanceof DrakeIntegrationError) {
     const code = friendlyCode(error.code, error.reportCode);
+    if (code === DRAKE_QUALIFICATION_IMPORT_FAILED) {
+      return {
+        code,
+        message: DRAKE_ERROR_MESSAGES[code] ?? error.message,
+        embarkationStatus:
+          embarkationStatus === "failed" ? "failed" : "completed",
+        availabilityStatus:
+          availabilityStatus === "failed" ? "failed" : "completed",
+        qualificationStatus: "failed",
+        progress: error.progress ?? progress,
+        stage: error.stage || "failed",
+      };
+    }
     const statuses = resolveReportStatuses(
       code,
       error.reportCode,
@@ -345,5 +361,6 @@ export function toErrorProgressEvent(mapped: MappedDrakeError): DrakeProgressEve
     code: mapped.code,
     embarkationStatus: mapped.embarkationStatus,
     availabilityStatus: mapped.availabilityStatus,
+    qualificationStatus: mapped.qualificationStatus,
   };
 }

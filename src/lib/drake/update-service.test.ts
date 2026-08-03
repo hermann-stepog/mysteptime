@@ -161,6 +161,13 @@ describe("updateDrakeData ordem dos relatorios", () => {
       skipped: 0,
     });
     const importAvail = vi.fn().mockResolvedValue({ insertedEvents: 4, skipped: 1 });
+    const syncQualifications = vi.fn().mockResolvedValue({
+      sourceRows: 10,
+      workers: 2,
+      contexts: 3,
+      requirements: 4,
+      qualifications: 5,
+    });
 
     vi.doMock("./auth/environment-credentials-auth.server", () => ({
       EnvironmentCredentialsDrakeAuthProvider: class {
@@ -225,6 +232,9 @@ describe("updateDrakeData ordem dos relatorios", () => {
     vi.doMock("@/lib/histograma/import-disponibilidade", () => ({
       importDisponibilidadeFromBuffer: importAvail,
     }));
+    vi.doMock("@/lib/qualification-eligibility/sync.server", () => ({
+      syncDrakeQualificationNeeds: syncQualifications,
+    }));
 
     const { updateDrakeData } = await import("./update-service.server");
     const result = await updateDrakeData({} as never, async (ev) => {
@@ -239,17 +249,20 @@ describe("updateDrakeData ordem dos relatorios", () => {
     expect(importEmbark.mock.calls[0]?.[1]).toEqual(Buffer.from("xlsx-1"));
     expect(importAvail).toHaveBeenCalledTimes(1);
     expect(importAvail.mock.calls[0]?.[1]).toEqual(Buffer.from("xlsx-14"));
+    expect(syncQualifications).toHaveBeenCalledTimes(1);
     const embarkIdx = events.findIndex((e) => e.stage === "embarkation-completed");
     const availReqIdx = events.findIndex((e) => e.stage === "requesting-availability-report");
     expect(embarkIdx).toBeGreaterThanOrEqual(0);
     expect(availReqIdx).toBeGreaterThan(embarkIdx);
     expect(result.embarkationEvents).toBe(3);
     expect(result.availabilityEvents).toBe(4);
+    expect(result.qualificationNeeds).toBe(10);
 
     const completedEmbark = events.find((e) => e.stage === "embarkation-completed");
     expect(completedEmbark?.embarkationStatus).toBe("completed");
     expect(completedEmbark?.availabilityStatus).toBe("waiting");
     expect(events.some((e) => e.stage === "preparing-processing-channel")).toBe(true);
+    expect(events.some((e) => e.stage === "qualification-needs-completed")).toBe(true);
 
     vi.resetModules();
     vi.doUnmock("./auth/environment-credentials-auth.server");
@@ -258,5 +271,6 @@ describe("updateDrakeData ordem dos relatorios", () => {
     vi.doUnmock("./signalr-session.server");
     vi.doUnmock("@/lib/histograma/import-drake");
     vi.doUnmock("@/lib/histograma/import-disponibilidade");
+    vi.doUnmock("@/lib/qualification-eligibility/sync.server");
   });
 });

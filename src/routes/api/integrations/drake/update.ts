@@ -22,6 +22,7 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
               code: DRAKE_UPDATE_IN_PROGRESS,
               embarkationStatus: "waiting",
               availabilityStatus: "waiting",
+              qualificationStatus: "waiting",
             } satisfies DrakeProgressEvent,
             { status: 409 },
           );
@@ -79,6 +80,7 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
                     message: DRAKE_STAGE_MESSAGE.queued,
                     embarkationStatus: "waiting",
                     availabilityStatus: "waiting",
+                    qualificationStatus: "waiting",
                   });
 
                   const { runDrakeUpdate } = await import("@/lib/drake/run-drake-update.server");
@@ -96,6 +98,7 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
                     message: "Dados atualizados com sucesso.",
                     embarkationStatus: "completed",
                     availabilityStatus: "completed",
+                    qualificationStatus: "completed",
                     result,
                   });
                 },
@@ -117,21 +120,30 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
                   code,
                   embarkationStatus: "failed",
                   availabilityStatus: "not-started",
+                  qualificationStatus: "not-started",
                 });
               } else {
                 const withStatus = error as InstanceType<typeof DrakeErr> & {
                   embarkationStatus?: DrakeProgressEvent["embarkationStatus"];
                   availabilityStatus?: DrakeProgressEvent["availabilityStatus"];
+                  qualificationStatus?: DrakeProgressEvent["qualificationStatus"];
                 };
                 const embarkationStatus = withStatus.embarkationStatus ?? "waiting";
                 const availabilityStatus = withStatus.availabilityStatus ?? "not-started";
+                const qualificationStatus = withStatus.qualificationStatus ?? "not-started";
                 const progress =
                   error instanceof DrakeErr && typeof withStatus.progress === "number"
                     ? withStatus.progress
                     : 0;
                 await send(
                   toErrorProgressEvent(
-                    mapDrakeError(error, embarkationStatus, availabilityStatus, progress),
+                    mapDrakeError(
+                      error,
+                      embarkationStatus,
+                      availabilityStatus,
+                      progress,
+                      qualificationStatus,
+                    ),
                   ),
                 );
               }
