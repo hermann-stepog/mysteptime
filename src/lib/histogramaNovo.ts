@@ -118,6 +118,21 @@ export function bspDoPeriodo(p: HistNovoPeriodo): string | null {
   return p.centro_de_custo || p.bsp;
 }
 
+// Apelidos conhecidos de unidade operacional que na prática são o mesmo lugar, só grafados
+// diferente conforme a origem do dado (o Drake manda um nome no relatório, o lançamento
+// manual costuma usar outro mais curto) — normalizado pro nome canônico em todo lançamento
+// novo (Drake ou manual), pra não voltar a duplicar depois de uma limpeza pontual no banco.
+const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
+  "SAQUAREMA": "Saquarema",
+  "FPSA - CIDADE DE SAQUAREMA": "Saquarema",
+};
+
+export function normalizeUnidadeOperacional(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return UNIDADE_OPERACIONAL_ALIASES[trimmed.toUpperCase()] ?? trimmed;
+}
+
 // BSPs já vistos nos períodos do Histograma, restritos à unidade escolhida (ou todos, se
 // "all") — usado pra alimentar o filtro de BSP ao lado do filtro de Unidade Operacional nas
 // várias telas do app.
@@ -249,9 +264,16 @@ export function addDays(dateStr: string, n: number): string {
 }
 
 // "E" gerado a partir de uma programação (dias após o 1º dia) ainda não foi confirmado
-// (ex.: pelo import Drake) — mostrado num verde mais claro para diferenciar do Embarcado confirmado.
+// (ex.: pelo import Drake) — mostrado num verde mais claro para diferenciar do Embarcado
+// confirmado. Cobre também o próprio "P" (1º dia, dia da mobilização) uma vez que esse dia já
+// passou — mesma regra usada em computeDayStatus/isEAConfirmarComputado pra decidir quando um
+// "P" já era pra ter virado embarque de verdade — pra que a lista de Lançamentos mostre o
+// mesmo "a confirmar" que já aparece no Histograma, em vez de continuar parecendo Programado
+// puro numa data que já passou.
 export function isEAConfirmar(p: HistNovoPeriodo): boolean {
-  return p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO;
+  if (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO) return true;
+  if (p.tipo === "P" && p.data_inicio < todayStr()) return true;
+  return false;
 }
 
 export function getPeriodoColor(p: HistNovoPeriodo): string | null {
@@ -262,6 +284,10 @@ export function getPeriodoColor(p: HistNovoPeriodo): string | null {
 
 export function getPeriodoLabel(p: HistNovoPeriodo): string {
   if (!isTipoPeriodo(p.tipo)) return p.tipo;
+  // Um "P" cujo dia da mobilização já passou já conta como embarcado (a confirmar) — mostra
+  // "Embarcado", não "Programado", pra bater com o rótulo que computeDayStatus dá pra esse
+  // mesmo dia no Histograma/Próximos Eventos.
+  if (p.tipo === "P" && p.data_inicio < todayStr()) return `${TIPO_LABEL.E} (a confirmar)`;
   const base = TIPO_LABEL[p.tipo];
   return isEAConfirmar(p) ? `${base} (a confirmar)` : base;
 }
