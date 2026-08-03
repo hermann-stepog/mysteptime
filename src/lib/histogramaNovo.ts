@@ -2,13 +2,17 @@
 // "DI" substitui o antigo "D" (Disponível); "FI" agora significa Folga Indenizada
 // (era Feriado — removido do módulo). "EC" continua lançável, mas na grade sempre
 // aparece computado como DI (ver computeDayStatus).
-export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC";
+// "BASE" é lançado só pela importação do relatório da base (ver DrakeUpdateCard) — nunca
+// vem do Drake nem é escolhido no formulário manual de período, é sempre derivado do
+// cruzamento desse relatório com quem está de Folga/Standby no momento.
+export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC" | "BASE";
 
-export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL", "CANC"];
+export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "BASE", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL", "CANC"];
 
 export const TIPO_COLOR: Record<TipoPeriodo, string> = {
   P: "#d1d5db",   // programado — cinza claro
   E: "#1D9E75",   // embarcado — verde escuro
+  BASE: "#0d9488", // na base trabalhando — teal
   F: "#E8DCC0",   // folga — bege claro (tom pálido, igual ao Drake)
   FE: "#378ADD",  // férias — azul
   STB: "#e2e8f0", // standby — azul acinzentado bem claro (letra escura automática via getContrastText)
@@ -28,6 +32,7 @@ export const TIPO_COLOR: Record<TipoPeriodo, string> = {
 export const DISPLAY_ABBR: Record<string, string> = {
   HTL: "H",
   DB: "D",
+  BASE: "B",
   // "EC" já é a chave interna de "Empresa em Casa", mas esse tipo nunca aparece cru na
   // grade (computeDayStatus sempre converte pra STB) — então não colide de fato com o
   // "EC" pedido pela usuária pra Embarque Cancelado, que é a sigla exibida aqui.
@@ -41,6 +46,7 @@ export function displayAbbr(code: string): string {
 export const TIPO_LABEL: Record<TipoPeriodo, string> = {
   P: "Programado",
   E: "Embarcado",
+  BASE: "Na Base",
   F: "Folga",
   FE: "Férias",
   STB: "Standby",
@@ -59,13 +65,14 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
 // (Dobra), que nunca são lançados diretamente, só calculados. "DI" (Disponível) foi retirado
 // como status computado — quem não tem período cobrindo o dia (ou tem EC/DI cru) agora
 // aparece como "STB" (Standby), que passou a representar quem está realmente disponível.
-export type ComputedStatus = "P" | "E" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC";
+export type ComputedStatus = "P" | "E" | "BASE" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC";
 
-export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "AT", "FE", "STB", "F", "TE", "HTL", "FIH", "DDN", "DES", "FI", "DB", "CANC"];
+export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "BASE", "AT", "FE", "STB", "F", "TE", "HTL", "FIH", "DDN", "DES", "FI", "DB", "CANC"];
 
 export const STATUS_COLOR: Record<ComputedStatus, string> = {
   P: "#d1d5db",
   E: "#1D9E75",
+  BASE: "#0d9488", // na base trabalhando — teal
   AT: "#EF9F27",
   FE: "#378ADD",
   STB: "#e2e8f0", // azul acinzentado bem claro — letra escura automática via getContrastText
@@ -83,6 +90,7 @@ export const STATUS_COLOR: Record<ComputedStatus, string> = {
 export const STATUS_LABEL: Record<ComputedStatus, string> = {
   P: "Programado",
   E: "Embarcado",
+  BASE: "Na Base",
   AT: "Atestado",
   FE: "Férias",
   STB: "Standby",
@@ -381,6 +389,14 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   const programado = covering("P");
   if (programado) return date < hoje ? { status: "E", periodo: programado } : { status: "P", periodo: programado };
 
+  // "BASE" só existe por causa do cruzamento do relatório da base com quem estava de Folga
+  // ou Standby no momento da importação (ver DrakeUpdateCard) — por isso é checado logo
+  // depois do Programado, ainda acima da Folga: sobrepõe Folga/Standby (as duas únicas
+  // situações em que esse período é criado), mas continua perdendo pra Atestado, Férias,
+  // Embarcado e Programado, que são informações mais autoritativas.
+  const base = covering("BASE");
+  if (base) return { status: "BASE", periodo: base };
+
   const folga = covering("F");
   if (folga) {
     const desembarque = periodos.find((p) => p.tipo === "E" && addDays(p.data_fim, 1) === date);
@@ -467,7 +483,7 @@ export const NAO_OCUPACAO_COLOR: Partial<Record<ComputedStatus, string>> = {
   FE: "#7c2d12",
 };
 
-export type OldBucket = "E" | "P" | "D" | "B" | "FO" | "FE" | "TE" | "IND" | "OTHER";
+export type OldBucket = "E" | "P" | "BASE" | "D" | "B" | "FO" | "FE" | "TE" | "IND" | "OTHER";
 
 // Traduz o status computado do novo módulo (E/P/AT/FE/STB/F/TE/DDN/DES/FI/DB) pros
 // mesmos "baldes" que o dashboard antigo usava (E/P/D/B/FO/FE/TE/IND), pra reaproveitar
@@ -484,6 +500,10 @@ export function toOldBucket(status: ComputedStatus): OldBucket {
       return "E";
     case "P":
       return "P";
+    // Balde próprio, separado de "E" — conta como ocupado (trabalhando), mas não é presença
+    // física a bordo, então não deve entrar no POB (ver pobBucket).
+    case "BASE":
+      return "BASE";
     case "DES":
       return "D";
     case "STB":
@@ -517,6 +537,7 @@ export function pobBucket(result: DayStatusResult): OldBucket {
 
 // Quem tem a vaga "ocupada" no ciclo de rotação pra fins da Taxa de Ocupação — embarcado
 // (E, já cobre Dobra/Folga Indenizada via toOldBucket), Folga de embarque (FO), Trabalho
-// Externo (TE) e Programado (P). O resto (Standby, Férias, Atestado, Desembarque em Dia Não
-// Útil etc.) é quem sobra pro lado "fora da ocupação".
-export const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P";
+// Externo (TE), Programado (P) e Na Base (BASE, trabalhando na base em vez de offshore). O
+// resto (Standby, Férias, Atestado, Desembarque em Dia Não Útil etc.) é quem sobra pro lado
+// "fora da ocupação".
+export const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P" || b === "BASE";
