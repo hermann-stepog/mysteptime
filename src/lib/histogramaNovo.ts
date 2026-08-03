@@ -337,6 +337,24 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
     return { status: "E", periodo: embarque };
   }
 
+  // Um "P" (Programado) marca o dia da mobilização — lançado manualmente na aba Lançamentos,
+  // ANTES de existir qualquer confirmação do Drake pra esse colaborador nessas datas. Por
+  // decisão deliberada da operação (é sempre lançado de propósito, e o formulário já avisa e
+  // exige confirmação se houver folga/férias/atestado sobrepondo), esse "P" tem que SOBREPOR
+  // qualquer status vindo do Drake pro mesmo colaborador nessas datas (folga, disponibilidade,
+  // hotel, trabalho externo etc.) — daí ser checado logo depois do embarque real (E), acima de
+  // tudo mais. Assim que o Drake trouxer um embarque (E) de verdade pra essas datas, o bloco
+  // acima já vence primeiro e o "P" deixa de valer sozinho.
+  // Enquanto esse dia ainda não passou (inclusive o próprio dia, que ainda está em curso), o
+  // colaborador continua contando como Programado; só a PARTIR do dia seguinte é que
+  // consideramos que ele já embarcou de fato, mesmo que o Drake ainda não tenha confirmado
+  // (ver import-drake.ts, que substitui esse "P" pelo embarque real assim que aparece) — até
+  // lá, mostra como Embarcado "a confirmar" (mesma cor/rótulo já usados pra continuação de uma
+  // programação multi-dia), em vez de continuar mostrando Programado indefinidamente pro
+  // passado.
+  const programado = covering("P");
+  if (programado) return date < hoje ? { status: "E", periodo: programado } : { status: "P", periodo: programado };
+
   const folga = covering("F");
   if (folga) {
     const desembarque = periodos.find((p) => p.tipo === "E" && addDays(p.data_fim, 1) === date);
@@ -376,14 +394,6 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   const ec = covering("EC");
   if (ec) return { status: "STB", periodo: ec };
 
-  // Um "P" (Programado) marca o dia da mobilização — assim que esse dia passa, o colaborador
-  // já embarcou de fato, mesmo que o Drake ainda não tenha confirmado (ver import-drake.ts,
-  // que substitui esse "P" pelo embarque real assim que aparece); até lá, mostra como
-  // Embarcado "a confirmar" (mesma cor/rótulo já usados pra continuação de uma programação
-  // multi-dia), em vez de continuar mostrando Programado indefinidamente pro passado.
-  const programado = covering("P");
-  if (programado) return date <= hoje ? { status: "E", periodo: programado } : { status: "P", periodo: programado };
-
   const di = covering("DI");
   if (di) return { status: "STB", periodo: di };
 
@@ -396,7 +406,7 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
 // "E a confirmar": tanto a continuação gerada pro resto de uma programação multi-dia
 // (origem=programado) quanto um "P" cujo dia de mobilização já passou (ver computeDayStatus) —
 // em ambos os casos o Drake ainda não confirmou o embarque de verdade.
-function isEAConfirmarComputado(r: DayStatusResult): boolean {
+export function isEAConfirmarComputado(r: DayStatusResult): boolean {
   return r.status === "E" && (r.periodo?.origem === ORIGEM_PROGRAMADO || r.periodo?.tipo === "P");
 }
 
