@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import { ORIGEM_PROGRAMADO, addDays, type HistNovoColaborador } from "@/lib/histogramaNovo";
+import { ORIGEM_PROGRAMADO, addDays, normalizeUnidadeOperacional, type HistNovoColaborador } from "@/lib/histogramaNovo";
 import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
@@ -125,7 +125,7 @@ export function parseDrakeWorkbook(buf: ArrayBuffer | Buffer): ParsedDrakeRow[] 
       empresa: get(r, "empresa") || null,
       funcao: get(r, "funcao") || null,
       funcao_operacao: get(r, "funcao_operacao") || null,
-      unidade_operacional: get(r, "unidade_operacional") || null,
+      unidade_operacional: normalizeUnidadeOperacional(get(r, "unidade_operacional")),
       centro_de_custo: get(r, "centro_de_custo") || null,
       data_inicio:
         parseExcelDate(colIndex.data_inicio !== undefined ? r[colIndex.data_inicio] : null) ?? "",

@@ -38,8 +38,9 @@ import {
   TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
-  isEAConfirmarComputado,
+  isEAConfirmarComputado, isEAConfirmar,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
+  normalizeUnidadeOperacional,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
 } from "@/lib/histogramaNovo";
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
@@ -343,6 +344,97 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
   );
 }
 
+function FuncoesMultiCombobox({ funcoes, value, onChange }: {
+  funcoes: string[]; value: string[]; onChange: (v: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = (f: string) => onChange(value.includes(f) ? value.filter((v) => v !== f) : [...value, f]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="h-8 w-full justify-between px-2 text-xs font-normal">
+          {value.length === 0 ? (
+            <span className="text-muted-foreground">Todas</span>
+          ) : (
+            <span className="truncate">{value.length === 1 ? value[0] : `${value.length} selecionadas`}</span>
+          )}
+          <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar função..." className="text-xs" />
+          <CommandList>
+            <CommandEmpty>Nenhuma função encontrada.</CommandEmpty>
+            <CommandGroup>
+              {funcoes.map((f) => {
+                const isSelected = value.includes(f);
+                return (
+                  <CommandItem key={f} value={f} onSelect={() => toggle(f)} className="text-xs">
+                    {isSelected ? (
+                      <X className="mr-2 h-3.5 w-3.5 shrink-0 text-destructive" />
+                    ) : (
+                      <Check className="mr-2 h-3.5 w-3.5 shrink-0 opacity-0" />
+                    )}
+                    <span className="flex-1 truncate">{f}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function EventoMultiCombobox({ options, value, onChange }: {
+  options: { value: string; label: string }[]; value: string[]; onChange: (v: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  const selectedLabels = options.filter((o) => value.includes(o.value)).map((o) => o.label);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="h-8 w-full justify-between px-2 text-xs font-normal">
+          {selectedLabels.length === 0 ? (
+            <span className="text-muted-foreground">Todos</span>
+          ) : (
+            <span className="truncate">{selectedLabels.length === 1 ? selectedLabels[0] : `${selectedLabels.length} selecionados`}</span>
+          )}
+          <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar evento..." className="text-xs" />
+          <CommandList>
+            <CommandEmpty>Nenhum evento encontrado.</CommandEmpty>
+            <CommandGroup>
+              {options.map((o) => {
+                const isSelected = value.includes(o.value);
+                return (
+                  <CommandItem key={o.value} value={o.label} onSelect={() => toggle(o.value)} className="text-xs">
+                    {isSelected ? (
+                      <X className="mr-2 h-3.5 w-3.5 shrink-0 text-destructive" />
+                    ) : (
+                      <Check className="mr-2 h-3.5 w-3.5 shrink-0 opacity-0" />
+                    )}
+                    <span className="flex-1 truncate">{o.label}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // Exportação do Relatório de Embarques — usada pelo módulo de Relatórios (card "Embarques").
 // Lista todos os períodos do tipo "E" (embarcado) lançados no Histograma Offshore.
 export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: string): Promise<void> {
@@ -560,6 +652,13 @@ type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "
 // de sempre, sem ficar limitado à janela de 7 dias do card "Próximos eventos".
 const EVENTO_FILTER_DESEMBARQUE = "__desembarque__";
 
+// Opções do filtro de Evento (multi-seleção) — todos os TipoPeriodo + o sentinela de
+// Desembarque, na mesma ordem que já aparecia no Select de tipo único.
+const EVENTO_FILTRO_OPTIONS: { value: string; label: string }[] = [
+  ...TIPO_ORDER.map((t) => ({ value: t, label: `${displayAbbr(t)} — ${TIPO_LABEL[t]}` })),
+  { value: EVENTO_FILTER_DESEMBARQUE, label: "DES — Desembarque" },
+];
+
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
 
@@ -578,6 +677,30 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     [unidadesExistentes],
   );
 
+  // Funções já existentes nos colaboradores — opções da lista suspensa multi-seleção do
+  // filtro de Função (mesmo padrão de unidadesExistentes acima).
+  const funcoesExistentes = useMemo(
+    () => Array.from(new Set(colaboradores.map((c) => c.funcao || c.funcao_operacao).filter((f): f is string => !!f))).sort(),
+    [colaboradores],
+  );
+
+  // Última folga (mais recente até hoje) de cada colaborador — usada nas colunas "Início
+  // Folga"/"Fim Folga" da tabela, pra dar contexto de quando foi a folga de cada um mesmo
+  // numa linha que não é a própria folga (ex.: olhando um Embarcado, ver quando foi a última
+  // vez que ele folgou). Períodos de Folga vêm sempre do relatório de disponibilidade do
+  // Drake (origem="disponibilidade"), então usa a lista completa de períodos, não só a
+  // filtrada na tela.
+  const ultimaFolgaPorColaborador = useMemo(() => {
+    const hoje = todayStr();
+    const m = new Map<string, HistNovoPeriodo>();
+    periodos.forEach((p) => {
+      if (p.tipo !== "F" || p.data_inicio > hoje) return;
+      const atual = m.get(p.colaborador_id);
+      if (!atual || p.data_inicio > atual.data_inicio) m.set(p.colaborador_id, p);
+    });
+    return m;
+  }, [periodos]);
+
   const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
   // BSP em lista quando a unidade escolhida já tem BSP conhecido (evita erro de digitação);
   // "Outro" volta pro campo livre pra um BSP novo que ainda não apareceu nessa unidade.
@@ -586,15 +709,17 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   // Os campos de filtro só valem depois de clicar em "Buscar" — os "*Input" guardam o que o
   // usuário está digitando/selecionando, e os "filter*" guardam o que realmente filtra a tabela.
   const [colaboradorInput, setColaboradorInput] = useState("all");
-  const [tipoInput, setTipoInput] = useState("all");
+  const [tipoInput, setTipoInput] = useState<string[]>([]);
   const [unidadeInput, setUnidadeInput] = useState("all");
   const [bspInput, setBspInput] = useState("all");
+  const [funcaoInput, setFuncaoInput] = useState<string[]>([]);
   const [deInput, setDeInput] = useState("");
   const [ateInput, setAteInput] = useState("");
   const [filterColaborador, setFilterColaborador] = useState("all");
-  const [filterTipo, setFilterTipo] = useState("all");
+  const [filterTipo, setFilterTipo] = useState<string[]>([]);
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
+  const [filterFuncao, setFilterFuncao] = useState<string[]>([]);
   const [filterDe, setFilterDe] = useState("");
   const [filterAte, setFilterAte] = useState("");
   const bspInputOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeInput), [periodos, unidadeInput]);
@@ -603,6 +728,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     setFilterTipo(tipoInput);
     setFilterUnidade(unidadeInput);
     setFilterBsp(bspInput);
+    setFilterFuncao(funcaoInput);
     setFilterDe(deInput);
     setFilterAte(ateInput);
   };
@@ -621,7 +747,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       for (const colaboradorId of colaboradorIds) {
         const base = {
           colaborador_id: colaboradorId,
-          unidade_operacional: form.unidade_operacional.trim() || null,
+          unidade_operacional: normalizeUnidadeOperacional(form.unidade_operacional),
           bsp: form.bsp.trim() || null,
         };
         if (form.tipo === "P") {
@@ -722,74 +848,79 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     onError: (e: any) => notify.error(e.message),
   });
 
-  const filteredPeriodos = useMemo(() => (
-    filterTipo === EVENTO_FILTER_DESEMBARQUE
-      // "Desembarque" nunca é um período de verdade — é o dia seguinte ao fim de cada período
-      // "E", igual ao Histograma computa DES. Monta uma linha virtual por embarque (mesmo
-      // critério de filtro de colaborador/unidade/BSP, mas De/Até compara com a data de
-      // desembarque, não com data_inicio/data_fim do embarque em si).
+  const filteredPeriodos = useMemo(() => {
+    // Evento agora é multi-seleção: filterTipo é uma lista de tipos (TipoPeriodo) + talvez o
+    // sentinela EVENTO_FILTER_DESEMBARQUE misturado junto — lista vazia significa "Todos".
+    const nenhumFiltroDeTipo = filterTipo.length === 0;
+    const desembarqueSelecionado = filterTipo.includes(EVENTO_FILTER_DESEMBARQUE);
+    const tiposNormaisSelecionados = filterTipo.filter((t) => t !== EVENTO_FILTER_DESEMBARQUE);
+
+    const filtrosComuns = (p: HistNovoPeriodo) =>
+      (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
+      (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
+      (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
+      (filterFuncao.length === 0 || filterFuncao.includes(colaboradorById.get(p.colaborador_id)?.funcao || colaboradorById.get(p.colaborador_id)?.funcao_operacao || "")) &&
+      (!filterDe || p.data_fim >= filterDe) &&
+      (!filterAte || p.data_inicio <= filterAte);
+
+    const linhasNormais = periodos.filter((p) =>
+      (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(p.tipo)) &&
+      // Um "P" (Programado) que já tem um "E" (real ou a confirmar) começando logo em
+      // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
+      // programação em aberto — o embarque em si já está representado por esse "E". Manter
+      // as duas linhas juntas na lista parecia um conflito/duplicidade; assim que existe o
+      // "E" correspondente, o "P" some da lista NA VISÃO PADRÃO (sem filtro de Evento) — mas
+      // se ela filtrar explicitamente por "P — Programado" (sozinho ou junto com outros),
+      // precisa continuar vendo todos os "P" de verdade, mesmo os que já têm um "E" associado
+      // (senão a contagem nunca bate com o que aparece no card "Próximos eventos", que conta
+      // todo "P" sem essa exclusão).
+      (tiposNormaisSelecionados.includes("P") || !(p.tipo === "P" && periodos.some((e) =>
+        e.colaborador_id === p.colaborador_id && e.tipo === "E" &&
+        (e.data_inicio === p.data_fim || e.data_inicio === addDays(p.data_fim, 1)),
+      ))) &&
+      filtrosComuns(p),
+    );
+
+    // "Desembarque" nunca é um período de verdade — é o dia seguinte ao fim de cada período
+    // "E", igual ao Histograma computa DES. Monta uma linha virtual por embarque (mesmo
+    // critério de filtro de colaborador/unidade/BSP/função, mas De/Até compara com a data de
+    // desembarque, não com data_inicio/data_fim do embarque em si) — só entra na lista quando
+    // "DES — Desembarque" está entre os selecionados (nunca aparece em "Todos").
+    const linhasDesembarque = desembarqueSelecionado
       ? periodos
         .filter((p) => p.tipo === "E")
         .map((p) => ({ ...p, data_inicio: addDays(p.data_fim, 1), data_fim: addDays(p.data_fim, 1), dias: 1, tipo: "DES", id: `${p.id}::des` }))
-        .filter((p) =>
-          (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
-          (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
-          (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
-          (!filterDe || p.data_fim >= filterDe) &&
-          (!filterAte || p.data_inicio <= filterAte),
-        )
-      : periodos.filter((p) =>
-        // Disponibilidade (STB/Folga/etc. importado do relatório de disponibilidade) nunca tem
-        // unidade/BSP — são registros de "quando esse colaborador NÃO estava embarcado", não
-        // fazem sentido nessa lista de lançamentos (que é sobre embarque/programação, com BSP
-        // de verdade).
-        p.origem !== "disponibilidade" &&
-        // Um "P" (Programado) que já tem um "E" (real ou a confirmar) começando logo em
-        // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
-        // programação em aberto — o embarque em si já está representado por esse "E". Manter
-        // as duas linhas juntas na lista parecia um conflito/duplicidade; assim que existe o
-        // "E" correspondente, o "P" some da lista NA VISÃO PADRÃO (sem filtro de Evento) — mas
-        // se ela filtrar explicitamente por "P — Programado", precisa continuar vendo todos os
-        // "P" de verdade, mesmo os que já têm um "E" associado (senão a contagem nunca bate com
-        // o que aparece no card "Próximos eventos", que conta todo "P" sem essa exclusão).
-        (filterTipo === "P" || !(p.tipo === "P" && periodos.some((e) =>
-          e.colaborador_id === p.colaborador_id && e.tipo === "E" &&
-          (e.data_inicio === p.data_fim || e.data_inicio === addDays(p.data_fim, 1)),
-        ))) &&
-        (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
-        (filterTipo === "all" || p.tipo === filterTipo) &&
-        (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
-        (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
-        (!filterDe || p.data_fim >= filterDe) &&
-        (!filterAte || p.data_inicio <= filterAte),
-      )
-  ).sort((a, b) => {
-    if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
-    const dir = sortDirection === "asc" ? 1 : -1;
-    switch (sortColumn) {
-      case "colaborador":
-        return dir * (colaboradorById.get(a.colaborador_id)?.nome ?? "").localeCompare(colaboradorById.get(b.colaborador_id)?.nome ?? "");
-      case "funcao": {
-        const fa = colaboradorById.get(a.colaborador_id);
-        const fb = colaboradorById.get(b.colaborador_id);
-        return dir * (fa?.funcao || fa?.funcao_operacao || "").localeCompare(fb?.funcao || fb?.funcao_operacao || "");
+        .filter(filtrosComuns)
+      : [];
+
+    return [...linhasNormais, ...linhasDesembarque].sort((a, b) => {
+      if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
+      const dir = sortDirection === "asc" ? 1 : -1;
+      switch (sortColumn) {
+        case "colaborador":
+          return dir * (colaboradorById.get(a.colaborador_id)?.nome ?? "").localeCompare(colaboradorById.get(b.colaborador_id)?.nome ?? "");
+        case "funcao": {
+          const fa = colaboradorById.get(a.colaborador_id);
+          const fb = colaboradorById.get(b.colaborador_id);
+          return dir * (fa?.funcao || fa?.funcao_operacao || "").localeCompare(fb?.funcao || fb?.funcao_operacao || "");
+        }
+        case "evento":
+          return dir * a.tipo.localeCompare(b.tipo);
+        case "unidade":
+          return dir * (a.unidade_operacional ?? "").localeCompare(b.unidade_operacional ?? "");
+        case "bsp":
+          return dir * (bspDoPeriodo(a) ?? "").localeCompare(bspDoPeriodo(b) ?? "");
+        case "inicio":
+          return dir * a.data_inicio.localeCompare(b.data_inicio);
+        case "fim":
+          return dir * a.data_fim.localeCompare(b.data_fim);
+        case "dias":
+          return dir * ((a.dias ?? 0) - (b.dias ?? 0));
+        default:
+          return 0;
       }
-      case "evento":
-        return dir * a.tipo.localeCompare(b.tipo);
-      case "unidade":
-        return dir * (a.unidade_operacional ?? "").localeCompare(b.unidade_operacional ?? "");
-      case "bsp":
-        return dir * (bspDoPeriodo(a) ?? "").localeCompare(bspDoPeriodo(b) ?? "");
-      case "inicio":
-        return dir * a.data_inicio.localeCompare(b.data_inicio);
-      case "fim":
-        return dir * a.data_fim.localeCompare(b.data_fim);
-      case "dias":
-        return dir * ((a.dias ?? 0) - (b.dias ?? 0));
-      default:
-        return 0;
-    }
-  }), [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
+    });
+  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
   // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
@@ -901,16 +1032,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-0.5 w-40">
+          <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Evento</Label>
-            <Select value={tipoInput} onValueChange={setTipoInput}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {TIPO_ORDER.map((t) => <SelectItem key={t} value={t} className="text-xs">{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
-                <SelectItem value={EVENTO_FILTER_DESEMBARQUE} className="text-xs">DES — Desembarque</SelectItem>
-              </SelectContent>
-            </Select>
+            <EventoMultiCombobox options={EVENTO_FILTRO_OPTIONS} value={tipoInput} onChange={setTipoInput} />
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
@@ -931,6 +1055,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                 {bspInputOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
+            <FuncoesMultiCombobox funcoes={funcoesExistentes} value={funcaoInput} onChange={setFuncaoInput} />
           </div>
           <div className="space-y-0.5">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
@@ -959,6 +1087,8 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <SortableHead label="Início" column="inicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Fim" column="fim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Dias" column="dias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead>Início Folga</TableHead>
+              <TableHead>Fim Folga</TableHead>
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
@@ -989,7 +1119,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                         style={{ backgroundColor: getPeriodoColor(p)!, color: getContrastText(getPeriodoColor(p)!) }}
                         title={getPeriodoLabel(p)}
                       >
-                        {displayAbbr(tipo)}
+                        {isEAConfirmar(p) ? displayAbbr("E") : displayAbbr(tipo)}
                       </span>
                     ) : p.tipo}
                   </TableCell>
@@ -1003,6 +1133,12 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                   <TableCell>{p.data_inicio.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.data_fim.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.dias ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {ultimaFolgaPorColaborador.get(p.colaborador_id)?.data_inicio.split("-").reverse().join("/") ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {ultimaFolgaPorColaborador.get(p.colaborador_id)?.data_fim.split("-").reverse().join("/") ?? "—"}
+                  </TableCell>
                   <TableCell>
                     {!isDesembarqueVirtual && (
                       <div className="flex gap-1">
