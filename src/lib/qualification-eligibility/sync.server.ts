@@ -13,6 +13,31 @@ import {
 
 const UPSERT_BATCH_SIZE = 500;
 
+export const QUALIFICATION_STORAGE_MIGRATIONS = [
+  "20260803150000_course_eligibility.sql",
+  "20260803183000_qualification_matrix_options.sql",
+] as const;
+
+const QUALIFICATION_STORAGE_PROBES = [
+  ["drake_qualification_workers", "drake_worker_id"],
+  ["drake_qualification_contexts", "context_key"],
+  ["drake_qualification_requirements", "context_key"],
+  ["drake_worker_qualifications", "drake_worker_id"],
+  ["drake_qualification_sync_state", "option_count"],
+  ["drake_qualification_options", "domain_identifier"],
+] as const;
+
+export class QualificationStorageNotReadyError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("Qualification storage schema is not ready.");
+    this.name = "QualificationStorageNotReadyError";
+    this.cause = cause;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 export interface QualificationSyncSummary {
   sourceRows: number;
   workers: number;
@@ -62,6 +87,8 @@ export async function syncDrakeQualificationNeeds(
   db: SupabaseClient,
   onPage?: (progress: QualificationNeedsPageProgress) => void | Promise<void>,
 ): Promise<QualificationSyncSummary> {
+  await assertQualificationStorageReady(db);
+
   const [source, domains] = await Promise.all([
     fetchAllDrakeQualificationNeeds(request, { onPage }),
     fetchAllQualificationDomains(request),
@@ -112,6 +139,37 @@ export async function syncDrakeQualificationNeeds(
   if (stateError) throw stateError;
 
   return summary;
+}
+
+export async function assertQualificationStorageReady(db: SupabaseClient): Promise<void> {
+  const results = await Promise.all(
+    QUALIFICATION_STORAGE_PROBES.map(async ([table, column]) => {
+      const { error } = await db.from(table).select(column).limit(1);
+      return error;
+    }),
+  );
+
+  const error = results.find((candidate) => candidate !== null);
+  if (!error) return;
+  if (isMissingQualificationStorageError(error)) {
+    throw new QualificationStorageNotReadyError(error);
+  }
+  throw error;
+}
+
+function isMissingQualificationStorageError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message : "";
+
+  return (
+    code === "PGRST204" ||
+    code === "PGRST205" ||
+    code === "42P01" ||
+    code === "42703" ||
+    /schema cache|could not find (?:the table|the .* column)|does not exist/i.test(message)
+  );
 }
 
 export function buildQualificationSnapshot(

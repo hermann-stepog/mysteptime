@@ -1,7 +1,10 @@
 import "@tanstack/react-start/server-only";
 import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createDrakeApiContextFromAuthenticatedSession, isSessionExpiredError } from "./api-session.server";
+import {
+  createDrakeApiContextFromAuthenticatedSession,
+  isSessionExpiredError,
+} from "./api-session.server";
 import {
   EnvironmentCredentialsDrakeAuthProvider,
   type AuthProgressStage,
@@ -41,6 +44,8 @@ import { sanitizeError } from "./sanitize-error.server";
 import { importDrakeEmbarkationFromBuffer } from "@/lib/histograma/import-drake";
 import { importDisponibilidadeFromBuffer } from "@/lib/histograma/import-disponibilidade";
 import {
+  QUALIFICATION_STORAGE_MIGRATIONS,
+  QualificationStorageNotReadyError,
   syncDrakeQualificationNeeds,
   type QualificationSyncSummary,
 } from "@/lib/qualification-eligibility/sync.server";
@@ -50,6 +55,7 @@ import {
   DRAKE_EMBARKATION_IMPORT_FAILED,
   DRAKE_AVAILABILITY_EXPORT_FAILED,
   DRAKE_QUALIFICATION_IMPORT_FAILED,
+  DRAKE_QUALIFICATION_STORAGE_NOT_READY,
   DRAKE_STAGE_MESSAGE,
   DRAKE_STAGE_PROGRESS,
   DRAKE_TEMP_STORAGE_ERROR,
@@ -169,9 +175,7 @@ async function updateDrakeDataInner(
     });
   }
 
-  async function withSessionRetry<T>(
-    operation: (ctx: DrakeHttpClient) => Promise<T>,
-  ): Promise<T> {
+  async function withSessionRetry<T>(operation: (ctx: DrakeHttpClient) => Promise<T>): Promise<T> {
     if (!apiContext) throw new Error("Contexto HTTP do Drake ausente.");
     try {
       return await operation(apiContext);
@@ -413,12 +417,26 @@ async function updateDrakeDataInner(
         });
         await emit("qualification-needs-completed", { qualificationStatus: "completed" });
       } catch (error: unknown) {
+        const storageNotReady = error instanceof QualificationStorageNotReadyError;
+        const cause = sanitizeError(storageNotReady ? error.cause : error);
         throw new DrakeIntegrationError({
-          code: DRAKE_QUALIFICATION_IMPORT_FAILED,
-          message: "Não foi possível atualizar os cursos e requisitos de aptidão.",
+          code: storageNotReady
+            ? DRAKE_QUALIFICATION_STORAGE_NOT_READY
+            : DRAKE_QUALIFICATION_IMPORT_FAILED,
+          message: storageNotReady
+            ? "O banco ainda não está preparado para armazenar os cursos e requisitos de aptidão."
+            : "Não foi possível atualizar os cursos e requisitos de aptidão.",
           stage: currentStage,
           progress: currentProgress,
           cause: error,
+          details: {
+            causeName: cause.name,
+            causeCode: cause.code,
+            causeMessage: cause.message,
+            ...(storageNotReady
+              ? { requiredMigrations: [...QUALIFICATION_STORAGE_MIGRATIONS] }
+              : {}),
+          },
         });
       }
 

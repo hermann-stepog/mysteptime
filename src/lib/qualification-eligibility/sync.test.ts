@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DrakeIndividualQualificationNeed } from "@/lib/drake/qualification-needs-api.server";
 import {
   QUALIFICATION_DOMAIN_IDENTIFIERS,
   type DrakeQualificationDomains,
 } from "@/lib/drake/qualification-matrix-api.server";
-import { buildQualificationSnapshot } from "./sync.server";
+import {
+  assertQualificationStorageReady,
+  buildQualificationSnapshot,
+  QualificationStorageNotReadyError,
+} from "./sync.server";
 
 function need(
   overrides: Partial<DrakeIndividualQualificationNeed> = {},
@@ -72,5 +76,36 @@ describe("qualification snapshot", () => {
 
     expect(snapshot.qualifications).toHaveLength(1);
     expect(snapshot.qualifications[0]?.expiration_date).toBe("2028-01-01");
+  });
+});
+
+describe("qualification storage", () => {
+  it("identifica migrações ausentes antes de consultar o Drake", async () => {
+    const limit = vi.fn().mockResolvedValue({
+      error: {
+        code: "PGRST205",
+        message: "Could not find the table in the schema cache",
+      },
+    });
+    const db = {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({ limit })),
+      })),
+    };
+
+    await expect(assertQualificationStorageReady(db as never)).rejects.toBeInstanceOf(
+      QualificationStorageNotReadyError,
+    );
+  });
+
+  it("aceita o armazenamento quando todas as tabelas estão disponíveis", async () => {
+    const limit = vi.fn().mockResolvedValue({ error: null });
+    const db = {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({ limit })),
+      })),
+    };
+
+    await expect(assertQualificationStorageReady(db as never)).resolves.toBeUndefined();
   });
 });

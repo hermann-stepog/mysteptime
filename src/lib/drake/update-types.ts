@@ -183,6 +183,7 @@ export const DRAKE_FILE_VALIDATION_FAILED = "DRAKE_FILE_VALIDATION_FAILED";
 export const DRAKE_EMBARKATION_IMPORT_FAILED = "DRAKE_EMBARKATION_IMPORT_FAILED";
 export const DRAKE_AVAILABILITY_IMPORT_FAILED = "DRAKE_AVAILABILITY_IMPORT_FAILED";
 export const DRAKE_QUALIFICATION_IMPORT_FAILED = "DRAKE_QUALIFICATION_IMPORT_FAILED";
+export const DRAKE_QUALIFICATION_STORAGE_NOT_READY = "DRAKE_QUALIFICATION_STORAGE_NOT_READY";
 export const DRAKE_TEMP_STORAGE_ERROR = "DRAKE_TEMP_STORAGE_ERROR";
 export const DRAKE_UPDATE_ALREADY_RUNNING = "DRAKE_UPDATE_ALREADY_RUNNING";
 export const DRAKE_BROWSER_MODE_INVALID = "DRAKE_BROWSER_MODE_INVALID";
@@ -190,8 +191,7 @@ export const DRAKE_REMOTE_BROWSER_NOT_CONFIGURED = "DRAKE_REMOTE_BROWSER_NOT_CON
 export const DRAKE_REMOTE_BROWSER_CONNECTION_FAILED = "DRAKE_REMOTE_BROWSER_CONNECTION_FAILED";
 export const DRAKE_REMOTE_BROWSER_DISCONNECTED = "DRAKE_REMOTE_BROWSER_DISCONNECTED";
 export const DRAKE_LOCAL_BROWSER_NOT_INSTALLED = "DRAKE_LOCAL_BROWSER_NOT_INSTALLED";
-export const DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED =
-  "DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED";
+export const DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED = "DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED";
 export const DRAKE_SESSION_TRANSFER_FAILED = "DRAKE_SESSION_TRANSFER_FAILED";
 export const DRAKE_CLIENT_NOT_FOUND = "DRAKE_CLIENT_NOT_FOUND";
 export const DRAKE_CLIENT_SELECTION_AMBIGUOUS = "DRAKE_CLIENT_SELECTION_AMBIGUOUS";
@@ -214,8 +214,7 @@ export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
   [DRAKE_INTERACTIVE_AUTH_REQUIRED]: "O Drake solicitou uma confirmação adicional de login.",
   [DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED]:
     "A autenticação do Drake precisa ser concluída manualmente uma vez.",
-  [DRAKE_SESSION_EXPIRED]:
-    "A sessão do Drake expirou e precisa ser conectada novamente.",
+  [DRAKE_SESSION_EXPIRED]: "A sessão do Drake expirou e precisa ser conectada novamente.",
   [DRAKE_EXPORT_FAILED]: "Não foi possível gerar um dos relatórios.",
   [DRAKE_EXPORT_TIMEOUT]: "O Drake demorou mais que o esperado para gerar o relatório.",
   [DRAKE_BACKGROUND_JOB_FAILED]: "Não foi possível gerar um dos relatórios.",
@@ -238,9 +237,10 @@ export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
   [DRAKE_AVAILABILITY_IMPORT_FAILED]: "Não foi possível atualizar os dados de disponibilidade.",
   [DRAKE_QUALIFICATION_IMPORT_FAILED]:
     "Não foi possível atualizar os cursos e requisitos de aptidão.",
+  [DRAKE_QUALIFICATION_STORAGE_NOT_READY]:
+    "O banco ainda não está preparado para armazenar os cursos e requisitos de aptidão.",
   [DRAKE_UPDATE_IN_PROGRESS]: "Já existe uma atualização em andamento.",
-  [DRAKE_TEMP_STORAGE_ERROR]:
-    "Não foi possível preparar os arquivos temporários da atualização.",
+  [DRAKE_TEMP_STORAGE_ERROR]: "Não foi possível preparar os arquivos temporários da atualização.",
   [DRAKE_UPDATE_ALREADY_RUNNING]: "Já existe uma atualização em andamento.",
   [DRAKE_SESSION_TRANSFER_FAILED]:
     "A sessão do Drake foi criada, mas não pôde ser transferida para o cliente de integração.",
@@ -255,8 +255,7 @@ export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
     "Não foi possível conectar ao navegador da integração Drake.",
   [DRAKE_REMOTE_BROWSER_DISCONNECTED]:
     "A conexão com o navegador da integração Drake foi encerrada.",
-  [DRAKE_LOCAL_BROWSER_NOT_INSTALLED]:
-    "O navegador local da integração Drake não está instalado.",
+  [DRAKE_LOCAL_BROWSER_NOT_INSTALLED]: "O navegador local da integração Drake não está instalado.",
   [DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED]:
     "O login no Drake não produziu uma sessão autenticada.",
   [MYSTEPTIME_AUTOMATION_CREDENTIALS_MISSING]:

@@ -15,6 +15,7 @@ import {
   DRAKE_EMBARKATION_EXPORT_FAILED,
   DRAKE_ERROR_MESSAGES,
   DRAKE_EXPORT_TIMEOUT,
+  DRAKE_QUALIFICATION_STORAGE_NOT_READY,
 } from "./update-types";
 import { API_REPORT_1 } from "./report-contracts";
 
@@ -111,6 +112,27 @@ describe("observabilidade e falhas Drake", () => {
       ),
     );
     expect(event.progress).toBe(35);
+  });
+
+  it("migração de aptidão ausente preserva os relatórios concluídos", () => {
+    const mapped = mapDrakeError(
+      new DrakeIntegrationError({
+        code: DRAKE_QUALIFICATION_STORAGE_NOT_READY,
+        message: "storage not ready",
+        stage: "importing-qualification-needs",
+        progress: 98,
+      }),
+      "completed",
+      "completed",
+      98,
+      "importing",
+    );
+
+    expect(mapped.message).toBe(DRAKE_ERROR_MESSAGES[DRAKE_QUALIFICATION_STORAGE_NOT_READY]);
+    expect(mapped.embarkationStatus).toBe("completed");
+    expect(mapped.availabilityStatus).toBe("completed");
+    expect(mapped.qualificationStatus).toBe("failed");
+    expect(mapped.progress).toBe(98);
   });
 
   it("parse aceita array e { data: [] }", () => {

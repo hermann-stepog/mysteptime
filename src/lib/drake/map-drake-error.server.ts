@@ -5,6 +5,7 @@ import {
   DRAKE_AVAILABILITY_EXPORT_FAILED,
   DRAKE_AVAILABILITY_IMPORT_FAILED,
   DRAKE_QUALIFICATION_IMPORT_FAILED,
+  DRAKE_QUALIFICATION_STORAGE_NOT_READY,
   DRAKE_BACKGROUND_JOB_FAILED,
   DRAKE_BACKGROUND_JOB_NOT_CREATED,
   DRAKE_CREDENTIALS_NOT_CONFIGURED,
@@ -167,14 +168,15 @@ export function mapDrakeError(
 
   if (error instanceof DrakeIntegrationError) {
     const code = friendlyCode(error.code, error.reportCode);
-    if (code === DRAKE_QUALIFICATION_IMPORT_FAILED) {
+    if (
+      code === DRAKE_QUALIFICATION_IMPORT_FAILED ||
+      code === DRAKE_QUALIFICATION_STORAGE_NOT_READY
+    ) {
       return {
         code,
         message: DRAKE_ERROR_MESSAGES[code] ?? error.message,
-        embarkationStatus:
-          embarkationStatus === "failed" ? "failed" : "completed",
-        availabilityStatus:
-          availabilityStatus === "failed" ? "failed" : "completed",
+        embarkationStatus: embarkationStatus === "failed" ? "failed" : "completed",
+        availabilityStatus: availabilityStatus === "failed" ? "failed" : "completed",
         qualificationStatus: "failed",
         progress: error.progress ?? progress,
         stage: error.stage || "failed",
@@ -187,7 +189,10 @@ export function mapDrakeError(
       availabilityStatus,
     );
     let message = DRAKE_ERROR_MESSAGES[code] ?? error.message;
-    if (error.code === DRAKE_BACKGROUND_JOB_NOT_CREATED || error.code === DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB) {
+    if (
+      error.code === DRAKE_BACKGROUND_JOB_NOT_CREATED ||
+      error.code === DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB
+    ) {
       message =
         error.reportCode === 1
           ? "O Drake aceitou a solicitação, mas não gerou o arquivo de embarque."
@@ -205,7 +210,7 @@ export function mapDrakeError(
           ? "Não foi possível iniciar o processamento do relatório de embarque."
           : error.reportCode === 14
             ? "Não foi possível iniciar o processamento do relatório de disponibilidade."
-            : DRAKE_ERROR_MESSAGES[error.code] ?? error.message;
+            : (DRAKE_ERROR_MESSAGES[error.code] ?? error.message);
     }
     if (error.code === DRAKE_SIGNALR_REQUIRED_FOR_EXPORT) {
       message = DRAKE_ERROR_MESSAGES[DRAKE_SIGNALR_REQUIRED_FOR_EXPORT];
