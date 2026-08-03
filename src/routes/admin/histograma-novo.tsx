@@ -31,13 +31,14 @@ import {
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
-  Download,
+  Download, BedDouble,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
   TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
+  isEAConfirmarComputado,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
 } from "@/lib/histogramaNovo";
@@ -298,7 +299,7 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className="h-auto min-h-9 w-full justify-between py-1.5 font-normal">
+        <Button variant="outline" role="combobox" className="h-auto min-h-11 w-full justify-between py-2 text-base font-normal">
           {selected.length === 0 ? (
             <span className="text-muted-foreground">Selecionar colaborador(es)</span>
           ) : (
@@ -553,6 +554,12 @@ export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: str
 
 type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
 
+// Valor sentinela do filtro de Evento pra "Desembarque" — não é um TipoPeriodo de verdade (nunca
+// é lançado, sempre calculado a partir do fim de um período "E", igual ao Histograma computa DES),
+// mas a usuária precisa achar "quem desembarca no dia X" direto nessa lista, com o filtro De/Até
+// de sempre, sem ficar limitado à janela de 7 dias do card "Próximos eventos".
+const EVENTO_FILTER_DESEMBARQUE = "__desembarque__";
+
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
 
@@ -715,17 +722,47 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     onError: (e: any) => notify.error(e.message),
   });
 
-  const filteredPeriodos = useMemo(() => periodos.filter((p) =>
-    // Disponibilidade (STB/Folga/etc. importado do relatório de disponibilidade) nunca tem
-    // unidade/BSP — são registros de "quando esse colaborador NÃO estava embarcado", não fazem
-    // sentido nessa lista de lançamentos (que é sobre embarque/programação, com BSP de verdade).
-    p.origem !== "disponibilidade" &&
-    (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
-    (filterTipo === "all" || p.tipo === filterTipo) &&
-    (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
-    (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
-    (!filterDe || p.data_fim >= filterDe) &&
-    (!filterAte || p.data_inicio <= filterAte),
+  const filteredPeriodos = useMemo(() => (
+    filterTipo === EVENTO_FILTER_DESEMBARQUE
+      // "Desembarque" nunca é um período de verdade — é o dia seguinte ao fim de cada período
+      // "E", igual ao Histograma computa DES. Monta uma linha virtual por embarque (mesmo
+      // critério de filtro de colaborador/unidade/BSP, mas De/Até compara com a data de
+      // desembarque, não com data_inicio/data_fim do embarque em si).
+      ? periodos
+        .filter((p) => p.tipo === "E")
+        .map((p) => ({ ...p, data_inicio: addDays(p.data_fim, 1), data_fim: addDays(p.data_fim, 1), dias: 1, tipo: "DES", id: `${p.id}::des` }))
+        .filter((p) =>
+          (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
+          (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
+          (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
+          (!filterDe || p.data_fim >= filterDe) &&
+          (!filterAte || p.data_inicio <= filterAte),
+        )
+      : periodos.filter((p) =>
+        // Disponibilidade (STB/Folga/etc. importado do relatório de disponibilidade) nunca tem
+        // unidade/BSP — são registros de "quando esse colaborador NÃO estava embarcado", não
+        // fazem sentido nessa lista de lançamentos (que é sobre embarque/programação, com BSP
+        // de verdade).
+        p.origem !== "disponibilidade" &&
+        // Um "P" (Programado) que já tem um "E" (real ou a confirmar) começando logo em
+        // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
+        // programação em aberto — o embarque em si já está representado por esse "E". Manter
+        // as duas linhas juntas na lista parecia um conflito/duplicidade; assim que existe o
+        // "E" correspondente, o "P" some da lista NA VISÃO PADRÃO (sem filtro de Evento) — mas
+        // se ela filtrar explicitamente por "P — Programado", precisa continuar vendo todos os
+        // "P" de verdade, mesmo os que já têm um "E" associado (senão a contagem nunca bate com
+        // o que aparece no card "Próximos eventos", que conta todo "P" sem essa exclusão).
+        (filterTipo === "P" || !(p.tipo === "P" && periodos.some((e) =>
+          e.colaborador_id === p.colaborador_id && e.tipo === "E" &&
+          (e.data_inicio === p.data_fim || e.data_inicio === addDays(p.data_fim, 1)),
+        ))) &&
+        (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
+        (filterTipo === "all" || p.tipo === filterTipo) &&
+        (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
+        (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
+        (!filterDe || p.data_fim >= filterDe) &&
+        (!filterAte || p.data_inicio <= filterAte),
+      )
   ).sort((a, b) => {
     if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
     const dir = sortDirection === "asc" ? 1 : -1;
@@ -762,7 +799,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       return {
         Colaborador: c?.nome ?? "—",
         Função: c?.funcao || c?.funcao_operacao || "—",
-        Evento: isTipoPeriodo(p.tipo) ? `${displayAbbr(p.tipo)} — ${TIPO_LABEL[p.tipo]}` : p.tipo,
+        Evento: p.tipo === "DES" ? `DES — ${STATUS_LABEL.DES}` : isTipoPeriodo(p.tipo) ? `${displayAbbr(p.tipo)} — ${TIPO_LABEL[p.tipo]}` : p.tipo,
         Unidade: p.unidade_operacional ?? "—",
         BSP: bspDoPeriodo(p) ?? "—",
         Início: p.data_inicio.split("-").reverse().join("/"),
@@ -793,9 +830,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
         </div>
 
-        <Card className="p-4 space-y-3">
+        <Card className="flex flex-col p-4 space-y-3">
           <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
-          <div className="grid gap-3">
+          <div className="flex flex-1 flex-col justify-between gap-4">
             <div>
               <Label className="text-xs">Colaborador(es)</Label>
               <ColaboradoresMultiCombobox colaboradores={colaboradores} value={form.colaboradorIds} onChange={(ids) => setForm({ ...form, colaboradorIds: ids })} />
@@ -804,7 +841,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div>
                 <Label className="text-xs">Tipo</Label>
                 <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo })}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-11 text-base"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
                   </SelectContent>
@@ -813,7 +850,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div>
                 <Label className="text-xs">Unidade Operacional</Label>
                 <Select value={form.unidade_operacional} onValueChange={(v) => { setForm({ ...form, unidade_operacional: v, bsp: "" }); setFormBspManual(false); }}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger className="h-11 text-base"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
                   </SelectContent>
@@ -825,23 +862,23 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                 <Label className="text-xs">BSP</Label>
                 {formBspOptions.length > 0 && !formBspManual ? (
                   <Select value={form.bsp} onValueChange={(v) => v === "__outro__" ? setFormBspManual(true) : setForm({ ...form, bsp: v })}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                    <SelectTrigger className="h-11 text-base"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
                     <SelectContent>
                       {formBspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
                       <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
+                  <Input className="h-11 text-base" value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
                 )}
               </div>
               <div>
                 <Label className="text-xs">Data início</Label>
-                <Input type="date" value={form.data_inicio} onChange={(e) => setForm({ ...form, data_inicio: e.target.value })} />
+                <Input className="h-11 text-base" type="date" value={form.data_inicio} onChange={(e) => setForm({ ...form, data_inicio: e.target.value })} />
               </div>
               <div>
                 <Label className="text-xs">Data fim</Label>
-                <Input type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
+                <Input className="h-11 text-base" type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
               </div>
             </div>
             <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>
@@ -871,6 +908,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todos</SelectItem>
                 {TIPO_ORDER.map((t) => <SelectItem key={t} value={t} className="text-xs">{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
+                <SelectItem value={EVENTO_FILTER_DESEMBARQUE} className="text-xs">DES — Desembarque</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -928,12 +966,24 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             {filteredPeriodos.map((p, i) => {
               const c = colaboradorById.get(p.colaborador_id);
               const tipo = isTipoPeriodo(p.tipo) ? p.tipo : null;
+              // Linha virtual de Desembarque (ver EVENTO_FILTER_DESEMBARQUE) — não é um período
+              // de verdade, então não tem ação de editar/excluir; usa a mesma cor do status
+              // "DES" computado no Histograma pra manter a linguagem visual consistente.
+              const isDesembarqueVirtual = p.tipo === "DES";
               return (
                 <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{c?.funcao || c?.funcao_operacao || "—"}</TableCell>
                   <TableCell>
-                    {tipo ? (
+                    {isDesembarqueVirtual ? (
+                      <span
+                        className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-bold"
+                        style={{ backgroundColor: STATUS_COLOR.DES, color: getContrastText(STATUS_COLOR.DES) }}
+                        title={STATUS_LABEL.DES}
+                      >
+                        DES
+                      </span>
+                    ) : tipo ? (
                       <span
                         className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-bold"
                         style={{ backgroundColor: getPeriodoColor(p)!, color: getContrastText(getPeriodoColor(p)!) }}
@@ -954,17 +1004,19 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                   <TableCell>{p.data_fim.split("-").reverse().join("/")}</TableCell>
                   <TableCell>{p.dias ?? "—"}</TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => { if (confirm(`Excluir este período de "${c?.nome ?? ""}"? Esta ação não pode ser desfeita.`)) deletePeriodo.mutate(p.id); }}
-                        loading={deletePeriodo.isPending && deletePeriodo.variables === p.id}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                    {!isDesembarqueVirtual && (
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => { if (confirm(`Excluir este período de "${c?.nome ?? ""}"? Esta ação não pode ser desfeita.`)) deletePeriodo.mutate(p.id); }}
+                          loading={deletePeriodo.isPending && deletePeriodo.variables === p.id}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </FadeInRow>
               );
@@ -989,7 +1041,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Tipo</Label>
-                  <Select value={editing.tipo} onValueChange={(v) => setEditing({ ...editing, tipo: v })}>
+                  <Select
+                    value={editing.tipo}
+                    onValueChange={(v) => setEditing({ ...editing, tipo: v, ...(v === "P" ? { data_fim: editing.data_inicio } : {}) })}
+                  >
                     <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
@@ -1015,11 +1070,22 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Data início</Label>
-                  <Input type="date" value={editing.data_inicio} onChange={(e) => setEditing({ ...editing, data_inicio: e.target.value })} />
+                  <Input
+                    type="date" value={editing.data_inicio}
+                    onChange={(e) => setEditing({ ...editing, data_inicio: e.target.value, ...(editing.tipo === "P" ? { data_fim: e.target.value } : {}) })}
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">Data fim</Label>
-                  <Input type="date" value={editing.data_fim} onChange={(e) => setEditing({ ...editing, data_fim: e.target.value })} />
+                  <Input
+                    type="date" value={editing.data_fim} disabled={editing.tipo === "P"}
+                    onChange={(e) => setEditing({ ...editing, data_fim: e.target.value })}
+                  />
+                  {editing.tipo === "P" && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      "Programado" é sempre 1 dia (o dia da mobilização) — o resto do embarque é lançado à parte, como "Embarcado".
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1574,6 +1640,23 @@ const DASH_UNIT_PALETTE = ["#1e3a5f", "#2563eb", "#0288d1", "#f97316", "#22c55e"
 // do Histograma (que usam cores bem distintas entre si, verde/laranja/roxo/vermelho etc.).
 const OCUPACAO_BLUE_PALETTE = ["#0f2744", "#1e3a5f", "#2c5282", "#2563eb", "#3b82f6", "#0ea5e9", "#38bdf8", "#7dd3fc", "#60a5fa", "#93c5fd", "#bae6fd", "#dbeafe"];
 
+// Paleta em tons de amarelo/laranja pro donut "contrário" (fora da ocupação) — pra distinguir
+// visualmente de cara do donut azul de quem está ocupado. Ordem pensada pra que as fatias
+// vizinhas (esse donut normalmente só tem 2-3 categorias: Standby/Férias/Atestado) fiquem
+// bem diferentes entre si, em vez de tons parecidos lado a lado.
+// "#7c2d12" fica de fora dessa lista de propósito — é a cor fixa reservada pra Férias em
+// NAO_OCUPACAO_COLOR logo abaixo, pra nenhum outro status cair nela por coincidência do ciclo.
+const OCUPACAO_WARM_PALETTE = ["#fbbf24", "#f97316", "#fde68a", "#c2410c", "#fdba74", "#9a3412", "#fcd34d", "#ea580c", "#fed7aa"];
+
+// Cores fixas por status (em vez de ciclar a paleta) pro donut "fora da ocupação" — Standby
+// vira cinza (não é bem "quente" como os outros, é só quem está sem alocação) e Férias
+// mantém o tom marrom-escuro original. Qualquer outro status (Atestado, Desembarque em Dia
+// Não Útil etc.) cai de volta na paleta quente cíclica.
+const NAO_OCUPACAO_COLOR: Partial<Record<ComputedStatus, string>> = {
+  STB: "#94a3b8",
+  FE: "#7c2d12",
+};
+
 type OldBucket = "E" | "P" | "D" | "B" | "FO" | "FE" | "TE" | "IND" | "OTHER";
 
 // Traduz o status computado do novo módulo (E/P/AT/FE/STB/F/TE/DDN/DES/FI/DB) pros
@@ -1584,6 +1667,10 @@ function toOldBucket(status: ComputedStatus): OldBucket {
   switch (status) {
     case "E":
     case "DB":
+    // Folga Indenizada: o colaborador embarcou (fisicamente a bordo) num dia que também caía
+    // como folga — pra taxa de ocupação/POB ele conta como embarcado normalmente, a folga vira
+    // só uma questão de compensação (pagamento), não de presença física.
+    case "FI":
       return "E";
     case "P":
       return "P";
@@ -1592,7 +1679,6 @@ function toOldBucket(status: ComputedStatus): OldBucket {
     case "STB":
       return "B";
     case "F":
-    case "FI":
       return "FO";
     case "FE":
       return "FE";
@@ -1605,6 +1691,25 @@ function toOldBucket(status: ComputedStatus): OldBucket {
       return "OTHER";
   }
 }
+
+// Balde de status pra fins de POB (presença física de verdade — POB por Unidade/Dia/Mês,
+// Mão de Obra por Semana): um "E (a confirmar)" — seja a continuação de uma programação
+// manual (origem=ORIGEM_PROGRAMADO, dias 2+) ou o próprio dia da mobilização "P" já passado
+// (ver isEAConfirmarComputado) — ainda não foi confirmado pelo Drake, então não deve contar
+// como presença física. Só quando o Drake substituir esse registro pelo embarque real
+// (origem="drake") é que a pessoa passa a contar no POB. Reclassificado pro balde "P" (mesmo
+// tratamento de quem ainda não embarcou de fato), não "E".
+function pobBucket(result: DayStatusResult): OldBucket {
+  const bucket = toOldBucket(result.status);
+  if (bucket === "E" && isEAConfirmarComputado(result)) return "P";
+  return bucket;
+}
+
+// Quem tem a vaga "ocupada" no ciclo de rotação pra fins da Taxa de Ocupação — embarcado
+// (E, já cobre Dobra/Folga Indenizada via toOldBucket), Folga de embarque (FO), Trabalho
+// Externo (TE) e Programado (P). O resto (Standby, Férias, Atestado, Desembarque em Dia Não
+// Útil etc.) é quem sobra pro lado "fora da ocupação".
+const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P";
 
 function DashboardTab({ colaboradores, periodos }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[];
@@ -1674,26 +1779,47 @@ function DashboardTab({ colaboradores, periodos }: {
   );
   const unitColor = useMemo(() => new Map(unidades.map((u, i) => [u, DASH_UNIT_PALETTE[i % DASH_UNIT_PALETTE.length]])), [unidades]);
 
-  // ── KPIs (foto de hoje, só entre os colaboradores ativos no período filtrado) ──
+  // ── Data de referência do "retrato" (foto de hoje por padrão; se o período De/Até
+  // filtrado não cobre hoje — ex.: um mês passado ou futuro — usa o último dia desse período
+  // como referência) — usada por todo o Dashboard (KPIs, os dois donuts de Ocupação, "POB x
+  // Unidade"), pra tudo acompanhar o período selecionado em vez de sempre olhar pra hoje.
+  const pobReferenceDate = useMemo(() => {
+    if (dataInicio && dataFim && dataInicio <= today && today <= dataFim) return today;
+    return dataFim || today;
+  }, [dataInicio, dataFim, today]);
+
+  // ── KPIs (foto de "pobReferenceDate", só entre os colaboradores ativos no período filtrado) ──
+  // "Embarcados" (o cartão) fica restrito a quem está mesmo fisicamente a bordo (E/DB, e
+  // Folga Indenizada — que já cai no balde "E" — ver toOldBucket), igual aos gráficos de
+  // POB. "Folga" e "Programados" mantêm seus próprios cartões (baldes "FO" e "P"). Já a Taxa
+  // de Ocupação (%) usa uma conta à parte, mais ampla, de quem tem a vaga ocupada no ciclo de
+  // rotação: Embarcados + Folga (folga de embarque é o intervalo de descanso do próprio
+  // ciclo, a vaga continua "ocupada" mesmo sem o colaborador estar a bordo naquele dia) +
+  // Trabalho Externo (vaga ocupada fora da embarcação, mas ainda dentro do ciclo) +
+  // Programado (mobilização já lançada, a vaga já está reservada pra esse colaborador mesmo
+  // antes do Drake confirmar o embarque).
   const kpis = useMemo(() => {
-    let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0;
+    let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0, folga = 0, ocupados = 0;
     activeColaboradores.forEach((c) => {
-      const bucket = toOldBucket(computeDayStatus(periodosByColaborador.get(c.id) ?? [], today).status);
+      const bucket = toOldBucket(computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status);
       if (bucket === "E") embarcados++;
+      else if (bucket === "FO") folga++;
       else if (bucket === "P") programados++;
       else if (bucket === "B") disponiveis++;
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
+      if (isOcupadoBucket(bucket)) ocupados++;
     });
     const total = activeColaboradores.length;
-    const utilizacao = total > 0 ? Math.round((embarcados / total) * 100) : 0;
-    return { total, embarcados, programados, disponiveis, naoDisp, utilizacao };
-  }, [activeColaboradores, periodosByColaborador, today]);
+    const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
+    return { total, embarcados, programados, disponiveis, naoDisp, folga, utilizacao };
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
 
   const kpiCards = [
     { label: "Headcount Total", value: kpis.total, icon: Users },
     { label: "Embarcados", value: kpis.embarcados, icon: Ship },
     { label: "Programados", value: kpis.programados, icon: CalendarDays },
-    { label: "Disponíveis", value: kpis.disponiveis, icon: CheckCircle2 },
+    { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
+    { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
   ];
@@ -1722,7 +1848,7 @@ function DashboardTab({ colaboradores, periodos }: {
     dates.forEach((d) => {
       activeColaboradores.forEach((c) => {
         const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], d);
-        recs.push({ date: d, bucket: toOldBucket(result.status), unidade: result.periodo?.unidade_operacional ?? null, bsp: result.periodo ? bspDoPeriodo(result.periodo) : null });
+        recs.push({ date: d, bucket: pobBucket(result), unidade: result.periodo?.unidade_operacional ?? null, bsp: result.periodo ? bspDoPeriodo(result.periodo) : null });
       });
     });
     return recs;
@@ -1730,18 +1856,37 @@ function DashboardTab({ colaboradores, periodos }: {
 
   // ── Ocupação (donut) — quebra pelo status exato de hoje (mesmas cores/labels do
   // Histograma), em vez de um balde genérico "Outros" que escondia Folga/Férias/Atestado/
-  // Desembarque/Trabalho Externo/Hotel tudo junto sem discriminação.
+  // Desembarque/Trabalho Externo/Hotel tudo junto sem discriminação. Dividido em dois donuts
+  // lado a lado: um só com quem está "ocupado" (ver isOcupadoBucket) em tons de azul, outro
+  // com o restante ("fora da ocupação" — Standby, Férias, Atestado etc.) em tons de
+  // amarelo/laranja, pra ficar visualmente claro que são as duas metades complementares.
   const ocupacaoData = useMemo(() => {
     const counts: Partial<Record<ComputedStatus, number>> = {};
     activeColaboradores.forEach((c) => {
-      const status = computeDayStatus(periodosByColaborador.get(c.id) ?? [], today).status;
+      const status = computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
+      if (!isOcupadoBucket(toOldBucket(status))) return;
       counts[status] = (counts[status] ?? 0) + 1;
     });
     return STATUS_ORDER
       .filter((s) => (counts[s] ?? 0) > 0)
       .map((s) => ({ name: STATUS_LABEL[s], value: counts[s] ?? 0 }))
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
-  }, [activeColaboradores, periodosByColaborador, today]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+
+  const naoOcupacaoData = useMemo(() => {
+    const counts: Partial<Record<ComputedStatus, number>> = {};
+    activeColaboradores.forEach((c) => {
+      const status = computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
+      if (isOcupadoBucket(toOldBucket(status))) return;
+      counts[status] = (counts[status] ?? 0) + 1;
+    });
+    return STATUS_ORDER
+      .filter((s) => (counts[s] ?? 0) > 0)
+      .map((s, i) => ({
+        name: STATUS_LABEL[s], value: counts[s] ?? 0,
+        color: NAO_OCUPACAO_COLOR[s] ?? OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length],
+      }));
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
 
   // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
   // tabela "POB por Unidade × Dia" com unidades zeradas no mês/intervalo selecionado.
@@ -1760,19 +1905,11 @@ function DashboardTab({ colaboradores, periodos }: {
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
   }, [dailyRecords]);
 
-  // ── Status por Unidade (foto de hoje por padrão; se o período De/Até filtrado não cobre
-  // hoje — ex.: um mês passado ou futuro — usa o último dia desse período como referência,
-  // pra o card "POB x Unidade" acompanhar o período selecionado em vez de sempre hoje) ──
-  const pobReferenceDate = useMemo(() => {
-    if (dataInicio && dataFim && dataInicio <= today && today <= dataFim) return today;
-    return dataFim || today;
-  }, [dataInicio, dataFim, today]);
-
   const byUnitStatus = useMemo(() => {
     const m: Record<string, { total: number; porFuncao: Record<string, { count: number; nomes: string[] }> }> = {};
     activeColaboradores.forEach((c) => {
       const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      if (toOldBucket(result.status) !== "E") return;
+      if (pobBucket(result) !== "E") return;
       const u = result.periodo?.unidade_operacional;
       if (!u) return;
       if (!m[u]) m[u] = { total: 0, porFuncao: {} };
@@ -1851,7 +1988,7 @@ function DashboardTab({ colaboradores, periodos }: {
       const mk = d.slice(0, 7);
       colaboradoresFiltrados.forEach((c) => {
         const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], d);
-        if (toOldBucket(result.status) !== "E") return;
+        if (pobBucket(result) !== "E") return;
         if (!colaboradoresPorMes.has(mk)) colaboradoresPorMes.set(mk, new Set());
         colaboradoresPorMes.get(mk)!.add(c.id);
         const u = result.periodo?.unidade_operacional;
@@ -1943,7 +2080,7 @@ function DashboardTab({ colaboradores, periodos }: {
       </Card>
 
       {/* ── KPIs ── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {kpiCards.map((k, i) => (
           <FadeInView key={k.label} delay={i * 0.05}>
           <Card className="bg-gradient-to-br from-white to-slate-50 p-4">
@@ -1962,27 +2099,29 @@ function DashboardTab({ colaboradores, periodos }: {
       {/* ── Ocupação ── */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold">Taxa de Ocupação</h3>
-        <p className="text-xs text-muted-foreground mb-3">Status de hoje, por colaborador ativo no período filtrado</p>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="relative shrink-0">
-            <PieChart width={180} height={180}>
-              <Pie data={ocupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} stroke="none">
-                {ocupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
-              </Pie>
-              <Tooltip formatter={(v: number, n: string) => [`${v} pessoas`, n]} />
-            </PieChart>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span
-                className="text-2xl font-bold"
-                style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-              >
-                {kpis.utilizacao}%
-              </span>
-              <span className="text-[10px] text-muted-foreground">ocupação</span>
+        <p className="text-xs text-muted-foreground mb-3">
+          {pobReferenceDate === today ? "Status de hoje" : `Status em ${fmtDiaCurto(pobReferenceDate)}`}, por colaborador ativo no período filtrado
+        </p>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="relative shrink-0">
+              <PieChart width={180} height={180}>
+                <Pie data={ocupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} stroke="none">
+                  {ocupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
+                </Pie>
+                <Tooltip formatter={(v: number, n: string) => [`${v} pessoas`, n]} />
+              </PieChart>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span
+                  className="text-2xl font-bold"
+                  style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+                >
+                  {kpis.utilizacao}%
+                </span>
+                <span className="text-[10px] text-muted-foreground">ocupação</span>
+              </div>
             </div>
-          </div>
-          <div className="flex-1 min-w-[180px] space-y-5 pt-2">
-            <div className="space-y-2">
+            <div className="flex-1 min-w-[160px] space-y-2">
               {ocupacaoData.map((d) => (
                 <div key={d.name} className="flex items-center gap-2 text-sm">
                   <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
@@ -1991,23 +2130,51 @@ function DashboardTab({ colaboradores, periodos }: {
                 </div>
               ))}
             </div>
-            <div className="border-t pt-4 grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio Offshore no período</p>
-                <p
-                  className="mt-1 text-2xl font-bold"
-                  style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+          </div>
+          <div className="flex flex-wrap items-center gap-4 lg:border-l lg:pl-6">
+            <div className="relative shrink-0">
+              <PieChart width={180} height={180}>
+                <Pie data={naoOcupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} stroke="none">
+                  {naoOcupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
+                </Pie>
+                <Tooltip formatter={(v: number, n: string) => [`${v} pessoas`, n]} />
+              </PieChart>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span
+                  className="text-2xl font-bold"
+                  style={{ backgroundImage: "linear-gradient(135deg, #9a3412, #f59e0b)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
                 >
-                  {avgMetrics.avgOffshore}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio de Folga no período</p>
-                <p className="mt-1 bg-gradient-to-br from-sky-500 to-sky-300 bg-clip-text text-2xl font-bold text-transparent">
-                  {avgMetrics.avgTimeOff}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
-                </p>
+                  {100 - kpis.utilizacao}%
+                </span>
+                <span className="text-[10px] text-muted-foreground">fora da ocupação</span>
               </div>
             </div>
+            <div className="flex-1 min-w-[160px] space-y-2">
+              {naoOcupacaoData.map((d) => (
+                <div key={d.name} className="flex items-center gap-2 text-sm">
+                  <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                  <span className="text-muted-foreground">{d.name}</span>
+                  <span className="ml-auto font-semibold">{d.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="border-t mt-5 pt-4 grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio Offshore no período</p>
+            <p
+              className="mt-1 text-2xl font-bold"
+              style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+            >
+              {avgMetrics.avgOffshore}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio de Folga no período</p>
+            <p className="mt-1 bg-gradient-to-br from-sky-500 to-sky-300 bg-clip-text text-2xl font-bold text-transparent">
+              {avgMetrics.avgTimeOff}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
+            </p>
           </div>
         </div>
       </Card>

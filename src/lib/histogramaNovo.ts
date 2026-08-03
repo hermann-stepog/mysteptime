@@ -59,9 +59,9 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
 // (Dobra), que nunca são lançados diretamente, só calculados. "DI" (Disponível) foi retirado
 // como status computado — quem não tem período cobrindo o dia (ou tem EC/DI cru) agora
 // aparece como "STB" (Standby), que passou a representar quem está realmente disponível.
-export type ComputedStatus = "P" | "E" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "DDN" | "DES" | "FI" | "DB" | "CANC";
+export type ComputedStatus = "P" | "E" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC";
 
-export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "AT", "FE", "STB", "F", "TE", "HTL", "DDN", "DES", "FI", "DB", "CANC"];
+export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "AT", "FE", "STB", "F", "TE", "HTL", "FIH", "DDN", "DES", "FI", "DB", "CANC"];
 
 export const STATUS_COLOR: Record<ComputedStatus, string> = {
   P: "#d1d5db",
@@ -72,6 +72,7 @@ export const STATUS_COLOR: Record<ComputedStatus, string> = {
   F: "#E8DCC0",   // folga — bege claro (igual ao Drake)
   TE: "#BA7517",
   HTL: "#F2A9AE", // hotel — rosa salmão (igual ao Drake)
+  FIH: "#D46A8C",  // foi embarcar e ficou no hotel antes — rosa mais escuro que Hotel puro
   DDN: "#F3F6F8", // branco gelo
   DES: "#f59e0b",  // desembarque — âmbar
   FI: "#ED93B1",
@@ -88,6 +89,7 @@ export const STATUS_LABEL: Record<ComputedStatus, string> = {
   F: "Folga",
   TE: "Trabalho Externo",
   HTL: "Hotel",
+  FIH: "Foi Embarcar e Ficou no Hotel",
   DDN: "Desembarque em Dia Não Útil",
   DES: "Desembarque",
   FI: "Folga Indenizada",
@@ -335,6 +337,24 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
     return { status: "E", periodo: embarque };
   }
 
+  // Um "P" (Programado) marca o dia da mobilização — lançado manualmente na aba Lançamentos,
+  // ANTES de existir qualquer confirmação do Drake pra esse colaborador nessas datas. Por
+  // decisão deliberada da operação (é sempre lançado de propósito, e o formulário já avisa e
+  // exige confirmação se houver folga/férias/atestado sobrepondo), esse "P" tem que SOBREPOR
+  // qualquer status vindo do Drake pro mesmo colaborador nessas datas (folga, disponibilidade,
+  // hotel, trabalho externo etc.) — daí ser checado logo depois do embarque real (E), acima de
+  // tudo mais. Assim que o Drake trouxer um embarque (E) de verdade pra essas datas, o bloco
+  // acima já vence primeiro e o "P" deixa de valer sozinho.
+  // Enquanto esse dia ainda não passou (inclusive o próprio dia, que ainda está em curso), o
+  // colaborador continua contando como Programado; só a PARTIR do dia seguinte é que
+  // consideramos que ele já embarcou de fato, mesmo que o Drake ainda não tenha confirmado
+  // (ver import-drake.ts, que substitui esse "P" pelo embarque real assim que aparece) — até
+  // lá, mostra como Embarcado "a confirmar" (mesma cor/rótulo já usados pra continuação de uma
+  // programação multi-dia), em vez de continuar mostrando Programado indefinidamente pro
+  // passado.
+  const programado = covering("P");
+  if (programado) return date < hoje ? { status: "E", periodo: programado } : { status: "P", periodo: programado };
+
   const folga = covering("F");
   if (folga) {
     const desembarque = periodos.find((p) => p.tipo === "E" && addDays(p.data_fim, 1) === date);
@@ -354,21 +374,25 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   if (te) return { status: "TE", periodo: te };
 
   const htl = covering("HTL");
-  if (htl) return { status: "HTL", periodo: htl };
+  if (htl) {
+    // "Foi embarcar e ficou no hotel antes de embarcar" (FIH): esse hotel não é qualquer
+    // hospedagem, é especificamente a estadia logo antes de um embarque real do mesmo
+    // colaborador — reconhecido quando existe um período "E" começando em até 3 dias depois
+    // do fim desse hotel (janela curta o bastante pra não confundir com uma hospedagem
+    // qualquer sem relação com o próximo embarque).
+    const embarqueLogoDepois = periodos.some((p) => {
+      if (p.tipo !== "E") return false;
+      const gap = daysBetween(htl.data_fim, p.data_inicio);
+      return gap >= 0 && gap <= 3;
+    });
+    return { status: embarqueLogoDepois ? "FIH" : "HTL", periodo: htl };
+  }
 
   const canc = covering("CANC");
   if (canc) return { status: "CANC", periodo: canc };
 
   const ec = covering("EC");
   if (ec) return { status: "STB", periodo: ec };
-
-  // Um "P" (Programado) marca o dia da mobilização — assim que esse dia passa, o colaborador
-  // já embarcou de fato, mesmo que o Drake ainda não tenha confirmado (ver import-drake.ts,
-  // que substitui esse "P" pelo embarque real assim que aparece); até lá, mostra como
-  // Embarcado "a confirmar" (mesma cor/rótulo já usados pra continuação de uma programação
-  // multi-dia), em vez de continuar mostrando Programado indefinidamente pro passado.
-  const programado = covering("P");
-  if (programado) return date <= hoje ? { status: "E", periodo: programado } : { status: "P", periodo: programado };
 
   const di = covering("DI");
   if (di) return { status: "STB", periodo: di };
@@ -382,7 +406,7 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
 // "E a confirmar": tanto a continuação gerada pro resto de uma programação multi-dia
 // (origem=programado) quanto um "P" cujo dia de mobilização já passou (ver computeDayStatus) —
 // em ambos os casos o Drake ainda não confirmou o embarque de verdade.
-function isEAConfirmarComputado(r: DayStatusResult): boolean {
+export function isEAConfirmarComputado(r: DayStatusResult): boolean {
   return r.status === "E" && (r.periodo?.origem === ORIGEM_PROGRAMADO || r.periodo?.tipo === "P");
 }
 
