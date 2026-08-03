@@ -38,7 +38,7 @@ import {
   TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
-  isEAConfirmarComputado,
+  isEAConfirmarComputado, isEAConfirmar,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
@@ -1119,7 +1119,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                         style={{ backgroundColor: getPeriodoColor(p)!, color: getContrastText(getPeriodoColor(p)!) }}
                         title={getPeriodoLabel(p)}
                       >
-                        {displayAbbr(tipo)}
+                        {isEAConfirmar(p) ? displayAbbr("E") : displayAbbr(tipo)}
                       </span>
                     ) : p.tipo}
                   </TableCell>
