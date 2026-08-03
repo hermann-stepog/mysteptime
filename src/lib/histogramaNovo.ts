@@ -271,33 +271,21 @@ export function addDays(dateStr: string, n: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
-// "E" gerado a partir de uma programação (dias após o 1º dia) ainda não foi confirmado
-// (ex.: pelo import Drake) — mostrado num verde mais claro para diferenciar do Embarcado
-// confirmado. Cobre também o próprio "P" (1º dia, dia da mobilização) uma vez que esse dia já
-// passou — mesma regra usada em computeDayStatus/isEAConfirmarComputado pra decidir quando um
-// "P" já era pra ter virado embarque de verdade — pra que a lista de Lançamentos mostre o
-// mesmo "a confirmar" que já aparece no Histograma, em vez de continuar parecendo Programado
-// puro numa data que já passou.
-export function isEAConfirmar(p: HistNovoPeriodo): boolean {
-  if (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO) return true;
-  if (p.tipo === "P" && p.data_inicio < todayStr()) return true;
-  return false;
-}
-
+// A continuação (dias 2+, tipo="E", origem=programado) de uma programação manual multi-dia
+// é a MESMA programação do "P" do 1º dia — nenhum dos dois foi confirmado pelo Drake ainda,
+// então os dois têm que aparecer/contar como Programado (cor e rótulo), não como Embarcado,
+// até o Drake trazer o embarque de verdade (decisão explícita: só o Drake pode "promover"
+// alguém de Programado pra Embarcado).
 export function getPeriodoColor(p: HistNovoPeriodo): string | null {
+  if (p.origem === ORIGEM_PROGRAMADO) return TIPO_COLOR.P;
   if (!isTipoPeriodo(p.tipo)) return null;
-  if (isEAConfirmar(p)) return E_A_CONFIRMAR_COLOR;
   return TIPO_COLOR[p.tipo];
 }
 
 export function getPeriodoLabel(p: HistNovoPeriodo): string {
+  if (p.origem === ORIGEM_PROGRAMADO) return TIPO_LABEL.P;
   if (!isTipoPeriodo(p.tipo)) return p.tipo;
-  // Um "P" cujo dia da mobilização já passou já conta como embarcado (a confirmar) — mostra
-  // "Embarcado", não "Programado", pra bater com o rótulo que computeDayStatus dá pra esse
-  // mesmo dia no Histograma/Próximos Eventos.
-  if (p.tipo === "P" && p.data_inicio < todayStr()) return `${TIPO_LABEL.E} (a confirmar)`;
-  const base = TIPO_LABEL[p.tipo];
-  return isEAConfirmar(p) ? `${base} (a confirmar)` : base;
+  return TIPO_LABEL[p.tipo];
 }
 
 function daysBetween(a: string, b: string): number {
@@ -357,9 +345,14 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   const fe = covering("FE");
   if (fe) return { status: "FE", periodo: fe };
 
+  // Só um embarque REAL (não a continuação origem=programado — ver abaixo) conta como
+  // "E"/Embarcado. Decisão explícita: "só pode considerar embarcado quando mudar no Drake;
+  // enquanto não mudar, mantém como programado" — vale tanto pro 1º dia (tipo="P") quanto pra
+  // continuação multi-dia (tipo="E", origem=programado), então nenhum dos dois pode contar
+  // como Embarcado antes da confirmação de verdade.
   const hoje = todayStr();
   const embarque = periodos.find((p) => {
-    if (p.tipo !== "E" || date < p.data_inicio || date > p.data_fim) return false;
+    if (p.tipo !== "E" || p.origem === ORIGEM_PROGRAMADO || date < p.data_inicio || date > p.data_fim) return false;
     if (date > hoje && embarqueTemDataFimPlaceholder(p)) return false;
     return true;
   });
@@ -371,23 +364,17 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
     return { status: "E", periodo: embarque };
   }
 
-  // Um "P" (Programado) marca o dia da mobilização — lançado manualmente na aba Lançamentos,
-  // ANTES de existir qualquer confirmação do Drake pra esse colaborador nessas datas. Por
-  // decisão deliberada da operação (é sempre lançado de propósito, e o formulário já avisa e
-  // exige confirmação se houver folga/férias/atestado sobrepondo), esse "P" tem que SOBREPOR
-  // qualquer status vindo do Drake pro mesmo colaborador nessas datas (folga, disponibilidade,
-  // hotel, trabalho externo etc.) — daí ser checado logo depois do embarque real (E), acima de
-  // tudo mais. Assim que o Drake trouxer um embarque (E) de verdade pra essas datas, o bloco
-  // acima já vence primeiro e o "P" deixa de valer sozinho.
-  // Enquanto esse dia ainda não passou (inclusive o próprio dia, que ainda está em curso), o
-  // colaborador continua contando como Programado; só a PARTIR do dia seguinte é que
-  // consideramos que ele já embarcou de fato, mesmo que o Drake ainda não tenha confirmado
-  // (ver import-drake.ts, que substitui esse "P" pelo embarque real assim que aparece) — até
-  // lá, mostra como Embarcado "a confirmar" (mesma cor/rótulo já usados pra continuação de uma
-  // programação multi-dia), em vez de continuar mostrando Programado indefinidamente pro
-  // passado.
-  const programado = covering("P");
-  if (programado) return date < hoje ? { status: "E", periodo: programado } : { status: "P", periodo: programado };
+  // "Programado": o 1º dia (tipo="P") e a continuação multi-dia (tipo="E", origem=programado)
+  // são a mesma programação, só ainda sem confirmação do Drake — os dois contam como
+  // Programado. Por decisão deliberada da operação (é sempre lançado de propósito, e o
+  // formulário já avisa e exige confirmação se houver folga/férias/atestado sobrepondo), esse
+  // "Programado" sobrepõe qualquer status vindo do Drake pro mesmo colaborador nessas datas
+  // (folga, disponibilidade, hotel, trabalho externo etc.) — daí ser checado logo depois do
+  // embarque real, acima de tudo mais. Assim que o Drake trouxer um embarque de verdade pra
+  // essas datas, o bloco acima já vence primeiro e o "Programado" deixa de valer sozinho.
+  const continuacaoProgramada = periodos.find((p) => p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO && date >= p.data_inicio && date <= p.data_fim);
+  const programado = covering("P") ?? continuacaoProgramada;
+  if (programado) return { status: "P", periodo: programado };
 
   // "BASE" só existe por causa do cruzamento do relatório da base com quem estava de Folga
   // ou Standby no momento da importação (ver DrakeUpdateCard) — por isso é checado logo
@@ -445,21 +432,16 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   return { status: "STB" };
 }
 
-// "E a confirmar": tanto a continuação gerada pro resto de uma programação multi-dia
-// (origem=programado) quanto um "P" cujo dia de mobilização já passou (ver computeDayStatus) —
-// em ambos os casos o Drake ainda não confirmou o embarque de verdade.
-export function isEAConfirmarComputado(r: DayStatusResult): boolean {
-  return r.status === "E" && (r.periodo?.origem === ORIGEM_PROGRAMADO || r.periodo?.tipo === "P");
-}
-
+// A continuação de uma programação multi-dia (origem=programado) agora sempre computa como
+// status "P" (ver computeDayStatus), nunca mais "E" — então não existe mais um "E a
+// confirmar" computado; getComputedColor/getComputedLabel são só um passthrough direto pro
+// status resolvido.
 export function getComputedColor(r: DayStatusResult): string {
-  if (isEAConfirmarComputado(r)) return E_A_CONFIRMAR_COLOR;
   return STATUS_COLOR[r.status];
 }
 
 export function getComputedLabel(r: DayStatusResult): string {
-  const base = STATUS_LABEL[r.status];
-  return isEAConfirmarComputado(r) ? `${base} (a confirmar)` : base;
+  return STATUS_LABEL[r.status];
 }
 
 // Paleta só em tons de azul pro donut de Taxa de Ocupação — independente das cores de status
@@ -475,12 +457,14 @@ export const OCUPACAO_BLUE_PALETTE = ["#0f2744", "#1e3a5f", "#2c5282", "#2563eb"
 export const OCUPACAO_WARM_PALETTE = ["#fbbf24", "#f97316", "#fde68a", "#c2410c", "#fdba74", "#9a3412", "#fcd34d", "#ea580c", "#fed7aa"];
 
 // Cores fixas por status (em vez de ciclar a paleta) pro donut "fora da ocupação" — Standby
-// vira cinza (não é bem "quente" como os outros, é só quem está sem alocação) e Férias
-// mantém o tom marrom-escuro original. Qualquer outro status (Atestado, Desembarque em Dia
-// Não Útil etc.) cai de volta na paleta quente cíclica.
+// vira cinza (não é bem "quente" como os outros, é só quem está sem alocação), Férias
+// mantém o tom marrom-escuro original, e Desembarque usa o mesmo laranja/âmbar já usado pra
+// esse status em todo o resto do app (STATUS_COLOR.DES). Qualquer outro status (Atestado
+// etc.) cai de volta na paleta quente cíclica.
 export const NAO_OCUPACAO_COLOR: Partial<Record<ComputedStatus, string>> = {
   STB: "#94a3b8",
   FE: "#7c2d12",
+  DES: "#f59e0b",
 };
 
 export type OldBucket = "E" | "P" | "BASE" | "D" | "B" | "FO" | "FE" | "TE" | "IND" | "OTHER";
@@ -523,16 +507,12 @@ export function toOldBucket(status: ComputedStatus): OldBucket {
 }
 
 // Balde de status pra fins de POB (presença física de verdade — POB por Unidade/Dia/Mês,
-// Mão de Obra por Semana): um "E (a confirmar)" — seja a continuação de uma programação
-// manual (origem=ORIGEM_PROGRAMADO, dias 2+) ou o próprio dia da mobilização "P" já passado
-// (ver isEAConfirmarComputado) — ainda não foi confirmado pelo Drake, então não deve contar
-// como presença física. Só quando o Drake substituir esse registro pelo embarque real
-// (origem="drake") é que a pessoa passa a contar no POB. Reclassificado pro balde "P" (mesmo
-// tratamento de quem ainda não embarcou de fato), não "E".
+// Mão de Obra por Semana). Desde que computeDayStatus passou a tratar qualquer coisa ainda
+// não confirmada pelo Drake (1º dia "P" ou a continuação multi-dia origem=programado) como
+// status "P" (nunca mais "E"), toOldBucket já resolve isso sozinho — esse wrapper existe só
+// pra deixar explícito, no ponto de uso, que é o balde usado pros gráficos de POB.
 export function pobBucket(result: DayStatusResult): OldBucket {
-  const bucket = toOldBucket(result.status);
-  if (bucket === "E" && isEAConfirmarComputado(result)) return "P";
-  return bucket;
+  return toOldBucket(result.status);
 }
 
 // Quem tem a vaga "ocupada" no ciclo de rotação pra fins da Taxa de Ocupação — embarcado
@@ -541,3 +521,76 @@ export function pobBucket(result: DayStatusResult): OldBucket {
 // resto (Standby, Férias, Atestado, Desembarque em Dia Não Útil etc.) é quem sobra pro lado
 // "fora da ocupação".
 export const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P" || b === "BASE";
+
+export interface HistoricoOcupacaoColaborador {
+  colaboradorId: string;
+  periodo: { inicio: string; fim: string };
+  diasPorCategoria: Partial<Record<ComputedStatus, number>>;
+  diasOcupado: number;
+  diasFora: number;
+  indiceOcupacao: number; // %
+  numeroDeEmbarques: number; // quantas vezes um novo Embarcado começou no intervalo
+  diasMedioEntreEmbarques: number | null;
+  dataUltimoEmbarque: string | null;
+  diasDesdeUltimoEmbarque: number | null; // contados até o fim do período analisado
+}
+
+// Painel individual da aba Histograma (visão "Colaborador") — investiga UM colaborador em
+// detalhe: dias por categoria, quantas vezes embarcou no período, e quanto tempo em média
+// fica parado entre um embarque e outro. Reaproveita computeDayStatus/toOldBucket/
+// isOcupadoBucket (mesma regra de prioridade e de "ocupado" usada no Dashboard) em vez de
+// reimplementar a resolução de status — evita duplicar a lógica com um motor divergente.
+export function calcularHistoricoOcupacaoColaborador(
+  colaboradorId: string,
+  periodos: HistNovoPeriodo[],
+  dataInicio: string,
+  dataFim: string,
+): HistoricoOcupacaoColaborador {
+  const datas = generateDateRange(dataInicio, dataFim);
+  const diasPorCategoria: Partial<Record<ComputedStatus, number>> = {};
+  let diasOcupado = 0;
+  const iniciosDeEmbarque: string[] = [];
+  let bucketAnterior: OldBucket | null = null;
+  let dataUltimoEmbarque: string | null = null;
+
+  datas.forEach((dataRef) => {
+    const status = computeDayStatus(periodos, dataRef).status;
+    diasPorCategoria[status] = (diasPorCategoria[status] ?? 0) + 1;
+    const bucket = toOldBucket(status);
+    if (isOcupadoBucket(bucket)) diasOcupado++;
+
+    // Um novo embarque começa quando o balde vira "E" (cobre Embarcado/Dobra/Folga
+    // Indenizada como o mesmo embarque em curso) vindo de um dia que não era "E".
+    if (bucket === "E" && bucketAnterior !== "E") {
+      iniciosDeEmbarque.push(dataRef);
+      dataUltimoEmbarque = dataRef;
+    }
+    bucketAnterior = bucket;
+  });
+
+  const diasTotal = datas.length;
+
+  let diasMedioEntreEmbarques: number | null = null;
+  if (iniciosDeEmbarque.length >= 2) {
+    const gaps: number[] = [];
+    for (let i = 1; i < iniciosDeEmbarque.length; i++) {
+      gaps.push(daysBetween(iniciosDeEmbarque[i - 1], iniciosDeEmbarque[i]));
+    }
+    diasMedioEntreEmbarques = Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10;
+  }
+
+  const diasDesdeUltimoEmbarque = dataUltimoEmbarque ? daysBetween(dataUltimoEmbarque, dataFim) : null;
+
+  return {
+    colaboradorId,
+    periodo: { inicio: dataInicio, fim: dataFim },
+    diasPorCategoria,
+    diasOcupado,
+    diasFora: diasTotal - diasOcupado,
+    indiceOcupacao: diasTotal > 0 ? Math.round((diasOcupado / diasTotal) * 1000) / 10 : 0,
+    numeroDeEmbarques: iniciosDeEmbarque.length,
+    diasMedioEntreEmbarques,
+    dataUltimoEmbarque,
+    diasDesdeUltimoEmbarque,
+  };
+}
