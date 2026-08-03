@@ -1,7 +1,9 @@
 -- Aptidao por cursos: snapshot normalizado das Necessidades Individuais do Drake.
 -- As tabelas preservam os identificadores do Drake e nunca vinculam pessoas por nome.
 
-CREATE TABLE public.drake_qualification_workers (
+-- Migração idempotente e somente aditiva: não remove tabelas nem dados.
+
+CREATE TABLE IF NOT EXISTS public.drake_qualification_workers (
   drake_worker_id                 TEXT PRIMARY KEY,
   registration                    TEXT NOT NULL,
   full_name                       TEXT NOT NULL,
@@ -13,7 +15,7 @@ CREATE TABLE public.drake_qualification_workers (
   synced_at                       TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE public.drake_qualification_contexts (
+CREATE TABLE IF NOT EXISTS public.drake_qualification_contexts (
   context_key                     TEXT PRIMARY KEY,
   matrix_id                       TEXT NOT NULL,
   matrix_name                     TEXT NOT NULL,
@@ -24,7 +26,7 @@ CREATE TABLE public.drake_qualification_contexts (
   UNIQUE (matrix_id, operational_unit_name, job_name)
 );
 
-CREATE TABLE public.drake_qualification_requirements (
+CREATE TABLE IF NOT EXISTS public.drake_qualification_requirements (
   context_key                     TEXT NOT NULL
     REFERENCES public.drake_qualification_contexts(context_key) ON DELETE CASCADE,
   qualification_id                TEXT NOT NULL,
@@ -41,7 +43,7 @@ CREATE TABLE public.drake_qualification_requirements (
   PRIMARY KEY (context_key, qualification_id)
 );
 
-CREATE TABLE public.drake_worker_qualifications (
+CREATE TABLE IF NOT EXISTS public.drake_worker_qualifications (
   drake_worker_id                 TEXT NOT NULL
     REFERENCES public.drake_qualification_workers(drake_worker_id) ON DELETE CASCADE,
   qualification_id                TEXT NOT NULL,
@@ -54,7 +56,7 @@ CREATE TABLE public.drake_worker_qualifications (
   PRIMARY KEY (drake_worker_id, qualification_id)
 );
 
-CREATE TABLE public.drake_qualification_sync_state (
+CREATE TABLE IF NOT EXISTS public.drake_qualification_sync_state (
   singleton                       BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
   last_success_at                 TIMESTAMPTZ NOT NULL,
   source_row_count                INTEGER NOT NULL,
@@ -64,17 +66,17 @@ CREATE TABLE public.drake_qualification_sync_state (
   qualification_count             INTEGER NOT NULL
 );
 
-CREATE INDEX drake_qualification_workers_job_idx
+CREATE INDEX IF NOT EXISTS drake_qualification_workers_job_idx
   ON public.drake_qualification_workers(job_name, worker_state);
-CREATE INDEX drake_qualification_workers_registration_idx
+CREATE INDEX IF NOT EXISTS drake_qualification_workers_registration_idx
   ON public.drake_qualification_workers(registration);
-CREATE INDEX drake_qualification_contexts_filters_idx
+CREATE INDEX IF NOT EXISTS drake_qualification_contexts_filters_idx
   ON public.drake_qualification_contexts(operational_unit_name, job_name, matrix_name);
-CREATE INDEX drake_qualification_requirements_context_idx
+CREATE INDEX IF NOT EXISTS drake_qualification_requirements_context_idx
   ON public.drake_qualification_requirements(context_key);
-CREATE INDEX drake_worker_qualifications_worker_idx
+CREATE INDEX IF NOT EXISTS drake_worker_qualifications_worker_idx
   ON public.drake_worker_qualifications(drake_worker_id);
-CREATE INDEX drake_worker_qualifications_qualification_idx
+CREATE INDEX IF NOT EXISTS drake_worker_qualifications_qualification_idx
   ON public.drake_worker_qualifications(qualification_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON
@@ -99,27 +101,66 @@ ALTER TABLE public.drake_qualification_requirements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.drake_worker_qualifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.drake_qualification_sync_state ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "operators_drake_qualification_workers_all"
-  ON public.drake_qualification_workers FOR ALL TO authenticated
-  USING (public.is_operator(auth.uid()))
-  WITH CHECK (public.is_operator(auth.uid()));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'drake_qualification_workers'
+      AND policyname = 'operators_drake_qualification_workers_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY "operators_drake_qualification_workers_all"
+      ON public.drake_qualification_workers FOR ALL TO authenticated
+      USING (public.is_operator(auth.uid()))
+      WITH CHECK (public.is_operator(auth.uid()))';
+  END IF;
 
-CREATE POLICY "operators_drake_qualification_contexts_all"
-  ON public.drake_qualification_contexts FOR ALL TO authenticated
-  USING (public.is_operator(auth.uid()))
-  WITH CHECK (public.is_operator(auth.uid()));
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'drake_qualification_contexts'
+      AND policyname = 'operators_drake_qualification_contexts_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY "operators_drake_qualification_contexts_all"
+      ON public.drake_qualification_contexts FOR ALL TO authenticated
+      USING (public.is_operator(auth.uid()))
+      WITH CHECK (public.is_operator(auth.uid()))';
+  END IF;
 
-CREATE POLICY "operators_drake_qualification_requirements_all"
-  ON public.drake_qualification_requirements FOR ALL TO authenticated
-  USING (public.is_operator(auth.uid()))
-  WITH CHECK (public.is_operator(auth.uid()));
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'drake_qualification_requirements'
+      AND policyname = 'operators_drake_qualification_requirements_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY "operators_drake_qualification_requirements_all"
+      ON public.drake_qualification_requirements FOR ALL TO authenticated
+      USING (public.is_operator(auth.uid()))
+      WITH CHECK (public.is_operator(auth.uid()))';
+  END IF;
 
-CREATE POLICY "operators_drake_worker_qualifications_all"
-  ON public.drake_worker_qualifications FOR ALL TO authenticated
-  USING (public.is_operator(auth.uid()))
-  WITH CHECK (public.is_operator(auth.uid()));
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'drake_worker_qualifications'
+      AND policyname = 'operators_drake_worker_qualifications_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY "operators_drake_worker_qualifications_all"
+      ON public.drake_worker_qualifications FOR ALL TO authenticated
+      USING (public.is_operator(auth.uid()))
+      WITH CHECK (public.is_operator(auth.uid()))';
+  END IF;
 
-CREATE POLICY "operators_drake_qualification_sync_state_all"
-  ON public.drake_qualification_sync_state FOR ALL TO authenticated
-  USING (public.is_operator(auth.uid()))
-  WITH CHECK (public.is_operator(auth.uid()));
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'drake_qualification_sync_state'
+      AND policyname = 'operators_drake_qualification_sync_state_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY "operators_drake_qualification_sync_state_all"
+      ON public.drake_qualification_sync_state FOR ALL TO authenticated
+      USING (public.is_operator(auth.uid()))
+      WITH CHECK (public.is_operator(auth.uid()))';
+  END IF;
+END
+$$;
