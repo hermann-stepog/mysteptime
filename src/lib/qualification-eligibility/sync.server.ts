@@ -6,15 +6,17 @@ import {
   type DrakeIndividualQualificationNeed,
   type QualificationNeedsPageProgress,
 } from "@/lib/drake/qualification-needs-api.server";
-import { isMandatoryNeedType } from "./domain";
+import {
+  fetchAllQualificationDomains,
+  type DrakeQualificationDomains,
+} from "@/lib/drake/qualification-matrix-api.server";
 
 const UPSERT_BATCH_SIZE = 500;
 
 export interface QualificationSyncSummary {
   sourceRows: number;
   workers: number;
-  contexts: number;
-  requirements: number;
+  options: number;
   qualifications: number;
 }
 
@@ -33,25 +35,11 @@ interface WorkerRow extends SnapshotRowBase {
   current_operational_unit_name: string | null;
 }
 
-interface ContextRow extends SnapshotRowBase {
-  context_key: string;
-  matrix_id: string;
-  matrix_name: string;
-  operational_unit_name: string;
-  job_name: string;
-}
-
-interface RequirementRow extends SnapshotRowBase {
-  context_key: string;
-  qualification_id: string;
-  qualification_name: string;
-  indicated_course_id: string | null;
-  indicated_course_name: string | null;
-  qualification_need_type_id: string | null;
-  qualification_need_type_name: string;
-  relationship_set_id: string | null;
-  relationship_set_name: string | null;
-  is_mandatory: boolean;
+interface OptionRow extends SnapshotRowBase {
+  domain_identifier: string;
+  option_id: string;
+  option_name: string;
+  sort_order: number;
 }
 
 interface QualificationRow extends SnapshotRowBase {
@@ -65,8 +53,7 @@ interface QualificationRow extends SnapshotRowBase {
 
 export interface QualificationSnapshot {
   workers: WorkerRow[];
-  contexts: ContextRow[];
-  requirements: RequirementRow[];
+  options: OptionRow[];
   qualifications: QualificationRow[];
 }
 
@@ -75,18 +62,20 @@ export async function syncDrakeQualificationNeeds(
   db: SupabaseClient,
   onPage?: (progress: QualificationNeedsPageProgress) => void | Promise<void>,
 ): Promise<QualificationSyncSummary> {
-  const source = await fetchAllDrakeQualificationNeeds(request, { onPage });
+  const [source, domains] = await Promise.all([
+    fetchAllDrakeQualificationNeeds(request, { onPage }),
+    fetchAllQualificationDomains(request),
+  ]);
   const syncId = crypto.randomUUID();
   const syncedAt = new Date().toISOString();
-  const snapshot = buildQualificationSnapshot(source, syncId, syncedAt);
+  const snapshot = buildQualificationSnapshot(source, domains, syncId, syncedAt);
 
   await upsertInBatches(db, "drake_qualification_workers", snapshot.workers, "drake_worker_id");
-  await upsertInBatches(db, "drake_qualification_contexts", snapshot.contexts, "context_key");
   await upsertInBatches(
     db,
-    "drake_qualification_requirements",
-    snapshot.requirements,
-    "context_key,qualification_id",
+    "drake_qualification_options",
+    snapshot.options,
+    "domain_identifier,option_id",
   );
   await upsertInBatches(
     db,
@@ -96,15 +85,15 @@ export async function syncDrakeQualificationNeeds(
   );
 
   await removeStaleRows(db, "drake_qualification_requirements", syncId);
-  await removeStaleRows(db, "drake_worker_qualifications", syncId);
   await removeStaleRows(db, "drake_qualification_contexts", syncId);
+  await removeStaleRows(db, "drake_worker_qualifications", syncId);
+  await removeStaleRows(db, "drake_qualification_options", syncId);
   await removeStaleRows(db, "drake_qualification_workers", syncId);
 
   const summary: QualificationSyncSummary = {
     sourceRows: source.length,
     workers: snapshot.workers.length,
-    contexts: snapshot.contexts.length,
-    requirements: snapshot.requirements.length,
+    options: snapshot.options.length,
     qualifications: snapshot.qualifications.length,
   };
   const { error: stateError } = await db.from("drake_qualification_sync_state").upsert(
@@ -113,9 +102,10 @@ export async function syncDrakeQualificationNeeds(
       last_success_at: syncedAt,
       source_row_count: summary.sourceRows,
       worker_count: summary.workers,
-      context_count: summary.contexts,
-      requirement_count: summary.requirements,
+      context_count: 0,
+      requirement_count: 0,
       qualification_count: summary.qualifications,
+      option_count: summary.options,
     },
     { onConflict: "singleton" },
   );
@@ -126,13 +116,12 @@ export async function syncDrakeQualificationNeeds(
 
 export function buildQualificationSnapshot(
   source: DrakeIndividualQualificationNeed[],
+  domains: DrakeQualificationDomains,
   syncId: string,
   syncedAt: string,
 ): QualificationSnapshot {
   const base = { sync_id: syncId, synced_at: syncedAt };
   const workers = new Map<string, WorkerRow>();
-  const contexts = new Map<string, ContextRow>();
-  const requirements = new Map<string, RequirementRow>();
   const qualifications = new Map<string, QualificationRow>();
 
   for (const need of source) {
@@ -157,68 +146,36 @@ export function buildQualificationSnapshot(
       indicated_course_name: need.indicatedCourseName,
       expiration_date: toDateOnly(need.expirationDate),
     };
-    const existingQualification = qualifications.get(qualificationKey);
+    const existing = qualifications.get(qualificationKey);
     if (
-      !existingQualification ||
-      compareNullableDate(qualification.expiration_date, existingQualification.expiration_date) > 0
+      !existing ||
+      compareNullableDate(qualification.expiration_date, existing.expiration_date) > 0
     ) {
       qualifications.set(qualificationKey, qualification);
     }
-
-    const operationalUnit = need.operationalUnitName || need.currentOperationalUnitName;
-    if (!need.matrixId || !need.matrixName || !need.jobName || !operationalUnit) continue;
-
-    const contextKey = createContextKey(need.matrixId, operationalUnit, need.jobName);
-    contexts.set(contextKey, {
-      ...base,
-      context_key: contextKey,
-      matrix_id: need.matrixId,
-      matrix_name: need.matrixName,
-      operational_unit_name: operationalUnit,
-      job_name: need.jobName,
-    });
-
-    const mandatory = isMandatoryNeedType(need.qualificationNeedTypeName);
-    const requirementKey = `${contextKey}|${need.qualificationId}`;
-    const requirement: RequirementRow = {
-      ...base,
-      context_key: contextKey,
-      qualification_id: need.qualificationId,
-      qualification_name: need.qualificationName,
-      indicated_course_id: need.indicatedCourseId,
-      indicated_course_name: need.indicatedCourseName,
-      qualification_need_type_id: need.qualificationNeedTypeId,
-      qualification_need_type_name: need.qualificationNeedTypeName || "NAO INFORMADO",
-      relationship_set_id: need.relationshipSetId,
-      relationship_set_name: need.relationshipSetName,
-      is_mandatory: mandatory,
-    };
-    const existingRequirement = requirements.get(requirementKey);
-    if (!existingRequirement || (!existingRequirement.is_mandatory && mandatory)) {
-      requirements.set(requirementKey, requirement);
-    }
   }
+
+  const options = Object.entries(domains).flatMap(([identifier, values]) =>
+    values.map<OptionRow>((option) => ({
+      ...base,
+      domain_identifier: identifier,
+      option_id: option.id,
+      option_name: option.text,
+      sort_order: option.order,
+    })),
+  );
 
   return {
     workers: [...workers.values()],
-    contexts: [...contexts.values()],
-    requirements: [...requirements.values()],
+    options,
     qualifications: [...qualifications.values()],
   };
-}
-
-export function createContextKey(
-  matrixId: string,
-  operationalUnit: string,
-  jobName: string,
-): string {
-  return JSON.stringify([matrixId, operationalUnit, jobName]);
 }
 
 function toDateOnly(value: string | null): string | null {
   if (!value) return null;
   const match = value.match(/^\d{4}-\d{2}-\d{2}/);
-  if (!match) throw new Error(`Validade invalida recebida do Drake: ${value.slice(0, 30)}.`);
+  if (!match) throw new Error(`Validade inválida recebida do Drake: ${value.slice(0, 30)}.`);
   return match[0];
 }
 
@@ -238,9 +195,6 @@ async function upsertInBatches<T extends object>(
   for (let index = 0; index < rows.length; index += UPSERT_BATCH_SIZE) {
     const { error } = await db
       .from(table)
-      // O nome da tabela e o shape chegam pareados apenas por este helper. O SDK nao
-      // consegue inferir essa relacao quando ambos sao genericos, por isso o cast fica
-      // restrito a esta fronteira de persistencia.
       .upsert(rows.slice(index, index + UPSERT_BATCH_SIZE) as never, { onConflict });
     if (error) throw error;
   }

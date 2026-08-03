@@ -300,6 +300,33 @@ export type Database = {
         }
         Relationships: []
       }
+      drake_qualification_options: {
+        Row: {
+          domain_identifier: string
+          option_id: string
+          option_name: string
+          sort_order: number
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          domain_identifier: string
+          option_id: string
+          option_name: string
+          sort_order: number
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          domain_identifier?: string
+          option_id?: string
+          option_name?: string
+          sort_order?: number
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: []
+      }
       drake_qualification_requirements: {
         Row: {
           context_key: string
@@ -357,6 +384,7 @@ export type Database = {
         Row: {
           context_count: number
           last_success_at: string
+          option_count: number
           qualification_count: number
           requirement_count: number
           singleton: boolean
@@ -366,6 +394,7 @@ export type Database = {
         Insert: {
           context_count: number
           last_success_at: string
+          option_count?: number
           qualification_count: number
           requirement_count: number
           singleton?: boolean
@@ -375,6 +404,7 @@ export type Database = {
         Update: {
           context_count?: number
           last_success_at?: string
+          option_count?: number
           qualification_count?: number
           requirement_count?: number
           singleton?: boolean

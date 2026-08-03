@@ -1,34 +1,36 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateQualificationEligibility,
-  isMandatoryNeedType,
+  isMandatoryMarker,
   type EvaluateEligibilityInput,
 } from "./domain";
 
 function input(): EvaluateEligibilityInput {
   return {
     context: {
-      contextKey: "matrix|unit|job",
-      matrixId: "matrix",
-      matrixName: "STEP - OFFSHORE MANDATÓRIA",
+      operationType: "offshore",
+      operationalUnitId: "unit-1",
       operationalUnitName: "MV22",
-      jobName: "SOLDADOR",
+      jobId: "job-1",
+      jobName: "SOLDADOR I",
+      matrixIds: ["mandatory", "recommended"],
+      matrixNames: ["STEP - OFFSHORE MANDATÓRIA", "STEP - OFFSHORE RECOMENDAVEL"],
     },
     referenceDate: "2026-08-10",
     requirements: [
       {
         qualificationId: "cbsp",
         qualificationName: "CBSP",
-        indicatedCourseName: "CBSP",
-        needTypeName: "MANDATORIO OFFSHORE",
+        needTypeName: "Mandatório offshore",
         mandatory: true,
+        sourceMatrixName: "STEP - OFFSHORE MANDATÓRIA",
       },
       {
         qualificationId: "nr35",
         qualificationName: "NR-35",
-        indicatedCourseName: null,
-        needTypeName: "RECOMENDAVEL",
+        needTypeName: "Recomendável",
         mandatory: false,
+        sourceMatrixName: "STEP - OFFSHORE RECOMENDAVEL",
       },
     ],
     workers: [
@@ -36,7 +38,8 @@ function input(): EvaluateEligibilityInput {
         drakeWorkerId: "w1",
         registration: "1",
         fullName: "Ana",
-        jobName: "Soldador",
+        jobName: "Soldador I",
+        workerType: "Funcionario",
         workerState: "Ativo",
         currentOperationalUnitName: "BASE",
       },
@@ -44,15 +47,17 @@ function input(): EvaluateEligibilityInput {
         drakeWorkerId: "w2",
         registration: "2",
         fullName: "Bruno",
-        jobName: "SOLDADOR",
+        jobName: "SOLDADOR I",
+        workerType: "Funcionario",
         workerState: "Ativo",
-        currentOperationalUnitName: "MV18",
+        currentOperationalUnitName: "FORTE",
       },
       {
-        drakeWorkerId: "inactive",
+        drakeWorkerId: "w3",
         registration: "3",
         fullName: "Inativo",
-        jobName: "SOLDADOR",
+        jobName: "SOLDADOR I",
+        workerType: "Funcionario",
         workerState: "Inativo",
         currentOperationalUnitName: null,
       },
@@ -60,59 +65,75 @@ function input(): EvaluateEligibilityInput {
     qualifications: [
       {
         drakeWorkerId: "w1",
-        qualificationId: "cbsp",
+        qualificationId: "another-id",
         qualificationName: "CBSP",
-        indicatedCourseName: "CBSP",
-        expirationDate: "2027-01-01",
-      },
-      {
-        drakeWorkerId: "w1",
-        qualificationId: "nr35",
-        qualificationName: "NR-35",
         indicatedCourseName: null,
-        expirationDate: "2026-08-20",
+        expirationDate: "2027-12-31",
       },
       {
         drakeWorkerId: "w2",
         qualificationId: "cbsp",
         qualificationName: "CBSP",
-        indicatedCourseName: "CBSP",
+        indicatedCourseName: null,
         expirationDate: "2026-08-09",
       },
     ],
   };
 }
 
-describe("course eligibility", () => {
-  it("classifica obrigatorio vencido como inapto e recomendacao como alerta", () => {
+describe("qualification eligibility", () => {
+  it("reconhece M, MO e tipos mandatórios como bloqueadores", () => {
+    expect(isMandatoryMarker("M")).toBe(true);
+    expect(isMandatoryMarker("MO")).toBe(true);
+    expect(isMandatoryMarker("MANDATÓRIO OFFSHORE")).toBe(true);
+    expect(isMandatoryMarker("R")).toBe(false);
+  });
+
+  it("mantém recomendação pendente na aba de aptos e bloqueia mandato vencido", () => {
     const result = evaluateQualificationEligibility(input());
 
-    expect(result.workers.map((worker) => worker.worker.drakeWorkerId)).toEqual(["w1", "w2"]);
-    expect(result.workers[0]).toMatchObject({ status: "fit-with-warnings", blockingCount: 0 });
-    expect(
-      result.workers[0]?.courses.find((course) => course.qualificationId === "nr35")?.status,
-    ).toBe("expiring-soon");
-    expect(result.workers[1]).toMatchObject({ status: "unfit", blockingCount: 1 });
+    expect(result.workers).toHaveLength(2);
+    expect(result.workers[0]?.worker.fullName).toBe("Ana");
+    expect(result.workers[0]?.status).toBe("fit-with-warnings");
+    expect(result.workers[0]?.blockingCount).toBe(0);
+    expect(result.workers[1]?.status).toBe("unfit");
+    expect(result.workers[1]?.blockingCount).toBe(1);
   });
 
-  it("considera a maior validade quando existem evidencias repetidas", () => {
+  it("trata curso mandatório sem validade como não apto", () => {
     const data = input();
-    data.qualifications.push({
-      drakeWorkerId: "w2",
-      qualificationId: "cbsp",
-      qualificationName: "CBSP",
-      indicatedCourseName: "CBSP",
-      expirationDate: "2027-12-31",
-    });
+    data.qualifications = [
+      {
+        drakeWorkerId: "w1",
+        qualificationId: "cbsp",
+        qualificationName: "CBSP",
+        indicatedCourseName: null,
+        expirationDate: null,
+      },
+    ];
 
-    const result = evaluateQualificationEligibility(data);
-    expect(
-      result.workers.find((worker) => worker.worker.drakeWorkerId === "w2")?.blockingCount,
-    ).toBe(0);
+    const worker = evaluateQualificationEligibility(data).workers[0];
+    expect(worker?.status).toBe("unfit");
+    expect(worker?.courses.find((course) => course.qualificationId === "cbsp")?.status).toBe(
+      "no-expiration",
+    );
   });
 
-  it("normaliza acentos ao identificar tipos mandatorios", () => {
-    expect(isMandatoryNeedType("MANDATÓRIO ESCALADOR")).toBe(true);
-    expect(isMandatoryNeedType("Recomendável")).toBe(false);
+  it("considera válida uma certificação que vence na data da solicitação", () => {
+    const data = input();
+    data.workers = [data.workers[0]!];
+    data.qualifications = [
+      {
+        drakeWorkerId: "w1",
+        qualificationId: "cbsp",
+        qualificationName: "CBSP",
+        indicatedCourseName: null,
+        expirationDate: "2026-08-10",
+      },
+    ];
+
+    const worker = evaluateQualificationEligibility(data).workers[0];
+    expect(worker?.status).toBe("fit-with-warnings");
+    expect(worker?.courses[0]?.status).toBe("expiring-soon");
   });
 });

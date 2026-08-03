@@ -408,8 +408,7 @@ async function updateDrakeDataInner(
           durationMs: qualificationSyncDurationMs,
           sourceRows: qualificationSummary.sourceRows,
           workerCount: qualificationSummary.workers,
-          contextCount: qualificationSummary.contexts,
-          requirementCount: qualificationSummary.requirements,
+          optionCount: qualificationSummary.options,
           qualificationCount: qualificationSummary.qualifications,
         });
         await emit("qualification-needs-completed", { qualificationStatus: "completed" });
@@ -441,8 +440,7 @@ async function updateDrakeDataInner(
         import14DurationMs,
         qualificationNeeds: qualificationSummary?.sourceRows,
         qualificationWorkers: qualificationSummary?.workers,
-        qualificationContexts: qualificationSummary?.contexts,
-        qualificationRequirements: qualificationSummary?.requirements,
+        qualificationOptions: qualificationSummary?.options,
         qualificationSyncDurationMs,
         totalDurationMs: Date.now() - startedAtMs,
       };

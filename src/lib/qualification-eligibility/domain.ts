@@ -1,20 +1,41 @@
+export type OperationType = "onshore" | "offshore" | "offshore-irata";
 export type EligibilityStatus = "fit" | "fit-with-warnings" | "unfit";
-export type CourseEligibilityStatus = "valid" | "expiring-soon" | "expired" | "missing";
+export type CourseEligibilityStatus =
+  | "valid"
+  | "expiring-soon"
+  | "expired"
+  | "missing"
+  | "no-expiration";
+
+export const OPERATION_TYPE_LABEL: Record<OperationType, string> = {
+  onshore: "Onshore",
+  offshore: "Offshore",
+  "offshore-irata": "Offshore IRATA",
+};
 
 export interface QualificationContext {
-  contextKey: string;
-  matrixId: string;
-  matrixName: string;
+  operationType: OperationType;
+  operationalUnitId: string;
   operationalUnitName: string;
+  jobId: string;
   jobName: string;
+  matrixIds: string[];
+  matrixNames: string[];
+}
+
+export interface QualificationEligibilitySelection {
+  operationalUnitId: string;
+  jobId: string;
+  operationType: OperationType;
+  referenceDate: string;
 }
 
 export interface QualificationRequirement {
   qualificationId: string;
   qualificationName: string;
-  indicatedCourseName: string | null;
   needTypeName: string;
   mandatory: boolean;
+  sourceMatrixName: string;
 }
 
 export interface QualificationWorker {
@@ -22,6 +43,7 @@ export interface QualificationWorker {
   registration: string;
   fullName: string;
   jobName: string | null;
+  workerType: string | null;
   workerState: string | null;
   currentOperationalUnitName: string | null;
 }
@@ -40,6 +62,7 @@ export interface EvaluatedCourse {
   courseName: string;
   needTypeName: string;
   mandatory: boolean;
+  sourceMatrixName: string;
   status: CourseEligibilityStatus;
   expirationDate: string | null;
 }
@@ -51,6 +74,7 @@ export interface WorkerEligibility {
   validCount: number;
   warningCount: number;
   blockingCount: number;
+  nextExpirationDate: string | null;
 }
 
 export interface EligibilityEvaluation {
@@ -70,9 +94,12 @@ export interface EvaluateEligibilityInput {
 }
 
 const DAY_MS = 86_400_000;
+const ACTIVE_WORKER = "ATIVO";
+const EMPLOYEE_WORKER_TYPE = "FUNCIONARIO";
 
-export function isMandatoryNeedType(value: string | null | undefined): boolean {
-  return normalizeText(value).startsWith("MANDATORIO");
+export function isMandatoryMarker(value: string | null | undefined): boolean {
+  const marker = normalizeText(value);
+  return marker === "M" || marker === "MO" || marker.startsWith("MANDATORIO");
 }
 
 export function evaluateQualificationEligibility(
@@ -85,32 +112,37 @@ export function evaluateQualificationEligibility(
   const normalizedJob = normalizeText(input.context.jobName);
 
   const workers = input.workers
-    .filter((worker) => normalizeText(worker.workerState) === "ATIVO")
+    .filter((worker) => normalizeText(worker.workerState) === ACTIVE_WORKER)
+    .filter((worker) => normalizeText(worker.workerType) === EMPLOYEE_WORKER_TYPE)
     .filter((worker) => normalizeText(worker.jobName) === normalizedJob)
     .map((worker) => {
-      const evidence = qualificationsByWorker.get(worker.drakeWorkerId) ?? new Map();
+      const evidence = qualificationsByWorker.get(worker.drakeWorkerId);
       const courses = requirements.map((requirement) =>
-        evaluateCourse(
-          requirement,
-          evidence.get(requirement.qualificationId),
-          reference,
-          warningLimit,
-        ),
+        evaluateCourse(requirement, findEvidence(evidence, requirement), reference, warningLimit),
       );
       const blockingCount = courses.filter(
-        (course) =>
-          course.mandatory && (course.status === "missing" || course.status === "expired"),
+        (course) => course.mandatory && isBlockingCourseStatus(course.status),
       ).length;
       const warningCount = courses.filter(
         (course) =>
           course.status === "expiring-soon" ||
-          (!course.mandatory && (course.status === "missing" || course.status === "expired")),
+          (!course.mandatory && isBlockingCourseStatus(course.status)),
       ).length;
-      const validCount = courses.filter((course) => course.status === "valid").length;
+      const validCount = courses.filter(
+        (course) => course.status === "valid" || course.status === "expiring-soon",
+      ).length;
       const status: EligibilityStatus =
         blockingCount > 0 ? "unfit" : warningCount > 0 ? "fit-with-warnings" : "fit";
 
-      return { worker, status, courses, validCount, warningCount, blockingCount };
+      return {
+        worker,
+        status,
+        courses,
+        validCount,
+        warningCount,
+        blockingCount,
+        nextExpirationDate: findNextExpiration(courses, reference),
+      };
     })
     .sort(compareWorkerEligibility);
 
@@ -130,7 +162,8 @@ function evaluateCourse(
 ): EvaluatedCourse {
   const expiration = evidence?.expirationDate ? parseIsoDate(evidence.expirationDate) : null;
   let status: CourseEligibilityStatus;
-  if (!expiration) status = "missing";
+  if (!evidence) status = "missing";
+  else if (!expiration) status = "no-expiration";
   else if (expiration < reference) status = "expired";
   else if (expiration <= warningLimit) status = "expiring-soon";
   else status = "valid";
@@ -138,9 +171,10 @@ function evaluateCourse(
   return {
     qualificationId: requirement.qualificationId,
     qualificationName: requirement.qualificationName,
-    courseName: requirement.indicatedCourseName || requirement.qualificationName,
+    courseName: evidence?.indicatedCourseName || requirement.qualificationName,
     needTypeName: requirement.needTypeName,
     mandatory: requirement.mandatory,
+    sourceMatrixName: requirement.sourceMatrixName,
     status,
     expirationDate: evidence?.expirationDate ?? null,
   };
@@ -151,33 +185,59 @@ function deduplicateRequirements(
 ): QualificationRequirement[] {
   const byQualification = new Map<string, QualificationRequirement>();
   for (const requirement of requirements) {
-    const existing = byQualification.get(requirement.qualificationId);
+    const key = normalizeText(requirement.qualificationName) || requirement.qualificationId;
+    const existing = byQualification.get(key);
     if (!existing || (!existing.mandatory && requirement.mandatory)) {
-      byQualification.set(requirement.qualificationId, requirement);
+      byQualification.set(key, requirement);
     }
   }
-  return [...byQualification.values()].sort((a, b) => {
-    if (a.mandatory !== b.mandatory) return a.mandatory ? -1 : 1;
-    return displayCourseName(a).localeCompare(displayCourseName(b), "pt-BR");
+  return [...byQualification.values()].sort((left, right) => {
+    if (left.mandatory !== right.mandatory) return left.mandatory ? -1 : 1;
+    return left.qualificationName.localeCompare(right.qualificationName, "pt-BR");
   });
 }
 
+type WorkerEvidenceIndex = {
+  byId: Map<string, WorkerQualification>;
+  byName: Map<string, WorkerQualification>;
+};
+
 function indexQualifications(
   qualifications: WorkerQualification[],
-): Map<string, Map<string, WorkerQualification>> {
-  const byWorker = new Map<string, Map<string, WorkerQualification>>();
+): Map<string, WorkerEvidenceIndex> {
+  const byWorker = new Map<string, WorkerEvidenceIndex>();
   for (const qualification of qualifications) {
-    let byQualification = byWorker.get(qualification.drakeWorkerId);
-    if (!byQualification) {
-      byQualification = new Map();
-      byWorker.set(qualification.drakeWorkerId, byQualification);
+    let evidence = byWorker.get(qualification.drakeWorkerId);
+    if (!evidence) {
+      evidence = { byId: new Map(), byName: new Map() };
+      byWorker.set(qualification.drakeWorkerId, evidence);
     }
-    const existing = byQualification.get(qualification.qualificationId);
-    if (!existing || compareExpiration(qualification.expirationDate, existing.expirationDate) > 0) {
-      byQualification.set(qualification.qualificationId, qualification);
-    }
+    keepLatest(evidence.byId, qualification.qualificationId, qualification);
+    keepLatest(evidence.byName, normalizeText(qualification.qualificationName), qualification);
   }
   return byWorker;
+}
+
+function keepLatest(
+  index: Map<string, WorkerQualification>,
+  key: string,
+  qualification: WorkerQualification,
+): void {
+  if (!key) return;
+  const existing = index.get(key);
+  if (!existing || compareExpiration(qualification.expirationDate, existing.expirationDate) > 0) {
+    index.set(key, qualification);
+  }
+}
+
+function findEvidence(
+  evidence: WorkerEvidenceIndex | undefined,
+  requirement: QualificationRequirement,
+): WorkerQualification | undefined {
+  return (
+    evidence?.byId.get(requirement.qualificationId) ??
+    evidence?.byName.get(normalizeText(requirement.qualificationName))
+  );
 }
 
 function compareExpiration(left: string | null, right: string | null): number {
@@ -185,6 +245,19 @@ function compareExpiration(left: string | null, right: string | null): number {
   if (!left) return -1;
   if (!right) return 1;
   return left.localeCompare(right);
+}
+
+function isBlockingCourseStatus(status: CourseEligibilityStatus): boolean {
+  return status === "missing" || status === "expired" || status === "no-expiration";
+}
+
+function findNextExpiration(courses: EvaluatedCourse[], reference: Date): string | null {
+  const dates = courses
+    .map((course) => course.expirationDate)
+    .filter((value): value is string => Boolean(value))
+    .filter((value) => parseIsoDate(value) >= reference)
+    .sort();
+  return dates[0] ?? null;
 }
 
 function compareWorkerEligibility(left: WorkerEligibility, right: WorkerEligibility): number {
@@ -199,8 +272,8 @@ function compareWorkerEligibility(left: WorkerEligibility, right: WorkerEligibil
   );
 }
 
-function displayCourseName(requirement: QualificationRequirement): string {
-  return requirement.indicatedCourseName || requirement.qualificationName;
+export function normalizeQualificationText(value: string | null | undefined): string {
+  return normalizeText(value);
 }
 
 function normalizeText(value: string | null | undefined): string {
@@ -213,10 +286,10 @@ function normalizeText(value: string | null | undefined): string {
 
 function parseIsoDate(value: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error(`Data de referencia invalida: ${value}`);
+    throw new Error(`Data de referência inválida: ${value}`);
   }
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime())) throw new Error(`Data invalida: ${value}`);
+  if (Number.isNaN(parsed.getTime())) throw new Error(`Data inválida: ${value}`);
   return parsed;
 }
 

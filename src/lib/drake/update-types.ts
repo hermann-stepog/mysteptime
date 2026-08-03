@@ -118,9 +118,9 @@ export const DRAKE_STAGE_MESSAGE: Record<DrakeUpdateStage, string> = {
   "validating-availability-file": "Validando relatório de disponibilidade...",
   "importing-availability": "Atualizando períodos de disponibilidade...",
   "availability-completed": "Relatório de disponibilidade atualizado.",
-  "loading-qualification-needs": "Buscando necessidades e vencimentos de cursos...",
-  "importing-qualification-needs": "Atualizando matrizes e aptidão dos colaboradores...",
-  "qualification-needs-completed": "Cursos e requisitos de aptidão atualizados.",
+  "loading-qualification-needs": "Buscando dropdowns e vencimentos de cursos...",
+  "importing-qualification-needs": "Atualizando vagas, unidades e cursos dos colaboradores...",
+  "qualification-needs-completed": "Vagas, unidades e cursos atualizados.",
   finalizing: "Finalizando atualização...",
   completed: "Dados atualizados com sucesso.",
   "completed-with-errors": "Atualização concluída com pendências.",
@@ -139,6 +139,7 @@ export interface DrakeUpdateResult {
   import14DurationMs?: number;
   qualificationNeeds?: number;
   qualificationWorkers?: number;
+  qualificationOptions?: number;
   qualificationContexts?: number;
   qualificationRequirements?: number;
   qualificationSyncDurationMs?: number;
