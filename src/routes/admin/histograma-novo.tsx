@@ -50,7 +50,6 @@ import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
-import { QualificationEligibilityTab } from "@/components/histograma/QualificationEligibilityTab";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
 import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
 import { selectAllPages } from "@/lib/supabasePaginate";
@@ -184,7 +183,6 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaborado
             <>
               <TabsTrigger value="histograma">Histograma</TabsTrigger>
               <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
-              <TabsTrigger value="aptidao">Aptidão</TabsTrigger>
             </>
           )}
         </TabsList>
@@ -198,9 +196,6 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaborado
             </TabsContent>
             <TabsContent value="lancamentos" className="mt-4">
               <LancamentosTab colaboradores={colaboradores} periodos={periodos} />
-            </TabsContent>
-            <TabsContent value="aptidao" className="mt-4">
-              <QualificationEligibilityTab />
             </TabsContent>
           </>
         )}

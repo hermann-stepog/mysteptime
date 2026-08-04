@@ -37,6 +37,7 @@ import {
 } from "@dnd-kit/core";
 import { notify } from "@/lib/notify";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
+import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { pageTitle } from "@/lib/pageTitle";
 import {
   generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
@@ -1193,6 +1194,7 @@ function NominationsPage() {
         <TabsList>
           <TabsTrigger value="simulacao">Simulação</TabsTrigger>
           <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+          <TabsTrigger value="aptidao">Aptidão</TabsTrigger>
           <TabsTrigger value="config">
             <Settings className="mr-1.5 h-3.5 w-3.5" /> Configurações
           </TabsTrigger>
@@ -1270,6 +1272,10 @@ function NominationsPage() {
               </div>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="aptidao" className="pt-4">
+          <QualificationEligibilityTab />
         </TabsContent>
 
         {/* ── Configurações ── */}
