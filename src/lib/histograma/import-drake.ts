@@ -321,6 +321,16 @@ export async function importDrakeEmbarkation(
   // created_at mais recente sobrevive.
   await limparPeriodosDrakeEmbarqueSuperados(supabase);
 
+  // Mesmo problema, outro par de tipos: quando o Drake confirma um embarque real (origem=drake
+  // ou manual) pra alguém que só estava "Programado" (P origem=manual, ou a continuação E
+  // origem=programado), a limpeza mais acima (bloco "Quando o Drake confirma...") deveria ter
+  // apagado esse Programado no mesmo import que trouxe o embarque real — mas pelo mesmo motivo
+  // de sincronizações se sobrepondo (ver comentário da função acima), pode sobrar. Sem essa
+  // rede de segurança, a pessoa aparece na lista de Lançamentos duas vezes pro mesmo período —
+  // uma linha "Programado" e outra "Embarcado" de verdade — o que não faz sentido e mina a
+  // confiança nos dados.
+  await limparProgramadosSuperadosPorEmbarqueReal(supabase);
+
   // Gera o timesheet (semanas + dias) automaticamente pra cada período de embarque
   // importado — sem isso o colaborador não tem onde lançar as horas até alguém criar o
   // embarque manualmente. periodo_id fica null de propósito: o Drake sempre apaga e
@@ -383,6 +393,53 @@ async function limparPeriodosDrakeEmbarqueSuperados(supabase: SupabaseClient): P
       if (superado) idsParaApagar.push(p.id);
     }
   }
+  if (!idsParaApagar.length) return;
+
+  for (let i = 0; i < idsParaApagar.length; i += 500) {
+    const lote = idsParaApagar.slice(i, i + 500);
+    const { error: unlinkErr } = await supabase
+      .from("timesheet_embarques")
+      .update({ periodo_id: null })
+      .in("periodo_id", lote);
+    if (unlinkErr) throw unlinkErr;
+    const { error: delErr } = await supabase.from("hist_novo_periodos").delete().in("id", lote);
+    if (delErr) throw delErr;
+  }
+}
+
+// Entre todo período "Programado" (P origem=manual, 1º dia; ou E origem=programado,
+// continuação) que se sobrepõe a um embarque REAL confirmado (tipo="E", origem != programado)
+// do mesmo colaborador, apaga o Programado — ver comentário no ponto de chamada.
+async function limparProgramadosSuperadosPorEmbarqueReal(supabase: SupabaseClient): Promise<void> {
+  const [programados, reais] = await Promise.all([
+    selectAllPages<{ id: string; colaborador_id: string; tipo: string; origem: string | null; data_inicio: string; data_fim: string }>((from, to) =>
+      supabase.from("hist_novo_periodos").select("id, colaborador_id, tipo, origem, data_inicio, data_fim")
+        .in("origem", ["manual", ORIGEM_PROGRAMADO])
+        .order("id").range(from, to),
+    ),
+    selectAllPages<{ colaborador_id: string; data_inicio: string; data_fim: string }>((from, to) =>
+      supabase.from("hist_novo_periodos").select("colaborador_id, data_inicio, data_fim")
+        .eq("tipo", "E").neq("origem", ORIGEM_PROGRAMADO)
+        .order("id").range(from, to),
+    ),
+  ]);
+
+  const reaisPorColaborador = new Map<string, { data_inicio: string; data_fim: string }[]>();
+  reais.forEach((r) => {
+    if (!reaisPorColaborador.has(r.colaborador_id)) reaisPorColaborador.set(r.colaborador_id, []);
+    reaisPorColaborador.get(r.colaborador_id)!.push(r);
+  });
+
+  const idsParaApagar = programados
+    .filter((p) => (p.tipo === "P" && p.origem === "manual") || (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO))
+    .filter((p) => {
+      // Mesma regra de tolerância de 1 dia já usada na limpeza acima: o "P" é só o dia da
+      // mobilização, o embarque de fato começa no dia seguinte.
+      const fimConsiderado = p.tipo === "P" ? addDays(p.data_fim, 1) : p.data_fim;
+      return (reaisPorColaborador.get(p.colaborador_id) ?? [])
+        .some((r) => r.data_fim >= p.data_inicio && r.data_inicio <= fimConsiderado);
+    })
+    .map((p) => p.id);
   if (!idsParaApagar.length) return;
 
   for (let i = 0; i < idsParaApagar.length; i += 500) {
