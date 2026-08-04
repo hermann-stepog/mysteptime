@@ -1,19 +1,13 @@
-## Objetivo
-Na aba **Histograma** do módulo Histograma Offshore, transformar as siglas coloridas (E, P, D, FO, F) exibidas acima da tabela em **chips clicáveis** que filtram os colaboradores mostrados.
+# Deploy da função `get-bm-smartsheet-data`
 
-## Comportamento
-- Os chips (E, P, D, FO, F) viram botões toggle **multi-seleção**. "B" (Base) fica de fora do filtro, como pedido.
-- Ao ativar um ou mais chips, a tabela mostra **apenas colaboradores que têm ao menos um dia com aquele status dentro do período** selecionado (dateStart → dateEnd), usando `getDisplayStatus` (mesma lógica que já pinta as células, para que P e E fiquem coerentes com o visual).
-- Sem chips ativos = mostra todos (comportamento atual).
-- Estado visual do chip ativo: borda mais forte + leve highlight, seguindo o mesmo padrão dos chips de status já existentes no cabeçalho (linha ~145-168), para manter consistência.
-- Um pequeno botão "Limpar" aparece ao lado da legenda quando houver pelo menos um chip ativo.
-- Contador no rodapé (`X colaboradores · Y dias`) continua refletindo o que está visível após o filtro.
+## O que será feito
+Publicar novamente a função de backend `get-bm-smartsheet-data` (integração Smartsheet para BM), sem alterar o código.
 
-## Escopo técnico
-Arquivo único: `src/routes/admin/embarkations.tsx`, apenas dentro do componente `HistogramaTab` (linha 682+):
-- Adicionar `useState<Set<DayStatus>>` para os status ativos.
-- Calcular `visiblePeople` com `useMemo` filtrando `people` pelos dias do range via `getDisplayStatus`.
-- Substituir os `<span>` da legenda por `<button>` toggles reaproveitando cores de `DAY_STATUS_COLOR`.
-- Trocar `people.map` por `visiblePeople.map` no corpo da tabela e no contador.
+## Detalhes técnicos
+- Função: `supabase/functions/get-bm-smartsheet-data/index.ts` (inalterada)
+- Ação: deploy via `supabase--deploy_edge_functions` com `["get-bm-smartsheet-data"]`
+- Segredos usados já existem: `SMARTSHEET_TOKEN`, `SMARTSHEET_ID_1`, `SMARTSHEET_ID_2`
+- Após o deploy: verificar os logs da função para confirmar que subiu sem erro
 
-Nada muda fora de `HistogramaTab`: os chips de resumo do cabeçalho (linha 145), a aba Dashboard e a lógica do Smartsheet permanecem intactas.
+## Fora do escopo
+Nenhuma mudança de código, schema ou frontend.
