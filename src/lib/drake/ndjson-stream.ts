@@ -1,12 +1,10 @@
-import type { DrakeProgressEvent } from "./update-types";
-
 /**
  * Lê NDJSON linha a linha a partir de um ReadableStream.
- * Usado pelo card para atualizar a barra em tempo real.
+ * Compartilhado pelos fluxos independentes de atualização do Drake.
  */
-export async function consumeDrakeNdjsonStream(
+export async function consumeDrakeNdjsonStream<TEvent>(
   body: ReadableStream<Uint8Array>,
-  onEvent: (event: DrakeProgressEvent) => void,
+  onEvent: (event: TEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const reader = body.getReader();
@@ -27,11 +25,11 @@ export async function consumeDrakeNdjsonStream(
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        onEvent(JSON.parse(trimmed) as DrakeProgressEvent);
+        onEvent(JSON.parse(trimmed) as TEvent);
       }
     }
     const tail = buffer.trim();
-    if (tail) onEvent(JSON.parse(tail) as DrakeProgressEvent);
+    if (tail) onEvent(JSON.parse(tail) as TEvent);
   } finally {
     reader.releaseLock();
   }

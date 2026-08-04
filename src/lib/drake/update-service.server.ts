@@ -44,18 +44,10 @@ import { sanitizeError } from "./sanitize-error.server";
 import { importDrakeEmbarkationFromBuffer } from "@/lib/histograma/import-drake";
 import { importDisponibilidadeFromBuffer } from "@/lib/histograma/import-disponibilidade";
 import {
-  QUALIFICATION_STORAGE_MIGRATIONS,
-  QualificationStorageNotReadyError,
-  syncDrakeQualificationNeeds,
-  type QualificationSyncSummary,
-} from "@/lib/qualification-eligibility/sync.server";
-import {
   DRAKE_AVAILABILITY_IMPORT_FAILED,
   DRAKE_EMBARKATION_EXPORT_FAILED,
   DRAKE_EMBARKATION_IMPORT_FAILED,
   DRAKE_AVAILABILITY_EXPORT_FAILED,
-  DRAKE_QUALIFICATION_IMPORT_FAILED,
-  DRAKE_QUALIFICATION_STORAGE_NOT_READY,
   DRAKE_STAGE_MESSAGE,
   DRAKE_STAGE_PROGRESS,
   DRAKE_TEMP_STORAGE_ERROR,
@@ -101,7 +93,6 @@ async function updateDrakeDataInner(
 
   let embarkationStatus: DrakeReportStatus = "waiting";
   let availabilityStatus: DrakeReportStatus = "waiting";
-  let qualificationStatus: DrakeReportStatus = "waiting";
   let currentStage: DrakeUpdateStage = "queued";
   let currentProgress = 0;
   let currentReportCode: number | undefined;
@@ -119,26 +110,22 @@ async function updateDrakeDataInner(
       }
     | undefined;
   let availabilitySummary: { insertedEvents?: number; skipped?: number } | undefined;
-  let qualificationSummary: QualificationSyncSummary | undefined;
   let report1Started = 0;
   let report1DurationMs = 0;
   let import1DurationMs = 0;
   let report14Started = 0;
   let report14DurationMs = 0;
   let import14DurationMs = 0;
-  let qualificationSyncDurationMs = 0;
 
   const emit = async (
     stage: DrakeUpdateStage,
     patch?: Partial<{
       embarkationStatus: DrakeReportStatus;
       availabilityStatus: DrakeReportStatus;
-      qualificationStatus: DrakeReportStatus;
     }>,
   ) => {
     if (patch?.embarkationStatus) embarkationStatus = patch.embarkationStatus;
     if (patch?.availabilityStatus) availabilityStatus = patch.availabilityStatus;
-    if (patch?.qualificationStatus) qualificationStatus = patch.qualificationStatus;
     currentStage = stage;
     currentProgress = DRAKE_STAGE_PROGRESS[stage];
     patchDrakeLogContext({ stage, progress: currentProgress, reportCode: currentReportCode });
@@ -149,7 +136,6 @@ async function updateDrakeDataInner(
       message: DRAKE_STAGE_MESSAGE[stage],
       embarkationStatus,
       availabilityStatus,
-      qualificationStatus,
     });
   };
 
@@ -391,59 +377,9 @@ async function updateDrakeDataInner(
         await removeFileIfExists(availabilityPath);
       }
 
-      currentReportCode = undefined;
-      await emit("loading-qualification-needs", { qualificationStatus: "processing" });
-      const qualificationStarted = Date.now();
-      let importingQualificationsEmitted = false;
-      try {
-        qualificationSummary = await withSessionRetry((ctx) =>
-          syncDrakeQualificationNeeds(ctx, db, async ({ loaded, total }) => {
-            if (!importingQualificationsEmitted && loaded >= total) {
-              importingQualificationsEmitted = true;
-              await emit("importing-qualification-needs", {
-                qualificationStatus: "importing",
-              });
-            }
-          }),
-        );
-        qualificationSyncDurationMs = Date.now() - qualificationStarted;
-        logger.info("drake-import", "Necessidades de qualificacao atualizadas", {
-          stage: "qualification-needs-completed",
-          durationMs: qualificationSyncDurationMs,
-          sourceRows: qualificationSummary.sourceRows,
-          workerCount: qualificationSummary.workers,
-          optionCount: qualificationSummary.options,
-          qualificationCount: qualificationSummary.qualifications,
-        });
-        await emit("qualification-needs-completed", { qualificationStatus: "completed" });
-      } catch (error: unknown) {
-        const storageNotReady = error instanceof QualificationStorageNotReadyError;
-        const cause = sanitizeError(storageNotReady ? error.cause : error);
-        throw new DrakeIntegrationError({
-          code: storageNotReady
-            ? DRAKE_QUALIFICATION_STORAGE_NOT_READY
-            : DRAKE_QUALIFICATION_IMPORT_FAILED,
-          message: storageNotReady
-            ? "O banco ainda não está preparado para armazenar os cursos e requisitos de aptidão."
-            : "Não foi possível atualizar os cursos e requisitos de aptidão.",
-          stage: currentStage,
-          progress: currentProgress,
-          cause: error,
-          details: {
-            causeName: cause.name,
-            causeCode: cause.code,
-            causeMessage: cause.message,
-            ...(storageNotReady
-              ? { requiredMigrations: [...QUALIFICATION_STORAGE_MIGRATIONS] }
-              : {}),
-          },
-        });
-      }
-
       await emit("finalizing", {
         embarkationStatus: "completed",
         availabilityStatus: "completed",
-        qualificationStatus: "completed",
       });
 
       const result: DrakeUpdateResult = {
@@ -456,10 +392,6 @@ async function updateDrakeDataInner(
         import1DurationMs,
         report14DurationMs,
         import14DurationMs,
-        qualificationNeeds: qualificationSummary?.sourceRows,
-        qualificationWorkers: qualificationSummary?.workers,
-        qualificationOptions: qualificationSummary?.options,
-        qualificationSyncDurationMs,
         totalDurationMs: Date.now() - startedAtMs,
       };
 
@@ -470,7 +402,6 @@ async function updateDrakeDataInner(
         import1DurationMs,
         report14DurationMs,
         import14DurationMs,
-        qualificationSyncDurationMs,
       });
       return result;
     });
@@ -512,16 +443,8 @@ async function updateDrakeDataInner(
       integration as DrakeIntegrationError & {
         embarkationStatus?: DrakeReportStatus;
         availabilityStatus?: DrakeReportStatus;
-        qualificationStatus?: DrakeReportStatus;
       }
     ).availabilityStatus = availabilityStatus;
-    (
-      integration as DrakeIntegrationError & {
-        embarkationStatus?: DrakeReportStatus;
-        availabilityStatus?: DrakeReportStatus;
-        qualificationStatus?: DrakeReportStatus;
-      }
-    ).qualificationStatus = qualificationStatus;
 
     throw integration;
   } finally {

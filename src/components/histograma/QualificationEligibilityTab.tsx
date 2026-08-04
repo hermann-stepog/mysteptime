@@ -44,7 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DrakeUpdateCard } from "./DrakeUpdateCard";
+import { QualificationUpdateCard } from "./QualificationUpdateCard";
 import {
   OPERATION_TYPE_LABEL,
   type CourseEligibilityStatus,
@@ -191,7 +191,7 @@ export function QualificationEligibilityTab() {
             </p>
           )}
         </Card>
-        <DrakeUpdateCard />
+        <QualificationUpdateCard />
       </div>
 
       {catalogQuery.isLoading && <EligibilitySkeleton />}

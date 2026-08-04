@@ -20,6 +20,7 @@ describe("DrakeUpdateCard — UI e streaming", () => {
     expect(source).toMatch(/Relatório de disponibilidade/);
     expect(source).toMatch(/DRAKE_REPORT_STATUS_LABEL/);
     expect(source).toMatch(/setMessage/);
+    expect(source).not.toMatch(/Cursos e aptidão|qualificationStatus|qualificationNeeds/);
   });
 
   it("nao chama startUpdate nem polling na montagem", () => {
@@ -38,7 +39,7 @@ describe("DrakeUpdateCard — UI e streaming", () => {
   });
 
   it("erro tecnico de path e mapeado para mensagem controlada no card", () => {
-    expect(source).toMatch(/isInternalPathLeak/);
+    expect(source).toMatch(/isInternalDrakePathLeak/);
     expect(source).toMatch(/Não foi possível preparar os arquivos temporários da atualização/);
     expect(source).toMatch(/DRAKE_TEMP_STORAGE_ERROR/);
   });
@@ -95,7 +96,7 @@ describe("consumeDrakeNdjsonStream", () => {
       },
     });
 
-    await consumeDrakeNdjsonStream(stream, (e) => events.push(e));
+    await consumeDrakeNdjsonStream<DrakeProgressEvent>(stream, (e) => events.push(e));
     expect(events).toHaveLength(2);
     expect(events[0]?.progress).toBe(25);
     expect(events[0]?.message).toContain("embarqu");
@@ -122,7 +123,7 @@ describe("consumeDrakeNdjsonStream", () => {
         controller.close();
       },
     });
-    await consumeDrakeNdjsonStream(stream, (e) => events.push(e));
+    await consumeDrakeNdjsonStream<DrakeProgressEvent>(stream, (e) => events.push(e));
     expect(events[0]?.type).toBe("error");
     expect(JSON.stringify(events)).not.toMatch(/updateId/);
   });

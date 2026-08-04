@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  DRAKE_STAGE_MESSAGE,
-  DRAKE_UPDATE_IN_PROGRESS,
-  type DrakeProgressEvent,
-} from "@/lib/drake/update-types";
+  DRAKE_QUALIFICATION_UPDATE_IN_PROGRESS,
+  QUALIFICATION_STAGE_MESSAGE,
+  type QualificationProgressEvent,
+} from "@/lib/qualification-eligibility/update-types";
 
-export const Route = createFileRoute("/api/integrations/drake/update")({
+export const Route = createFileRoute("/api/integrations/drake/qualification-update")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { tryAcquireDrakeUpdateLock, releaseDrakeUpdateLock } =
+        const { releaseDrakeUpdateLock, tryAcquireDrakeUpdateLock } =
           await import("@/lib/drake/update-lock.server");
 
         if (!tryAcquireDrakeUpdateLock()) {
@@ -18,11 +18,10 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
               type: "error",
               stage: "failed",
               progress: 0,
-              message: "Já existe uma atualização em andamento.",
-              code: DRAKE_UPDATE_IN_PROGRESS,
-              embarkationStatus: "waiting",
-              availabilityStatus: "waiting",
-            } satisfies DrakeProgressEvent,
+              message: "Já existe uma atualização do Drake em andamento.",
+              code: DRAKE_QUALIFICATION_UPDATE_IN_PROGRESS,
+              qualificationStatus: "waiting",
+            } satisfies QualificationProgressEvent,
             { status: 409 },
           );
         }
@@ -31,9 +30,7 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
         try {
           const authHeader = request.headers.get("authorization") ?? "";
           const bearer = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? "";
-          const body = (await request.json().catch(() => ({}))) as {
-            accessToken?: string;
-          };
+          const body = (await request.json().catch(() => ({}))) as { accessToken?: string };
           accessToken = (body.accessToken ?? bearer).trim();
         } catch {
           releaseDrakeUpdateLock();
@@ -49,10 +46,9 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
         }
 
         const encoder = new TextEncoder();
-
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
-            const send = async (event: DrakeProgressEvent) => {
+            const send = async (event: QualificationProgressEvent): Promise<void> => {
               controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
             };
 
@@ -63,83 +59,59 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
               const startedAtMs = Date.now();
 
               await runWithDrakeLogContext(
-                { executionId, startedAtMs, stage: "queued" },
+                { executionId, startedAtMs, stage: "queued", progress: 0 },
                 async () => {
-                  logger.info("drake-update", "Atualizacao Drake solicitada", {
+                  logger.info("drake-qualification", "Atualizacao de aptidao solicitada", {
                     stage: "queued",
                   });
-
                   const { authenticateAppRequest } = await import("@/lib/supabase/app-auth.server");
                   const { client } = await authenticateAppRequest(accessToken);
-
                   await send({
                     type: "progress",
                     stage: "queued",
                     progress: 0,
-                    message: DRAKE_STAGE_MESSAGE.queued,
-                    embarkationStatus: "waiting",
-                    availabilityStatus: "waiting",
+                    message: QUALIFICATION_STAGE_MESSAGE.queued,
+                    qualificationStatus: "waiting",
                   });
 
-                  const { runDrakeUpdate } = await import("@/lib/drake/run-drake-update.server");
-                  const result = await runDrakeUpdate({
-                    trigger: "manual",
+                  const { runQualificationUpdate } =
+                    await import("@/lib/qualification-eligibility/run-update.server");
+                  const result = await runQualificationUpdate({
                     db: client,
                     onProgress: send,
                     acquireLock: false,
                   });
-
                   await send({
                     type: "completed",
                     stage: "completed",
                     progress: 100,
-                    message: "Dados atualizados com sucesso.",
-                    embarkationStatus: "completed",
-                    availabilityStatus: "completed",
+                    message: QUALIFICATION_STAGE_MESSAGE.completed,
+                    qualificationStatus: "completed",
                     result,
                   });
                 },
               );
             } catch (error: unknown) {
-              const { mapDrakeError, toErrorProgressEvent } =
-                await import("@/lib/drake/map-drake-error.server");
-              const { DrakeIntegrationError: DrakeErr } =
-                await import("@/lib/drake/integration-error.server");
-              // App auth errors chegam como "CODE: message"
               if (error instanceof Error && /^[A-Z][A-Z0-9_]+:\s/.test(error.message)) {
                 const code = error.message.split(":")[0]!;
-                const message = error.message.slice(code.length + 1).trim();
                 await send({
                   type: "error",
                   stage: "failed",
                   progress: 0,
-                  message,
+                  message: error.message.slice(code.length + 1).trim(),
                   code,
-                  embarkationStatus: "failed",
-                  availabilityStatus: "not-started",
+                  qualificationStatus: "failed",
                 });
               } else {
-                const withStatus = error as InstanceType<typeof DrakeErr> & {
-                  embarkationStatus?: DrakeProgressEvent["embarkationStatus"];
-                  availabilityStatus?: DrakeProgressEvent["availabilityStatus"];
-                };
-                const embarkationStatus = withStatus.embarkationStatus ?? "waiting";
-                const availabilityStatus = withStatus.availabilityStatus ?? "not-started";
-                const progress =
-                  error instanceof DrakeErr && typeof withStatus.progress === "number"
-                    ? withStatus.progress
-                    : 0;
-                await send(
-                  toErrorProgressEvent(
-                    mapDrakeError(error, embarkationStatus, availabilityStatus, progress),
-                  ),
-                );
+                const { toQualificationErrorEvent } =
+                  await import("@/lib/qualification-eligibility/update-error.server");
+                await send(toQualificationErrorEvent(error));
               }
             } finally {
               try {
                 controller.close();
               } catch {
-                /* already closed */
+                // O cliente pode ter encerrado o stream.
               }
               releaseDrakeUpdateLock();
             }

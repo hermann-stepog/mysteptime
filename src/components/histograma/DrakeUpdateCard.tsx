@@ -7,7 +7,6 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { notify } from "@/lib/notify";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
 import {
   DRAKE_REPORT_STATUS_LABEL,
   type DrakeProgressEvent,
@@ -15,6 +14,11 @@ import {
   type DrakeUpdateResult,
 } from "@/lib/drake/update-types";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
+import {
+  getDrakeUpdateAccessToken,
+  isInternalDrakePathLeak,
+  safeDrakeClientErrorMessage,
+} from "@/lib/drake/update-client";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
 import { cn } from "@/lib/utils";
 
@@ -34,19 +38,8 @@ function ReportStatusIcon({ status }: { status: DrakeReportStatus }) {
   return <Clock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />;
 }
 
-async function getAccessToken(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
-}
-
-function isInternalPathLeak(message: string): boolean {
-  return /ENOENT|no such file or directory|context-controls|tmp[/\\]drake|mysteptime-drake|[A-Za-z]:\\|\bEPERM\b|\bEBUSY\b/i.test(
-    message,
-  );
-}
-
 function messageFromErrorPayload(event: DrakeProgressEvent): string {
-  if (event.code === "DRAKE_TEMP_STORAGE_ERROR" || isInternalPathLeak(event.message ?? "")) {
+  if (event.code === "DRAKE_TEMP_STORAGE_ERROR" || isInternalDrakePathLeak(event.message ?? "")) {
     return "Não foi possível preparar os arquivos temporários da atualização.";
   }
   if (event.code === "DRAKE_INTERACTIVE_AUTH_REQUIRED") {
@@ -63,7 +56,7 @@ function messageFromErrorPayload(event: DrakeProgressEvent): string {
     if (decoded.code) return decoded.message;
   }
   const message = event.message || "Não foi possível atualizar os dados do Drake.";
-  if (isInternalPathLeak(message)) {
+  if (isInternalDrakePathLeak(message)) {
     return "Não foi possível preparar os arquivos temporários da atualização.";
   }
   return message;
@@ -80,7 +73,6 @@ export function DrakeUpdateCard() {
   const [error, setError] = useState<string | null>(null);
   const [embarkationStatus, setEmbarkationStatus] = useState<DrakeReportStatus>("waiting");
   const [availabilityStatus, setAvailabilityStatus] = useState<DrakeReportStatus>("waiting");
-  const [qualificationStatus, setQualificationStatus] = useState<DrakeReportStatus>("waiting");
   const [result, setResult] = useState<DrakeUpdateResult | null>(null);
   const [buttonLabel, setButtonLabel] = useState<"idle" | "running" | "done">("idle");
   const [showProgress, setShowProgress] = useState(false);
@@ -116,7 +108,6 @@ export function DrakeUpdateCard() {
     }
     setEmbarkationStatus(event.embarkationStatus);
     setAvailabilityStatus(event.availabilityStatus);
-    if (event.qualificationStatus) setQualificationStatus(event.qualificationStatus);
 
     if (event.type === "error") {
       setIsRunning(false);
@@ -136,13 +127,11 @@ export function DrakeUpdateCard() {
       setMessage("Dados atualizados com sucesso.");
       setEmbarkationStatus("completed");
       setAvailabilityStatus("completed");
-      setQualificationStatus("completed");
       setResult(event.result ?? null);
       setButtonLabel("done");
       notify.success("Dados atualizados com sucesso.");
       void qc.invalidateQueries({ queryKey: ["hist-novo-colaboradores"] });
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
-      void qc.invalidateQueries({ queryKey: ["qualification-eligibility"] });
       if (doneTimer.current) clearTimeout(doneTimer.current);
       doneTimer.current = setTimeout(() => setButtonLabel("idle"), 4000);
     }
@@ -161,11 +150,10 @@ export function DrakeUpdateCard() {
     setMessage("Preparando atualização...");
     setEmbarkationStatus("waiting");
     setAvailabilityStatus("waiting");
-    setQualificationStatus("waiting");
     setButtonLabel("running");
 
     try {
-      const accessToken = await getAccessToken();
+      const accessToken = await getDrakeUpdateAccessToken();
       if (!accessToken) {
         throw new Error("Sua sessão no aplicativo expirou. Entre novamente.");
       }
@@ -202,9 +190,7 @@ export function DrakeUpdateCard() {
     } catch (e: unknown) {
       if (abort.signal.aborted) return;
       const raw = e instanceof Error ? e.message : "Não foi possível atualizar os dados do Drake.";
-      const msg = isInternalPathLeak(raw)
-        ? "Não foi possível preparar os arquivos temporários da atualização."
-        : raw;
+      const msg = safeDrakeClientErrorMessage(raw, "Não foi possível atualizar os dados do Drake.");
       setIsRunning(false);
       setButtonLabel("idle");
       setError(msg);
@@ -218,7 +204,7 @@ export function DrakeUpdateCard() {
       <h3 className="text-sm font-semibold">Atualizar dados do Drake</h3>
       <p className="text-xs text-muted-foreground">
         Busca os relatórios atualizados diretamente no Drake e atualiza automaticamente os
-        colaboradores, embarques, disponibilidade, cursos e requisitos de aptidão.
+        colaboradores, embarques e períodos de disponibilidade.
       </p>
 
       <TooltipProvider>
@@ -270,15 +256,6 @@ export function DrakeUpdateCard() {
                 {DRAKE_REPORT_STATUS_LABEL[availabilityStatus]}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5">
-                <ReportStatusIcon status={qualificationStatus} />
-                Cursos e aptidão
-              </span>
-              <span className="text-muted-foreground">
-                {DRAKE_REPORT_STATUS_LABEL[qualificationStatus]}
-              </span>
-            </div>
           </div>
 
           {buttonLabel === "done" && result && (
@@ -295,12 +272,6 @@ export function DrakeUpdateCard() {
               )}
               {result.availabilityEvents != null && (
                 <p>{result.availabilityEvents} períodos de disponibilidade lançados</p>
-              )}
-              {result.qualificationNeeds != null && (
-                <p>
-                  {result.qualificationNeeds} necessidades de cursos processadas para{" "}
-                  {result.qualificationWorkers ?? 0} colaboradores
-                </p>
               )}
             </div>
           )}

@@ -45,6 +45,11 @@ export interface QualificationSyncSummary {
   qualifications: number;
 }
 
+export interface QualificationSyncCallbacks {
+  onPage?: (progress: QualificationNeedsPageProgress) => void | Promise<void>;
+  onBeforeImport?: () => void | Promise<void>;
+}
+
 interface SnapshotRowBase {
   sync_id: string;
   synced_at: string;
@@ -85,17 +90,19 @@ export interface QualificationSnapshot {
 export async function syncDrakeQualificationNeeds(
   request: DrakeHttpClient,
   db: SupabaseClient,
-  onPage?: (progress: QualificationNeedsPageProgress) => void | Promise<void>,
+  callbacks?: QualificationSyncCallbacks,
 ): Promise<QualificationSyncSummary> {
   await assertQualificationStorageReady(db);
 
   const [source, domains] = await Promise.all([
-    fetchAllDrakeQualificationNeeds(request, { onPage }),
+    fetchAllDrakeQualificationNeeds(request, { onPage: callbacks?.onPage }),
     fetchAllQualificationDomains(request),
   ]);
   const syncId = crypto.randomUUID();
   const syncedAt = new Date().toISOString();
   const snapshot = buildQualificationSnapshot(source, domains, syncId, syncedAt);
+
+  await callbacks?.onBeforeImport?.();
 
   await upsertInBatches(db, "drake_qualification_workers", snapshot.workers, "drake_worker_id");
   await upsertInBatches(
