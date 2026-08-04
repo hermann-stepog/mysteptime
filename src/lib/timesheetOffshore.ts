@@ -29,6 +29,10 @@ export interface TimesheetSemana {
   // Correção pontual de função só pra essa semana, quando o físico não bate com o que veio do
   // Drake (embarque.funcao_embarque) — nula por padrão, continua puxando do Drake.
   funcao_override: string | null;
+  // Quem marcou essa semana como recebida ("Salvar semana") e quando — só passa a valer a
+  // partir da criação dessas colunas; semanas recebidas antes disso ficam null.
+  recebido_por: string | null;
+  recebido_em: string | null;
 }
 
 export interface TimesheetDia {
