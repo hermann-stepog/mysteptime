@@ -768,13 +768,11 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           bsp: form.bsp.trim() || null,
         };
         if (form.tipo === "P") {
-          // Programado: "P" só no 1º dia; do 2º dia em diante já lança como Embarcado a confirmar.
+          // Programado existe só no dia exato do lançamento — nenhuma projeção pros dias
+          // seguintes. Se depois o Drake confirmar o embarque real dessa pessoa, ele aparece
+          // com suas próprias datas normalmente; até lá, não há nenhum status ocupando os
+          // dias seguintes.
           registros.push({ ...base, tipo: "P", data_inicio: form.data_inicio, data_fim: form.data_inicio, dias: 1, origem: "manual" });
-          if (form.data_fim > form.data_inicio) {
-            const inicioEmbarque = addDays(form.data_inicio, 1);
-            const diasEmbarque = Math.round((new Date(form.data_fim).getTime() - new Date(inicioEmbarque).getTime()) / 86400000) + 1;
-            registros.push({ ...base, tipo: "E", data_inicio: inicioEmbarque, data_fim: form.data_fim, dias: diasEmbarque, origem: ORIGEM_PROGRAMADO });
-          }
         } else {
           registros.push({ ...base, tipo: form.tipo, data_inicio: form.data_inicio, data_fim: form.data_fim, dias: diasTotal > 0 ? diasTotal : null, origem: "manual" });
         }
@@ -994,7 +992,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Tipo</Label>
-                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo })}>
+                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo, ...(v === "P" ? { data_fim: form.data_inicio } : {}) })}>
                   <SelectTrigger className="h-11 text-base"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
@@ -1028,11 +1026,18 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               </div>
               <div>
                 <Label className="text-xs">Data início</Label>
-                <Input className="h-11 text-base" type="date" value={form.data_inicio} onChange={(e) => setForm({ ...form, data_inicio: e.target.value })} />
+                <Input
+                  className="h-11 text-base" type="date" value={form.data_inicio}
+                  onChange={(e) => setForm({ ...form, data_inicio: e.target.value, ...(form.tipo === "P" ? { data_fim: e.target.value } : {}) })}
+                />
               </div>
               <div>
                 <Label className="text-xs">Data fim</Label>
-                <Input className="h-11 text-base" type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
+                <Input
+                  className="h-11 text-base" type="date" value={form.data_fim} disabled={form.tipo === "P"}
+                  onChange={(e) => setForm({ ...form, data_fim: e.target.value })}
+                />
+                {form.tipo === "P" && <p className="mt-1 text-[11px] text-muted-foreground">Programado existe só no dia da Data início.</p>}
               </div>
             </div>
             <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>
@@ -2016,22 +2021,6 @@ function DashboardTab({ colaboradores, periodos }: {
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
   ];
 
-  // ── Tempo médio offshore / de folga (duração média dos períodos E / F) — restrito aos
-  // colaboradores ativos e ao intervalo De/Até filtrado, pra bater com o resto do card
-  // "Taxa de Ocupação" (antes usava todo o histórico, de qualquer colaborador, sem filtro).
-  const avgMetrics = useMemo(() => {
-    const dur = (p: HistNovoPeriodo) => Math.max(1, Math.round((new Date(p.data_fim).getTime() - new Date(p.data_inicio).getTime()) / 86400000) + 1);
-    const avg = (arr: number[]) => (arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
-    const activeIds = new Set(activeColaboradores.map((c) => c.id));
-    const periodosAtivos = periodos.filter((p) =>
-      activeIds.has(p.colaborador_id) && (!dataInicio || !dataFim || (p.data_fim >= dataInicio && p.data_inicio <= dataFim)),
-    );
-    return {
-      avgOffshore: avg(periodosAtivos.filter((p) => p.tipo === "E").map(dur)),
-      avgTimeOff: avg(periodosAtivos.filter((p) => p.tipo === "F").map(dur)),
-    };
-  }, [periodos, activeColaboradores, dataInicio, dataFim]);
-
   // ── Taxa de Ocupação média no período filtrado — a rosquinha acima é sempre a foto de UM
   // dia (pobReferenceDate); aqui calcula o % de ocupados em CADA dia do período (mesmo
   // conceito de "ocupado" de isOcupadoBucket) e tira a média, sobre o mesmo headcount total
@@ -2382,31 +2371,14 @@ function DashboardTab({ colaboradores, periodos }: {
             </div>
           </div>
         </div>
-        <div className="border-t mt-5 pt-4 grid grid-cols-3 gap-4">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Taxa de Ocupação Média no período (até hoje)</p>
-            <p
-              className="mt-1 text-2xl font-bold"
-              style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-            >
-              {mediaOcupacaoPeriodo}%
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio Offshore no período</p>
-            <p
-              className="mt-1 text-2xl font-bold"
-              style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-            >
-              {avgMetrics.avgOffshore}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio de Folga no período</p>
-            <p className="mt-1 bg-gradient-to-br from-sky-500 to-sky-300 bg-clip-text text-2xl font-bold text-transparent">
-              {avgMetrics.avgTimeOff}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
-            </p>
-          </div>
+        <div className="border-t mt-5 pt-4">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Taxa de Ocupação Média no período (até hoje)</p>
+          <p
+            className="mt-1 text-2xl font-bold"
+            style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+          >
+            {mediaOcupacaoPeriodo}%
+          </p>
         </div>
       </Card>
 
