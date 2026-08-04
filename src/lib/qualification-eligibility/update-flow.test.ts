@@ -28,8 +28,8 @@ describe("qualification update boundaries", () => {
     const [service, route, card, tab] = await Promise.all([
       readFile("src/lib/qualification-eligibility/update-service.server.ts", "utf8"),
       readFile("src/routes/api/integrations/drake/qualification-update.ts", "utf8"),
-      readFile("src/components/histograma/QualificationUpdateCard.tsx", "utf8"),
-      readFile("src/components/histograma/QualificationEligibilityTab.tsx", "utf8"),
+      readFile("src/components/nominations/QualificationUpdateCard.tsx", "utf8"),
+      readFile("src/components/nominations/QualificationEligibilityTab.tsx", "utf8"),
     ]);
 
     expect(service).toMatch(/syncDrakeQualificationNeeds/);
@@ -40,6 +40,17 @@ describe("qualification update boundaries", () => {
     expect(card).toMatch(/\/api\/integrations\/drake\/qualification-update/);
     expect(tab).toMatch(/<QualificationUpdateCard \/>/);
     expect(tab).not.toMatch(/<DrakeUpdateCard \/>/);
+  });
+
+  it("exibe Aptidão somente dentro de Nomeações", async () => {
+    const [nominations, histogram] = await Promise.all([
+      readFile("src/routes/admin/nominations.tsx", "utf8"),
+      readFile("src/routes/admin/histograma-novo.tsx", "utf8"),
+    ]);
+
+    expect(nominations).toMatch(/<TabsTrigger value="aptidao">Aptidão<\/TabsTrigger>/);
+    expect(nominations).toMatch(/<QualificationEligibilityTab \/>/);
+    expect(histogram).not.toMatch(/QualificationEligibilityTab|value="aptidao"/);
   });
 
   it("mapeia armazenamento ausente apenas como falha de Aptidão", () => {

@@ -373,7 +373,7 @@ function RequirementCard({ evaluation }: { evaluation: EligibilityEvaluation }) 
           {evaluation.context.matrixNames.join(" + ")}.
         </p>
       </div>
-      <ScrollArea className="max-h-72">
+      <ScrollArea className="h-72">
         <Table>
           <TableHeader>
             <TableRow>
