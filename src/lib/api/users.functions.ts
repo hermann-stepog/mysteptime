@@ -37,9 +37,10 @@ export const createAppUser = createServerFn({ method: "POST" })
       .from("profiles")
       .upsert({ id: userId, email: data.email, full_name: data.full_name }, { onConflict: "id" });
 
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", userId);
     const { error: urErr } = await supabaseAdmin
       .from("user_roles")
-      .upsert({ user_id: userId, role: data.role }, { onConflict: "user_id,role" });
+      .insert({ user_id: userId, role: data.role });
     if (urErr) throw new Error(urErr.message);
 
     return { id: userId };
