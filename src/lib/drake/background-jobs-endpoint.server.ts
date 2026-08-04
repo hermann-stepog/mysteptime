@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import type { APIRequestContext } from "playwright";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { env } from "./config.server";
 import {
   describeResponseShape,
@@ -95,7 +95,7 @@ function countItems(json: unknown): number {
  * GET com params code=5359, sem normalizar o path.
  */
 export async function requestBackgroundJobs(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   path: string,
   options?: { stage?: string; reportCode?: number },
 ): Promise<DrakeHttpResult & { itemCount: number; queryParameterNames: string[] }> {
@@ -195,7 +195,7 @@ export async function requestBackgroundJobs(
 }
 
 async function probeOne(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   path: string,
   kind: BackgroundJobsRouteKind,
 ): Promise<RouteProbeSample> {
@@ -218,7 +218,7 @@ async function probeOne(
  * Testa barra dupla e barra simples uma vez; seleciona a rota ativa da execução.
  */
 export async function probeBackgroundJobsEndpoint(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
 ): Promise<BackgroundJobsProbeResult> {
   logger.info("drake-export", "Probe das rotas de background jobs", {
     stage: "probe-background-jobs",
@@ -301,14 +301,14 @@ export async function probeBackgroundJobsEndpoint(
 }
 
 export async function ensureBackgroundJobsRoute(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
 ): Promise<BackgroundJobsProbeResult> {
   if (probedThisRun && lastProbe) return lastProbe;
   return probeBackgroundJobsEndpoint(request);
 }
 
 export async function switchToAlternateBackgroundJobsRoute(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
 ): Promise<RouteProbeSample | null> {
   const alternate =
     activePath === BACKGROUND_JOBS_PRIMARY_PATH

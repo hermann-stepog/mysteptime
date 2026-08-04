@@ -1,7 +1,9 @@
 import "@tanstack/react-start/server-only";
-import type { APIRequestContext } from "playwright";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createDrakeApiContextFromStorageState, isSessionExpiredError } from "./api-session.server";
+import {
+  createDrakeApiContextFromAuthenticatedSession,
+  isSessionExpiredError,
+} from "./api-session.server";
 import {
   EnvironmentCredentialsDrakeAuthProvider,
   type AuthProgressStage,
@@ -12,7 +14,6 @@ import {
   DRAKE_INTERACTIVE_AUTH_REQUIRED,
 } from "./auth/errors";
 import { clearSessionCache } from "./auth/session-cache.server";
-import type { StorageState } from "./auth/types";
 import { env } from "./config.server";
 import {
   cleanupDrakeRunFiles,
@@ -36,6 +37,7 @@ import { getApiPeriodDates } from "./report-parameter-builder";
 import { API_REPORT_1, API_REPORT_14 } from "./report-contracts";
 import { runSingleApiReport } from "./report-api-runner.server";
 import { openDrakeSignalRSession, type DrakeSignalRSession } from "./signalr-session.server";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { sanitizeError } from "./sanitize-error.server";
 import { importDrakeEmbarkationFromBuffer } from "@/lib/histograma/import-drake";
 import { importDisponibilidadeFromBuffer } from "@/lib/histograma/import-disponibilidade";
@@ -88,8 +90,7 @@ async function updateDrakeDataInner(
   startedAtMs: number,
   trigger: DrakeUpdateTrigger,
 ): Promise<DrakeUpdateResult> {
-  let apiContext: APIRequestContext | null = null;
-  let storageState: StorageState | null = null;
+  let apiContext: DrakeHttpClient | null = null;
   let signalRSession: DrakeSignalRSession | null = null;
   let renewedOnce = false;
   let runFiles: DrakeRunFiles | null = null;
@@ -145,10 +146,11 @@ async function updateDrakeDataInner(
       },
     );
     const result = await provider.authenticate();
-    storageState = result.storageState;
-    const previous: APIRequestContext | null = apiContext;
+    const previous: DrakeHttpClient | null = apiContext;
     if (previous) await previous.dispose().catch(() => undefined);
-    apiContext = await createDrakeApiContextFromStorageState(result.storageState);
+    apiContext = await createDrakeApiContextFromAuthenticatedSession(
+      result.authenticatedSession,
+    );
     logger.info("drake-authentication", "Integracao Drake validada", {
       stage: "authenticating",
       durationMs: Date.now() - authStarted,
@@ -156,14 +158,14 @@ async function updateDrakeDataInner(
   }
 
   async function withSessionRetry<T>(
-    operation: (ctx: APIRequestContext) => Promise<T>,
+    operation: (ctx: DrakeHttpClient) => Promise<T>,
   ): Promise<T> {
     if (!apiContext) throw new Error("Contexto HTTP do Drake ausente.");
     try {
       return await operation(apiContext);
     } catch (error: unknown) {
       if (!renewedOnce && isSessionExpiredError(error)) {
-        logger.warn("drake-authentication", "Sessao expirada; renovando uma vez", {
+        logger.warn("drake-authentication", "Sessao expirada; renovando automaticamente uma vez", {
           stage: currentStage,
         });
         await authenticate(true);
@@ -464,10 +466,9 @@ async function updateDrakeDataInner(
     if (session) {
       await session.close().catch(() => undefined);
     }
-    const ctx = apiContext as APIRequestContext | null;
+    const ctx = apiContext as DrakeHttpClient | null;
     apiContext = null;
     if (ctx) await ctx.dispose().catch(() => undefined);
-    storageState = null;
     if (runFiles) {
       await cleanupDrakeRunFiles(runFiles);
       runFiles = null;

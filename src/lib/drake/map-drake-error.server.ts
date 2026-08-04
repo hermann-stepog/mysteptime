@@ -14,7 +14,13 @@ import {
   DRAKE_EXPORT_TIMEOUT,
   DRAKE_FILE_VALIDATION_FAILED,
   DRAKE_INTERACTIVE_AUTH_REQUIRED,
+  DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED,
   DRAKE_SESSION_EXPIRED,
+  DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED,
+  DRAKE_SESSION_TRANSFER_FAILED,
+  DRAKE_CLIENT_NOT_FOUND,
+  DRAKE_CLIENT_SELECTION_AMBIGUOUS,
+  DRAKE_CLIENT_SELECTION_FAILED,
   DRAKE_SIGNALR_REQUIRED_FOR_EXPORT,
   DRAKE_SIGNALR_CONNECTION_FAILED,
   DRAKE_SIGNALR_PROTOCOL_UNKNOWN,
@@ -90,7 +96,13 @@ function resolveReportStatuses(
     code === DRAKE_AUTH_FAILED ||
     code === DRAKE_CREDENTIALS_NOT_CONFIGURED ||
     code === DRAKE_INTERACTIVE_AUTH_REQUIRED ||
+    code === DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED ||
     code === DRAKE_SESSION_EXPIRED ||
+    code === DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED ||
+    code === DRAKE_SESSION_TRANSFER_FAILED ||
+    code === DRAKE_CLIENT_NOT_FOUND ||
+    code === DRAKE_CLIENT_SELECTION_AMBIGUOUS ||
+    code === DRAKE_CLIENT_SELECTION_FAILED ||
     code === DRAKE_TEMP_STORAGE_ERROR
   ) {
     return {
@@ -159,7 +171,10 @@ export function mapDrakeError(
       availabilityStatus,
     );
     let message = DRAKE_ERROR_MESSAGES[code] ?? error.message;
-    if (error.code === DRAKE_BACKGROUND_JOB_NOT_CREATED || error.code === DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB) {
+    if (
+      error.code === DRAKE_BACKGROUND_JOB_NOT_CREATED ||
+      error.code === DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB
+    ) {
       message =
         error.reportCode === 1
           ? "O Drake aceitou a solicitação, mas não gerou o arquivo de embarque."
@@ -177,7 +192,7 @@ export function mapDrakeError(
           ? "Não foi possível iniciar o processamento do relatório de embarque."
           : error.reportCode === 14
             ? "Não foi possível iniciar o processamento do relatório de disponibilidade."
-            : DRAKE_ERROR_MESSAGES[error.code] ?? error.message;
+            : (DRAKE_ERROR_MESSAGES[error.code] ?? error.message);
     }
     if (error.code === DRAKE_SIGNALR_REQUIRED_FOR_EXPORT) {
       message = DRAKE_ERROR_MESSAGES[DRAKE_SIGNALR_REQUIRED_FOR_EXPORT];
@@ -260,17 +275,17 @@ export function mapDrakeError(
       stage: "failed",
     };
   }
-  if (/confirmação adicional|interativa|MFA|captcha/i.test(message)) {
+  if (/confirmação adicional|interativa|MFA|captcha|manualmente uma vez|bootstrap/i.test(message)) {
     return {
-      code: DRAKE_INTERACTIVE_AUTH_REQUIRED,
-      message: DRAKE_ERROR_MESSAGES[DRAKE_INTERACTIVE_AUTH_REQUIRED],
+      code: DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED,
+      message: DRAKE_ERROR_MESSAGES[DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED],
       embarkationStatus: "failed",
       availabilityStatus: "not-started",
       progress,
       stage: "failed",
     };
   }
-  if (/sess[aã]o.*expirou|expired/i.test(message)) {
+  if (/sess[aã]o.*expirou|expired|conectada novamente/i.test(message)) {
     return {
       code: DRAKE_SESSION_EXPIRED,
       message: DRAKE_ERROR_MESSAGES[DRAKE_SESSION_EXPIRED],

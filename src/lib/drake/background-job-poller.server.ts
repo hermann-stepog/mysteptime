@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import type { APIRequestContext } from "playwright";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { env } from "./config.server";
 import { describeResponseShape } from "./drake-http.server";
 import {
@@ -154,7 +154,7 @@ export function assertBackgroundJobsPayload(payload: unknown): BackgroundExecuti
 }
 
 export async function fetchBackgroundJobs(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   options?: { reportCode?: number; stage?: string; path?: string },
 ): Promise<BackgroundExecutionRequestItem[]> {
   await ensureBackgroundJobsRoute(request);
@@ -392,7 +392,7 @@ export interface PollingSummary {
 }
 
 export async function waitForExportJob(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   report: DrakeApiReportDefinition,
   baselineIds: Set<string>,
   exportStartedAt: Date,

@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import type { APIRequestContext, APIResponse } from "playwright";
+import type { DrakeHttpClient, DrakeHttpResponse } from "./http/drake-http-client.types.server";
 import { env } from "./config.server";
 import { logger, shortId } from "./logger";
 import { sanitizeSensitiveText } from "./sanitize-error.server";
@@ -102,7 +102,7 @@ function previewResponse(text: string, json: unknown): string {
     .slice(0, 1000);
 }
 
-async function readBody(response: APIResponse): Promise<{ json: unknown; text: string }> {
+async function readBody(response: DrakeHttpResponse): Promise<{ json: unknown; text: string }> {
   const contentType = response.headers()["content-type"] ?? "";
   let json: unknown = null;
   let text = "";
@@ -123,7 +123,7 @@ async function readBody(response: APIResponse): Promise<{ json: unknown; text: s
 }
 
 export async function drakeGet(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   url: string,
   options: {
     stage: string;
@@ -136,7 +136,7 @@ export async function drakeGet(
 }
 
 export async function drakePostJson(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   url: string,
   data: unknown,
   options: {
@@ -150,7 +150,7 @@ export async function drakePostJson(
 }
 
 async function execute(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   method: "GET" | "POST",
   url: string,
   data: unknown,

@@ -9,6 +9,16 @@ type ServerEntry = {
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
+function scheduleDrakeUpdateForRequest(ctx: unknown): void {
+  const task = import("./lib/drake/drake-scheduler.server")
+    .then((module) => module.runDueDrakeSchedule())
+    .then(() => undefined)
+    .catch(() => undefined);
+  const execution = ctx as { waitUntil?: (promise: Promise<unknown>) => void } | null;
+  if (typeof execution?.waitUntil === "function") execution.waitUntil(task);
+  else void task;
+}
+
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
@@ -39,6 +49,7 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    scheduleDrakeUpdateForRequest(ctx);
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

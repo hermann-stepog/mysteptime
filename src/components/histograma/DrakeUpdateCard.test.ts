@@ -88,7 +88,7 @@ describe("consumeDrakeNdjsonStream", () => {
       },
     });
 
-    await consumeDrakeNdjsonStream(stream, (e) => events.push(e));
+    await consumeDrakeNdjsonStream<DrakeProgressEvent>(stream, (e) => events.push(e));
     expect(events).toHaveLength(2);
     expect(events[0]?.progress).toBe(25);
     expect(events[0]?.message).toContain("embarqu");
@@ -115,7 +115,7 @@ describe("consumeDrakeNdjsonStream", () => {
         controller.close();
       },
     });
-    await consumeDrakeNdjsonStream(stream, (e) => events.push(e));
+    await consumeDrakeNdjsonStream<DrakeProgressEvent>(stream, (e) => events.push(e));
     expect(events[0]?.type).toBe("error");
     expect(JSON.stringify(events)).not.toMatch(/updateId/);
   });

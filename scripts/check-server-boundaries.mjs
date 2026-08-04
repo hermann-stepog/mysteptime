@@ -39,6 +39,9 @@ const FORBIDDEN_RUNTIME = [
   /app-auth\.server/,
   /drake-auth\.server/,
   /drake-update\.server/,
+  /run-drake-update\.server/,
+  /drake-scheduler\.server/,
+  /scheduler-config\.server/,
 ];
 
 // Import type is allowed for shared types only — still forbid type imports of playwright.

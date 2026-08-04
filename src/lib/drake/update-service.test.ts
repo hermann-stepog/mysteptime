@@ -155,12 +155,18 @@ describe("updateDrakeData ordem dos relatorios", () => {
     vi.doMock("./auth/environment-credentials-auth.server", () => ({
       EnvironmentCredentialsDrakeAuthProvider: class {
         async authenticate() {
-          return { storageState: { cookies: [], origins: [] }, renewed: false };
+          return {
+            authenticatedSession: {
+              storageState: { cookies: [], origins: [] },
+              requiredHeaders: {},
+            },
+            renewed: false,
+          };
         }
       },
     }));
     vi.doMock("./api-session.server", () => ({
-      createDrakeApiContextFromStorageState: vi.fn().mockResolvedValue({
+      createDrakeApiContextFromAuthenticatedSession: vi.fn().mockResolvedValue({
         dispose: vi.fn().mockResolvedValue(undefined),
       }),
       isSessionExpiredError: () => false,

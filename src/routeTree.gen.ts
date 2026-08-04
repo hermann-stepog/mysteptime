@@ -39,6 +39,8 @@ import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collabora
 import { Route as AdminBmRouteImport } from './routes/admin/bm'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
 import { Route as ApiIntegrationsDrakeUpdateRouteImport } from './routes/api/integrations/drake/update'
+import { Route as ApiIntegrationsDrakeQualificationUpdateRouteImport } from './routes/api/integrations/drake/qualification-update'
+import { Route as ApiIntegrationsDrakeQualificationEligibilityRouteImport } from './routes/api/integrations/drake/qualification-eligibility'
 
 const PendingRoute = PendingRouteImport.update({
   id: '/pending',
@@ -191,6 +193,18 @@ const ApiIntegrationsDrakeUpdateRoute =
     path: '/api/integrations/drake/update',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiIntegrationsDrakeQualificationUpdateRoute =
+  ApiIntegrationsDrakeQualificationUpdateRouteImport.update({
+    id: '/api/integrations/drake/qualification-update',
+    path: '/api/integrations/drake/qualification-update',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiIntegrationsDrakeQualificationEligibilityRoute =
+  ApiIntegrationsDrakeQualificationEligibilityRouteImport.update({
+    id: '/api/integrations/drake/qualification-eligibility',
+    path: '/api/integrations/drake/qualification-eligibility',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -222,6 +236,8 @@ export interface FileRoutesByFullPath {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRoutesByTo {
@@ -252,6 +268,8 @@ export interface FileRoutesByTo {
   '/pm/bms': typeof PmBmsRoute
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
+  '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRoutesById {
@@ -285,6 +303,8 @@ export interface FileRoutesById {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRouteTypes {
@@ -319,6 +339,8 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/integrations/drake/qualification-eligibility'
+    | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -349,6 +371,8 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app'
     | '/pm'
+    | '/api/integrations/drake/qualification-eligibility'
+    | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
   id:
     | '__root__'
@@ -381,6 +405,8 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/integrations/drake/qualification-eligibility'
+    | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
   fileRoutesById: FileRoutesById
 }
@@ -391,6 +417,8 @@ export interface RootRouteChildren {
   PmRouteRoute: typeof PmRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
+  ApiIntegrationsDrakeQualificationEligibilityRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  ApiIntegrationsDrakeQualificationUpdateRoute: typeof ApiIntegrationsDrakeQualificationUpdateRoute
   ApiIntegrationsDrakeUpdateRoute: typeof ApiIntegrationsDrakeUpdateRoute
 }
 
@@ -606,6 +634,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIntegrationsDrakeUpdateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/integrations/drake/qualification-update': {
+      id: '/api/integrations/drake/qualification-update'
+      path: '/api/integrations/drake/qualification-update'
+      fullPath: '/api/integrations/drake/qualification-update'
+      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationUpdateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/integrations/drake/qualification-eligibility': {
+      id: '/api/integrations/drake/qualification-eligibility'
+      path: '/api/integrations/drake/qualification-eligibility'
+      fullPath: '/api/integrations/drake/qualification-eligibility'
+      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -691,8 +733,22 @@ const rootRouteChildren: RootRouteChildren = {
   PmRouteRoute: PmRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
+  ApiIntegrationsDrakeQualificationEligibilityRoute:
+    ApiIntegrationsDrakeQualificationEligibilityRoute,
+  ApiIntegrationsDrakeQualificationUpdateRoute:
+    ApiIntegrationsDrakeQualificationUpdateRoute,
   ApiIntegrationsDrakeUpdateRoute: ApiIntegrationsDrakeUpdateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

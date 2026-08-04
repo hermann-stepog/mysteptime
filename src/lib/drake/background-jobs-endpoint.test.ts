@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { APIRequestContext } from "playwright";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import {
   BACKGROUND_JOBS_FALLBACK_PATH,
   BACKGROUND_JOBS_PRIMARY_PATH,
@@ -43,7 +43,7 @@ function createApiMock(handlers: {
   primaryStatus?: number;
   fallbackStatus?: number;
   onGet?: (path: string, options?: { params?: Record<string, string> }) => void;
-}): APIRequestContext {
+}): DrakeHttpClient {
   return {
     get: vi.fn(async (path: string, options?: { params?: Record<string, string> }) => {
       handlers.onGet?.(path, options);
@@ -61,7 +61,7 @@ function createApiMock(handlers: {
         url: `https://drake.bz${path}?code=${options?.params?.code ?? ""}`,
       });
     }),
-  } as unknown as APIRequestContext;
+  } as unknown as DrakeHttpClient;
 }
 
 describe("background jobs endpoint e polling vazio", () => {
