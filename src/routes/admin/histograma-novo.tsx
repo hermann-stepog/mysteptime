@@ -1740,7 +1740,7 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
 // embarcando com a frequência esperada".
 function IndiceIndividualCard({ historico }: { historico: HistoricoOcupacaoColaborador }) {
   const categorias = STATUS_ORDER
-    .filter((s) => (historico.diasPorCategoria[s] ?? 0) > 0)
+    .filter((s) => s !== "STB" && s !== "DDN" && (historico.diasPorCategoria[s] ?? 0) > 0)
     .map((s) => ({ status: s, label: STATUS_LABEL[s], color: STATUS_COLOR[s], value: historico.diasPorCategoria[s] ?? 0 }));
 
   return (
