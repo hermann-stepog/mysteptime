@@ -293,8 +293,11 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
 // Usado só no formulário "Lançar período manualmente" — quando uma equipe inteira embarca
 // no mesmo dia com a mesma BSP, evita repetir o formulário um colaborador por vez.
 
-function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
+function ColaboradoresMultiCombobox({ colaboradores, value, onChange, compact = false }: {
   colaboradores: HistNovoColaborador[]; value: string[]; onChange: (ids: string[]) => void;
+  // "compact": mesmo tamanho h-8/text-xs usado nas barras de filtro — o padrão (maior, com
+  // chips por nome) é o do formulário "Lançar período manualmente".
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selected = colaboradores.filter((c) => value.includes(c.id));
@@ -303,9 +306,16 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className="h-auto min-h-11 w-full justify-between py-2 text-base font-normal">
+        <Button
+          variant="outline" role="combobox"
+          className={compact
+            ? "h-8 w-full justify-between px-2 text-xs font-normal"
+            : "h-auto min-h-11 w-full justify-between py-2 text-base font-normal"}
+        >
           {selected.length === 0 ? (
-            <span className="text-muted-foreground">Selecionar colaborador(es)</span>
+            <span className="text-muted-foreground">{compact ? "Todos" : "Selecionar colaborador(es)"}</span>
+          ) : compact ? (
+            <span className="truncate">{selected.length === 1 ? selected[0].nome : `${selected.length} selecionados`}</span>
           ) : (
             <div className="flex flex-wrap gap-1">
               {selected.map((c) => (
@@ -316,7 +326,7 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
               ))}
             </div>
           )}
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className={cn("shrink-0 opacity-50", compact ? "ml-1 h-3.5 w-3.5" : "ml-2 h-4 w-4")} />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
@@ -347,40 +357,44 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange }: {
   );
 }
 
-function FuncoesMultiCombobox({ funcoes, value, onChange }: {
-  funcoes: string[]; value: string[]; onChange: (v: string[]) => void;
+// Combobox de múltipla seleção genérico pra filtros de lista simples de strings (Unidade,
+// BSP, Função etc.) — mesmo padrão visual/interativo em toda a aba (chip com contagem,
+// busca, toggle por clique).
+function StringMultiCombobox({ options, value, onChange, placeholder = "Todos", searchPlaceholder = "Buscar...", emptyLabel = "Nenhum resultado encontrado." }: {
+  options: string[]; value: string[]; onChange: (v: string[]) => void;
+  placeholder?: string; searchPlaceholder?: string; emptyLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const toggle = (f: string) => onChange(value.includes(f) ? value.filter((v) => v !== f) : [...value, f]);
+  const toggle = (o: string) => onChange(value.includes(o) ? value.filter((v) => v !== o) : [...value, o]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" role="combobox" className="h-8 w-full justify-between px-2 text-xs font-normal">
           {value.length === 0 ? (
-            <span className="text-muted-foreground">Todas</span>
+            <span className="text-muted-foreground">{placeholder}</span>
           ) : (
-            <span className="truncate">{value.length === 1 ? value[0] : `${value.length} selecionadas`}</span>
+            <span className="truncate">{value.length === 1 ? value[0] : `${value.length} selecionados`}</span>
           )}
           <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Buscar função..." className="text-xs" />
+          <CommandInput placeholder={searchPlaceholder} className="text-xs" />
           <CommandList>
-            <CommandEmpty>Nenhuma função encontrada.</CommandEmpty>
+            <CommandEmpty>{emptyLabel}</CommandEmpty>
             <CommandGroup>
-              {funcoes.map((f) => {
-                const isSelected = value.includes(f);
+              {options.map((o) => {
+                const isSelected = value.includes(o);
                 return (
-                  <CommandItem key={f} value={f} onSelect={() => toggle(f)} className="text-xs">
+                  <CommandItem key={o} value={o} onSelect={() => toggle(o)} className="text-xs">
                     {isSelected ? (
                       <X className="mr-2 h-3.5 w-3.5 shrink-0 text-destructive" />
                     ) : (
                       <Check className="mr-2 h-3.5 w-3.5 shrink-0 opacity-0" />
                     )}
-                    <span className="flex-1 truncate">{f}</span>
+                    <span className="flex-1 truncate">{o}</span>
                   </CommandItem>
                 );
               })}
@@ -711,17 +725,17 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   const formBspOptions = useMemo(() => bspOptionsForUnidade(periodos, form.unidade_operacional), [periodos, form.unidade_operacional]);
   // Os campos de filtro só valem depois de clicar em "Buscar" — os "*Input" guardam o que o
   // usuário está digitando/selecionando, e os "filter*" guardam o que realmente filtra a tabela.
-  const [colaboradorInput, setColaboradorInput] = useState("all");
+  const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
   const [tipoInput, setTipoInput] = useState<string[]>([]);
-  const [unidadeInput, setUnidadeInput] = useState("all");
-  const [bspInput, setBspInput] = useState("all");
+  const [unidadeInput, setUnidadeInput] = useState<string[]>([]);
+  const [bspInput, setBspInput] = useState<string[]>([]);
   const [funcaoInput, setFuncaoInput] = useState<string[]>([]);
   const [deInput, setDeInput] = useState("");
   const [ateInput, setAteInput] = useState("");
-  const [filterColaborador, setFilterColaborador] = useState("all");
+  const [filterColaborador, setFilterColaborador] = useState<string[]>([]);
   const [filterTipo, setFilterTipo] = useState<string[]>([]);
-  const [filterUnidade, setFilterUnidade] = useState("all");
-  const [filterBsp, setFilterBsp] = useState("all");
+  const [filterUnidade, setFilterUnidade] = useState<string[]>([]);
+  const [filterBsp, setFilterBsp] = useState<string[]>([]);
   const [filterFuncao, setFilterFuncao] = useState<string[]>([]);
   const [filterDe, setFilterDe] = useState("");
   const [filterAte, setFilterAte] = useState("");
@@ -859,15 +873,21 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     const tiposNormaisSelecionados = filterTipo.filter((t) => t !== EVENTO_FILTER_DESEMBARQUE);
 
     const filtrosComuns = (p: HistNovoPeriodo) =>
-      (filterColaborador === "all" || p.colaborador_id === filterColaborador) &&
-      (filterUnidade === "all" || p.unidade_operacional === filterUnidade) &&
-      (filterBsp === "all" || bspDoPeriodo(p) === filterBsp) &&
+      (filterColaborador.length === 0 || filterColaborador.includes(p.colaborador_id)) &&
+      (filterUnidade.length === 0 || (p.unidade_operacional != null && filterUnidade.includes(p.unidade_operacional))) &&
+      (filterBsp.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && filterBsp.includes(b); })()) &&
       (filterFuncao.length === 0 || filterFuncao.includes(colaboradorById.get(p.colaborador_id)?.funcao || colaboradorById.get(p.colaborador_id)?.funcao_operacao || "")) &&
       (!filterDe || p.data_fim >= filterDe) &&
       (!filterAte || p.data_inicio <= filterAte);
 
+    // Uma continuação de programação manual (tipo="E", origem=programado) é exibida na coluna
+    // Evento como "P — Programado" (ver render da célula abaixo), não como "E — Embarcado" —
+    // então o filtro precisa comparar contra esse mesmo "tipo efetivo", senão filtrar só por
+    // "Embarcado" também trazia essas linhas (que a própria tabela já rotula como Programado).
+    const tipoEfetivo = (p: HistNovoPeriodo): string => (p.origem === ORIGEM_PROGRAMADO ? "P" : p.tipo);
+
     const linhasNormais = periodos.filter((p) =>
-      (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(p.tipo)) &&
+      (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(tipoEfetivo(p))) &&
       // Um "P" (Programado) que já tem um "E" (real ou a confirmar) começando logo em
       // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
       // programação em aberto — o embarque em si já está representado por esse "E". Manter
@@ -958,7 +978,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             <ProximosEventosCard
               periodos={periodos}
               colaboradorById={colaboradorById}
-              onSelecionarColaborador={(id) => { setColaboradorInput(id); setFilterColaborador(id); }}
+              onSelecionarColaborador={(id) => { setColaboradorInput([id]); setFilterColaborador([id]); }}
             />
             <DrakeSyncLogList />
           </div>
@@ -1027,13 +1047,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
           <div className="space-y-0.5 w-56">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <Select value={colaboradorInput} onValueChange={setColaboradorInput}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {colaboradores.map((c) => <SelectItem key={c.id} value={c.id} className="text-xs">{c.nome}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <ColaboradoresMultiCombobox colaboradores={colaboradores} value={colaboradorInput} onChange={setColaboradorInput} compact />
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Evento</Label>
@@ -1041,27 +1055,19 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
-            <Select value={unidadeInput} onValueChange={(v) => { setUnidadeInput(v); setBspInput("all"); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadesExistentes.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <StringMultiCombobox
+              options={unidadesExistentes} value={unidadeInput}
+              onChange={(v) => { setUnidadeInput(v); setBspInput([]); }}
+              placeholder="Todas" searchPlaceholder="Buscar unidade..." emptyLabel="Nenhuma unidade encontrada."
+            />
           </div>
           <div className="space-y-0.5 w-36">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
-            <Select value={bspInput} onValueChange={setBspInput}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {bspInputOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <StringMultiCombobox options={bspInputOptions} value={bspInput} onChange={setBspInput} searchPlaceholder="Buscar BSP..." emptyLabel="Nenhum BSP encontrado." />
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
-            <FuncoesMultiCombobox funcoes={funcoesExistentes} value={funcaoInput} onChange={setFuncaoInput} />
+            <StringMultiCombobox options={funcoesExistentes} value={funcaoInput} onChange={setFuncaoInput} searchPlaceholder="Buscar função..." emptyLabel="Nenhuma função encontrada." />
           </div>
           <div className="space-y-0.5">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
@@ -1077,6 +1083,11 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           <Button size="sm" variant="outline" className="h-8" onClick={exportarLancamentos}>
             <Download className="mr-1.5 h-3.5 w-3.5" />Exportar
           </Button>
+          <div className="flex items-center gap-1.5 rounded px-2 py-0.5 h-8 text-[11px] bg-muted border border-border/60" title="Total de lançamentos na lista filtrada">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-bold">{filteredPeriodos.length}</span>
+            <span className="text-muted-foreground">lançamento(s)</span>
+          </div>
         </div>
 
         <Table>
@@ -1326,10 +1337,10 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const [gridAte, setGridAte] = useState(defaultGridEnd);
   const [year, setYear] = useState(new Date().getFullYear());
   const [selectedColaborador, setSelectedColaborador] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ComputedStatus | "">("");
-  const [unidadeFilter, setUnidadeFilter] = useState("all");
-  const [bspFilter, setBspFilter] = useState("all");
-  const [funcaoFilter, setFuncaoFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<ComputedStatus[]>([]);
+  const [unidadeFilter, setUnidadeFilter] = useState<string[]>([]);
+  const [bspFilter, setBspFilter] = useState<string[]>([]);
+  const [funcaoFilter, setFuncaoFilter] = useState<string[]>([]);
 
   const unidadeOptions = useMemo(
     () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
@@ -1403,22 +1414,22 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
 
   // Filtro por status computado (por prioridade) em algum dia do intervalo De/Até exibido na grade.
   const statusFiltered = useMemo(() => {
-    if (!statusFilter) return activeColaboradores;
+    if (statusFilter.length === 0) return activeColaboradores;
     return colaboradores.filter((c) => {
       const cPeriodos = periodosByColaborador.get(c.id) ?? [];
       if (cPeriodos.length === 0) return false;
-      return gridDates.some((d) => computeDayStatus(cPeriodos, d).status === statusFilter);
+      return gridDates.some((d) => statusFilter.includes(computeDayStatus(cPeriodos, d).status));
     });
   }, [statusFilter, colaboradores, periodosByColaborador, activeColaboradores, gridDates]);
 
   const visibleColaboradores = useMemo(() => {
-    if (unidadeFilter === "all" && bspFilter === "all" && funcaoFilter === "all") return statusFiltered;
+    if (unidadeFilter.length === 0 && bspFilter.length === 0 && funcaoFilter.length === 0) return statusFiltered;
     return statusFiltered.filter((c) => {
-      if (funcaoFilter !== "all" && (c.funcao || c.funcao_operacao) !== funcaoFilter) return false;
-      if (unidadeFilter === "all" && bspFilter === "all") return true;
+      if (funcaoFilter.length && !funcaoFilter.includes(c.funcao || c.funcao_operacao || "")) return false;
+      if (unidadeFilter.length === 0 && bspFilter.length === 0) return true;
       return (periodosByColaborador.get(c.id) ?? []).some((p) =>
-        (unidadeFilter === "all" || p.unidade_operacional === unidadeFilter) &&
-        (bspFilter === "all" || bspDoPeriodo(p) === bspFilter) &&
+        (unidadeFilter.length === 0 || (p.unidade_operacional != null && unidadeFilter.includes(p.unidade_operacional))) &&
+        (bspFilter.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && bspFilter.includes(b); })()) &&
         p.data_fim >= gridDe && p.data_inicio <= gridAte,
       );
     });
@@ -1431,8 +1442,8 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   );
 
   const toggleStatusFilter = (t: ComputedStatus) => {
-    const active = statusFilter === t;
-    setStatusFilter(active ? "" : t);
+    const active = statusFilter.includes(t);
+    setStatusFilter(active ? statusFilter.filter((s) => s !== t) : [...statusFilter, t]);
     if (!active) setViewMode("geral");
   };
 
@@ -1460,45 +1471,31 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
               <Input type="date" className="h-8 w-36 text-xs" value={gridAte} onChange={(e) => setGridAte(e.target.value)} />
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 w-44">
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-              <Select value={unidadeFilter} onValueChange={(v) => { setUnidadeFilter(v); setBspFilter("all"); }}>
-                <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                  {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <StringMultiCombobox
+                options={unidadeOptions} value={unidadeFilter}
+                onChange={(v) => { setUnidadeFilter(v); setBspFilter([]); }}
+                placeholder="Todas" searchPlaceholder="Buscar unidade..." emptyLabel="Nenhuma unidade encontrada."
+              />
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 w-36">
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
-              <Select value={bspFilter} onValueChange={setBspFilter}>
-                <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                  {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <StringMultiCombobox options={bspOptions} value={bspFilter} onChange={setBspFilter} searchPlaceholder="Buscar BSP..." emptyLabel="Nenhum BSP encontrado." />
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 w-44">
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
-              <Select value={funcaoFilter} onValueChange={setFuncaoFilter}>
-                <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                  {funcaoOptions.map((f) => <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <StringMultiCombobox
+                options={funcaoOptions} value={funcaoFilter} onChange={setFuncaoFilter}
+                placeholder="Todas" searchPlaceholder="Buscar função..." emptyLabel="Nenhuma função encontrada."
+              />
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 w-44">
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
-              <Select value={statusFilter || "all"} onValueChange={(v) => setStatusFilter(v === "all" ? "" : (v as ComputedStatus))}>
-                <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                  {STATUS_ORDER.map((s) => <SelectItem key={s} value={s} className="text-xs">{displayAbbr(s)} — {STATUS_LABEL[s]}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <EventoMultiCombobox
+                options={STATUS_ORDER.map((s) => ({ value: s, label: `${displayAbbr(s)} — ${STATUS_LABEL[s]}` }))}
+                value={statusFilter} onChange={(v) => setStatusFilter(v as ComputedStatus[])}
+              />
             </div>
           </>
         ) : (
@@ -1520,7 +1517,7 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
 
         <div className="ml-auto flex flex-wrap gap-1.5">
           {STATUS_ORDER.map((s) => {
-            const active = statusFilter === s;
+            const active = statusFilter.includes(s);
             return (
               <button
                 key={s}
@@ -1538,17 +1535,17 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
               </button>
             );
           })}
-          <div className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] bg-muted border border-border/60 ml-1" title={statusFilter ? `Colaboradores com status ${STATUS_LABEL[statusFilter]}` : "Total de colaboradores exibidos"}>
+          <div className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] bg-muted border border-border/60 ml-1" title={statusFilter.length ? `Colaboradores com status ${statusFilter.map((s) => STATUS_LABEL[s]).join(", ")}` : "Total de colaboradores exibidos"}>
             <Users className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="font-bold">{visibleCount}</span>
-            <span className="text-muted-foreground">{statusFilter ? STATUS_LABEL[statusFilter] : "colaboradores"}</span>
+            <span className="text-muted-foreground">{statusFilter.length ? statusFilter.map((s) => STATUS_LABEL[s]).join(", ") : "colaboradores"}</span>
           </div>
         </div>
       </div>
 
-      {statusFilter && (
+      {statusFilter.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Mostrando colaboradores com status <strong>{STATUS_LABEL[statusFilter]}</strong> entre{" "}
+          Mostrando colaboradores com status <strong>{statusFilter.map((s) => STATUS_LABEL[s]).join(", ")}</strong> entre{" "}
           {gridDe.split("-").reverse().join("/")} e {gridAte.split("-").reverse().join("/")}
           {" · "}{visibleColaboradores.length} colaborador(es)
         </p>
@@ -1890,9 +1887,9 @@ function DashboardTab({ colaboradores, periodos }: {
   const [dataFim, setDataFim] = useState(today);
   // Filtros extras pra investigar particularidades: um colaborador específico e/ou uma
   // unidade específica — afetam todos os cartões e gráficos abaixo.
-  const [filterColaborador, setFilterColaborador] = useState("all");
-  const [filterUnidade, setFilterUnidade] = useState("all");
-  const [filterBsp, setFilterBsp] = useState("all");
+  const [filterColaborador, setFilterColaborador] = useState<string[]>([]);
+  const [filterUnidade, setFilterUnidade] = useState<string[]>([]);
+  const [filterBsp, setFilterBsp] = useState<string[]>([]);
 
   const periodosByColaborador = useMemo(() => {
     const m = new Map<string, HistNovoPeriodo[]>();
@@ -1905,17 +1902,18 @@ function DashboardTab({ colaboradores, periodos }: {
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
 
-  // Colaborador escolhido no filtro (se houver) + só quem já teve período na unidade/BSP
-  // escolhidos (se houver) — antes de aplicar o recorte de "ativo no período" abaixo.
+  // Colaborador(es) escolhido(s) no filtro (se houver) + só quem já teve período na(s)
+  // unidade(s)/BSP(s) escolhidos (se houver) — antes de aplicar o recorte de "ativo no
+  // período" abaixo.
   const colaboradoresFiltrados = useMemo(() => colaboradores.filter((c) => {
-    if (filterColaborador !== "all" && c.id !== filterColaborador) return false;
-    if (filterUnidade !== "all") {
+    if (filterColaborador.length && !filterColaborador.includes(c.id)) return false;
+    if (filterUnidade.length) {
       const ps = periodosByColaborador.get(c.id) ?? [];
-      if (!ps.some((p) => p.unidade_operacional === filterUnidade)) return false;
+      if (!ps.some((p) => p.unidade_operacional && filterUnidade.includes(p.unidade_operacional))) return false;
     }
-    if (filterBsp !== "all") {
+    if (filterBsp.length) {
       const ps = periodosByColaborador.get(c.id) ?? [];
-      if (!ps.some((p) => bspDoPeriodo(p) === filterBsp)) return false;
+      if (!ps.some((p) => { const b = bspDoPeriodo(p); return b && filterBsp.includes(b); })) return false;
     }
     return true;
   }), [colaboradores, periodosByColaborador, filterColaborador, filterUnidade, filterBsp]);
@@ -2259,33 +2257,22 @@ function DashboardTab({ colaboradores, periodos }: {
           </div>
           <div className="space-y-0.5 w-56">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <Select value={filterColaborador} onValueChange={setFilterColaborador}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {colaboradores.map((c) => <SelectItem key={c.id} value={c.id} className="text-xs">{c.nome}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <ColaboradoresMultiCombobox colaboradores={colaboradores} value={filterColaborador} onChange={setFilterColaborador} compact />
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
-            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidades.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <StringMultiCombobox
+              options={unidades} value={filterUnidade}
+              onChange={(v) => { setFilterUnidade(v); setFilterBsp([]); }}
+              placeholder="Todas" searchPlaceholder="Buscar unidade..." emptyLabel="Nenhuma unidade encontrada."
+            />
           </div>
           <div className="space-y-0.5 w-40">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
-            <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <StringMultiCombobox
+              options={bspOptions} value={filterBsp} onChange={setFilterBsp}
+              searchPlaceholder="Buscar BSP..." emptyLabel="Nenhum BSP encontrado."
+            />
           </div>
           <p className="w-full pb-1 text-xs text-muted-foreground">
             De/Até define quem conta como "ativo" nos KPIs e no "Status por Unidade" (e alimenta os gráficos de unidade/semana). Colaborador/Unidade filtram tudo na tela. POB por Mês sempre mostra do início do ano até hoje.
