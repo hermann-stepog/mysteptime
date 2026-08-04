@@ -1284,7 +1284,7 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
       bsp: bspAtual,
-      funcao_embarque: embarque.funcao_embarque,
+      funcao_embarque: embarque.funcao_embarque ?? "",
       data_inicio: embarque.data_inicio_embarque,
       data_fim: embarque.data_fim_embarque,
     });
