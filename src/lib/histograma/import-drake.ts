@@ -308,6 +308,19 @@ export async function importDrakeEmbarkation(
     if (pErr) throw pErr;
   }
 
+  // Rede de segurança definitiva: o delete-all-then-insert acima assume que "apagar tudo que é
+  // origem=drake" sempre roda até o fim antes do insert seguinte — mas se essa importação se
+  // sobrepuser a outra (ex.: botão "Atualizar dados do Drake" clicado de novo antes da resposta
+  // anterior terminar, ou o processo reiniciando no meio de uma execução), o delete de uma
+  // rodada pode não enxergar as linhas que a outra rodada acabou de inserir, e um período de
+  // Embarque antigo/já superado sobra no banco convivendo com o novo. Foi exatamente isso que
+  // fez um colaborador já desembarcado (confirmado pelo Drake) continuar aparecendo como
+  // Embarcado/Dobra no Histograma dias depois. Esse passo roda ao final de toda importação e
+  // garante, independente da causa, que nunca sobre mais de um período "E" origem=drake
+  // cobrindo a mesma janela pro mesmo colaborador — entre períodos que se sobrepõem, só o de
+  // created_at mais recente sobrevive.
+  await limparPeriodosDrakeEmbarqueSuperados(supabase);
+
   // Gera o timesheet (semanas + dias) automaticamente pra cada período de embarque
   // importado — sem isso o colaborador não tem onde lançar as horas até alguém criar o
   // embarque manualmente. periodo_id fica null de propósito: o Drake sempre apaga e
@@ -337,6 +350,51 @@ export async function importDrakeEmbarkation(
     insertedEvents: periodosToInsert.length,
     skipped: rows.length - periodosToInsert.length,
   };
+}
+
+// Entre todos os períodos "E" origem=drake do MESMO colaborador que se sobrepõem em data,
+// mantém só o de created_at mais recente e apaga o(s) resto — ver comentário no ponto de
+// chamada (fim de importDrakeEmbarkation) pra entender por que isso é necessário mesmo com o
+// delete-all-then-insert já existente.
+async function limparPeriodosDrakeEmbarqueSuperados(supabase: SupabaseClient): Promise<void> {
+  const periodos = await selectAllPages<{
+    id: string; colaborador_id: string; data_inicio: string; data_fim: string; created_at: string;
+  }>((from, to) =>
+    supabase.from("hist_novo_periodos")
+      .select("id, colaborador_id, data_inicio, data_fim, created_at")
+      .eq("origem", "drake").eq("tipo", "E")
+      .order("id").range(from, to),
+  );
+
+  const byColaborador = new Map<string, typeof periodos>();
+  periodos.forEach((p) => {
+    if (!byColaborador.has(p.colaborador_id)) byColaborador.set(p.colaborador_id, []);
+    byColaborador.get(p.colaborador_id)!.push(p);
+  });
+
+  const overlaps = (a: { data_inicio: string; data_fim: string }, b: { data_inicio: string; data_fim: string }) =>
+    a.data_inicio <= b.data_fim && a.data_fim >= b.data_inicio;
+
+  const idsParaApagar: string[] = [];
+  for (const ps of byColaborador.values()) {
+    if (ps.length < 2) continue;
+    for (const p of ps) {
+      const superado = ps.some((other) => other.id !== p.id && other.created_at > p.created_at && overlaps(p, other));
+      if (superado) idsParaApagar.push(p.id);
+    }
+  }
+  if (!idsParaApagar.length) return;
+
+  for (let i = 0; i < idsParaApagar.length; i += 500) {
+    const lote = idsParaApagar.slice(i, i + 500);
+    const { error: unlinkErr } = await supabase
+      .from("timesheet_embarques")
+      .update({ periodo_id: null })
+      .in("periodo_id", lote);
+    if (unlinkErr) throw unlinkErr;
+    const { error: delErr } = await supabase.from("hist_novo_periodos").delete().in("id", lote);
+    if (delErr) throw delErr;
+  }
 }
 
 export async function importDrakeEmbarkationFromBuffer(

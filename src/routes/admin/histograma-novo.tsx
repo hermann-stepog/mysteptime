@@ -1635,6 +1635,17 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
   embarqueByPeriodoId: Map<string, TimesheetEmbarque>; semanasByEmbarqueId: Map<string, TimesheetSemana[]>;
   embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>;
 }) {
+  // Unidade "atual" de um colaborador: prioriza o período que realmente está valendo hoje
+  // (computeDayStatus, mesma prioridade usada na grade) — não simplesmente o período com a
+  // data_inicio mais recente (latestPeriodo). Um período de Folga vindo do relatório de
+  // Disponibilidade costuma ser importado com data_inicio = hoje, então "mais recente por
+  // data_inicio" pode ser justamente esse (sem unidade_operacional), mesmo quando existe um
+  // Embarque confirmado, começado antes, mas ainda em andamento e vencendo hoje na
+  // prioridade — resultando num colaborador embarcado aparecendo sem unidade. Só cai pra
+  // latestPeriodo quando não há período nenhum cobrindo hoje.
+  const unidadeAtualDoColaborador = (cPeriodos: HistNovoPeriodo[]) =>
+    computeDayStatus(cPeriodos, today).periodo?.unidade_operacional ?? latestPeriodo(cPeriodos)?.unidade_operacional ?? null;
+
   // Ordenação clicável no cabeçalho (Colaborador/Unidade), no mesmo padrão já aplicado nas
   // tabelas de Lançamentos e Histórico de BMs — sem coluna escolhida, mantém a ordem recebida
   // (já vem ordenada por status/última atividade de fora deste componente).
@@ -1644,11 +1655,11 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
     const dir = sortDirection === "asc" ? 1 : -1;
     return [...colaboradores].sort((a, b) => {
       if (sortColumn === "colaborador") return dir * a.nome.localeCompare(b.nome);
-      const ua = latestPeriodo(periodosByColaborador.get(a.id) ?? [])?.unidade_operacional ?? "";
-      const ub = latestPeriodo(periodosByColaborador.get(b.id) ?? [])?.unidade_operacional ?? "";
+      const ua = unidadeAtualDoColaborador(periodosByColaborador.get(a.id) ?? []) ?? "";
+      const ub = unidadeAtualDoColaborador(periodosByColaborador.get(b.id) ?? []) ?? "";
       return dir * ua.localeCompare(ub);
     });
-  }, [colaboradores, periodosByColaborador, sortColumn, sortDirection]);
+  }, [colaboradores, periodosByColaborador, sortColumn, sortDirection, today]);
 
   if (dates.length === 0) {
     return <div className="py-10 text-center text-sm text-muted-foreground">Selecione um intervalo De/Até válido.</div>;
@@ -1688,11 +1699,11 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
         <tbody>
           {sortedColaboradores.map((c, i) => {
             const cPeriodos = periodosByColaborador.get(c.id) ?? [];
-            const latest = latestPeriodo(cPeriodos);
+            const unidadeAtual = unidadeAtualDoColaborador(cPeriodos);
             return (
               <FadeInRow key={c.id} className="hover:bg-muted/40" delay={Math.min(i, 20) * 0.01}>
                 <td className="sticky left-0 z-10 bg-background border border-border px-2 py-0.5 font-medium truncate max-w-[160px]">{c.nome}</td>
-                <td className="sticky left-[160px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate max-w-[90px]">{latest?.unidade_operacional ?? "—"}</td>
+                <td className="sticky left-[160px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate max-w-[90px]">{unidadeAtual ?? "—"}</td>
                 {dates.map((d) => {
                   const result = computeDayStatus(cPeriodos, d);
                   const color = resolveEColor(result, d, embarqueByPeriodoId, semanasByEmbarqueId);
@@ -1848,6 +1859,21 @@ const DASH_COLORS = {
 
 const DASH_UNIT_PALETTE = ["#1e3a5f", "#2563eb", "#0288d1", "#f97316", "#22c55e", "#8b5cf6", "#eab308", "#94a3b8", "#f43f5e", "#14b8a6"];
 
+// Só nos gráficos do Dashboard: o 1º dia de Folga logo após o fim de um embarque (status
+// "DES") já conta e aparece como "Folga" comum, sem virar categoria própria — a grade do
+// Histograma e a lista de Lançamentos continuam mostrando esse dia separado como
+// "Desembarque", pra sinalizar visualmente a data exata da chegada (nada muda lá). Só se
+// aplica ao Desembarque que é mesmo o 1º dia de uma Folga real (período.tipo === "E" é a
+// pista de que veio desse caminho em computeDayStatus) — o Desembarque em Dia Não Útil
+// (vindo do relatório de Disponibilidade, período.tipo === "DDN") não foi pedido e continua
+// como está.
+function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): DayStatusResult {
+  const result = computeDayStatus(periodos, date);
+  if (result.status !== "DES" || result.periodo?.tipo !== "E") return result;
+  const folga = periodos.find((p) => p.tipo === "F" && date >= p.data_inicio && date <= p.data_fim);
+  return folga ? { status: "F", periodo: folga } : result;
+}
+
 function DashboardTab({ colaboradores, periodos }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[];
 }) {
@@ -1918,13 +1944,19 @@ function DashboardTab({ colaboradores, periodos }: {
   );
 
   // "POB por Unidade × Dia" e "Mão de Obra por Semana" só fazem sentido com vários dias —
-  // ficam desacoplados do filtro De/Até de cima (que agora nasce em hoje/hoje pros
-  // cartões/rosquinha baterem entre si) e sempre mostram o MÊS ATUAL inteiro, independente
-  // do que estiver selecionado no De/Até.
-  const inicioMesAtual = `${today.slice(0, 7)}-01`;
+  // ficam desacopladas do filtro De/Até de cima (que agora nasce em hoje/hoje pros
+  // cartões/rosquinha baterem entre si) e têm seu PRÓPRIO filtro De/Até, discreto, mostrado
+  // só em cima delas — nasce sempre no mês atual, mas continua editável se ela quiser ver
+  // outro mês, sem afetar os gráficos "por dia" de cima.
+  const inicioMesAtualDefault = `${today.slice(0, 7)}-01`;
   const [anoMesAtual, mesMesAtual] = today.slice(0, 7).split("-").map(Number);
-  const fimMesAtual = `${today.slice(0, 7)}-${String(new Date(anoMesAtual, mesMesAtual, 0).getDate()).padStart(2, "0")}`;
-  const datesMesAtual = useMemo(() => generateDateRange(inicioMesAtual, fimMesAtual), [inicioMesAtual, fimMesAtual]);
+  const fimMesAtualDefault = `${today.slice(0, 7)}-${String(new Date(anoMesAtual, mesMesAtual, 0).getDate()).padStart(2, "0")}`;
+  const [inicioMesAtual, setInicioMesAtual] = useState(inicioMesAtualDefault);
+  const [fimMesAtual, setFimMesAtual] = useState(fimMesAtualDefault);
+  const datesMesAtual = useMemo(
+    () => (inicioMesAtual && fimMesAtual && inicioMesAtual <= fimMesAtual ? generateDateRange(inicioMesAtual, fimMesAtual) : []),
+    [inicioMesAtual, fimMesAtual],
+  );
   const activeColaboradoresMesAtual = useMemo(() => colaboradoresFiltrados.filter((c) => {
     const ps = periodosByColaborador.get(c.id) ?? [];
     return ps.some((p) => p.data_fim >= inicioMesAtual && p.data_inicio <= fimMesAtual);
@@ -1961,7 +1993,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const kpis = useMemo(() => {
     let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0, folga = 0, naBase = 0, ocupados = 0;
     activeColaboradores.forEach((c) => {
-      const bucket = toOldBucket(computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status);
+      const bucket = toOldBucket(computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status);
       if (bucket === "E") embarcados++;
       else if (bucket === "FO") folga++;
       else if (bucket === "P") programados++;
@@ -2015,7 +2047,7 @@ function DashboardTab({ colaboradores, periodos }: {
     let somaOcupados = 0;
     datesAteHoje.forEach((d) => {
       activeColaboradores.forEach((c) => {
-        const bucket = toOldBucket(computeDayStatus(periodosByColaborador.get(c.id) ?? [], d).status);
+        const bucket = toOldBucket(computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d).status);
         if (isOcupadoBucket(bucket)) somaOcupados++;
       });
     });
@@ -2029,7 +2061,7 @@ function DashboardTab({ colaboradores, periodos }: {
     const recs: { date: string; bucket: OldBucket; unidade: string | null; bsp: string | null }[] = [];
     datesMesAtual.forEach((d) => {
       activeColaboradoresMesAtual.forEach((c) => {
-        const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], d);
+        const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
         recs.push({ date: d, bucket: pobBucket(result), unidade: result.periodo?.unidade_operacional ?? null, bsp: result.periodo ? bspDoPeriodo(result.periodo) : null });
       });
     });
@@ -2045,7 +2077,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const ocupacaoData = useMemo(() => {
     const counts: Partial<Record<ComputedStatus, number>> = {};
     activeColaboradores.forEach((c) => {
-      const status = computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
+      const status = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
       if (!isOcupadoBucket(toOldBucket(status))) return;
       counts[status] = (counts[status] ?? 0) + 1;
     });
@@ -2058,7 +2090,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const naoOcupacaoData = useMemo(() => {
     const counts: Partial<Record<ComputedStatus, number>> = {};
     activeColaboradores.forEach((c) => {
-      const status = computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
+      const status = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
       if (isOcupadoBucket(toOldBucket(status))) return;
       counts[status] = (counts[status] ?? 0) + 1;
     });
@@ -2090,7 +2122,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const byUnitStatus = useMemo(() => {
     const m: Record<string, { total: number; porFuncao: Record<string, { count: number; nomes: string[] }> }> = {};
     activeColaboradores.forEach((c) => {
-      const result = computeDayStatus(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       if (pobBucket(result) !== "E") return;
       const u = result.periodo?.unidade_operacional;
       if (!u) return;
@@ -2391,14 +2423,30 @@ function DashboardTab({ colaboradores, periodos }: {
         </div>
       </Card>
 
+      {/* ── Filtro discreto pros gráficos "por mês" abaixo (POB por Unidade × Dia e Mão de
+          Obra por Semana) — separado do De/Até de cima, que é só pros gráficos "por dia". ── */}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span>Período dos gráficos por mês:</span>
+        <span>De:</span>
+        <Input
+          type="date" value={inicioMesAtual} onChange={(e) => setInicioMesAtual(e.target.value)}
+          className="h-6 w-auto px-1.5 text-xs"
+        />
+        <span>Até:</span>
+        <Input
+          type="date" value={fimMesAtual} onChange={(e) => setFimMesAtual(e.target.value)}
+          className="h-6 w-auto px-1.5 text-xs"
+        />
+      </div>
+
       {/* ── POB por Unidade × Dia (com BSP) ── */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold">POB por Unidade × Dia</h3>
-        <p className="text-xs text-muted-foreground mb-3">Embarcados por dia, por unidade e por BSP, no mês atual</p>
+        <p className="text-xs text-muted-foreground mb-3">Embarcados por dia, por unidade e por BSP, no período selecionado acima</p>
         {datesMesAtual.length === 0 ? (
           <EmptyState icon={CalendarDays} title="Selecione um período válido" />
         ) : unidadeBspRows.length === 0 ? (
-          <EmptyState icon={Ship} title="Nenhuma unidade com embarcado no mês atual" />
+          <EmptyState icon={Ship} title="Nenhuma unidade com embarcado no período selecionado" />
         ) : (
           <div className="rounded border border-border">
             {/* table-fixed + sem min-w: as colunas de dia dividem o espaço disponível em partes
