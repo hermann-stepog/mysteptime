@@ -2021,22 +2021,6 @@ function DashboardTab({ colaboradores, periodos }: {
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
   ];
 
-  // ── Tempo médio offshore / de folga (duração média dos períodos E / F) — restrito aos
-  // colaboradores ativos e ao intervalo De/Até filtrado, pra bater com o resto do card
-  // "Taxa de Ocupação" (antes usava todo o histórico, de qualquer colaborador, sem filtro).
-  const avgMetrics = useMemo(() => {
-    const dur = (p: HistNovoPeriodo) => Math.max(1, Math.round((new Date(p.data_fim).getTime() - new Date(p.data_inicio).getTime()) / 86400000) + 1);
-    const avg = (arr: number[]) => (arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
-    const activeIds = new Set(activeColaboradores.map((c) => c.id));
-    const periodosAtivos = periodos.filter((p) =>
-      activeIds.has(p.colaborador_id) && (!dataInicio || !dataFim || (p.data_fim >= dataInicio && p.data_inicio <= dataFim)),
-    );
-    return {
-      avgOffshore: avg(periodosAtivos.filter((p) => p.tipo === "E").map(dur)),
-      avgTimeOff: avg(periodosAtivos.filter((p) => p.tipo === "F").map(dur)),
-    };
-  }, [periodos, activeColaboradores, dataInicio, dataFim]);
-
   // ── Taxa de Ocupação média no período filtrado — a rosquinha acima é sempre a foto de UM
   // dia (pobReferenceDate); aqui calcula o % de ocupados em CADA dia do período (mesmo
   // conceito de "ocupado" de isOcupadoBucket) e tira a média, sobre o mesmo headcount total
@@ -2387,31 +2371,14 @@ function DashboardTab({ colaboradores, periodos }: {
             </div>
           </div>
         </div>
-        <div className="border-t mt-5 pt-4 grid grid-cols-3 gap-4">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Taxa de Ocupação Média no período (até hoje)</p>
-            <p
-              className="mt-1 text-2xl font-bold"
-              style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-            >
-              {mediaOcupacaoPeriodo}%
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio Offshore no período</p>
-            <p
-              className="mt-1 text-2xl font-bold"
-              style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-            >
-              {avgMetrics.avgOffshore}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Tempo Médio de Folga no período</p>
-            <p className="mt-1 bg-gradient-to-br from-sky-500 to-sky-300 bg-clip-text text-2xl font-bold text-transparent">
-              {avgMetrics.avgTimeOff}<span className="ml-1 text-sm font-normal text-muted-foreground">dias</span>
-            </p>
-          </div>
+        <div className="border-t mt-5 pt-4">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Taxa de Ocupação Média no período (até hoje)</p>
+          <p
+            className="mt-1 text-2xl font-bold"
+            style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+          >
+            {mediaOcupacaoPeriodo}%
+          </p>
         </div>
       </Card>
 

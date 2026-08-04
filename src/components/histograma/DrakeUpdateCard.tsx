@@ -20,7 +20,7 @@ import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
 import { parseExcelDate } from "@/lib/histograma/import-drake";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
-  computeDayStatus, toOldBucket, STATUS_LABEL,
+  computeDayStatus, toOldBucket, STATUS_LABEL, addDays,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { cn } from "@/lib/utils";
@@ -226,8 +226,10 @@ export function DrakeUpdateCard() {
   // Base" (ver isOcupadoBucket em histogramaNovo.ts); quem já está Embarcado, de Férias,
   // Atestado etc. é ignorado, porque essas informações são mais autoritativas. Cada
   // importação SUBSTITUI por completo o lote anterior (apaga todo tipo="BASE" e insere de
-  // novo a partir da planilha atual), pra sempre refletir só quem está na base "agora",
-  // sem acumular gente antiga que talvez já tenha saído.
+  // novo a partir da planilha atual). A planilha do dia normalmente só informa "hoje" (sem
+  // data fim própria) — nesse caso o "Na Base" continua valendo nos dias seguintes com os
+  // dados de ontem até ela importar uma planilha nova, em vez de sumir no dia seguinte por
+  // falta de reimportação.
   const handleImportBase = async (file: File) => {
     setImportandoBase(true);
     setBaseResult(null);
@@ -250,11 +252,20 @@ export function DrakeUpdateCard() {
       if (idxFim < 0) idxFim = 2;
 
       const linhas = dataRows
-        .map((r) => ({
-          nome: String(r[idxNome] ?? "").trim(),
-          dataInicio: parseExcelDate(r[idxInicio]),
-          dataFim: parseExcelDate(r[idxFim]) ?? parseExcelDate(r[idxInicio]),
-        }))
+        .map((r) => {
+          const dataInicio = parseExcelDate(r[idxInicio]);
+          const dataFimInformada = parseExcelDate(r[idxFim]);
+          return {
+            nome: String(r[idxNome] ?? "").trim(),
+            dataInicio,
+            // A planilha do dia normalmente só traz "hoje" (sem data fim própria) — nesse
+            // caso o "Na Base" precisa continuar valendo nos dias seguintes até ela importar
+            // uma planilha nova (que substitui esse lote inteiro, ver abaixo), não só no dia
+            // exato do import. Só respeita uma data fim mais curta quando a planilha realmente
+            // trouxer uma.
+            dataFim: dataFimInformada ?? (dataInicio ? addDays(dataInicio, 365) : null),
+          };
+        })
         .filter((l): l is { nome: string; dataInicio: string; dataFim: string } => !!l.nome && !!l.dataInicio && !!l.dataFim);
 
       if (!linhas.length) {
