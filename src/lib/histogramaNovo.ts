@@ -141,12 +141,14 @@ export function normalizeUnidadeOperacional(raw: string | null | undefined): str
   return UNIDADE_OPERACIONAL_ALIASES[trimmed.toUpperCase()] ?? trimmed;
 }
 
-// BSPs já vistos nos períodos do Histograma, restritos à unidade escolhida (ou todos, se
-// "all") — usado pra alimentar o filtro de BSP ao lado do filtro de Unidade Operacional nas
-// várias telas do app.
-export function bspOptionsForUnidade(periodos: HistNovoPeriodo[], unidade: string): string[] {
+// BSPs já vistos nos períodos do Histograma, restritos à(s) unidade(s) escolhida(s) (ou
+// todos, se "all"/lista vazia) — usado pra alimentar o filtro de BSP ao lado do filtro de
+// Unidade Operacional nas várias telas do app. Aceita tanto uma unidade única (telas com
+// filtro de seleção única) quanto uma lista (filtros de múltipla seleção).
+export function bspOptionsForUnidade(periodos: HistNovoPeriodo[], unidade: string | string[]): string[] {
+  const unidades = Array.isArray(unidade) ? unidade : unidade === "all" ? [] : [unidade];
   const bsps = periodos
-    .filter((p) => unidade === "all" || p.unidade_operacional === unidade)
+    .filter((p) => unidades.length === 0 || (p.unidade_operacional != null && unidades.includes(p.unidade_operacional)))
     .map(bspDoPeriodo)
     .filter((b): b is string => !!b);
   return Array.from(new Set(bsps)).sort();
