@@ -43,7 +43,7 @@ serve(async (req) => {
   if (sheetType === "sheet1") {
     // Traz numeração e valor do BM, linha a linha
     result = rows.map((row: any) => ({
-      bm: getCellValue(row, columns, "BM"),
+      bm: normalizeBm(getCellValue(row, columns, "BM")),
       valorBm: getCellValue(row, columns, "VALOR BM"),
     }));
   } else {
@@ -72,3 +72,14 @@ serve(async (req) => {
     headers: { "Content-Type": "application/json" },
   });
 });
+function normalizeBm(bm: any): string | null {
+  if (bm == null) return null;
+  const str = String(bm).trim();
+  const match = str.match(/^(\d+)(\..+)?$/);
+  if (match) {
+    const intPart = match[1].padStart(3, "0");
+    const suffix = match[2] || "";
+    return intPart + suffix;
+  }
+  return str;
+}
