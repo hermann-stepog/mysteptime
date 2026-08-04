@@ -3,7 +3,8 @@ import { serve } from "https://deno.land/std/http/server.ts";
 const SMARTSHEET_API = "https://api.smartsheet.com/2.0/sheets";
 
 function getCellValue(row: any, columns: any[], columnName: string) {
-  const col = columns.find((c) => c.title === columnName);
+  const normalize = (s: string) => s.trim().toLowerCase();
+  const col = columns.find((c) => normalize(c.title) === normalize(columnName));
   if (!col) return null;
   const cell = row.cells.find((c: any) => c.columnId === col.id);
   return cell?.value ?? null;
@@ -43,7 +44,7 @@ serve(async (req) => {
     // Traz numeração e valor do BM, linha a linha
     result = rows.map((row: any) => ({
       bm: getCellValue(row, columns, "BM"),
-      valorBm: getCellValue(row, columns, "Valor BM"),
+      valorBm: getCellValue(row, columns, "VALOR BM"),
     }));
   } else {
     // Soma os valores agrupando por PO
