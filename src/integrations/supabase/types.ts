@@ -627,6 +627,226 @@ export type Database = {
           },
         ]
       }
+      drake_qualification_contexts: {
+        Row: {
+          context_key: string
+          job_name: string
+          matrix_id: string
+          matrix_name: string
+          operational_unit_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          context_key: string
+          job_name: string
+          matrix_id: string
+          matrix_name: string
+          operational_unit_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          context_key?: string
+          job_name?: string
+          matrix_id?: string
+          matrix_name?: string
+          operational_unit_name?: string
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: []
+      }
+      drake_qualification_options: {
+        Row: {
+          domain_identifier: string
+          option_id: string
+          option_name: string
+          sort_order: number
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          domain_identifier: string
+          option_id: string
+          option_name: string
+          sort_order: number
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          domain_identifier?: string
+          option_id?: string
+          option_name?: string
+          sort_order?: number
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: []
+      }
+      drake_qualification_requirements: {
+        Row: {
+          context_key: string
+          indicated_course_id: string | null
+          indicated_course_name: string | null
+          is_mandatory: boolean
+          qualification_id: string
+          qualification_name: string
+          qualification_need_type_id: string | null
+          qualification_need_type_name: string
+          relationship_set_id: string | null
+          relationship_set_name: string | null
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          context_key: string
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          is_mandatory: boolean
+          qualification_id: string
+          qualification_name: string
+          qualification_need_type_id?: string | null
+          qualification_need_type_name: string
+          relationship_set_id?: string | null
+          relationship_set_name?: string | null
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          context_key?: string
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          is_mandatory?: boolean
+          qualification_id?: string
+          qualification_name?: string
+          qualification_need_type_id?: string | null
+          qualification_need_type_name?: string
+          relationship_set_id?: string | null
+          relationship_set_name?: string | null
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drake_qualification_requirements_context_key_fkey"
+            columns: ["context_key"]
+            isOneToOne: false
+            referencedRelation: "drake_qualification_contexts"
+            referencedColumns: ["context_key"]
+          },
+        ]
+      }
+      drake_qualification_sync_state: {
+        Row: {
+          context_count: number
+          last_success_at: string
+          option_count: number
+          qualification_count: number
+          requirement_count: number
+          singleton: boolean
+          source_row_count: number
+          worker_count: number
+        }
+        Insert: {
+          context_count: number
+          last_success_at: string
+          option_count?: number
+          qualification_count: number
+          requirement_count: number
+          singleton?: boolean
+          source_row_count: number
+          worker_count: number
+        }
+        Update: {
+          context_count?: number
+          last_success_at?: string
+          option_count?: number
+          qualification_count?: number
+          requirement_count?: number
+          singleton?: boolean
+          source_row_count?: number
+          worker_count?: number
+        }
+        Relationships: []
+      }
+      drake_qualification_workers: {
+        Row: {
+          current_operational_unit_name: string | null
+          drake_worker_id: string
+          full_name: string
+          job_name: string | null
+          registration: string
+          sync_id: string
+          synced_at: string
+          worker_state: string | null
+          worker_type: string | null
+        }
+        Insert: {
+          current_operational_unit_name?: string | null
+          drake_worker_id: string
+          full_name: string
+          job_name?: string | null
+          registration: string
+          sync_id: string
+          synced_at: string
+          worker_state?: string | null
+          worker_type?: string | null
+        }
+        Update: {
+          current_operational_unit_name?: string | null
+          drake_worker_id?: string
+          full_name?: string
+          job_name?: string | null
+          registration?: string
+          sync_id?: string
+          synced_at?: string
+          worker_state?: string | null
+          worker_type?: string | null
+        }
+        Relationships: []
+      }
+      drake_worker_qualifications: {
+        Row: {
+          drake_worker_id: string
+          expiration_date: string | null
+          indicated_course_id: string | null
+          indicated_course_name: string | null
+          qualification_id: string
+          qualification_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          drake_worker_id: string
+          expiration_date?: string | null
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          qualification_id: string
+          qualification_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          drake_worker_id?: string
+          expiration_date?: string | null
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          qualification_id?: string
+          qualification_name?: string
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drake_worker_qualifications_drake_worker_id_fkey"
+            columns: ["drake_worker_id"]
+            isOneToOne: false
+            referencedRelation: "drake_qualification_workers"
+            referencedColumns: ["drake_worker_id"]
+          },
+        ]
+      }
       embarkations: {
         Row: {
           client_id: string | null
