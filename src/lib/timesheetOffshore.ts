@@ -47,8 +47,8 @@ export interface TimesheetDia {
   horas_normais: number | null;
   horas_extras: number | null;
   total_horas: number | null;
-  adicional_noturno: boolean;
-  feriado: boolean;
+  adicional_noturno: boolean | null;
+  feriado: boolean | null;
   criado_em: string;
 }
 
