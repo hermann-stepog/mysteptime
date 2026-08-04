@@ -35,7 +35,7 @@ export interface TimesheetDia {
   id: string;
   semana_id: string;
   data: string;
-  dia_semana: string;
+  dia_semana: string | null;
   descricao_tarefa: string | null;
   numero_tarefa: string | null;
   evento: string | null;
