@@ -813,6 +813,87 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
   );
 }
 
+// Painel de atividade recente — últimas semanas marcadas como recebidas ("Salvar semana"),
+// com quem lançou e quando, mais um resumo de quantas foram lançadas hoje. Só existe registro
+// de quem lançou a partir de quando as colunas recebido_por/recebido_em foram criadas —
+// lançamentos anteriores a isso aparecem sem essa informação (não têm como ser recuperados).
+function fmtHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+function fmtData(iso: string): string {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
+  semanas: TimesheetSemana[]; embarques: TimesheetEmbarque[]; colaboradores: HistNovoColaborador[];
+}) {
+  const colaboradorPorEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.colaborador_id])), [embarques]);
+  const nomePorColaboradorId = useMemo(() => new Map(colaboradores.map((c) => [c.id, c.nome])), [colaboradores]);
+
+  const recentes = useMemo(
+    () => semanas
+      .filter((s): s is TimesheetSemana & { recebido_em: string } => !!s.recebido_em)
+      .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em))
+      .slice(0, 8),
+    [semanas],
+  );
+
+  const idsExecutores = useMemo(
+    () => Array.from(new Set(recentes.map((s) => s.recebido_por).filter((id): id is string => !!id))),
+    [recentes],
+  );
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["profiles-timesheet-recente", idsExecutores],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("id, full_name, email").in("id", idsExecutores);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: idsExecutores.length > 0,
+  });
+  const nomeExecutorById = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name || p.email])), [profiles]);
+
+  const hoje = todayStr();
+  const lancadosHoje = useMemo(() => semanas.filter((s) => s.data_recebimento === hoje).length, [semanas, hoje]);
+
+  return (
+    <Card className="flex w-full flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3 lg:w-64 lg:shrink-0">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">Últimas Atualizações</h3>
+        <span className="flex shrink-0 items-baseline gap-1 rounded-md bg-primary/15 px-2 py-0.5">
+          <span className="text-sm font-bold leading-none text-primary">{lancadosHoje}</span>
+          <span className="text-[9px] uppercase leading-none tracking-wide text-muted-foreground">hoje</span>
+        </span>
+      </div>
+
+      {recentes.length === 0 ? (
+        <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum lançamento registrado ainda.</p>
+      ) : (
+        <div className="flex-1 space-y-1.5 overflow-auto pr-1">
+          {recentes.map((s) => {
+            const colaboradorId = colaboradorPorEmbarqueId.get(s.embarque_id);
+            const nomeColaborador = colaboradorId ? nomePorColaboradorId.get(colaboradorId) : null;
+            const executor = s.recebido_por ? nomeExecutorById.get(s.recebido_por) : null;
+            return (
+              <div key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-primary/10 bg-background/60 px-2 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium">{nomeColaborador ?? "—"}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {fmtData(s.recebido_em!)}{executor ? ` · ${executor}` : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary">
+                  {fmtHora(s.recebido_em!)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ─── Aba 1: Embarques ────────────────────────────────────────────────────────
 
 type EmbarquesSortColumn = "colaborador" | "funcao" | "unidade" | "bsp";
@@ -1055,67 +1136,76 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
   return (
     <div className="space-y-3">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-48">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
-            <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-56">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
-          </div>
-          {!readOnly && (
-            <div className="ml-auto flex items-center gap-2">
-              <Button onClick={() => setNovoOpen(true)}>
-                <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
-              </Button>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+        <div className="flex flex-1 flex-col gap-3">
+          <Card className="p-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-0.5 w-36">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
+                <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+              </div>
+              <div className="space-y-0.5 w-36">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+                <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+              </div>
+              <div className="space-y-0.5 w-48">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
+                <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                    {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-0.5 w-40">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+                <Select value={filterBsp} onValueChange={setFilterBsp}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                    {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-0.5 w-56">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+                <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+              </div>
+              {!readOnly && (
+                <div className="ml-auto flex items-center gap-2">
+                  <Button onClick={() => setNovoOpen(true)}>
+                    <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {cardsPorUnidade.length > 0 && (
+            <div className="flex flex-wrap content-start gap-1.5">
+              {cardsPorUnidade.map((unidade) => (
+                <Card
+                  key={unidade}
+                  role="button" tabIndex={0}
+                  onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
+                  style={{ flex: "1 1 6rem" }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent px-2 py-1.5 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                    filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
+                  )}
+                >
+                  <p className="truncate text-xs font-semibold leading-tight text-primary">{unidade}</p>
+                </Card>
+              ))}
             </div>
           )}
         </div>
-      </Card>
 
-      {cardsPorUnidade.length > 0 && (
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {cardsPorUnidade.map((unidade) => (
-            <Card
-              key={unidade}
-              role="button" tabIndex={0}
-              onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
-              className={cn(
-                "cursor-pointer overflow-hidden rounded-xl border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent p-3 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
-                filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
-              )}
-            >
-              <p className="text-xs font-semibold leading-snug text-primary">{unidade}</p>
-            </Card>
-          ))}
-        </div>
-      )}
+        {cardsPorUnidade.length > 0 && (
+          <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} />
+        )}
+      </div>
 
       <Card>
         <Table>
@@ -1994,6 +2084,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
   semana: TimesheetSemana; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; embarque: TimesheetEmbarque; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   // BSPs já conhecidos pra unidade desse embarque — quando há mais de um, o campo BSP de cada
   // dia vira lista em vez de texto livre (reduz erro de digitação); "Outro" mantém o texto
   // livre pra um BSP novo que ainda não apareceu nessa unidade.
@@ -2142,6 +2233,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
 
       const { error: semErr } = await supabase.from("timesheet_semanas").update({
         recebido_fisico: true, data_recebimento: todayStr(),
+        recebido_por: user?.id ?? null, recebido_em: new Date().toISOString(),
       }).eq("id", semana.id);
       if (semErr) throw semErr;
 
