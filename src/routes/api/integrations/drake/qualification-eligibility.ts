@@ -43,7 +43,7 @@ export const Route = createFileRoute("/api/integrations/drake/qualification-elig
           );
           const evaluation = await evaluateLiveQualificationEligibility(drakeClient, db, {
             operationalUnitId: body.operationalUnitId,
-            jobCategoryId: body.jobCategoryId,
+            jobId: body.jobId,
             operationType: body.operationType,
             startDate: body.startDate,
             endDate: body.endDate,

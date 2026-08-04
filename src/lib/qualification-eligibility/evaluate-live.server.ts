@@ -15,7 +15,6 @@ import {
   type QualificationEligibilitySelection,
   type QualificationRequirement,
 } from "./domain";
-import { buildJobCategories, type JobCategory } from "./job-category";
 import { fetchWorkerQualificationSource } from "./repository";
 
 type AppDb = SupabaseClient<Database>;
@@ -35,11 +34,11 @@ export async function evaluateLiveQualificationEligibility(
   selection: QualificationEligibilitySelection,
 ): Promise<EligibilityEvaluation> {
   validateSelection(selection);
-  const [coreOptions, unit] = await Promise.all([
+  const [coreOptions, unit, job] = await Promise.all([
     fetchCoreOptions(db),
     fetchSelectedOption(db, UNIT_DOMAIN, selection.operationalUnitId),
+    fetchSelectedOption(db, JOB_DOMAIN, selection.jobId),
   ]);
-  const jobCategory = selectJobCategory(coreOptions, selection.jobCategoryId);
 
   const matrices = selectApplicableMatrices(
     coreOptions.filter((option) => option.domain_identifier === MATRIX_DOMAIN),
@@ -58,40 +57,33 @@ export async function evaluateLiveQualificationEligibility(
   }
 
   const matrixRows = await Promise.all(
-    jobCategory.jobs.flatMap((job) =>
-      matrices.map(async (matrix) => ({
-        matrix,
-        job,
-        rows: await fetchDrakeMatrixItems(request, {
-          matrixId: matrix.option_id,
-          workerTypeId: workerType.option_id,
-          operationalUnitId: unit.option_id,
-          jobId: job.id,
-          needTypeIds,
-        }),
-      })),
-    ),
+    matrices.map(async (matrix) => ({
+      matrix,
+      rows: await fetchDrakeMatrixItems(request, {
+        matrixId: matrix.option_id,
+        workerTypeId: workerType.option_id,
+        operationalUnitId: unit.option_id,
+        jobId: job.option_id,
+        needTypeIds,
+      }),
+    })),
   );
   const qualificationIds = indexQualificationIds(coreOptions);
-  const requirements = buildRequirements(matrixRows, qualificationIds);
+  const requirements = buildRequirements(matrixRows, job.option_name, qualificationIds);
   if (requirements.length === 0) {
     throw new Error(
-      "Nenhum requisito foi encontrado no Drake para o cliente, categoria e tipo de atuação selecionados.",
+      "Nenhum requisito foi encontrado no Drake para o cliente, vaga e tipo de atuação selecionados.",
     );
   }
 
-  const source = await fetchWorkerQualificationSource(
-    db,
-    jobCategory.jobs.map((job) => job.name),
-  );
+  const source = await fetchWorkerQualificationSource(db, job.option_name);
   return evaluateQualificationEligibility({
     context: {
       operationType: selection.operationType,
       operationalUnitId: unit.option_id,
       operationalUnitName: unit.option_name,
-      jobCategoryId: jobCategory.id,
-      jobCategoryName: jobCategory.name,
-      jobs: jobCategory.jobs,
+      jobId: job.option_id,
+      jobName: job.option_name,
       matrixIds: matrices.map((matrix) => matrix.option_id),
       matrixNames: matrices.map((matrix) => matrix.option_name),
     },
@@ -124,16 +116,15 @@ export function selectApplicableMatrices(
 export function buildRequirements(
   sources: Array<{
     matrix: StoredOption;
-    job: { id: string; name: string };
     rows: DrakeMatrixItem[];
   }>,
+  jobName: string,
   qualificationIds: Map<string, string>,
 ): QualificationRequirement[] {
-  return sources.flatMap(({ matrix, job, rows }) =>
+  const normalizedJob = normalizeQualificationText(jobName);
+  return sources.flatMap(({ matrix, rows }) =>
     rows
-      .filter(
-        (row) => normalizeQualificationText(row.jobName) === normalizeQualificationText(job.name),
-      )
+      .filter((row) => normalizeQualificationText(row.jobName) === normalizedJob)
       .map((row) => ({
         qualificationId:
           qualificationIds.get(normalizeQualificationText(row.qualificationName)) ??
@@ -142,7 +133,6 @@ export function buildRequirements(
         needTypeName: markerLabel(row.marker),
         mandatory: isMandatoryMarker(row.marker),
         sourceMatrixName: matrix.option_name,
-        applicableJobNames: [job.name],
       })),
   );
 }
@@ -163,17 +153,6 @@ function indexQualificationIds(options: StoredOption[]): Map<string, string> {
   );
 }
 
-function selectJobCategory(options: StoredOption[], categoryId: string): JobCategory {
-  const categories = buildJobCategories(
-    options
-      .filter((option) => option.domain_identifier === JOB_DOMAIN)
-      .map((option) => ({ id: option.option_id, name: option.option_name })),
-  );
-  const category = categories.find((candidate) => candidate.id === categoryId);
-  if (!category) throw new Error("A categoria de função selecionada não existe mais no Drake.");
-  return category;
-}
-
 async function fetchCoreOptions(db: AppDb): Promise<StoredOption[]> {
   const rows: StoredOption[] = [];
   while (true) {
@@ -184,7 +163,6 @@ async function fetchCoreOptions(db: AppDb): Promise<StoredOption[]> {
         MATRIX_DOMAIN,
         WORKER_TYPE_DOMAIN,
         NEED_TYPE_DOMAIN,
-        JOB_DOMAIN,
         QUALIFICATION_DOMAIN,
       ])
       .order("domain_identifier")
@@ -228,8 +206,8 @@ function requiredOption(
 }
 
 function validateSelection(selection: QualificationEligibilitySelection): void {
-  if (!selection.operationalUnitId || !selection.jobCategoryId) {
-    throw new Error("Cliente/unidade e categoria de função são obrigatórios.");
+  if (!selection.operationalUnitId || !selection.jobId) {
+    throw new Error("Cliente/unidade e vaga são obrigatórios.");
   }
   if (!(["onshore", "offshore", "offshore-irata"] as string[]).includes(selection.operationType)) {
     throw new Error("Tipo de atuação inválido.");

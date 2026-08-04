@@ -11,12 +11,8 @@ function input(): EvaluateEligibilityInput {
       operationType: "offshore",
       operationalUnitId: "unit-1",
       operationalUnitName: "MV22",
-      jobCategoryId: "job-category:soldador",
-      jobCategoryName: "SOLDADOR",
-      jobs: [
-        { id: "job-1", name: "SOLDADOR I" },
-        { id: "job-2", name: "SOLDADOR II" },
-      ],
+      jobId: "job-1",
+      jobName: "SOLDADOR I",
       matrixIds: ["mandatory", "recommended"],
       matrixNames: ["STEP - OFFSHORE MANDATÓRIA", "STEP - OFFSHORE RECOMENDAVEL"],
     },
@@ -29,7 +25,6 @@ function input(): EvaluateEligibilityInput {
         needTypeName: "Mandatório offshore",
         mandatory: true,
         sourceMatrixName: "STEP - OFFSHORE MANDATÓRIA",
-        applicableJobNames: ["SOLDADOR I", "SOLDADOR II"],
       },
       {
         qualificationId: "nr35",
@@ -37,15 +32,6 @@ function input(): EvaluateEligibilityInput {
         needTypeName: "Recomendável",
         mandatory: false,
         sourceMatrixName: "STEP - OFFSHORE RECOMENDAVEL",
-        applicableJobNames: ["SOLDADOR I"],
-      },
-      {
-        qualificationId: "huet",
-        qualificationName: "HUET",
-        needTypeName: "Mandatório offshore",
-        mandatory: true,
-        sourceMatrixName: "STEP - OFFSHORE MANDATÓRIA",
-        applicableJobNames: ["SOLDADOR II"],
       },
     ],
     workers: [
@@ -62,7 +48,7 @@ function input(): EvaluateEligibilityInput {
         drakeWorkerId: "w2",
         registration: "2",
         fullName: "Bruno",
-        jobName: "SOLDADOR II",
+        jobName: "SOLDADOR I",
         workerType: "Funcionario",
         workerState: "Ativo",
         currentOperationalUnitName: "FORTE",
@@ -74,6 +60,15 @@ function input(): EvaluateEligibilityInput {
         jobName: "SOLDADOR I",
         workerType: "Funcionario",
         workerState: "Inativo",
+        currentOperationalUnitName: null,
+      },
+      {
+        drakeWorkerId: "w4",
+        registration: "4",
+        fullName: "Outra função",
+        jobName: "SOLDADOR II",
+        workerType: "Funcionario",
+        workerState: "Ativo",
         currentOperationalUnitName: null,
       },
     ],
@@ -94,14 +89,6 @@ function input(): EvaluateEligibilityInput {
         issueDate: null,
         expirationDate: "2026-08-09",
       },
-      {
-        drakeWorkerId: "w2",
-        qualificationId: "huet",
-        qualificationName: "HUET",
-        indicatedCourseName: null,
-        issueDate: "2025-05-10",
-        expirationDate: null,
-      },
     ],
   };
 }
@@ -114,7 +101,7 @@ describe("qualification eligibility", () => {
     expect(isMandatoryMarker("R")).toBe(false);
   });
 
-  it("avalia cada colaborador pelos requisitos de sua função dentro da categoria", () => {
+  it("avalia somente os colaboradores da função selecionada", () => {
     const result = evaluateQualificationEligibility(input());
 
     expect(result.workers).toHaveLength(2);
@@ -126,7 +113,7 @@ describe("qualification eligibility", () => {
     expect(result.workers[0]?.status).toBe("fit-with-warnings");
     expect(result.workers[1]?.courses.map((course) => course.qualificationId)).toEqual([
       "cbsp",
-      "huet",
+      "nr35",
     ]);
     expect(result.workers[1]?.status).toBe("unfit");
   });

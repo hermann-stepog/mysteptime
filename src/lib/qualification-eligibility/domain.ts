@@ -17,16 +17,15 @@ export interface QualificationContext {
   operationType: OperationType;
   operationalUnitId: string;
   operationalUnitName: string;
-  jobCategoryId: string;
-  jobCategoryName: string;
-  jobs: Array<{ id: string; name: string }>;
+  jobId: string;
+  jobName: string;
   matrixIds: string[];
   matrixNames: string[];
 }
 
 export interface QualificationEligibilitySelection {
   operationalUnitId: string;
-  jobCategoryId: string;
+  jobId: string;
   operationType: OperationType;
   startDate: string;
   endDate: string;
@@ -38,7 +37,6 @@ export interface QualificationRequirement {
   needTypeName: string;
   mandatory: boolean;
   sourceMatrixName: string;
-  applicableJobNames: string[];
 }
 
 export interface QualificationWorker {
@@ -117,20 +115,15 @@ export function evaluateQualificationEligibility(
   }
   const requirements = deduplicateRequirements(input.requirements);
   const qualificationsByWorker = indexQualifications(input.qualifications);
-  const categoryJobs = new Set(input.context.jobs.map((job) => normalizeText(job.name)));
+  const normalizedJob = normalizeText(input.context.jobName);
 
   const workers = input.workers
     .filter((worker) => normalizeText(worker.workerState) === ACTIVE_WORKER)
     .filter((worker) => normalizeText(worker.workerType) === EMPLOYEE_WORKER_TYPE)
-    .filter((worker) => categoryJobs.has(normalizeText(worker.jobName)))
+    .filter((worker) => normalizeText(worker.jobName) === normalizedJob)
     .map((worker) => {
       const evidence = qualificationsByWorker.get(worker.drakeWorkerId);
-      const workerRequirements = deduplicateRequirements(
-        input.requirements.filter((requirement) =>
-          isRequirementApplicable(requirement, worker.jobName),
-        ),
-      );
-      const courses = workerRequirements.map((requirement) =>
+      const courses = requirements.map((requirement) =>
         evaluateCourse(requirement, findEvidence(evidence, requirement), periodStart, periodEnd),
       );
       const blockingCount = courses.filter(
@@ -206,17 +199,9 @@ function deduplicateRequirements(
   for (const requirement of requirements) {
     const key = normalizeText(requirement.qualificationName) || requirement.qualificationId;
     const existing = byQualification.get(key);
-    if (!existing) {
+    if (!existing || (!existing.mandatory && requirement.mandatory)) {
       byQualification.set(key, requirement);
-      continue;
     }
-    const preferred = !existing.mandatory && requirement.mandatory ? requirement : existing;
-    byQualification.set(key, {
-      ...preferred,
-      applicableJobNames: [
-        ...new Set([...existing.applicableJobNames, ...requirement.applicableJobNames]),
-      ],
-    });
   }
   return [...byQualification.values()].sort((left, right) => {
     if (left.mandatory !== right.mandatory) return left.mandatory ? -1 : 1;
@@ -255,16 +240,6 @@ function keepLatest(
   if (!existing || compareEvidence(qualification, existing) > 0) {
     index.set(key, qualification);
   }
-}
-
-function isRequirementApplicable(
-  requirement: QualificationRequirement,
-  jobName: string | null,
-): boolean {
-  const normalizedJob = normalizeText(jobName);
-  return requirement.applicableJobNames.some(
-    (candidate) => normalizeText(candidate) === normalizedJob,
-  );
 }
 
 function findEvidence(

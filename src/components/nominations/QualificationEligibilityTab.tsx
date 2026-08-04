@@ -78,7 +78,7 @@ const OPERATION_TYPES = Object.keys(OPERATION_TYPE_LABEL) as OperationType[];
 
 export function QualificationEligibilityTab() {
   const [unitId, setUnitId] = useState("");
-  const [jobCategoryId, setJobCategoryId] = useState("");
+  const [jobId, setJobId] = useState("");
   const [operationType, setOperationType] = useState<OperationType | "">("");
   const [startDate, setStartDate] = useState(todayLocal());
   const [endDate, setEndDate] = useState(todayLocal());
@@ -95,11 +95,11 @@ export function QualificationEligibilityTab() {
   const catalog = catalogQuery.data;
   const invalidPeriod = Boolean(startDate && endDate && startDate > endDate);
   const selection = useMemo<QualificationEligibilitySelection | null>(() => {
-    if (!unitId || !jobCategoryId || !operationType || !startDate || !endDate || invalidPeriod) {
+    if (!unitId || !jobId || !operationType || !startDate || !endDate || invalidPeriod) {
       return null;
     }
-    return { operationalUnitId: unitId, jobCategoryId, operationType, startDate, endDate };
-  }, [endDate, invalidPeriod, jobCategoryId, operationType, startDate, unitId]);
+    return { operationalUnitId: unitId, jobId, operationType, startDate, endDate };
+  }, [endDate, invalidPeriod, jobId, operationType, startDate, unitId]);
 
   const evaluationQuery = useQuery({
     queryKey: ["qualification-eligibility", "evaluation", selection],
@@ -126,11 +126,11 @@ export function QualificationEligibilityTab() {
           <div>
             <h2 className="flex items-center gap-2 text-base font-semibold">
               <GraduationCap className="h-5 w-5" />
-              Aptidão por cliente e categoria
+              Aptidão por cliente e função
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Consulte quem pode atender à solicitação durante todo o período. As funções de cada
-              categoria e as matrizes corretas são combinadas automaticamente.
+              Consulte quem pode atender à solicitação durante todo o período. As matrizes corretas
+              são combinadas automaticamente para a função selecionada.
             </p>
           </div>
 
@@ -145,13 +145,13 @@ export function QualificationEligibilityTab() {
               onValueChange={setUnitId}
             />
             <SearchableFilterSelect
-              label="Categoria da função"
-              placeholder="Selecione a categoria"
-              searchPlaceholder="Buscar categoria..."
-              value={jobCategoryId}
-              options={catalog?.jobCategories ?? []}
+              label="Função"
+              placeholder="Selecione a função"
+              searchPlaceholder="Buscar função..."
+              value={jobId}
+              options={catalog?.jobs ?? []}
               disabled={catalogQuery.isLoading}
-              onValueChange={setJobCategoryId}
+              onValueChange={setJobId}
             />
             <div className="space-y-1.5">
               <Label>Tipo de atuação</Label>
@@ -228,7 +228,7 @@ export function QualificationEligibilityTab() {
       )}
       {catalog && catalog.operationalUnits.length > 0 && !selection && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
-          Selecione cliente/unidade, categoria, tipo de atuação e período para consultar os
+          Selecione cliente/unidade, função, tipo de atuação e período para consultar os
           colaboradores.
         </Card>
       )}
@@ -279,7 +279,7 @@ export function QualificationEligibilityTab() {
               <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="font-semibold">
-                    Colaboradores da categoria {evaluation.context.jobCategoryName}
+                    Colaboradores da função {evaluation.context.jobName}
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     Período considerado de {formatDate(evaluation.startDate)} a{" "}
