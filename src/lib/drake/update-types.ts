@@ -124,6 +124,11 @@ export interface DrakeUpdateResult {
   embarkationEvents?: number;
   availabilityEvents?: number;
   skipped?: number;
+  report1DurationMs?: number;
+  import1DurationMs?: number;
+  report14DurationMs?: number;
+  import14DurationMs?: number;
+  totalDurationMs?: number;
 }
 
 export type DrakeProgressEvent = {
@@ -143,6 +148,7 @@ export const DRAKE_SESSION_EXPIRED = "DRAKE_SESSION_EXPIRED";
 export const DRAKE_UPDATE_IN_PROGRESS = "DRAKE_UPDATE_IN_PROGRESS";
 export const DRAKE_CREDENTIALS_NOT_CONFIGURED = "DRAKE_CREDENTIALS_NOT_CONFIGURED";
 export const DRAKE_INTERACTIVE_AUTH_REQUIRED = "DRAKE_INTERACTIVE_AUTH_REQUIRED";
+export const DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED = "DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED";
 export const DRAKE_AUTH_FAILED = "DRAKE_AUTH_FAILED";
 export const DRAKE_EXPORT_FAILED = "DRAKE_EXPORT_FAILED";
 export const DRAKE_EXPORT_TIMEOUT = "DRAKE_EXPORT_TIMEOUT";
@@ -161,12 +167,36 @@ export const DRAKE_FILE_VALIDATION_FAILED = "DRAKE_FILE_VALIDATION_FAILED";
 export const DRAKE_EMBARKATION_IMPORT_FAILED = "DRAKE_EMBARKATION_IMPORT_FAILED";
 export const DRAKE_AVAILABILITY_IMPORT_FAILED = "DRAKE_AVAILABILITY_IMPORT_FAILED";
 export const DRAKE_TEMP_STORAGE_ERROR = "DRAKE_TEMP_STORAGE_ERROR";
+export const DRAKE_UPDATE_ALREADY_RUNNING = "DRAKE_UPDATE_ALREADY_RUNNING";
+export const DRAKE_BROWSER_MODE_INVALID = "DRAKE_BROWSER_MODE_INVALID";
+export const DRAKE_REMOTE_BROWSER_NOT_CONFIGURED = "DRAKE_REMOTE_BROWSER_NOT_CONFIGURED";
+export const DRAKE_REMOTE_BROWSER_CONNECTION_FAILED = "DRAKE_REMOTE_BROWSER_CONNECTION_FAILED";
+export const DRAKE_REMOTE_BROWSER_DISCONNECTED = "DRAKE_REMOTE_BROWSER_DISCONNECTED";
+export const DRAKE_LOCAL_BROWSER_NOT_INSTALLED = "DRAKE_LOCAL_BROWSER_NOT_INSTALLED";
+export const DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED = "DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED";
+export const DRAKE_SESSION_TRANSFER_FAILED = "DRAKE_SESSION_TRANSFER_FAILED";
+export const DRAKE_CLIENT_NOT_FOUND = "DRAKE_CLIENT_NOT_FOUND";
+export const DRAKE_CLIENT_SELECTION_AMBIGUOUS = "DRAKE_CLIENT_SELECTION_AMBIGUOUS";
+export const DRAKE_CLIENT_SELECTION_FAILED = "DRAKE_CLIENT_SELECTION_FAILED";
+export const MYSTEPTIME_AUTOMATION_CREDENTIALS_MISSING =
+  "MYSTEPTIME_AUTOMATION_CREDENTIALS_MISSING";
+export const MYSTEPTIME_AUTOMATION_LOGIN_FAILED = "MYSTEPTIME_AUTOMATION_LOGIN_FAILED";
+export const MYSTEPTIME_AUTOMATION_INTERACTIVE_AUTH_REQUIRED =
+  "MYSTEPTIME_AUTOMATION_INTERACTIVE_AUTH_REQUIRED";
+
+export type DrakeUpdateTrigger =
+  | "manual"
+  | "scheduled-midnight"
+  | "scheduled-noon"
+  | "scheduled-test";
 
 export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
   [DRAKE_CREDENTIALS_NOT_CONFIGURED]: "As credenciais da integração Drake não estão configuradas.",
   [DRAKE_AUTH_FAILED]: "Não foi possível autenticar no Drake.",
   [DRAKE_INTERACTIVE_AUTH_REQUIRED]: "O Drake solicitou uma confirmação adicional de login.",
-  [DRAKE_SESSION_EXPIRED]: "A sessão do Drake expirou.",
+  [DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED]:
+    "A autenticação do Drake precisa ser concluída manualmente uma vez.",
+  [DRAKE_SESSION_EXPIRED]: "A sessão do Drake expirou e precisa ser conectada novamente.",
   [DRAKE_EXPORT_FAILED]: "Não foi possível gerar um dos relatórios.",
   [DRAKE_EXPORT_TIMEOUT]: "O Drake demorou mais que o esperado para gerar o relatório.",
   [DRAKE_BACKGROUND_JOB_FAILED]: "Não foi possível gerar um dos relatórios.",
@@ -188,6 +218,28 @@ export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
   [DRAKE_EMBARKATION_IMPORT_FAILED]: "Não foi possível atualizar os dados de embarque.",
   [DRAKE_AVAILABILITY_IMPORT_FAILED]: "Não foi possível atualizar os dados de disponibilidade.",
   [DRAKE_UPDATE_IN_PROGRESS]: "Já existe uma atualização em andamento.",
-  [DRAKE_TEMP_STORAGE_ERROR]:
-    "Não foi possível preparar os arquivos temporários da atualização.",
+  [DRAKE_TEMP_STORAGE_ERROR]: "Não foi possível preparar os arquivos temporários da atualização.",
+  [DRAKE_UPDATE_ALREADY_RUNNING]: "Já existe uma atualização em andamento.",
+  [DRAKE_SESSION_TRANSFER_FAILED]:
+    "A sessão do Drake foi criada, mas não pôde ser transferida para o cliente de integração.",
+  [DRAKE_CLIENT_NOT_FOUND]: "O ambiente configurado não foi encontrado na conta do Drake.",
+  [DRAKE_CLIENT_SELECTION_AMBIGUOUS]:
+    "Foi encontrada mais de uma opção para o ambiente configurado no Drake.",
+  [DRAKE_CLIENT_SELECTION_FAILED]: "Não foi possível acessar o ambiente configurado no Drake.",
+  [DRAKE_BROWSER_MODE_INVALID]: "O modo de execução do navegador Drake é inválido.",
+  [DRAKE_REMOTE_BROWSER_NOT_CONFIGURED]:
+    "O navegador remoto da integração Drake não está configurado.",
+  [DRAKE_REMOTE_BROWSER_CONNECTION_FAILED]:
+    "Não foi possível conectar ao navegador da integração Drake.",
+  [DRAKE_REMOTE_BROWSER_DISCONNECTED]:
+    "A conexão com o navegador da integração Drake foi encerrada.",
+  [DRAKE_LOCAL_BROWSER_NOT_INSTALLED]: "O navegador local da integração Drake não está instalado.",
+  [DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED]:
+    "O login no Drake não produziu uma sessão autenticada.",
+  [MYSTEPTIME_AUTOMATION_CREDENTIALS_MISSING]:
+    "As credenciais da conta de automação do MyStepTime não estão configuradas.",
+  [MYSTEPTIME_AUTOMATION_LOGIN_FAILED]:
+    "Não foi possível entrar no MyStepTime com a conta de automação.",
+  [MYSTEPTIME_AUTOMATION_INTERACTIVE_AUTH_REQUIRED]:
+    "A conta de automação exige uma etapa adicional de autenticação.",
 };

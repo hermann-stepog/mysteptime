@@ -2,7 +2,7 @@ import "@tanstack/react-start/server-only";
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 import path from "node:path";
-import type { APIRequestContext } from "playwright";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { env } from "./config.server";
 import { ensureParentDirectory, writeFileAtomic } from "./drake-files.server";
 import { DrakeIntegrationError } from "./integration-error.server";
@@ -172,7 +172,7 @@ function extensionFromDisposition(disposition: string): string | null {
 }
 
 export async function downloadReportFile(
-  request: APIRequestContext,
+  request: DrakeHttpClient,
   report: DrakeApiReportDefinition,
   source: ResolvedDownloadSource,
 ): Promise<{

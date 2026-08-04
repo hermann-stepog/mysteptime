@@ -1,16 +1,26 @@
 import "@tanstack/react-start/server-only";
-import { chromium, request, type APIRequestContext, type Browser } from "playwright";
-import { assertDrakeCredentialsConfigured, env } from "../config.server";
+import { assertDrakeCredentialsConfigured } from "../config.server";
+import {
+  buildAuthenticatedSessionFromStorageState,
+  type DrakeAuthenticatedSession,
+} from "./authenticated-session.server";
+import {
+  createDrakeHttpClientFromAuthenticatedSession,
+  createDrakeHttpClientFromStorageState,
+} from "../http/create-drake-http-client.server";
+import type { DrakeHttpClient } from "../http/drake-http-client.types.server";
 import { logger } from "../logger";
 import { sanitizeError } from "../sanitize-error.server";
-import { validateDrakeApiSession } from "../api-session.server";
+import { DrakeSessionExpiredError, validateDrakeApiSession } from "../api-session.server";
 import {
   credentialsNotConfiguredError,
   DrakeAuthError,
   DRAKE_CREDENTIALS_NOT_CONFIGURED,
+  DRAKE_INTERACTIVE_AUTH_REQUIRED,
   interactiveAuthRequiredError,
+  sessionTransferFailedError,
 } from "./errors";
-import { extractStorageStateFromPage, performHeadlessDrakeLogin } from "./headless-login.server";
+import { loginWithDrakeHttpCredentials } from "./http-credentials-login.server";
 import { clearSessionCache, readSessionCache, writeSessionCache } from "./session-cache.server";
 import type { DrakeAuthProvider, DrakeAuthResult, StorageState } from "./types";
 
@@ -23,37 +33,57 @@ export type AuthProgressStage =
 
 export type AuthProgressCallback = (stage: AuthProgressStage) => void | Promise<void>;
 
-async function createApiContextFromState(storageState: StorageState): Promise<APIRequestContext> {
-  return request.newContext({
-    baseURL: env.DRAKE_BASE_URL,
-    storageState: storageState as unknown as string,
-    ignoreHTTPSErrors: env.DRAKE_IGNORE_HTTPS_ERRORS,
-    timeout: env.DRAKE_TIMEOUT_MS,
-    userAgent: env.DRAKE_USER_AGENT,
-    extraHTTPHeaders: {
-      Accept: "application/json, text/plain, */*",
-      "Accept-Language": "pt-BR",
-    },
-  });
+async function createApiContextFromSession(
+  session: DrakeAuthenticatedSession,
+): Promise<DrakeHttpClient> {
+  return createDrakeHttpClientFromAuthenticatedSession(session);
 }
 
-async function tryValidateCachedSession(storageState: StorageState): Promise<boolean> {
-  let api: APIRequestContext | null = null;
+/**
+ * Valida sessão existente via GET /api/v2/Authorization/Menu (HTTP).
+ * Não cria BrowserRuntime.
+ */
+export async function tryValidateExistingSession(
+  storageState: StorageState,
+): Promise<DrakeAuthenticatedSession | null> {
+  const session = buildAuthenticatedSessionFromStorageState(storageState);
+  let api: DrakeHttpClient | null = null;
   try {
-    api = await createApiContextFromState(storageState);
+    api = await createApiContextFromSession(session);
     await validateDrakeApiSession(api, { logSuccess: false });
-    return true;
+    return session;
   } catch {
-    return false;
+    return null;
   } finally {
     await api?.dispose().catch(() => undefined);
   }
 }
 
+async function validateHttpSessionTransfer(session: DrakeAuthenticatedSession): Promise<void> {
+  const api = await createApiContextFromSession(session);
+  try {
+    await validateDrakeApiSession(api, { logSuccess: false });
+  } catch (error: unknown) {
+    if (error instanceof DrakeSessionExpiredError) {
+      logger.warn("drake-auth-diagnostics", "Transferencia de sessao falhou", {
+        stage: "confirming-tenant",
+        httpMenuStatus: 401,
+        cookieNameCount: session.cookieJar.cookieNames().length,
+        hasAuthHeader: Boolean(session.authorizationHeader),
+        requiredHeaderNames: Object.keys(session.requiredHeaders),
+      });
+      throw sessionTransferFailedError();
+    }
+    throw error;
+  } finally {
+    await api.dispose();
+  }
+}
+
 /**
  * Autenticação via DRAKE_USERNAME / DRAKE_PASSWORD.
- * Cache de sessão é opcional e nunca substitui as credenciais.
- * Chromium headless somente aqui — relatórios usam APIRequestContext.
+ * Reutiliza sessao valida e, quando necessario, autentica por HTTP no Microsoft B2C.
+ * Nenhuma etapa cria ou controla navegador.
  */
 export class EnvironmentCredentialsDrakeAuthProvider implements DrakeAuthProvider {
   constructor(private readonly onProgress?: AuthProgressCallback) {}
@@ -69,76 +99,90 @@ export class EnvironmentCredentialsDrakeAuthProvider implements DrakeAuthProvide
 
     const cached = await readSessionCache();
     if (cached) {
-      const valid = await tryValidateCachedSession(cached);
-      if (valid) {
+      const validSession = await tryValidateExistingSession(cached);
+      if (validSession) {
+        logger.info(
+          "drake-authentication",
+          "Sessao HTTP existente valida",
+        );
         await this.onProgress?.("session-confirmed");
-        return { storageState: cached, reusedCache: true };
+        return {
+          storageState: cached,
+          authenticatedSession: validSession,
+          reusedCache: true,
+        };
       }
       await clearSessionCache();
     }
 
+    logger.info(
+      "drake-authentication",
+      "Sessão ausente ou expirada; iniciando autenticação automática",
+    );
+
     await this.onProgress?.("connecting-drake");
     await this.onProgress?.("authenticating");
 
-    const storageState = await this.loginHeadless();
+    const authenticatedSession = await this.loginHttp();
 
     await this.onProgress?.("confirming-tenant");
-    const api = await createApiContextFromState(storageState);
-    try {
-      await validateDrakeApiSession(api, { logSuccess: false });
-    } finally {
-      await api.dispose();
-    }
+    await validateHttpSessionTransfer(authenticatedSession);
 
-    await writeSessionCache(storageState);
+    // Persiste apenas cookies/storageState — nunca Authorization/tokens em logs.
+    await writeSessionCache(authenticatedSession.storageState);
+    logger.info("drake-authentication", "Autenticação automática concluída");
     await this.onProgress?.("session-confirmed");
-    return { storageState, reusedCache: false };
+    return {
+      storageState: authenticatedSession.storageState,
+      authenticatedSession,
+      reusedCache: false,
+    };
   }
 
-  private async loginHeadless(): Promise<StorageState> {
-    // headless SEMPRE true — nunca janela visível ao usuário
-    if (env.DRAKE_AUTH_HEADLESS === false) {
-      logger.warn("DRAKE_AUTH_HEADLESS=false ignorado; login permanece headless");
-    }
-
-    let browser: Browser | null = null;
+  private async loginHttp(): Promise<DrakeAuthenticatedSession> {
     try {
-      browser = await chromium.launch({
-        headless: true,
-        args: ["--disable-dev-shm-usage"],
+      const authenticated = await loginWithDrakeHttpCredentials();
+      logger.info("drake-authentication", "Sessao autenticada diretamente por HTTP", {
+        stage: "authenticating",
+        cookieNameCount: authenticated.cookieJar.cookieNames().length,
       });
-      const context = await browser.newContext({
-        ignoreHTTPSErrors: env.DRAKE_IGNORE_HTTPS_ERRORS,
-        userAgent: env.DRAKE_USER_AGENT,
-        locale: "pt-BR",
-      });
-      const page = await context.newPage();
-
-      try {
-        await performHeadlessDrakeLogin(page);
-        return await extractStorageStateFromPage(page);
-      } finally {
-        await page.close().catch(() => undefined);
-        await context.close().catch(() => undefined);
-      }
+      return authenticated;
     } catch (error: unknown) {
-      if (error instanceof DrakeAuthError) throw error;
+      if (error instanceof DrakeAuthError) {
+        if (error.code === DRAKE_INTERACTIVE_AUTH_REQUIRED) {
+          logger.info(
+            "drake-authentication",
+            "Confirmação interativa detectada durante o login",
+          );
+        }
+        throw error;
+      }
       const safe = sanitizeError(error);
       if (/mfa|captcha|interactive|authenticator|aprov/i.test(safe.message)) {
+        logger.info(
+          "drake-authentication",
+          "Confirmação interativa detectada durante o login",
+        );
         throw interactiveAuthRequiredError();
       }
       throw new DrakeAuthError("DRAKE_AUTH_FAILED", safe.message);
-    } finally {
-      // Chromium não permanece aberto durante os relatórios
-      await browser?.close().catch(() => undefined);
     }
   }
 }
 
 export async function createApiRequestContext(
   storageState: StorageState,
-): Promise<APIRequestContext> {
-  return createApiContextFromState(storageState);
+): Promise<DrakeHttpClient> {
+  return createDrakeHttpClientFromStorageState(storageState);
 }
 
-export { DRAKE_CREDENTIALS_NOT_CONFIGURED };
+export async function createApiRequestContextFromSession(
+  session: DrakeAuthenticatedSession,
+): Promise<DrakeHttpClient> {
+  return createDrakeHttpClientFromAuthenticatedSession(session);
+}
+
+export {
+  DRAKE_CREDENTIALS_NOT_CONFIGURED,
+  DRAKE_INTERACTIVE_AUTH_REQUIRED,
+};

@@ -1,8 +1,13 @@
 import "@tanstack/react-start/server-only";
-import { request, type APIRequestContext } from "playwright";
 import { env } from "./config.server";
+import {
+  createDrakeHttpClientFromAuthenticatedSession,
+  createDrakeHttpClientFromStorageState,
+} from "./http/create-drake-http-client.server";
+import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { formatTlsCertificateErrorMessage, isTlsCertificateError } from "./sanitize-error.server";
 import { normalizeText } from "./text";
+import type { DrakeAuthenticatedSession } from "./auth/authenticated-session.server";
 import type { StorageState } from "./auth/types";
 
 const AUTHORIZATION_MENU_URL = "/api/v2/Authorization/Menu";
@@ -36,19 +41,14 @@ export function isSessionExpiredError(error: unknown): boolean {
 
 export async function createDrakeApiContextFromStorageState(
   storageState: StorageState,
-): Promise<APIRequestContext> {
-  const ctx = await request.newContext({
-    baseURL: env.DRAKE_BASE_URL,
-    storageState: storageState as unknown as string,
-    ignoreHTTPSErrors: env.DRAKE_IGNORE_HTTPS_ERRORS,
-    timeout: env.DRAKE_TIMEOUT_MS,
-    userAgent: env.DRAKE_USER_AGENT,
-    extraHTTPHeaders: {
-      Accept: "application/json, text/plain, */*",
-      "Accept-Language": "pt-BR",
-    },
-  });
-  return ctx;
+): Promise<DrakeHttpClient> {
+  return createDrakeHttpClientFromStorageState(storageState);
+}
+
+export async function createDrakeApiContextFromAuthenticatedSession(
+  session: DrakeAuthenticatedSession,
+): Promise<DrakeHttpClient> {
+  return createDrakeHttpClientFromAuthenticatedSession(session);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -91,7 +91,7 @@ function rethrowHttpValidationError(error: unknown): never {
 }
 
 export async function validateDrakeApiSession(
-  apiContext: APIRequestContext,
+  apiContext: DrakeHttpClient,
   options: { logSuccess?: boolean } = {},
 ): Promise<void> {
   let response;
@@ -144,9 +144,9 @@ export async function validateDrakeApiSession(
 }
 
 /** @deprecated Use EnvironmentCredentialsDrakeAuthProvider */
-export async function createDrakeApiSession(): Promise<APIRequestContext> {
-  const { EnvironmentCredentialsDrakeAuthProvider, createApiRequestContext } =
+export async function createDrakeApiSession(): Promise<DrakeHttpClient> {
+  const { EnvironmentCredentialsDrakeAuthProvider, createApiRequestContextFromSession } =
     await import("./auth/environment-credentials-auth.server");
   const result = await new EnvironmentCredentialsDrakeAuthProvider().authenticate();
-  return createApiRequestContext(result.storageState);
+  return createApiRequestContextFromSession(result.authenticatedSession);
 }
