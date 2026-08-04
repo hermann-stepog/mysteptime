@@ -312,6 +312,7 @@ function Users() {
                     <SelectItem value="pending">Pendente</SelectItem>
                     <SelectItem value="collaborator">Colaborador</SelectItem>
                     <SelectItem value="logistics_operator">Operador Logístico</SelectItem>
+                    <SelectItem value="pm">PM</SelectItem>
                     <SelectItem value="visitante">Visitante</SelectItem>
                   </SelectContent>
                 </Select>
