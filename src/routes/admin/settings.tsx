@@ -14,6 +14,7 @@ import { notify } from "@/lib/notify";
 import { Plus, Trash2, Pencil } from "lucide-react";
 import { useState } from "react";
 import { pageTitle } from "@/lib/pageTitle";
+import { createAppUser } from "@/lib/api/users.functions";
 
 export const Route = createFileRoute("/admin/settings")({ head: () => pageTitle("Configurações"), component: SettingsPage });
 
