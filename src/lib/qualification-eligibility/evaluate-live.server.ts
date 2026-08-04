@@ -26,6 +26,7 @@ const NEED_TYPE_DOMAIN = "QUALIFICATION_NEED_TYPES";
 const UNIT_DOMAIN = "OPERATIONAL_UNITS";
 const JOB_DOMAIN = "OPERATION_JOBS";
 const QUALIFICATION_DOMAIN = "QUALIFICATIONS";
+const OPTION_PAGE_SIZE = 1_000;
 
 export async function evaluateLiveQualificationEligibility(
   request: DrakeHttpClient,
@@ -86,7 +87,8 @@ export async function evaluateLiveQualificationEligibility(
       matrixIds: matrices.map((matrix) => matrix.option_id),
       matrixNames: matrices.map((matrix) => matrix.option_name),
     },
-    referenceDate: selection.referenceDate,
+    startDate: selection.startDate,
+    endDate: selection.endDate,
     requirements,
     ...source,
   });
@@ -112,7 +114,10 @@ export function selectApplicableMatrices(
 }
 
 export function buildRequirements(
-  sources: Array<{ matrix: StoredOption; rows: DrakeMatrixItem[] }>,
+  sources: Array<{
+    matrix: StoredOption;
+    rows: DrakeMatrixItem[];
+  }>,
   jobName: string,
   qualificationIds: Map<string, string>,
 ): QualificationRequirement[] {
@@ -149,22 +154,29 @@ function indexQualificationIds(options: StoredOption[]): Map<string, string> {
 }
 
 async function fetchCoreOptions(db: AppDb): Promise<StoredOption[]> {
-  const { data, error } = await db
-    .from("drake_qualification_options")
-    .select("*")
-    .in("domain_identifier", [
-      MATRIX_DOMAIN,
-      WORKER_TYPE_DOMAIN,
-      NEED_TYPE_DOMAIN,
-      QUALIFICATION_DOMAIN,
-    ])
-    .order("domain_identifier")
-    .order("sort_order");
-  if (error) throw error;
-  if (!data || data.length === 0) {
+  const rows: StoredOption[] = [];
+  while (true) {
+    const { data, error } = await db
+      .from("drake_qualification_options")
+      .select("*")
+      .in("domain_identifier", [
+        MATRIX_DOMAIN,
+        WORKER_TYPE_DOMAIN,
+        NEED_TYPE_DOMAIN,
+        QUALIFICATION_DOMAIN,
+      ])
+      .order("domain_identifier")
+      .order("sort_order")
+      .order("option_id")
+      .range(rows.length, rows.length + OPTION_PAGE_SIZE - 1);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < OPTION_PAGE_SIZE) break;
+  }
+  if (rows.length === 0) {
     throw new Error("Os dropdowns da matriz ainda não foram sincronizados.");
   }
-  return data;
+  return rows;
 }
 
 async function fetchSelectedOption(
@@ -200,7 +212,13 @@ function validateSelection(selection: QualificationEligibilitySelection): void {
   if (!(["onshore", "offshore", "offshore-irata"] as string[]).includes(selection.operationType)) {
     throw new Error("Tipo de atuação inválido.");
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(selection.referenceDate)) {
-    throw new Error("Data da solicitação inválida.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(selection.startDate)) {
+    throw new Error("Data inicial inválida.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(selection.endDate)) {
+    throw new Error("Data final inválida.");
+  }
+  if (selection.startDate > selection.endDate) {
+    throw new Error("A data final deve ser igual ou posterior à data inicial.");
   }
 }

@@ -45,7 +45,8 @@ export const Route = createFileRoute("/api/integrations/drake/qualification-elig
             operationalUnitId: body.operationalUnitId,
             jobId: body.jobId,
             operationType: body.operationType,
-            referenceDate: body.referenceDate,
+            startDate: body.startDate,
+            endDate: body.endDate,
           });
 
           return Response.json(evaluation, {
