@@ -11,7 +11,7 @@ export interface TimesheetEmbarque {
   // BSP principal nas listas; a atribuição de qual dia usa qual BSP continua sendo por dia
   // (timesheet_dias.bsp).
   bsp_2: string | null;
-  funcao_embarque: string;
+  funcao_embarque: string | null;
   data_inicio_embarque: string;
   data_fim_embarque: string;
   status_entrega: string;
