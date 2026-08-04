@@ -768,13 +768,11 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           bsp: form.bsp.trim() || null,
         };
         if (form.tipo === "P") {
-          // Programado: "P" só no 1º dia; do 2º dia em diante já lança como Embarcado a confirmar.
+          // Programado existe só no dia exato do lançamento — nenhuma projeção pros dias
+          // seguintes. Se depois o Drake confirmar o embarque real dessa pessoa, ele aparece
+          // com suas próprias datas normalmente; até lá, não há nenhum status ocupando os
+          // dias seguintes.
           registros.push({ ...base, tipo: "P", data_inicio: form.data_inicio, data_fim: form.data_inicio, dias: 1, origem: "manual" });
-          if (form.data_fim > form.data_inicio) {
-            const inicioEmbarque = addDays(form.data_inicio, 1);
-            const diasEmbarque = Math.round((new Date(form.data_fim).getTime() - new Date(inicioEmbarque).getTime()) / 86400000) + 1;
-            registros.push({ ...base, tipo: "E", data_inicio: inicioEmbarque, data_fim: form.data_fim, dias: diasEmbarque, origem: ORIGEM_PROGRAMADO });
-          }
         } else {
           registros.push({ ...base, tipo: form.tipo, data_inicio: form.data_inicio, data_fim: form.data_fim, dias: diasTotal > 0 ? diasTotal : null, origem: "manual" });
         }
@@ -994,7 +992,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Tipo</Label>
-                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo })}>
+                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo, ...(v === "P" ? { data_fim: form.data_inicio } : {}) })}>
                   <SelectTrigger className="h-11 text-base"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
@@ -1028,11 +1026,18 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               </div>
               <div>
                 <Label className="text-xs">Data início</Label>
-                <Input className="h-11 text-base" type="date" value={form.data_inicio} onChange={(e) => setForm({ ...form, data_inicio: e.target.value })} />
+                <Input
+                  className="h-11 text-base" type="date" value={form.data_inicio}
+                  onChange={(e) => setForm({ ...form, data_inicio: e.target.value, ...(form.tipo === "P" ? { data_fim: e.target.value } : {}) })}
+                />
               </div>
               <div>
                 <Label className="text-xs">Data fim</Label>
-                <Input className="h-11 text-base" type="date" value={form.data_fim} onChange={(e) => setForm({ ...form, data_fim: e.target.value })} />
+                <Input
+                  className="h-11 text-base" type="date" value={form.data_fim} disabled={form.tipo === "P"}
+                  onChange={(e) => setForm({ ...form, data_fim: e.target.value })}
+                />
+                {form.tipo === "P" && <p className="mt-1 text-[11px] text-muted-foreground">Programado existe só no dia da Data início.</p>}
               </div>
             </div>
             <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>
