@@ -1284,7 +1284,7 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
       bsp: bspAtual,
-      funcao_embarque: embarque.funcao_embarque,
+      funcao_embarque: embarque.funcao_embarque ?? "",
       data_inicio: embarque.data_inicio_embarque,
       data_fim: embarque.data_fim_embarque,
     });
@@ -1931,7 +1931,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
 // Dia da semana + dia do mês juntos, ex: "Segunda 06" — em vez do "Segunda-feira / Monday"
 // cru guardado em dia_semana.
 function diaLabelCurto(d: TimesheetDia): string {
-  const diaSemanaAbrev = d.dia_semana.split(" / ")[0].slice(0, 3);
+  const diaSemanaAbrev = (d.dia_semana ?? "").split(" / ")[0].slice(0, 3);
   const [ano, mes, dia] = d.data.split("-");
   return `${diaSemanaAbrev} - ${dia}/${mes}/${ano.slice(2)}`;
 }

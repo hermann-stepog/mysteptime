@@ -1774,9 +1774,6 @@ function IndiceIndividualCard({ historico }: { historico: HistoricoOcupacaoColab
         <p className="mt-1 text-sm font-semibold">
           {historico.dataUltimoEmbarque ? fmtDiaCurto(historico.dataUltimoEmbarque) : "—"}
         </p>
-        {historico.diasDesdeUltimoEmbarque != null && (
-          <p className="text-xs text-muted-foreground">{historico.diasDesdeUltimoEmbarque} dias atrás</p>
-        )}
       </div>
 
       <div className="border-t pt-3">
