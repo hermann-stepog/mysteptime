@@ -127,12 +127,19 @@ export function bspDoPeriodo(p: HistNovoPeriodo): string | null {
 }
 
 // Apelidos conhecidos de unidade operacional que na prática são o mesmo lugar, só grafados
-// diferente conforme a origem do dado (o Drake manda um nome no relatório, o lançamento
-// manual costuma usar outro mais curto) — normalizado pro nome canônico em todo lançamento
-// novo (Drake ou manual), pra não voltar a duplicar depois de uma limpeza pontual no banco.
+// diferente conforme a origem do dado (o lançamento manual costuma usar um nome curto/
+// informal; o Drake usa o nome oficial completo) — normalizado sempre pro nome oficial do
+// Drake em todo lançamento novo (Drake ou manual), pra não duplicar a mesma unidade sob dois
+// nomes diferentes nos filtros/gráficos. O nome oficial é sempre o canônico porque é o que
+// "reflete o Drake" — nunca o apelido informal.
 const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
-  "SAQUAREMA": "Saquarema",
-  "FPSA - CIDADE DE SAQUAREMA": "Saquarema",
+  "SAQUAREMA": "FPSA - CIDADE DE SAQUAREMA",
+  "ANCHIETA": "CDAN - CIDADE ANCHIETA",
+  "GUSMAO": "ALEXANDRE GUSMÃO",
+  "GUSMÃO": "ALEXANDRE GUSMÃO",
+  "ILHA BELA": "CDI - CIDADE ILHA BELA",
+  "MARICA": "FPMR - CIDADE DE MARICA",
+  "MARICÁ": "FPMR - CIDADE DE MARICA",
 };
 
 export function normalizeUnidadeOperacional(raw: string | null | undefined): string | null {
