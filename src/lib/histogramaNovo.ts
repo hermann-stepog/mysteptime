@@ -338,24 +338,6 @@ function embarqueTemDataFimPlaceholder(p: HistNovoPeriodo): boolean {
   return daysBetween(p.data_inicio, p.data_fim) + 1 > EMBARQUE_DURACAO_MAX_RAZOAVEL_DIAS;
 }
 
-// Data de fim "de verdade" de um embarque, cortando pelo primeiro período de Disponibilidade
-// (mesmo colaborador) que começa depois do início desse embarque mas antes (ou no) do seu
-// data_fim declarado — sinal de que o relatório de Disponibilidade, sincronizado junto e mais
-// atualizado sobre a situação corrente da pessoa, já não reconhece esse embarque como em
-// andamento a partir dali. Sem isso, um embarque cujo data_fim ficou desatualizado no
-// relatório do Drake continua "vencendo" a Folga/Standby/Atestado real da pessoa por dias ou
-// semanas a mais do que deveria.
-function fimEfetivoDoEmbarque(embarque: HistNovoPeriodo, periodos: HistNovoPeriodo[]): string {
-  let fim = embarque.data_fim;
-  periodos.forEach((q) => {
-    if (q.origem !== "disponibilidade") return;
-    if (q.data_inicio <= embarque.data_inicio || q.data_inicio > fim) return;
-    const fimTruncado = addDays(q.data_inicio, -1);
-    if (fimTruncado < fim) fim = fimTruncado;
-  });
-  return fim;
-}
-
 export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): DayStatusResult {
   const covering = (tipo: string) => periodos.find((p) => p.tipo === tipo && date >= p.data_inicio && date <= p.data_fim);
 
@@ -374,14 +356,6 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   const embarque = periodos.find((p) => {
     if (p.tipo !== "E" || p.origem === ORIGEM_PROGRAMADO || date < p.data_inicio || date > p.data_fim) return false;
     if (date > hoje && embarqueTemDataFimPlaceholder(p)) return false;
-    // O relatório de Embarque do Drake às vezes carrega um data_fim desatualizado — não
-    // reflete que a pessoa já saiu desse embarque antes da data que ele mesmo diz. O
-    // relatório de Disponibilidade é sincronizado junto e é mais granular sobre a situação
-    // atual: se existe um período de lá (origem="disponibilidade", qualquer tipo) começando
-    // DEPOIS do início desse embarque mas ainda dentro (ou depois d)o intervalo declarado,
-    // é sinal de que a pessoa já não está mais embarcada a partir do início desse outro
-    // período — o embarque conta como encerrado 1 dia antes disso, não no data_fim original.
-    if (fimEfetivoDoEmbarque(p, periodos) < date) return false;
     return true;
   });
   if (embarque) {
