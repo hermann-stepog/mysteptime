@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DrakeIndividualQualificationNeed } from "@/lib/drake/qualification-needs-api.server";
+import {
+  parseQualificationAttendances,
+  type DrakeIndividualQualificationNeed,
+} from "@/lib/drake/qualification-needs-api.server";
 import {
   QUALIFICATION_DOMAIN_IDENTIFIERS,
   type DrakeQualificationDomains,
@@ -25,6 +28,7 @@ function need(
     qualificationName: "CBSP",
     indicatedCourseId: null,
     indicatedCourseName: null,
+    issueDate: null,
     expirationDate: "2027-12-31T00:00:00",
     relationshipSetId: "relationship-1",
     relationshipSetName: "PRINCIPAL",
@@ -76,6 +80,36 @@ describe("qualification snapshot", () => {
 
     expect(snapshot.qualifications).toHaveLength(1);
     expect(snapshot.qualifications[0]?.expiration_date).toBe("2028-01-01");
+  });
+
+  it("salva a realização de curso permanente encontrada no histórico", () => {
+    const snapshot = buildQualificationSnapshot(
+      [need({ expirationDate: null })],
+      domains(),
+      "00000000-0000-0000-0000-000000000001",
+      "2026-08-03T12:00:00.000Z",
+      new Map([["worker-1|qualification-1", "2024-04-15T00:00:00"]]),
+    );
+
+    expect(snapshot.qualifications[0]?.issue_date).toBe("2024-04-15");
+    expect(snapshot.qualifications[0]?.expiration_date).toBeNull();
+  });
+});
+
+describe("qualification attendance history", () => {
+  it("lê emissão e validade usando os campos reais do Drake", () => {
+    expect(
+      parseQualificationAttendances({
+        data: [
+          { emissao: "2024-04-15T00:00:00", validade: null },
+          { emissao: "2025-01-10T00:00:00", validade: "2027-01-10T00:00:00" },
+        ],
+        totalCount: 2,
+      }),
+    ).toEqual([
+      { issueDate: "2024-04-15T00:00:00", expirationDate: null },
+      { issueDate: "2025-01-10T00:00:00", expirationDate: "2027-01-10T00:00:00" },
+    ]);
   });
 });
 

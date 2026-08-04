@@ -5,7 +5,6 @@ import {
   Check,
   CheckCircle2,
   ChevronsUpDown,
-  Clock3,
   GraduationCap,
   Users,
   XCircle,
@@ -69,19 +68,20 @@ const STATUS_LABEL: Record<EligibilityStatus, string> = {
 
 const COURSE_STATUS_LABEL: Record<CourseEligibilityStatus, string> = {
   valid: "Válido",
-  "expiring-soon": "Vence em breve",
+  "expires-during-period": "Vence durante o período",
   expired: "Vencido",
   missing: "Não possui",
-  "no-expiration": "Validade não informada",
+  permanent: "Sem vencimento",
 };
 
 const OPERATION_TYPES = Object.keys(OPERATION_TYPE_LABEL) as OperationType[];
 
 export function QualificationEligibilityTab() {
   const [unitId, setUnitId] = useState("");
-  const [jobId, setJobId] = useState("");
+  const [jobCategoryId, setJobCategoryId] = useState("");
   const [operationType, setOperationType] = useState<OperationType | "">("");
-  const [referenceDate, setReferenceDate] = useState(todayLocal());
+  const [startDate, setStartDate] = useState(todayLocal());
+  const [endDate, setEndDate] = useState(todayLocal());
   const [selectedWorker, setSelectedWorker] = useState<WorkerEligibility | null>(null);
 
   const catalogQuery = useQuery({
@@ -93,10 +93,13 @@ export function QualificationEligibilityTab() {
     queryFn: () => fetchQualificationSyncState(supabase),
   });
   const catalog = catalogQuery.data;
+  const invalidPeriod = Boolean(startDate && endDate && startDate > endDate);
   const selection = useMemo<QualificationEligibilitySelection | null>(() => {
-    if (!unitId || !jobId || !operationType || !referenceDate) return null;
-    return { operationalUnitId: unitId, jobId, operationType, referenceDate };
-  }, [jobId, operationType, referenceDate, unitId]);
+    if (!unitId || !jobCategoryId || !operationType || !startDate || !endDate || invalidPeriod) {
+      return null;
+    }
+    return { operationalUnitId: unitId, jobCategoryId, operationType, startDate, endDate };
+  }, [endDate, invalidPeriod, jobCategoryId, operationType, startDate, unitId]);
 
   const evaluationQuery = useQuery({
     queryKey: ["qualification-eligibility", "evaluation", selection],
@@ -123,15 +126,15 @@ export function QualificationEligibilityTab() {
           <div>
             <h2 className="flex items-center gap-2 text-base font-semibold">
               <GraduationCap className="h-5 w-5" />
-              Aptidão por cliente e vaga
+              Aptidão por cliente e categoria
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Consulte quem pode atender à solicitação na data informada. As matrizes corretas são
-              combinadas automaticamente conforme o tipo de atuação.
+              Consulte quem pode atender à solicitação durante todo o período. As funções de cada
+              categoria e as matrizes corretas são combinadas automaticamente.
             </p>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SearchableFilterSelect
               label="Cliente / unidade"
               placeholder="Selecione a unidade"
@@ -142,13 +145,13 @@ export function QualificationEligibilityTab() {
               onValueChange={setUnitId}
             />
             <SearchableFilterSelect
-              label="Vaga / função"
-              placeholder="Selecione a vaga"
-              searchPlaceholder="Buscar vaga..."
-              value={jobId}
-              options={catalog?.jobs ?? []}
+              label="Categoria da função"
+              placeholder="Selecione a categoria"
+              searchPlaceholder="Buscar categoria..."
+              value={jobCategoryId}
+              options={catalog?.jobCategories ?? []}
               disabled={catalogQuery.isLoading}
-              onValueChange={setJobId}
+              onValueChange={setJobCategoryId}
             />
             <div className="space-y-1.5">
               <Label>Tipo de atuação</Label>
@@ -169,20 +172,36 @@ export function QualificationEligibilityTab() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="eligibility-reference-date">Data da solicitação</Label>
+              <Label htmlFor="eligibility-start-date">Data inicial</Label>
               <Input
-                id="eligibility-reference-date"
+                id="eligibility-start-date"
                 type="date"
-                value={referenceDate}
-                onChange={(event) => setReferenceDate(event.target.value)}
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eligibility-end-date">Data final</Label>
+              <Input
+                id="eligibility-end-date"
+                type="date"
+                min={startDate}
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
               />
             </div>
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Requisitos M/MO bloqueiam quando faltantes, vencidos ou sem validade. Requisitos R
-            aparecem como alerta e não retiram o colaborador da aba Aptos.
+            Requisitos M/MO faltantes ou vencidos antes do início bloqueiam. Cursos que vencem
+            durante o período geram alerta, mas mantêm o colaborador apto. Cursos realizados sem
+            data de vencimento continuam válidos.
           </p>
+          {invalidPeriod && (
+            <p className="text-sm text-destructive">
+              A data final deve ser igual ou posterior à data inicial.
+            </p>
+          )}
           {syncStateQuery.data && (
             <p className="text-xs text-muted-foreground">
               Última sincronização: {formatDateTime(syncStateQuery.data.last_success_at)} ·{" "}
@@ -209,7 +228,8 @@ export function QualificationEligibilityTab() {
       )}
       {catalog && catalog.operationalUnits.length > 0 && !selection && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
-          Selecione cliente/unidade, vaga e tipo de atuação para consultar os colaboradores.
+          Selecione cliente/unidade, categoria, tipo de atuação e período para consultar os
+          colaboradores.
         </Card>
       )}
       {selection && evaluationQuery.isLoading && <EligibilitySkeleton />}
@@ -258,9 +278,12 @@ export function QualificationEligibilityTab() {
             <Tabs defaultValue="apt" className="w-full">
               <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="font-semibold">Colaboradores da função</h3>
+                  <h3 className="font-semibold">
+                    Colaboradores da categoria {evaluation.context.jobCategoryName}
+                  </h3>
                   <p className="text-xs text-muted-foreground">
-                    Validade considerada em {formatDate(evaluation.referenceDate)}.
+                    Período considerado de {formatDate(evaluation.startDate)} a{" "}
+                    {formatDate(evaluation.endDate)}.
                   </p>
                 </div>
                 <TabsList className="grid w-full grid-cols-2 sm:w-72">
@@ -421,6 +444,7 @@ function WorkerTable({
         <TableRow>
           <TableHead>Colaborador</TableHead>
           <TableHead>Matrícula</TableHead>
+          <TableHead>Função</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Cursos válidos</TableHead>
           <TableHead>Próximo vencimento</TableHead>
@@ -438,6 +462,7 @@ function WorkerTable({
               </p>
             </TableCell>
             <TableCell>{worker.worker.registration}</TableCell>
+            <TableCell className="max-w-56 text-sm">{worker.worker.jobName || "—"}</TableCell>
             <TableCell>
               <EligibilityBadge status={worker.status} />
             </TableCell>
@@ -447,7 +472,9 @@ function WorkerTable({
             <TableCell>
               {worker.nextExpirationDate ? formatDate(worker.nextExpirationDate) : "—"}
             </TableCell>
-            <TableCell className="max-w-sm text-xs">{pendingSummary(worker)}</TableCell>
+            <TableCell className="max-w-sm text-xs">
+              <WorkerAlertSummary worker={worker} />
+            </TableCell>
             <TableCell>
               <Button variant="outline" size="sm" onClick={() => onDetails(worker)}>
                 Detalhes
@@ -523,7 +550,7 @@ function WorkerDetailsDialog({
             <div className="mb-4 flex items-center gap-2">
               <EligibilityBadge status={worker.status} />
               <span className="text-sm text-muted-foreground">
-                Matrícula {worker.worker.registration}
+                Matrícula {worker.worker.registration} · Função {worker.worker.jobName || "—"}
               </span>
             </div>
             <Table>
@@ -532,6 +559,7 @@ function WorkerDetailsDialog({
                   <TableHead>Curso</TableHead>
                   <TableHead>Exigência</TableHead>
                   <TableHead>Situação</TableHead>
+                  <TableHead>Realização</TableHead>
                   <TableHead>Validade</TableHead>
                   <TableHead>Origem</TableHead>
                 </TableRow>
@@ -544,8 +572,13 @@ function WorkerDetailsDialog({
                     <TableCell>
                       <CourseStatusBadge status={course.status} />
                     </TableCell>
+                    <TableCell>{course.issueDate ? formatDate(course.issueDate) : "—"}</TableCell>
                     <TableCell>
-                      {course.expirationDate ? formatDate(course.expirationDate) : "—"}
+                      {course.expirationDate
+                        ? formatDate(course.expirationDate)
+                        : course.status === "permanent"
+                          ? "Sem vencimento"
+                          : "—"}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {shortMatrixName(course.sourceMatrixName)}
@@ -562,15 +595,19 @@ function WorkerDetailsDialog({
 }
 
 function CourseStatusBadge({ status }: { status: CourseEligibilityStatus }) {
-  const Icon = status === "valid" ? CheckCircle2 : status === "expiring-soon" ? Clock3 : XCircle;
+  const Icon =
+    status === "valid" || status === "permanent"
+      ? CheckCircle2
+      : status === "expires-during-period"
+        ? AlertTriangle
+        : XCircle;
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 text-xs font-medium",
-        status === "valid" && "text-emerald-700",
-        status === "expiring-soon" && "text-amber-700",
-        (status === "expired" || status === "missing" || status === "no-expiration") &&
-          "text-red-700",
+        (status === "valid" || status === "permanent") && "text-emerald-700",
+        status === "expires-during-period" && "text-amber-700",
+        (status === "expired" || status === "missing") && "text-red-700",
       )}
     >
       <Icon className="h-3.5 w-3.5" /> {COURSE_STATUS_LABEL[status]}
@@ -578,11 +615,41 @@ function CourseStatusBadge({ status }: { status: CourseEligibilityStatus }) {
   );
 }
 
-function pendingSummary(worker: WorkerEligibility): string {
-  const pending = worker.courses.filter((course) => course.status !== "valid");
-  if (pending.length === 0) return "Nenhuma";
-  const names = pending.slice(0, 3).map((course) => course.courseName);
-  return `${names.join(", ")}${pending.length > names.length ? ` +${pending.length - names.length}` : ""}`;
+function WorkerAlertSummary({ worker }: { worker: WorkerEligibility }) {
+  const periodWarnings = worker.courses.filter(
+    (course) => course.status === "expires-during-period",
+  );
+  const otherPending = worker.courses.filter(
+    (course) => course.status === "expired" || course.status === "missing",
+  );
+  if (periodWarnings.length === 0 && otherPending.length === 0) return <>Nenhuma</>;
+
+  return (
+    <div className="space-y-1">
+      {periodWarnings.length > 0 && (
+        <p className="flex items-start gap-1 font-medium text-amber-700">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>Vence no período: {courseSummary(periodWarnings, true)}</span>
+        </p>
+      )}
+      {otherPending.length > 0 && (
+        <p className={worker.status === "unfit" ? "text-red-700" : "text-amber-700"}>
+          Pendências: {courseSummary(otherPending)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function courseSummary(courses: WorkerEligibility["courses"], includeExpiration = false): string {
+  const names = courses
+    .slice(0, 3)
+    .map((course) =>
+      includeExpiration && course.expirationDate
+        ? `${course.courseName} (${formatDate(course.expirationDate)})`
+        : course.courseName,
+    );
+  return `${names.join(", ")}${courses.length > names.length ? ` +${courses.length - names.length}` : ""}`;
 }
 
 function EligibilitySkeleton() {

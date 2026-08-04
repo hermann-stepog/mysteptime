@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { QualificationWorker, WorkerQualification } from "./domain";
+import { buildJobCategories } from "./job-category";
 
 type AppDb = SupabaseClient<Database>;
 type DbOption = Database["public"]["Tables"]["drake_qualification_options"]["Row"];
@@ -11,6 +12,7 @@ export type QualificationSyncState =
 
 const PAGE_SIZE = 1_000;
 const WORKER_FILTER_BATCH_SIZE = 20;
+const JOB_FILTER_BATCH_SIZE = 40;
 const UNIT_DOMAIN = "OPERATIONAL_UNITS";
 const JOB_DOMAIN = "OPERATION_JOBS";
 
@@ -21,7 +23,7 @@ export interface QualificationFilterOption {
 
 export interface QualificationFilterCatalog {
   operationalUnits: QualificationFilterOption[];
-  jobs: QualificationFilterOption[];
+  jobCategories: QualificationFilterOption[];
 }
 
 export interface WorkerQualificationSource {
@@ -39,12 +41,14 @@ export async function fetchQualificationFilterCatalog(
       .in("domain_identifier", [UNIT_DOMAIN, JOB_DOMAIN])
       .order("domain_identifier")
       .order("sort_order")
+      .order("option_id")
       .range(from, to),
   );
 
+  const jobs = mapOptions(rows, JOB_DOMAIN);
   return {
     operationalUnits: mapOptions(rows, UNIT_DOMAIN),
-    jobs: mapOptions(rows, JOB_DOMAIN),
+    jobCategories: buildJobCategories(jobs).map(({ id, name }) => ({ id, name })),
   };
 }
 
@@ -62,18 +66,27 @@ export async function fetchQualificationSyncState(
 
 export async function fetchWorkerQualificationSource(
   db: AppDb,
-  jobName: string,
+  jobNames: string[],
 ): Promise<WorkerQualificationSource> {
-  const workerRows = await fetchAllPages<DbWorker>((from, to) =>
-    db
-      .from("drake_qualification_workers")
-      .select("*")
-      .eq("job_name", jobName)
-      .eq("worker_state", "Ativo")
-      .eq("worker_type", "Funcionario")
-      .order("full_name")
-      .order("drake_worker_id")
-      .range(from, to),
+  const workerRowsById = new Map<string, DbWorker>();
+  for (const jobBatch of chunk(jobNames, JOB_FILTER_BATCH_SIZE)) {
+    const rows = await fetchAllPages<DbWorker>((from, to) =>
+      db
+        .from("drake_qualification_workers")
+        .select("*")
+        .in("job_name", jobBatch)
+        .eq("worker_state", "Ativo")
+        .eq("worker_type", "Funcionario")
+        .order("full_name")
+        .order("drake_worker_id")
+        .range(from, to),
+    );
+    rows.forEach((worker) => workerRowsById.set(worker.drake_worker_id, worker));
+  }
+  const workerRows = [...workerRowsById.values()].sort(
+    (left, right) =>
+      left.full_name.localeCompare(right.full_name, "pt-BR") ||
+      left.drake_worker_id.localeCompare(right.drake_worker_id),
   );
   const qualificationRows = await fetchQualifications(
     db,
@@ -144,6 +157,7 @@ function mapQualification(row: DbQualification): WorkerQualification {
     qualificationId: row.qualification_id,
     qualificationName: row.qualification_name,
     indicatedCourseName: row.indicated_course_name,
+    issueDate: row.issue_date,
     expirationDate: row.expiration_date,
   };
 }

@@ -124,7 +124,11 @@ async function updateQualificationsInner(
       syncDrakeQualificationNeeds(context, db, {
         onPage: ({ loaded, total }) => {
           const ratio = total > 0 ? Math.min(1, loaded / total) : 1;
-          return emit("loading-qualification-data", "processing", 35 + Math.round(ratio * 45));
+          return emit("loading-qualification-data", "processing", 35 + Math.round(ratio * 25));
+        },
+        onAttendance: ({ loaded, total }) => {
+          const ratio = total > 0 ? Math.min(1, loaded / total) : 1;
+          return emit("loading-qualification-data", "processing", 60 + Math.round(ratio * 20));
         },
         onBeforeImport: () => emit("importing-qualification-data", "importing"),
       }),
