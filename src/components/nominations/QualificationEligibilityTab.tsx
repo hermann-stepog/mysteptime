@@ -58,6 +58,7 @@ import {
   fetchQualificationSyncState,
   type QualificationFilterOption,
 } from "@/lib/qualification-eligibility/repository";
+import { groupQualificationJobs } from "@/lib/qualification-eligibility/job-groups";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<EligibilityStatus, string> = {
@@ -78,6 +79,7 @@ const OPERATION_TYPES = Object.keys(OPERATION_TYPE_LABEL) as OperationType[];
 
 export function QualificationEligibilityTab() {
   const [unitId, setUnitId] = useState("");
+  const [jobGroupId, setJobGroupId] = useState("");
   const [jobId, setJobId] = useState("");
   const [operationType, setOperationType] = useState<OperationType | "">("");
   const [startDate, setStartDate] = useState(todayLocal());
@@ -93,6 +95,12 @@ export function QualificationEligibilityTab() {
     queryFn: () => fetchQualificationSyncState(supabase),
   });
   const catalog = catalogQuery.data;
+  const jobGroups = useMemo(() => groupQualificationJobs(catalog?.jobs ?? []), [catalog?.jobs]);
+  const selectedJobGroup = jobGroups.find((group) => group.id === jobGroupId);
+  const jobGroupOptions = useMemo(
+    () => jobGroups.map((group) => ({ id: group.id, name: group.name })),
+    [jobGroups],
+  );
   const invalidPeriod = Boolean(startDate && endDate && startDate > endDate);
   const selection = useMemo<QualificationEligibilitySelection | null>(() => {
     if (!unitId || !jobId || !operationType || !startDate || !endDate || invalidPeriod) {
@@ -134,7 +142,7 @@ export function QualificationEligibilityTab() {
             </p>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <SearchableFilterSelect
               label="Cliente / unidade"
               placeholder="Selecione a unidade"
@@ -145,12 +153,24 @@ export function QualificationEligibilityTab() {
               onValueChange={setUnitId}
             />
             <SearchableFilterSelect
+              label="Grupo da função"
+              placeholder="Selecione o grupo"
+              searchPlaceholder="Buscar grupo..."
+              value={jobGroupId}
+              options={jobGroupOptions}
+              disabled={catalogQuery.isLoading}
+              onValueChange={(value) => {
+                setJobGroupId(value);
+                setJobId("");
+              }}
+            />
+            <SearchableFilterSelect
               label="Função"
               placeholder="Selecione a função"
               searchPlaceholder="Buscar função..."
               value={jobId}
-              options={catalog?.jobs ?? []}
-              disabled={catalogQuery.isLoading}
+              options={selectedJobGroup?.jobs ?? []}
+              disabled={catalogQuery.isLoading || !selectedJobGroup}
               onValueChange={setJobId}
             />
             <div className="space-y-1.5">
@@ -228,7 +248,7 @@ export function QualificationEligibilityTab() {
       )}
       {catalog && catalog.operationalUnits.length > 0 && !selection && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
-          Selecione cliente/unidade, função, tipo de atuação e período para consultar os
+          Selecione cliente/unidade, grupo, função, tipo de atuação e período para consultar os
           colaboradores.
         </Card>
       )}
