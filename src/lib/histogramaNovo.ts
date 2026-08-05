@@ -588,7 +588,11 @@ export function calcularHistoricoOcupacaoColaborador(
     diasMedioEntreEmbarques = Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10;
   }
 
-  const diasDesdeUltimoEmbarque = dataUltimoEmbarque ? daysBetween(dataUltimoEmbarque, dataFim) : null;
+  // "Dias atrás" é sempre relativo a hoje, nunca ao fim do intervalo analisado — senão, ao
+  // olhar o ano corrente (que vai até 31/12, uma data futura), um embarque de poucos dias atrás
+  // aparecia como "150 dias atrás" só porque contava até o fim do ano em vez de até hoje.
+  const referenciaContagem = dataFim < todayStr() ? dataFim : todayStr();
+  const diasDesdeUltimoEmbarque = dataUltimoEmbarque ? daysBetween(dataUltimoEmbarque, referenciaContagem) : null;
 
   return {
     colaboradorId,
