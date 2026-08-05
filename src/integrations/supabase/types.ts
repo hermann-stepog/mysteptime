@@ -812,6 +812,7 @@ export type Database = {
           expiration_date: string | null
           indicated_course_id: string | null
           indicated_course_name: string | null
+          issue_date: string | null
           qualification_id: string
           qualification_name: string
           sync_id: string
@@ -822,6 +823,7 @@ export type Database = {
           expiration_date?: string | null
           indicated_course_id?: string | null
           indicated_course_name?: string | null
+          issue_date?: string | null
           qualification_id: string
           qualification_name: string
           sync_id: string
@@ -832,6 +834,7 @@ export type Database = {
           expiration_date?: string | null
           indicated_course_id?: string | null
           indicated_course_name?: string | null
+          issue_date?: string | null
           qualification_id?: string
           qualification_name?: string
           sync_id?: string
