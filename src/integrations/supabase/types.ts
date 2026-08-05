@@ -1629,7 +1629,9 @@ export type Database = {
           embarque_id: string
           funcao_override: string | null
           id: string
+          recebido_em: string | null
           recebido_fisico: boolean
+          recebido_por: string | null
         }
         Insert: {
           criado_em?: string
@@ -1639,7 +1641,9 @@ export type Database = {
           embarque_id: string
           funcao_override?: string | null
           id?: string
+          recebido_em?: string | null
           recebido_fisico?: boolean
+          recebido_por?: string | null
         }
         Update: {
           criado_em?: string
@@ -1649,7 +1653,9 @@ export type Database = {
           embarque_id?: string
           funcao_override?: string | null
           id?: string
+          recebido_em?: string | null
           recebido_fisico?: boolean
+          recebido_por?: string | null
         }
         Relationships: [
           {

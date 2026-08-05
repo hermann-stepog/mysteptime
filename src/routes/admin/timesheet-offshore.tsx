@@ -813,6 +813,87 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
   );
 }
 
+// Painel de atividade recente — últimas semanas marcadas como recebidas ("Salvar semana"),
+// com quem lançou e quando, mais um resumo de quantas foram lançadas hoje. Só existe registro
+// de quem lançou a partir de quando as colunas recebido_por/recebido_em foram criadas —
+// lançamentos anteriores a isso aparecem sem essa informação (não têm como ser recuperados).
+function fmtHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+function fmtData(iso: string): string {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
+  semanas: TimesheetSemana[]; embarques: TimesheetEmbarque[]; colaboradores: HistNovoColaborador[];
+}) {
+  const colaboradorPorEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.colaborador_id])), [embarques]);
+  const nomePorColaboradorId = useMemo(() => new Map(colaboradores.map((c) => [c.id, c.nome])), [colaboradores]);
+
+  const recentes = useMemo(
+    () => semanas
+      .filter((s): s is TimesheetSemana & { recebido_em: string } => !!s.recebido_em)
+      .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em))
+      .slice(0, 8),
+    [semanas],
+  );
+
+  const idsExecutores = useMemo(
+    () => Array.from(new Set(recentes.map((s) => s.recebido_por).filter((id): id is string => !!id))),
+    [recentes],
+  );
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["profiles-timesheet-recente", idsExecutores],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("id, full_name, email").in("id", idsExecutores);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: idsExecutores.length > 0,
+  });
+  const nomeExecutorById = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name || p.email])), [profiles]);
+
+  const hoje = todayStr();
+  const lancadosHoje = useMemo(() => semanas.filter((s) => s.data_recebimento === hoje).length, [semanas, hoje]);
+
+  return (
+    <Card className="flex w-full flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3 lg:w-64 lg:shrink-0">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">Últimas Atualizações</h3>
+        <span className="flex shrink-0 items-baseline gap-1 rounded-md bg-primary/15 px-2 py-0.5">
+          <span className="text-sm font-bold leading-none text-primary">{lancadosHoje}</span>
+          <span className="text-[9px] uppercase leading-none tracking-wide text-muted-foreground">hoje</span>
+        </span>
+      </div>
+
+      {recentes.length === 0 ? (
+        <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum lançamento registrado ainda.</p>
+      ) : (
+        <div className="flex-1 space-y-1.5 overflow-auto pr-1">
+          {recentes.map((s) => {
+            const colaboradorId = colaboradorPorEmbarqueId.get(s.embarque_id);
+            const nomeColaborador = colaboradorId ? nomePorColaboradorId.get(colaboradorId) : null;
+            const executor = s.recebido_por ? nomeExecutorById.get(s.recebido_por) : null;
+            return (
+              <div key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-primary/10 bg-background/60 px-2 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium">{nomeColaborador ?? "—"}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {fmtData(s.recebido_em!)}{executor ? ` · ${executor}` : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary">
+                  {fmtHora(s.recebido_em!)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ─── Aba 1: Embarques ────────────────────────────────────────────────────────
 
 type EmbarquesSortColumn = "colaborador" | "funcao" | "unidade" | "bsp";
@@ -1055,67 +1136,76 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
   return (
     <div className="space-y-3">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-48">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
-            <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-56">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
-          </div>
-          {!readOnly && (
-            <div className="ml-auto flex items-center gap-2">
-              <Button onClick={() => setNovoOpen(true)}>
-                <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
-              </Button>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+        <div className="flex flex-1 flex-col gap-3">
+          <Card className="p-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-0.5 w-36">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
+                <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+              </div>
+              <div className="space-y-0.5 w-36">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+                <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+              </div>
+              <div className="space-y-0.5 w-48">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
+                <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                    {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-0.5 w-40">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+                <Select value={filterBsp} onValueChange={setFilterBsp}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                    {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-0.5 w-56">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+                <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+              </div>
+              {!readOnly && (
+                <div className="ml-auto flex items-center gap-2">
+                  <Button onClick={() => setNovoOpen(true)}>
+                    <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {cardsPorUnidade.length > 0 && (
+            <div className="flex flex-wrap content-start gap-1.5">
+              {cardsPorUnidade.map((unidade) => (
+                <Card
+                  key={unidade}
+                  role="button" tabIndex={0}
+                  onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
+                  style={{ flex: "1 1 6rem" }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent px-2 py-1.5 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                    filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
+                  )}
+                >
+                  <p className="truncate text-xs font-semibold leading-tight text-primary">{unidade}</p>
+                </Card>
+              ))}
             </div>
           )}
         </div>
-      </Card>
 
-      {cardsPorUnidade.length > 0 && (
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {cardsPorUnidade.map((unidade) => (
-            <Card
-              key={unidade}
-              role="button" tabIndex={0}
-              onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
-              className={cn(
-                "cursor-pointer overflow-hidden rounded-xl border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent p-3 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
-                filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
-              )}
-            >
-              <p className="text-xs font-semibold leading-snug text-primary">{unidade}</p>
-            </Card>
-          ))}
-        </div>
-      )}
+        {cardsPorUnidade.length > 0 && (
+          <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} />
+        )}
+      </div>
 
       <Card>
         <Table>
@@ -1364,140 +1454,6 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─── Aba: Pendentes de Lançamento ────────────────────────────────────────────
-
-const PENDENTES_PISO_DATA = "2026-01-01";
-const PENDENTES_TETO_DATA = "2026-12-31";
-
-function PendentesTab({ colaboradores, periodos, embarques, semanas, dias }: {
-  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; dias: TimesheetDia[];
-}) {
-  // Sem filtro preenchido, a aba já nasce mostrando todas as pendências do ano de 2026;
-  // o De/Até só serve pra restringir essa lista ainda mais (sempre dentro de 2026) quando o
-  // usuário quiser.
-  const [dataInicio, setDataInicio] = useState("");
-  const [dataFim, setDataFim] = useState("");
-
-  const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
-
-  // Precisamos de TODOS os períodos do colaborador (não só os "E") pra computar o status de
-  // cada dia do mesmo jeito que o Histograma Offshore faz (prioridade AT>FE>E>...>DB),
-  // já que um dia dentro de um período "E" pode não ser efetivamente um dia "E" (ex.: o último
-  // dia do período costuma virar Desembarque, e dias após o 14º viram Dobra).
-  const periodosByColaborador = useMemo(() => {
-    const m = new Map<string, HistNovoPeriodo[]>();
-    periodos.forEach((p) => {
-      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
-      m.get(p.colaborador_id)!.push(p);
-    });
-    return m;
-  }, [periodos]);
-
-  // Dias que o colaborador de fato já teve horas salvas (via "Salvar semana").
-  const diasSalvosPorColaborador = useMemo(() => {
-    const colaboradorIdByEmbarqueId = new Map(embarques.map((e) => [e.id, e.colaborador_id]));
-    const colaboradorIdBySemanaId = new Map(semanas.map((s) => [s.id, colaboradorIdByEmbarqueId.get(s.embarque_id)]));
-    const m = new Map<string, Set<string>>();
-    dias.forEach((d) => {
-      if (d.horas_normais == null) return;
-      const colaboradorId = colaboradorIdBySemanaId.get(d.semana_id);
-      if (!colaboradorId) return;
-      if (!m.has(colaboradorId)) m.set(colaboradorId, new Set());
-      m.get(colaboradorId)!.add(d.data);
-    });
-    return m;
-  }, [dias, semanas, embarques]);
-
-  const pendencias = useMemo(() => {
-    const linhas: { colaborador: HistNovoColaborador; periodo: HistNovoPeriodo; diasFaltando: string[] }[] = [];
-    const piso = dataInicio && dataInicio > PENDENTES_PISO_DATA ? dataInicio : PENDENTES_PISO_DATA;
-    const teto = dataFim && dataFim < PENDENTES_TETO_DATA ? dataFim : PENDENTES_TETO_DATA;
-    periodos.forEach((p) => {
-      if (p.tipo !== "E") return;
-      if (p.data_fim < piso || p.data_inicio > teto) return;
-      const colaborador = colabById.get(p.colaborador_id);
-      if (!colaborador) return;
-      const colabPeriodos = periodosByColaborador.get(p.colaborador_id) ?? [];
-      const salvos = diasSalvosPorColaborador.get(p.colaborador_id) ?? new Set<string>();
-      const diasDoPeriodo = generateDateRange(p.data_inicio, p.data_fim).filter((d) => d >= piso && d <= teto);
-      const diasFaltando = diasDoPeriodo.filter((d) => !salvos.has(d) && computeDayStatus(colabPeriodos, d).status === "E");
-      if (diasFaltando.length > 0) linhas.push({ colaborador, periodo: p, diasFaltando });
-    });
-    return linhas.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [periodos, colabById, periodosByColaborador, diasSalvosPorColaborador, dataInicio, dataFim]);
-
-  // Diagnóstico temporário: ajuda a identificar em qual etapa a lista está zerando
-  // (sem períodos "E" no banco, sem eles caindo em 2026, ou tudo já contando como salvo).
-  const diagnostico = useMemo(() => {
-    const piso = dataInicio && dataInicio > PENDENTES_PISO_DATA ? dataInicio : PENDENTES_PISO_DATA;
-    const teto = dataFim && dataFim < PENDENTES_TETO_DATA ? dataFim : PENDENTES_TETO_DATA;
-    const todosE = periodos.filter((p) => p.tipo === "E");
-    const eNaJanela = todosE.filter((p) => !(p.data_fim < piso || p.data_inicio > teto));
-    const colaboradoresUnicos = new Set(eNaJanela.map((p) => p.colaborador_id));
-    const comAlgumDiaSalvo = Array.from(colaboradoresUnicos).filter((id) => (diasSalvosPorColaborador.get(id)?.size ?? 0) > 0);
-    return {
-      totalPeriodosE: todosE.length,
-      periodosENaJanela: eNaJanela.length,
-      colaboradoresUnicos: colaboradoresUnicos.size,
-      comAlgumDiaSalvo: comAlgumDiaSalvo.length,
-    };
-  }, [periodos, diasSalvosPorColaborador, dataInicio, dataFim]);
-
-  return (
-    <div className="space-y-3">
-      <p className="text-[11px] text-muted-foreground">
-        Diagnóstico: {diagnostico.totalPeriodosE} período(s) "E" no banco · {diagnostico.periodosENaJanela} dentro da janela de datas ·{" "}
-        {diagnostico.colaboradoresUnicos} colaborador(es) único(s) com período "E" na janela · {diagnostico.comAlgumDiaSalvo} já têm pelo menos 1 dia salvo.
-      </p>
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De (opcional)</Label>
-            <Input type="date" className="h-8 text-xs" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
-          </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até (opcional)</Label>
-            <Input type="date" className="h-8 text-xs" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
-          </div>
-          {(dataInicio || dataFim) && (
-            <Button variant="ghost" size="sm" onClick={() => { setDataInicio(""); setDataFim(""); }}>
-              Limpar filtro
-            </Button>
-          )}
-        </div>
-      </Card>
-
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Colaborador</TableHead>
-              <TableHead>Unidade</TableHead>
-              <TableHead>Período (Histograma)</TableHead>
-              <TableHead>Dias faltando lançar</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {pendencias.map((l) => (
-              <TableRow key={`${l.colaborador.id}-${l.periodo.id}`}>
-                <TableCell className="font-medium">{l.colaborador.nome}</TableCell>
-                <TableCell className="text-muted-foreground">{l.periodo.unidade_operacional ?? "—"}</TableCell>
-                <TableCell>{fmt(l.periodo.data_inicio)} – {fmt(l.periodo.data_fim)}</TableCell>
-                <TableCell className="text-xs text-destructive" title={l.diasFaltando.map(fmt).join(", ")}>
-                  {l.diasFaltando.length} dia(s)
-                </TableCell>
-              </TableRow>
-            ))}
-            {pendencias.length === 0 && (
-              <EmptyStateRow colSpan={4} icon={CheckCircle2} title="Nenhuma pendência de lançamento" description="Tudo lançado no período selecionado." />
-            )}
-          </TableBody>
-        </Table>
-      </Card>
-    </div>
   );
 }
 
@@ -1755,10 +1711,26 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
       const diasIniciais = weekDates(inicio).map((d) => ({ semana_id: semana.id, data: d, dia_semana: weekdayLabel(d) }));
       const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasIniciais);
       if (diasErr) throw diasErr;
+
+      // Recalcula status_entrega (e estende data_fim_embarque se a semana nova for além do que
+      // já existia) — sem isso, um embarque já "Completo" que ganha uma semana manual aqui
+      // ficava com status_entrega desatualizado e sumia de Timesheets Pendentes (o filtro
+      // descarta status_entrega === "completo"), mesmo tendo uma semana de verdade não recebida.
+      const totalReal = semanas.length + 1;
+      const recebidas = semanas.filter((s) => s.recebido_fisico).length;
+      const total = Math.max(totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque), totalReal);
+      const status = computeStatusEntrega(recebidas, total);
+      const patch: { status_entrega: StatusEntrega; data_fim_embarque?: string } = { status_entrega: status };
+      if (fim > embarque.data_fim_embarque) patch.data_fim_embarque = fim;
+      const { error: embErr } = await supabase.from("timesheet_embarques").update(patch).eq("id", embarque.id);
+      if (embErr) throw embErr;
+
       return semana as TimesheetSemana;
     },
     onSuccess: (semana) => {
       qc.invalidateQueries({ queryKey: ["timesheet-semanas", embarque.id] });
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
       setSelectedSemanaId(semana.id);
       notify.success("Semana criada");
     },
@@ -1994,6 +1966,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
   semana: TimesheetSemana; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; embarque: TimesheetEmbarque; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   // BSPs já conhecidos pra unidade desse embarque — quando há mais de um, o campo BSP de cada
   // dia vira lista em vez de texto livre (reduz erro de digitação); "Outro" mantém o texto
   // livre pra um BSP novo que ainda não apareceu nessa unidade.
@@ -2142,6 +2115,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
 
       const { error: semErr } = await supabase.from("timesheet_semanas").update({
         recebido_fisico: true, data_recebimento: todayStr(),
+        recebido_por: user?.id ?? null, recebido_em: new Date().toISOString(),
       }).eq("id", semana.id);
       if (semErr) throw semErr;
 
