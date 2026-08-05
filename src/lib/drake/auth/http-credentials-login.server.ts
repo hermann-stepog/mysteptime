@@ -1,12 +1,10 @@
 import "@tanstack/react-start/server-only";
 import { validateDrakeApiSession } from "../api-session.server";
 import { env } from "../config.server";
+import { logger } from "../logger";
 import { createDrakeHttpClientFromAuthenticatedSession } from "../http/create-drake-http-client.server";
 import { DrakeCookieJar } from "../http/drake-cookie-jar.server";
-import type {
-  DrakeHttpClient,
-  DrakeHttpResponse,
-} from "../http/drake-http-client.types.server";
+import type { DrakeHttpClient, DrakeHttpResponse } from "../http/drake-http-client.types.server";
 import { normalizeText } from "../text";
 import {
   buildAuthenticatedSessionFromStorageState,
@@ -28,6 +26,14 @@ type DrakeAuthProviderConfig = {
   azureADB2CName: string;
   azureADB2CUserFlow: string;
 };
+
+const TENANT_RETRY_DELAYS_MS = [400, 1_200] as const;
+const TRANSIENT_TENANT_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+interface TenantSelectionOptions {
+  expectedContextName?: string;
+  retryDelaysMs?: readonly number[];
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -283,16 +289,51 @@ function tenantId(tenant: Record<string, unknown>): string {
   return stringValue(tenant["id"] ?? tenant["tenantId"] ?? tenant["value"]);
 }
 
-async function selectConfiguredTenant(api: DrakeHttpClient): Promise<void> {
-  const response = await api.get("/api/v2/User/Tenants", {
-    params: { page: 1, limit: 100 },
-    maxRedirects: 0,
-    timeout: env.DRAKE_TIMEOUT_MS,
-    headers: { "X-Requested-With": "XMLHttpRequest" },
-  });
+async function wait(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function requestTenantEndpoint(
+  operation: () => Promise<DrakeHttpResponse>,
+  endpoint: "list" | "select",
+  retryDelaysMs: readonly number[],
+): Promise<DrakeHttpResponse> {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await operation();
+    const status = response.status();
+    const retryDelay = retryDelaysMs[attempt];
+    if (!TRANSIENT_TENANT_STATUSES.has(status) || retryDelay === undefined) {
+      return response;
+    }
+    logger.warn("drake-authentication", "Oscilacao temporaria ao selecionar ambiente", {
+      stage: "confirming-tenant",
+      endpoint,
+      status,
+      attempt: attempt + 1,
+    });
+    await wait(retryDelay);
+  }
+}
+
+export async function selectConfiguredTenant(
+  api: DrakeHttpClient,
+  options: TenantSelectionOptions = {},
+): Promise<void> {
+  const retryDelaysMs = options.retryDelaysMs ?? TENANT_RETRY_DELAYS_MS;
+  const response = await requestTenantEndpoint(
+    () =>
+      api.get("/api/v2/User/Tenants", {
+        params: { page: 1, limit: 100 },
+        maxRedirects: 0,
+        timeout: env.DRAKE_TIMEOUT_MS,
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      }),
+    "list",
+    retryDelaysMs,
+  );
   if (response.status() !== 200) throw clientSelectionFailedError();
 
-  const expected = normalizeText(env.DRAKE_CONTEXT_NAME);
+  const expected = normalizeText(options.expectedContextName ?? env.DRAKE_CONTEXT_NAME);
   const matches = tenantItems(await response.json()).filter((tenant) =>
     tenantLabels(tenant).some((label) => normalizeText(label) === expected),
   );
@@ -301,14 +342,19 @@ async function selectConfiguredTenant(api: DrakeHttpClient): Promise<void> {
 
   const id = tenantId(matches[0]!);
   if (!id) throw clientSelectionFailedError();
-  const selected = await api.post("/api/v2/User/SelectTenant", {
-    params: { tenantId: id },
-    data: "",
-    maxRedirects: 0,
-    timeout: env.DRAKE_TIMEOUT_MS,
-    headers: { "X-Requested-With": "XMLHttpRequest" },
-  });
-  if (selected.status() !== 200) throw clientSelectionFailedError();
+  const selected = await requestTenantEndpoint(
+    () =>
+      api.post("/api/v2/User/SelectTenant", {
+        params: { tenantId: id },
+        data: "",
+        maxRedirects: 0,
+        timeout: env.DRAKE_TIMEOUT_MS,
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      }),
+    "select",
+    retryDelaysMs,
+  );
+  if (selected.status() < 200 || selected.status() >= 300) throw clientSelectionFailedError();
 }
 
 /**

@@ -17,7 +17,7 @@ import {
 } from "@/lib/drake/update-types";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
-import { parseExcelDate } from "@/lib/histograma/import-drake";
+import { parseExcelDate } from "@/lib/histograma/drake-spreadsheet-parser";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
   computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr,
@@ -88,7 +88,6 @@ export function DrakeUpdateCard() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [embarkationStatus, setEmbarkationStatus] = useState<DrakeReportStatus>("waiting");
-  const [availabilityStatus, setAvailabilityStatus] = useState<DrakeReportStatus>("waiting");
   const [result, setResult] = useState<DrakeUpdateResult | null>(null);
   const [buttonLabel, setButtonLabel] = useState<"idle" | "running" | "done">("idle");
   const [showProgress, setShowProgress] = useState(false);
@@ -127,7 +126,6 @@ export function DrakeUpdateCard() {
       setProgress(event.progress);
     }
     setEmbarkationStatus(event.embarkationStatus);
-    setAvailabilityStatus(event.availabilityStatus);
 
     if (event.type === "error") {
       setIsRunning(false);
@@ -146,7 +144,6 @@ export function DrakeUpdateCard() {
       setProgress(100);
       setMessage("Dados atualizados com sucesso.");
       setEmbarkationStatus("completed");
-      setAvailabilityStatus("completed");
       setResult(event.result ?? null);
       setButtonLabel("done");
       notify.success("Dados atualizados com sucesso.");
@@ -169,7 +166,6 @@ export function DrakeUpdateCard() {
     setProgress(0);
     setMessage("Preparando atualização...");
     setEmbarkationStatus("waiting");
-    setAvailabilityStatus("waiting");
     setButtonLabel("running");
 
     try {
@@ -357,8 +353,8 @@ export function DrakeUpdateCard() {
     <Card className="self-start p-4 space-y-3">
       <h3 className="text-sm font-semibold">Atualizar dados do Drake</h3>
       <p className="text-xs text-muted-foreground">
-        Busca os relatórios atualizados diretamente no Drake e atualiza automaticamente os
-        colaboradores, embarques e períodos de disponibilidade.
+        Busca a ficha anual de posição de cada colaborador diretamente no Drake e atualiza o
+        Histograma Offshore.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -449,19 +445,10 @@ export function DrakeUpdateCard() {
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
                 <ReportStatusIcon status={embarkationStatus} />
-                Relatório de embarque
+                Fichas anuais de posição
               </span>
               <span className="text-muted-foreground">
                 {DRAKE_REPORT_STATUS_LABEL[embarkationStatus]}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5">
-                <ReportStatusIcon status={availabilityStatus} />
-                Relatório de disponibilidade
-              </span>
-              <span className="text-muted-foreground">
-                {DRAKE_REPORT_STATUS_LABEL[availabilityStatus]}
               </span>
             </div>
           </div>
@@ -480,6 +467,12 @@ export function DrakeUpdateCard() {
               )}
               {result.availabilityEvents != null && (
                 <p>{result.availabilityEvents} períodos de disponibilidade lançados</p>
+              )}
+              {result.annualPositionWorkers != null && (
+                <p>{result.annualPositionWorkers} colaboradores consultados no Drake</p>
+              )}
+              {result.annualPositionEvents != null && (
+                <p>{result.annualPositionEvents} períodos da ficha anual sincronizados</p>
               )}
             </div>
           )}

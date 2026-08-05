@@ -39,6 +39,7 @@ export async function fetchQualificationFilterCatalog(
       .in("domain_identifier", [UNIT_DOMAIN, JOB_DOMAIN])
       .order("domain_identifier")
       .order("sort_order")
+      .order("option_id")
       .range(from, to),
   );
 
@@ -144,6 +145,7 @@ function mapQualification(row: DbQualification): WorkerQualification {
     qualificationId: row.qualification_id,
     qualificationName: row.qualification_name,
     indicatedCourseName: row.indicated_course_name,
+    issueDate: row.issue_date,
     expirationDate: row.expiration_date,
   };
 }

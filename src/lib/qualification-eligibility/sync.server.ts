@@ -3,7 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DrakeHttpClient } from "@/lib/drake/http/drake-http-client.types.server";
 import {
   fetchAllDrakeQualificationNeeds,
+  fetchPermanentQualificationIssueDates,
+  qualificationEvidenceKey,
   type DrakeIndividualQualificationNeed,
+  type QualificationAttendanceProgress,
   type QualificationNeedsPageProgress,
 } from "@/lib/drake/qualification-needs-api.server";
 import {
@@ -16,13 +19,14 @@ const UPSERT_BATCH_SIZE = 500;
 export const QUALIFICATION_STORAGE_MIGRATIONS = [
   "20260803150000_course_eligibility.sql",
   "20260803183000_qualification_matrix_options.sql",
+  "20260804190000_qualification_course_issue_date.sql",
 ] as const;
 
 const QUALIFICATION_STORAGE_PROBES = [
   ["drake_qualification_workers", "drake_worker_id"],
   ["drake_qualification_contexts", "context_key"],
   ["drake_qualification_requirements", "context_key"],
-  ["drake_worker_qualifications", "drake_worker_id"],
+  ["drake_worker_qualifications", "issue_date"],
   ["drake_qualification_sync_state", "option_count"],
   ["drake_qualification_options", "domain_identifier"],
 ] as const;
@@ -47,6 +51,7 @@ export interface QualificationSyncSummary {
 
 export interface QualificationSyncCallbacks {
   onPage?: (progress: QualificationNeedsPageProgress) => void | Promise<void>;
+  onAttendance?: (progress: QualificationAttendanceProgress) => void | Promise<void>;
   onBeforeImport?: () => void | Promise<void>;
 }
 
@@ -78,6 +83,7 @@ interface QualificationRow extends SnapshotRowBase {
   qualification_name: string;
   indicated_course_id: string | null;
   indicated_course_name: string | null;
+  issue_date: string | null;
   expiration_date: string | null;
 }
 
@@ -98,9 +104,20 @@ export async function syncDrakeQualificationNeeds(
     fetchAllDrakeQualificationNeeds(request, { onPage: callbacks?.onPage }),
     fetchAllQualificationDomains(request),
   ]);
+  const permanentIssueDates = await fetchPermanentQualificationIssueDates(
+    request,
+    source,
+    callbacks?.onAttendance,
+  );
   const syncId = crypto.randomUUID();
   const syncedAt = new Date().toISOString();
-  const snapshot = buildQualificationSnapshot(source, domains, syncId, syncedAt);
+  const snapshot = buildQualificationSnapshot(
+    source,
+    domains,
+    syncId,
+    syncedAt,
+    permanentIssueDates,
+  );
 
   await callbacks?.onBeforeImport?.();
 
@@ -184,6 +201,7 @@ export function buildQualificationSnapshot(
   domains: DrakeQualificationDomains,
   syncId: string,
   syncedAt: string,
+  permanentIssueDates: Map<string, string> = new Map(),
 ): QualificationSnapshot {
   const base = { sync_id: syncId, synced_at: syncedAt };
   const workers = new Map<string, WorkerRow>();
@@ -209,13 +227,15 @@ export function buildQualificationSnapshot(
       qualification_name: need.qualificationName,
       indicated_course_id: need.indicatedCourseId,
       indicated_course_name: need.indicatedCourseName,
+      issue_date: toDateOnly(
+        need.issueDate ??
+          permanentIssueDates.get(qualificationEvidenceKey(need.workerId, need.qualificationId)) ??
+          null,
+      ),
       expiration_date: toDateOnly(need.expirationDate),
     };
     const existing = qualifications.get(qualificationKey);
-    if (
-      !existing ||
-      compareNullableDate(qualification.expiration_date, existing.expiration_date) > 0
-    ) {
+    if (!existing || compareQualificationRow(qualification, existing) > 0) {
       qualifications.set(qualificationKey, qualification);
     }
   }
@@ -244,11 +264,16 @@ function toDateOnly(value: string | null): string | null {
   return match[0];
 }
 
-function compareNullableDate(left: string | null, right: string | null): number {
-  if (left === right) return 0;
-  if (!left) return -1;
-  if (!right) return 1;
-  return left.localeCompare(right);
+function compareQualificationRow(left: QualificationRow, right: QualificationRow): number {
+  const leftPermanent = Boolean(left.issue_date && !left.expiration_date);
+  const rightPermanent = Boolean(right.issue_date && !right.expiration_date);
+  if (leftPermanent !== rightPermanent) return leftPermanent ? 1 : -1;
+  if (left.expiration_date !== right.expiration_date) {
+    if (!left.expiration_date) return -1;
+    if (!right.expiration_date) return 1;
+    return left.expiration_date.localeCompare(right.expiration_date);
+  }
+  return (left.issue_date ?? "").localeCompare(right.issue_date ?? "");
 }
 
 async function upsertInBatches<T extends object>(

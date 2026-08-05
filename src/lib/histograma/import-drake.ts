@@ -1,8 +1,14 @@
+import "@tanstack/react-start/server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import { ORIGEM_PROGRAMADO, addDays, normalizeUnidadeOperacional, type HistNovoColaborador } from "@/lib/histogramaNovo";
+import { normalizeUnidadeOperacional } from "@/lib/histogramaNovo";
 import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
-import { selectAllPages } from "@/lib/supabasePaginate";
+import { normalizeHeader, parseExcelDate } from "./drake-spreadsheet-parser";
+import { buildEmbarkationSnapshot, type EmbarkationSourceRow } from "./drake-snapshot";
+import {
+  synchronizeDrakeHistogramSnapshot,
+  type DrakeSnapshotWindow,
+} from "./drake-snapshot-sync.server";
 
 export type DrakeField =
   | "empresa"
@@ -31,18 +37,7 @@ export const DRAKE_HEADER_MAP: Record<string, DrakeField> = {
   "funcao de operacao do trabalhador": "funcao_operacao",
 };
 
-export interface ParsedDrakeRow {
-  matricula: string;
-  nome: string;
-  empresa: string | null;
-  funcao: string | null;
-  funcao_operacao: string | null;
-  unidade_operacional: string | null;
-  centro_de_custo: string | null;
-  data_inicio: string;
-  data_fim: string;
-  dias: number | null;
-}
+export type ParsedDrakeRow = EmbarkationSourceRow;
 
 export interface DrakeImportSummary {
   created: number;
@@ -108,45 +103,69 @@ export function parseDrakeWorkbook(buf: ArrayBuffer | Buffer): ParsedDrakeRow[] 
   if (rows.length < 2) throw new Error("Planilha vazia.");
 
   const headerRow = rows[0].map(normalizeHeader);
-  const colIndex: Partial<Record<DrakeField, number>> = {};
-  headerRow.forEach((h, i) => {
-    const key = DRAKE_HEADER_MAP[h];
-    if (key && colIndex[key] === undefined) colIndex[key] = i;
+  const columnIndex: Partial<Record<DrakeField, number>> = {};
+  headerRow.forEach((header, index) => {
+    const field = DRAKE_HEADER_MAP[header];
+    if (field && columnIndex[field] === undefined) columnIndex[field] = index;
   });
 
-  const required: DrakeField[] = ["matricula", "nome", "data_inicio", "data_fim"];
-  const missing = required.filter((k) => colIndex[k] === undefined);
-  if (missing.length)
+  const required: DrakeField[] = ["empresa", "matricula", "nome", "data_inicio", "data_fim"];
+  const missing = required.filter((field) => columnIndex[field] === undefined);
+  if (missing.length > 0) {
     throw new Error(`Colunas não encontradas na planilha: ${missing.join(", ")}.`);
+  }
 
-  const get = (r: unknown[], k: DrakeField): string => {
-    const i = colIndex[k];
-    return i === undefined ? "" : String(r[i] ?? "").trim();
+  const get = (row: unknown[], field: DrakeField): string => {
+    const index = columnIndex[field];
+    return index === undefined ? "" : String(row[index] ?? "").trim();
   };
 
   return rows
     .slice(1)
-    .filter((r) => r.some((c) => c !== ""))
-    .map((r) => ({
-      matricula: get(r, "matricula"),
-      nome: get(r, "nome"),
-      empresa: get(r, "empresa") || null,
-      funcao: get(r, "funcao") || null,
-      funcao_operacao: get(r, "funcao_operacao") || null,
-      unidade_operacional: normalizeUnidadeOperacional(get(r, "unidade_operacional")),
-      centro_de_custo: get(r, "centro_de_custo") || null,
-      data_inicio:
-        parseExcelDate(colIndex.data_inicio !== undefined ? r[colIndex.data_inicio] : null) ?? "",
-      data_fim: parseExcelDate(colIndex.data_fim !== undefined ? r[colIndex.data_fim] : null) ?? "",
-      dias: colIndex.dias !== undefined ? Number(r[colIndex.dias]) || null : null,
-    }))
-    .filter((r) => r.matricula && r.nome && r.data_inicio && r.data_fim);
+    .map((row, index) => ({ row, rowNumber: index + 2 }))
+    .filter(({ row }) => row.some((cell) => cell !== ""))
+    .map(({ row, rowNumber }) => {
+      const parsed: ParsedDrakeRow = {
+        matricula: get(row, "matricula"),
+        nome: get(row, "nome"),
+        empresa: get(row, "empresa") || null,
+        funcao: get(row, "funcao") || null,
+        funcao_operacao: get(row, "funcao_operacao") || null,
+        unidade_operacional: normalizeUnidadeOperacional(get(row, "unidade_operacional")),
+        centro_de_custo: get(row, "centro_de_custo") || null,
+        data_inicio:
+          parseExcelDate(
+            columnIndex.data_inicio === undefined ? null : row[columnIndex.data_inicio],
+          ) ?? "",
+        data_fim:
+          parseExcelDate(columnIndex.data_fim === undefined ? null : row[columnIndex.data_fim]) ??
+          "",
+        dias: columnIndex.dias === undefined ? null : Number(row[columnIndex.dias]) || null,
+      };
+      if (
+        !parsed.empresa ||
+        !parsed.matricula ||
+        !parsed.nome ||
+        !parsed.data_inicio ||
+        !parsed.data_fim
+      ) {
+        throw new Error(
+          `A linha ${rowNumber} do relatório de embarque está incompleta. Empresa, matrícula, nome, início e término são obrigatórios. A sincronização foi cancelada sem alterar o banco.`,
+        );
+      }
+      return parsed;
+    });
 }
 
-/** Importa relatório de embarque (mesmo fluxo do botão Importar Excel Drake). */
+/**
+ * Reconcilia um snapshot completo do relatório 1 em uma única transação no banco.
+ * Registros manuais não são atualizados nem removidos; somente a origem "drake" dentro da
+ * janela consultada participa da reconciliação.
+ */
 export async function importDrakeEmbarkation(
-  supabase: SupabaseClient,
+  db: SupabaseClient,
   rows: ParsedDrakeRow[],
+  window: DrakeSnapshotWindow,
 ): Promise<DrakeImportSummary> {
   const matriculas = Array.from(new Set(rows.map((r) => r.matricula)));
   const existing: HistNovoColaborador[] = [];
@@ -359,110 +378,21 @@ export async function importDrakeEmbarkation(
   }
 
   return {
-    created: toInsert.length,
-    updated: toUpdate.length,
-    insertedEvents: periodosToInsert.length,
-    skipped: rows.length - periodosToInsert.length,
+    created: result.createdWorkers,
+    updated: result.updatedWorkers,
+    insertedEvents: result.synchronizedEvents,
+    skipped: rows.length - snapshot.periods.length,
   };
 }
 
-// Entre todos os períodos "E" origem=drake do MESMO colaborador que se sobrepõem em data,
-// mantém só o de created_at mais recente e apaga o(s) resto — ver comentário no ponto de
-// chamada (fim de importDrakeEmbarkation) pra entender por que isso é necessário mesmo com o
-// delete-all-then-insert já existente.
-async function limparPeriodosDrakeEmbarqueSuperados(supabase: SupabaseClient): Promise<void> {
-  const periodos = await selectAllPages<{
-    id: string; colaborador_id: string; data_inicio: string; data_fim: string; created_at: string;
-  }>((from, to) =>
-    supabase.from("hist_novo_periodos")
-      .select("id, colaborador_id, data_inicio, data_fim, created_at")
-      .eq("origem", "drake").eq("tipo", "E")
-      .order("id").range(from, to),
-  );
-
-  const byColaborador = new Map<string, typeof periodos>();
-  periodos.forEach((p) => {
-    if (!byColaborador.has(p.colaborador_id)) byColaborador.set(p.colaborador_id, []);
-    byColaborador.get(p.colaborador_id)!.push(p);
-  });
-
-  const overlaps = (a: { data_inicio: string; data_fim: string }, b: { data_inicio: string; data_fim: string }) =>
-    a.data_inicio <= b.data_fim && a.data_fim >= b.data_inicio;
-
-  const idsParaApagar: string[] = [];
-  for (const ps of byColaborador.values()) {
-    if (ps.length < 2) continue;
-    for (const p of ps) {
-      const superado = ps.some((other) => other.id !== p.id && other.created_at > p.created_at && overlaps(p, other));
-      if (superado) idsParaApagar.push(p.id);
-    }
-  }
-  if (!idsParaApagar.length) return;
-
-  for (let i = 0; i < idsParaApagar.length; i += 500) {
-    const lote = idsParaApagar.slice(i, i + 500);
-    const { error: unlinkErr } = await supabase
-      .from("timesheet_embarques")
-      .update({ periodo_id: null })
-      .in("periodo_id", lote);
-    if (unlinkErr) throw unlinkErr;
-    const { error: delErr } = await supabase.from("hist_novo_periodos").delete().in("id", lote);
-    if (delErr) throw delErr;
-  }
-}
-
-// Entre todo período "Programado" (P origem=manual, 1º dia; ou E origem=programado,
-// continuação) que se sobrepõe a um embarque REAL confirmado (tipo="E", origem != programado)
-// do mesmo colaborador, apaga o Programado — ver comentário no ponto de chamada.
-async function limparProgramadosSuperadosPorEmbarqueReal(supabase: SupabaseClient): Promise<void> {
-  const [programados, reais] = await Promise.all([
-    selectAllPages<{ id: string; colaborador_id: string; tipo: string; origem: string | null; data_inicio: string; data_fim: string }>((from, to) =>
-      supabase.from("hist_novo_periodos").select("id, colaborador_id, tipo, origem, data_inicio, data_fim")
-        .in("origem", ["manual", ORIGEM_PROGRAMADO])
-        .order("id").range(from, to),
-    ),
-    selectAllPages<{ colaborador_id: string; data_inicio: string; data_fim: string }>((from, to) =>
-      supabase.from("hist_novo_periodos").select("colaborador_id, data_inicio, data_fim")
-        .eq("tipo", "E").neq("origem", ORIGEM_PROGRAMADO)
-        .order("id").range(from, to),
-    ),
-  ]);
-
-  const reaisPorColaborador = new Map<string, { data_inicio: string; data_fim: string }[]>();
-  reais.forEach((r) => {
-    if (!reaisPorColaborador.has(r.colaborador_id)) reaisPorColaborador.set(r.colaborador_id, []);
-    reaisPorColaborador.get(r.colaborador_id)!.push(r);
-  });
-
-  const idsParaApagar = programados
-    .filter((p) => (p.tipo === "P" && p.origem === "manual") || (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO))
-    .filter((p) => {
-      // Mesma regra de tolerância de 1 dia já usada na limpeza acima: o "P" é só o dia da
-      // mobilização, o embarque de fato começa no dia seguinte.
-      const fimConsiderado = p.tipo === "P" ? addDays(p.data_fim, 1) : p.data_fim;
-      return (reaisPorColaborador.get(p.colaborador_id) ?? [])
-        .some((r) => r.data_fim >= p.data_inicio && r.data_inicio <= fimConsiderado);
-    })
-    .map((p) => p.id);
-  if (!idsParaApagar.length) return;
-
-  for (let i = 0; i < idsParaApagar.length; i += 500) {
-    const lote = idsParaApagar.slice(i, i + 500);
-    const { error: unlinkErr } = await supabase
-      .from("timesheet_embarques")
-      .update({ periodo_id: null })
-      .in("periodo_id", lote);
-    if (unlinkErr) throw unlinkErr;
-    const { error: delErr } = await supabase.from("hist_novo_periodos").delete().in("id", lote);
-    if (delErr) throw delErr;
-  }
-}
-
 export async function importDrakeEmbarkationFromBuffer(
-  supabase: SupabaseClient,
-  buf: ArrayBuffer | Buffer,
+  db: SupabaseClient,
+  buffer: ArrayBuffer | Buffer,
+  window: DrakeSnapshotWindow,
 ): Promise<DrakeImportSummary> {
-  const rows = parseDrakeWorkbook(buf);
-  if (!rows.length) throw new Error("Nenhuma linha válida encontrada na planilha de embarque.");
-  return importDrakeEmbarkation(supabase, rows);
+  const rows = parseDrakeWorkbook(buffer);
+  if (rows.length === 0) {
+    throw new Error("Nenhuma linha válida encontrada na planilha de embarque.");
+  }
+  return importDrakeEmbarkation(db, rows, window);
 }

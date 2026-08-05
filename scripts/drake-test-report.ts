@@ -17,6 +17,8 @@ import { runSingleApiReport } from "../src/lib/drake/report-api-runner.server";
 import { openDrakeSignalRSession } from "../src/lib/drake/signalr-session.server";
 import { persistIntegrationFailure } from "../src/lib/drake/last-error.server";
 import { toDrakeIntegrationError } from "../src/lib/drake/integration-error.server";
+import { getApiPeriodDates } from "../src/lib/drake/report-parameter-builder";
+import { env } from "../src/lib/drake/config.server";
 
 function loadEnvFromArgv(): { reportCode: 1 | 14; doImport: boolean } {
   const args = process.argv.slice(2);
@@ -62,16 +64,17 @@ async function main() {
           });
 
           if (doImport) {
+            const period = getApiPeriodDates(env.DRAKE_TIMEZONE);
+            const window = { startDate: period.apiStartDate, endDate: period.apiEndDate };
             const url = process.env.SUPABASE_URL;
             const key =
               process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
             if (!url || !key) throw new Error("Supabase nao configurado para --import");
             const db = createClient(url, key);
             if (reportCode === 1) {
-              const { importDrakeEmbarkationFromBuffer } = await import(
-                "../src/lib/histograma/import-drake"
-              );
-              const summary = await importDrakeEmbarkationFromBuffer(db, downloaded.buffer);
+              const { importDrakeEmbarkationFromBuffer } =
+                await import("../src/lib/histograma/import-drake");
+              const summary = await importDrakeEmbarkationFromBuffer(db, downloaded.buffer, window);
               logger.info("drake-cli", "Import embarque concluido", {
                 createdCount: summary.created,
                 updatedCount: summary.updated,
@@ -79,10 +82,9 @@ async function main() {
                 skippedCount: summary.skipped,
               });
             } else {
-              const { importDisponibilidadeFromBuffer } = await import(
-                "../src/lib/histograma/import-disponibilidade"
-              );
-              const summary = await importDisponibilidadeFromBuffer(db, downloaded.buffer);
+              const { importDisponibilidadeFromBuffer } =
+                await import("../src/lib/histograma/import-disponibilidade");
+              const summary = await importDisponibilidadeFromBuffer(db, downloaded.buffer, window);
               logger.info("drake-cli", "Import disponibilidade concluido", {
                 insertedCount: summary.insertedEvents,
                 skippedCount: summary.skipped,
@@ -112,9 +114,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(
-    "[drake-cli] Falha:",
-    error instanceof Error ? error.message : String(error),
-  );
+  console.error("[drake-cli] Falha:", error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });

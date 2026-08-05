@@ -2,10 +2,10 @@ export type OperationType = "onshore" | "offshore" | "offshore-irata";
 export type EligibilityStatus = "fit" | "fit-with-warnings" | "unfit";
 export type CourseEligibilityStatus =
   | "valid"
-  | "expiring-soon"
+  | "expires-during-period"
   | "expired"
   | "missing"
-  | "no-expiration";
+  | "permanent";
 
 export const OPERATION_TYPE_LABEL: Record<OperationType, string> = {
   onshore: "Onshore",
@@ -27,7 +27,8 @@ export interface QualificationEligibilitySelection {
   operationalUnitId: string;
   jobId: string;
   operationType: OperationType;
-  referenceDate: string;
+  startDate: string;
+  endDate: string;
 }
 
 export interface QualificationRequirement {
@@ -53,6 +54,7 @@ export interface WorkerQualification {
   qualificationId: string;
   qualificationName: string;
   indicatedCourseName: string | null;
+  issueDate: string | null;
   expirationDate: string | null;
 }
 
@@ -64,6 +66,7 @@ export interface EvaluatedCourse {
   mandatory: boolean;
   sourceMatrixName: string;
   status: CourseEligibilityStatus;
+  issueDate: string | null;
   expirationDate: string | null;
 }
 
@@ -79,21 +82,21 @@ export interface WorkerEligibility {
 
 export interface EligibilityEvaluation {
   context: QualificationContext;
-  referenceDate: string;
+  startDate: string;
+  endDate: string;
   requirements: QualificationRequirement[];
   workers: WorkerEligibility[];
 }
 
 export interface EvaluateEligibilityInput {
   context: QualificationContext;
-  referenceDate: string;
+  startDate: string;
+  endDate: string;
   requirements: QualificationRequirement[];
   workers: QualificationWorker[];
   qualifications: WorkerQualification[];
-  expiringSoonDays?: number;
 }
 
-const DAY_MS = 86_400_000;
 const ACTIVE_WORKER = "ATIVO";
 const EMPLOYEE_WORKER_TYPE = "FUNCIONARIO";
 
@@ -105,8 +108,11 @@ export function isMandatoryMarker(value: string | null | undefined): boolean {
 export function evaluateQualificationEligibility(
   input: EvaluateEligibilityInput,
 ): EligibilityEvaluation {
-  const reference = parseIsoDate(input.referenceDate);
-  const warningLimit = addDays(reference, input.expiringSoonDays ?? 30);
+  const periodStart = parseIsoDate(input.startDate);
+  const periodEnd = parseIsoDate(input.endDate);
+  if (periodStart > periodEnd) {
+    throw new Error("A data final deve ser igual ou posterior à data inicial.");
+  }
   const requirements = deduplicateRequirements(input.requirements);
   const qualificationsByWorker = indexQualifications(input.qualifications);
   const normalizedJob = normalizeText(input.context.jobName);
@@ -118,18 +124,21 @@ export function evaluateQualificationEligibility(
     .map((worker) => {
       const evidence = qualificationsByWorker.get(worker.drakeWorkerId);
       const courses = requirements.map((requirement) =>
-        evaluateCourse(requirement, findEvidence(evidence, requirement), reference, warningLimit),
+        evaluateCourse(requirement, findEvidence(evidence, requirement), periodStart, periodEnd),
       );
       const blockingCount = courses.filter(
         (course) => course.mandatory && isBlockingCourseStatus(course.status),
       ).length;
       const warningCount = courses.filter(
         (course) =>
-          course.status === "expiring-soon" ||
+          course.status === "expires-during-period" ||
           (!course.mandatory && isBlockingCourseStatus(course.status)),
       ).length;
       const validCount = courses.filter(
-        (course) => course.status === "valid" || course.status === "expiring-soon",
+        (course) =>
+          course.status === "valid" ||
+          course.status === "expires-during-period" ||
+          course.status === "permanent",
       ).length;
       const status: EligibilityStatus =
         blockingCount > 0 ? "unfit" : warningCount > 0 ? "fit-with-warnings" : "fit";
@@ -141,14 +150,15 @@ export function evaluateQualificationEligibility(
         validCount,
         warningCount,
         blockingCount,
-        nextExpirationDate: findNextExpiration(courses, reference),
+        nextExpirationDate: findNextExpiration(courses, periodStart),
       };
     })
     .sort(compareWorkerEligibility);
 
   return {
     context: input.context,
-    referenceDate: input.referenceDate,
+    startDate: input.startDate,
+    endDate: input.endDate,
     requirements,
     workers,
   };
@@ -157,15 +167,16 @@ export function evaluateQualificationEligibility(
 function evaluateCourse(
   requirement: QualificationRequirement,
   evidence: WorkerQualification | undefined,
-  reference: Date,
-  warningLimit: Date,
+  periodStart: Date,
+  periodEnd: Date,
 ): EvaluatedCourse {
+  const issue = evidence?.issueDate ? parseIsoDate(evidence.issueDate) : null;
   const expiration = evidence?.expirationDate ? parseIsoDate(evidence.expirationDate) : null;
   let status: CourseEligibilityStatus;
-  if (!evidence) status = "missing";
-  else if (!expiration) status = "no-expiration";
-  else if (expiration < reference) status = "expired";
-  else if (expiration <= warningLimit) status = "expiring-soon";
+  if (!evidence || (!issue && !expiration) || (issue && issue > periodEnd)) status = "missing";
+  else if (!expiration) status = "permanent";
+  else if (expiration < periodStart) status = "expired";
+  else if (expiration <= periodEnd) status = "expires-during-period";
   else status = "valid";
 
   return {
@@ -176,6 +187,7 @@ function evaluateCourse(
     mandatory: requirement.mandatory,
     sourceMatrixName: requirement.sourceMatrixName,
     status,
+    issueDate: evidence?.issueDate ?? null,
     expirationDate: evidence?.expirationDate ?? null,
   };
 }
@@ -225,7 +237,7 @@ function keepLatest(
 ): void {
   if (!key) return;
   const existing = index.get(key);
-  if (!existing || compareExpiration(qualification.expirationDate, existing.expirationDate) > 0) {
+  if (!existing || compareEvidence(qualification, existing) > 0) {
     index.set(key, qualification);
   }
 }
@@ -240,15 +252,20 @@ function findEvidence(
   );
 }
 
-function compareExpiration(left: string | null, right: string | null): number {
-  if (left === right) return 0;
-  if (!left) return -1;
-  if (!right) return 1;
-  return left.localeCompare(right);
+function compareEvidence(left: WorkerQualification, right: WorkerQualification): number {
+  const leftPermanent = Boolean(left.issueDate && !left.expirationDate);
+  const rightPermanent = Boolean(right.issueDate && !right.expirationDate);
+  if (leftPermanent !== rightPermanent) return leftPermanent ? 1 : -1;
+  if (left.expirationDate !== right.expirationDate) {
+    if (!left.expirationDate) return -1;
+    if (!right.expirationDate) return 1;
+    return left.expirationDate.localeCompare(right.expirationDate);
+  }
+  return (left.issueDate ?? "").localeCompare(right.issueDate ?? "");
 }
 
 function isBlockingCourseStatus(status: CourseEligibilityStatus): boolean {
-  return status === "missing" || status === "expired" || status === "no-expiration";
+  return status === "missing" || status === "expired";
 }
 
 function findNextExpiration(courses: EvaluatedCourse[], reference: Date): string | null {
@@ -291,8 +308,4 @@ function parseIsoDate(value: string): Date {
   const parsed = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime())) throw new Error(`Data inválida: ${value}`);
   return parsed;
-}
-
-function addDays(value: Date, days: number): Date {
-  return new Date(value.getTime() + days * DAY_MS);
 }
