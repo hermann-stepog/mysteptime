@@ -812,6 +812,7 @@ export type Database = {
           expiration_date: string | null
           indicated_course_id: string | null
           indicated_course_name: string | null
+          issue_date: string | null
           qualification_id: string
           qualification_name: string
           sync_id: string
@@ -822,6 +823,7 @@ export type Database = {
           expiration_date?: string | null
           indicated_course_id?: string | null
           indicated_course_name?: string | null
+          issue_date?: string | null
           qualification_id: string
           qualification_name: string
           sync_id: string
@@ -832,6 +834,7 @@ export type Database = {
           expiration_date?: string | null
           indicated_course_id?: string | null
           indicated_course_name?: string | null
+          issue_date?: string | null
           qualification_id?: string
           qualification_name?: string
           sync_id?: string
@@ -1587,9 +1590,9 @@ export type Database = {
           embarque_id: string
           funcao_override: string | null
           id: string
+          recebido_em: string | null
           recebido_fisico: boolean
           recebido_por: string | null
-          recebido_em: string | null
         }
         Insert: {
           criado_em?: string
@@ -1599,9 +1602,9 @@ export type Database = {
           embarque_id: string
           funcao_override?: string | null
           id?: string
+          recebido_em?: string | null
           recebido_fisico?: boolean
           recebido_por?: string | null
-          recebido_em?: string | null
         }
         Update: {
           criado_em?: string
@@ -1611,9 +1614,9 @@ export type Database = {
           embarque_id?: string
           funcao_override?: string | null
           id?: string
+          recebido_em?: string | null
           recebido_fisico?: boolean
           recebido_por?: string | null
-          recebido_em?: string | null
         }
         Relationships: [
           {
