@@ -1,7 +1,8 @@
+import "@tanstack/react-start/server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import type { TipoPeriodo } from "@/lib/histogramaNovo";
-import { normalizeHeader, parseExcelDate } from "./import-drake";
+import { normalizeHeader, parseExcelDate } from "./drake-spreadsheet-parser";
 import { buildAvailabilitySnapshot, type AvailabilitySourceRow } from "./drake-snapshot";
 import {
   synchronizeDrakeHistogramSnapshot,

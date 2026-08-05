@@ -17,7 +17,7 @@ import {
 } from "@/lib/drake/update-types";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
-import { parseExcelDate } from "@/lib/histograma/import-drake";
+import { parseExcelDate } from "@/lib/histograma/drake-spreadsheet-parser";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
   computeDayStatus, toOldBucket, STATUS_LABEL, addDays,

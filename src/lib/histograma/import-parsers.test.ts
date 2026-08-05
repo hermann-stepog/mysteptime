@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { normalizeHeader, parseDrakeWorkbook, parseExcelDate } from "../histograma/import-drake";
+import { normalizeHeader, parseExcelDate } from "./drake-spreadsheet-parser";
+import { parseDrakeWorkbook } from "./import-drake";
 import {
   DISPONIBILIDADE_EVENTO_MAP,
   parseDisponibilidadeDate,
   parseDisponibilidadeWorkbook,
-} from "../histograma/import-disponibilidade";
+} from "./import-disponibilidade";
 
 function workbookBuffer(rows: unknown[][]): Buffer {
   const workbook = XLSX.utils.book_new();

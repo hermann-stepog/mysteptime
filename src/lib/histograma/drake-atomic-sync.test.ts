@@ -7,6 +7,14 @@ describe("integridade da sincronização do histograma Drake", () => {
   const migration = readFileSync(migrationPath, "utf8");
   const embarkationImporter = readFileSync("src/lib/histograma/import-drake.ts", "utf8");
   const availabilityImporter = readFileSync("src/lib/histograma/import-disponibilidade.ts", "utf8");
+  const updateCard = readFileSync("src/components/histograma/DrakeUpdateCard.tsx", "utf8");
+
+  it("mantém importadores e escrita no banco fora do grafo do cliente", () => {
+    expect(embarkationImporter).toMatch(/@tanstack\/react-start\/server-only/);
+    expect(availabilityImporter).toMatch(/@tanstack\/react-start\/server-only/);
+    expect(updateCard).toMatch(/histograma\/drake-spreadsheet-parser/);
+    expect(updateCard).not.toMatch(/histograma\/import-drake/);
+  });
 
   it("serializa a reconciliação e grava o snapshot por RPC atômica", () => {
     expect(migration).toMatch(/pg_advisory_xact_lock/);
