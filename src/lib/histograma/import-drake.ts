@@ -57,6 +57,14 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+// O Drake numera matrícula por EMPRESA, não de forma única entre empresas — duas pessoas de
+// empresas diferentes (ex.: STEP OIL & GAS e PETROHAB) podem ter a mesma matrícula. A chave de
+// identidade real de um colaborador é empresa+matrícula, nunca matrícula sozinha (ver migração
+// 20260805000000_colaborador_empresa_matricula_key.sql).
+function chaveColaborador(matricula: string, empresa: string | null): string {
+  return `${matricula}::${empresa ?? ""}`;
+}
+
 export function normalizeHeader(v: unknown): string {
   return String(v ?? "")
     .trim()
@@ -150,7 +158,7 @@ export async function importDrakeEmbarkation(
     if (exErr) throw exErr;
     existing.push(...((data ?? []) as HistNovoColaborador[]));
   }
-  const byMatricula = new Map(existing.map((c) => [c.matricula, c]));
+  const byChave = new Map(existing.map((c) => [chaveColaborador(c.matricula, c.empresa), c]));
 
   const toInsert: Array<{
     matricula: string;
@@ -162,23 +170,23 @@ export async function importDrakeEmbarkation(
   const toUpdate: Array<{
     id: string;
     nome: string;
-    empresa: string | null;
     funcao: string | null;
     funcao_operacao: string | null;
   }> = [];
   // Uma mesma matrícula pode aparecer em mais de uma linha do relatório (embarque antigo ainda
   // dentro da janela do período + o embarque atual) — usa sempre a linha de data_fim mais
-  // recente pra decidir nome/empresa/função, nunca a primeira que aparecer na planilha. Sem
+  // recente pra decidir nome/função, nunca a primeira que aparecer na planilha. Sem
   // isso, se a pessoa mudou de função entre um embarque e outro, a ordem (não necessariamente
   // cronológica) das linhas na planilha decidia por acaso qual função "vencia", às vezes
   // deixando uma função antiga/errada gravada mesmo com o Drake já reportando a atual.
-  const linhaMaisRecentePorMatricula = new Map<string, ParsedDrakeRow>();
+  const linhaMaisRecentePorChave = new Map<string, ParsedDrakeRow>();
   for (const r of rows) {
-    const atual = linhaMaisRecentePorMatricula.get(r.matricula);
-    if (!atual || r.data_fim > atual.data_fim) linhaMaisRecentePorMatricula.set(r.matricula, r);
+    const chave = chaveColaborador(r.matricula, r.empresa);
+    const atual = linhaMaisRecentePorChave.get(chave);
+    if (!atual || r.data_fim > atual.data_fim) linhaMaisRecentePorChave.set(chave, r);
   }
-  for (const r of linhaMaisRecentePorMatricula.values()) {
-    const ex = byMatricula.get(r.matricula);
+  for (const r of linhaMaisRecentePorChave.values()) {
+    const ex = byChave.get(chaveColaborador(r.matricula, r.empresa));
     if (!ex) {
       toInsert.push({
         matricula: r.matricula,
@@ -187,16 +195,13 @@ export async function importDrakeEmbarkation(
         funcao: r.funcao,
         funcao_operacao: r.funcao_operacao,
       });
-    } else if (
-      ex.nome !== r.nome ||
-      ex.empresa !== r.empresa ||
-      ex.funcao !== r.funcao ||
-      ex.funcao_operacao !== r.funcao_operacao
-    ) {
+    } else if (ex.nome !== r.nome || ex.funcao !== r.funcao || ex.funcao_operacao !== r.funcao_operacao) {
+      // empresa já faz parte da chave de busca acima (é o que garante que ex é a mesma pessoa),
+      // por isso não entra no update — mudar a empresa aqui criaria uma nova identidade
+      // implícita sem passar pela chave.
       toUpdate.push({
         id: ex.id,
         nome: r.nome || ex.nome,
-        empresa: r.empresa ?? ex.empresa,
         funcao: r.funcao ?? ex.funcao,
         funcao_operacao: r.funcao_operacao ?? ex.funcao_operacao,
       });
@@ -217,7 +222,6 @@ export async function importDrakeEmbarkation(
       .from("hist_novo_colaboradores")
       .update({
         nome: u.nome,
-        empresa: u.empresa,
         funcao: u.funcao,
         funcao_operacao: u.funcao_operacao,
       })
@@ -226,11 +230,11 @@ export async function importDrakeEmbarkation(
   }
 
   const allColabs = [...existing, ...insertedColabs];
-  const idByMatricula = new Map(allColabs.map((c) => [c.matricula, c.id]));
+  const idByChave = new Map(allColabs.map((c) => [chaveColaborador(c.matricula, c.empresa), c.id]));
 
   const periodosToInsert = rows
     .map((r) => ({
-      colaborador_id: idByMatricula.get(r.matricula),
+      colaborador_id: idByChave.get(chaveColaborador(r.matricula, r.empresa)),
       unidade_operacional: r.unidade_operacional,
       centro_de_custo: r.centro_de_custo,
       tipo: "E",

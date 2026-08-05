@@ -117,7 +117,21 @@ export async function importDisponibilidade(
     if (exErr) throw exErr;
     existentes.push(...(data ?? []));
   }
-  const idByMatricula = new Map(existentes.map((c) => [c.matricula, c.id]));
+  // O relatório de Disponibilidade não traz coluna de empresa — só matrícula. Como o Drake
+  // numera matrícula por empresa (a mesma matrícula pode ser de duas pessoas diferentes em
+  // empresas diferentes), quando ela aponta pra mais de um colaborador aqui não tem como saber
+  // qual é o dono do evento — melhor pular (conta como "skipped") do que arriscar gravar o
+  // evento na pessoa errada.
+  const idsPorMatricula = new Map<string, string[]>();
+  for (const c of existentes) {
+    if (!idsPorMatricula.has(c.matricula)) idsPorMatricula.set(c.matricula, []);
+    idsPorMatricula.get(c.matricula)!.push(c.id);
+  }
+  const idByMatricula = new Map(
+    Array.from(idsPorMatricula.entries())
+      .filter(([, ids]) => ids.length === 1)
+      .map(([matricula, ids]) => [matricula, ids[0]]),
+  );
 
   const periodosToInsert = rows
     .map((r) => ({
