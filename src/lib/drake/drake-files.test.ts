@@ -174,13 +174,12 @@ describe("cache de autenticacao", () => {
   });
 });
 
-describe("nenhuma tabela de job", () => {
-  it("update-service nao consulta tabela", async () => {
+describe("atualização sem arquivos temporários", () => {
+  it("update-service consulta a ficha anual diretamente por HTTP", async () => {
     const fs = await import("node:fs/promises");
     const src = await fs.readFile("src/lib/drake/update-service.server.ts", "utf8");
     expect(src).not.toContain("drake_data_updates");
-    expect(src).toMatch(/createDrakeRunFiles/);
-    expect(src).toMatch(/cleanupDrakeRunFiles/);
-    expect(src).toMatch(/downloaded\.buffer/);
+    expect(src).not.toMatch(/createDrakeRunFiles|cleanupDrakeRunFiles|downloaded\.buffer/);
+    expect(src).toMatch(/synchronizeCurrentDrakeAnnualPositions/);
   });
 });

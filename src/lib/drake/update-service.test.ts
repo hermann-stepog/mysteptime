@@ -43,6 +43,8 @@ describe("Drake stages (streaming)", () => {
     expect(DRAKE_STAGE_PROGRESS["executing-embarkation-query"]).toBe(25);
     expect(DRAKE_STAGE_MESSAGE["connecting-drake"]).toContain("Acessando");
     expect(DRAKE_STAGE_PROGRESS.completed).toBe(100);
+    expect(DRAKE_STAGE_PROGRESS["loading-annual-positions"]).toBe(25);
+    expect(DRAKE_STAGE_MESSAGE["synchronizing-annual-position"]).toContain("Histograma Offshore");
     expect(DRAKE_STAGE_MESSAGE.completed).toBe("Dados atualizados com sucesso.");
     expect(DRAKE_REPORT_STATUS_LABEL.waiting).toBe("Aguardando");
     expect(DRAKE_REPORT_STATUS_LABEL.completed).toBe("Concluído");
@@ -122,11 +124,12 @@ describe("http-only imports", () => {
     }
   });
 
-  it("update-service usa bootstrap SignalR sem importar chromium", async () => {
+  it("update-service usa somente HTTP, sem SignalR nem navegador", async () => {
     const fs = await import("node:fs/promises");
     const src = await fs.readFile("src/lib/drake/update-service.server.ts", "utf8");
     expect(src).not.toMatch(/\bchromium\b/);
-    expect(src).toMatch(/openDrakeSignalRSession/);
+    expect(src).not.toMatch(/openDrakeSignalRSession|runSingleApiReport/);
+    expect(src).toMatch(/synchronizeCurrentDrakeAnnualPositions/);
   });
 
   it("servico nao acessa drake_data_updates", async () => {
@@ -138,19 +141,25 @@ describe("http-only imports", () => {
   });
 });
 
-describe("updateDrakeData ordem dos relatorios", () => {
-  it("emite progressos e chama importadores na ordem 1 depois 14", async () => {
+describe("updateDrakeData ficha anual", () => {
+  it("emite progresso e sincroniza um único snapshot anual", async () => {
     vi.resetModules();
 
     const events: Array<{ stage: string; embarkationStatus: string; availabilityStatus: string }> =
       [];
-    const importEmbark = vi.fn().mockResolvedValue({
-      created: 1,
-      updated: 2,
-      insertedEvents: 3,
-      skipped: 0,
+    const synchronizeAnnual = vi.fn().mockImplementation(async (_db, _http, _year, hooks) => {
+      await hooks.onWorkersLoaded(10);
+      await hooks.onWorkerProgress({ completedWorkers: 10, totalWorkers: 10 });
+      await hooks.onPositionsLoaded();
+      await hooks.onBeforeDatabaseSync();
+      return {
+        createdWorkers: 1,
+        updatedWorkers: 9,
+        synchronizedEvents: 30,
+        removedStaleEvents: 4,
+        processedWorkers: 10,
+      };
     });
-    const importAvail = vi.fn().mockResolvedValue({ insertedEvents: 4, skipped: 1 });
 
     vi.doMock("./auth/environment-credentials-auth.server", () => ({
       EnvironmentCredentialsDrakeAuthProvider: class {
@@ -171,48 +180,12 @@ describe("updateDrakeData ordem dos relatorios", () => {
       }),
       isSessionExpiredError: () => false,
     }));
-    vi.doMock("./report-api-runner.server", () => ({
-      runSingleApiReport: vi
-        .fn()
-        .mockResolvedValueOnce({
-          filePath: null,
-          buffer: Buffer.from("xlsx-1"),
-          sizeBytes: 6,
-          extension: ".xlsx",
-        })
-        .mockResolvedValueOnce({
-          filePath: null,
-          buffer: Buffer.from("xlsx-14"),
-          sizeBytes: 7,
-          extension: ".xlsx",
-        }),
-    }));
-    vi.doMock("./signalr-session.server", () => ({
-      openDrakeSignalRSession: vi.fn().mockResolvedValue({
-        connectionId: "test-connection-id",
-        protocol: "aspnet-core-signalr",
-        transport: "long-polling",
-        hubPath: "https://example.invalid/api",
-        armDownloadWatch: vi.fn(),
-        waitForDownloadReady: vi.fn().mockResolvedValue({
-          zipFile: "doc-id",
-          zipFileName: "report.xls",
-          status: "ReadyForDownload",
-          backgroundCode: 5396,
-          zipFileIsTemporary: true,
-        }),
-        close: vi.fn().mockResolvedValue(undefined),
-      }),
-    }));
     vi.doMock("./histogram-sync-lease.server", () => ({
       acquireDrakeHistogramSyncLease: vi.fn().mockResolvedValue(true),
       releaseDrakeHistogramSyncLease: vi.fn().mockResolvedValue(undefined),
     }));
-    vi.doMock("@/lib/histograma/import-drake", () => ({
-      importDrakeEmbarkationFromBuffer: importEmbark,
-    }));
-    vi.doMock("@/lib/histograma/import-disponibilidade", () => ({
-      importDisponibilidadeFromBuffer: importAvail,
+    vi.doMock("./annual-position-sync.server", () => ({
+      synchronizeCurrentDrakeAnnualPositions: synchronizeAnnual,
     }));
 
     const { updateDrakeData } = await import("./update-service.server");
@@ -224,29 +197,20 @@ describe("updateDrakeData ordem dos relatorios", () => {
       });
     }, { triggeredBy: null, triggeredByLabel: "test" });
 
-    expect(importEmbark).toHaveBeenCalledTimes(1);
-    expect(importEmbark.mock.calls[0]?.[1]).toEqual(Buffer.from("xlsx-1"));
-    expect(importAvail).toHaveBeenCalledTimes(1);
-    expect(importAvail.mock.calls[0]?.[1]).toEqual(Buffer.from("xlsx-14"));
-    const embarkIdx = events.findIndex((e) => e.stage === "embarkation-completed");
-    const availReqIdx = events.findIndex((e) => e.stage === "requesting-availability-report");
-    expect(embarkIdx).toBeGreaterThanOrEqual(0);
-    expect(availReqIdx).toBeGreaterThan(embarkIdx);
-    expect(result.embarkationEvents).toBe(3);
-    expect(result.availabilityEvents).toBe(4);
-
-    const completedEmbark = events.find((e) => e.stage === "embarkation-completed");
-    expect(completedEmbark?.embarkationStatus).toBe("completed");
-    expect(completedEmbark?.availabilityStatus).toBe("waiting");
-    expect(events.some((e) => e.stage === "preparing-processing-channel")).toBe(true);
+    expect(synchronizeAnnual).toHaveBeenCalledTimes(1);
+    expect(result.annualPositionWorkers).toBe(10);
+    expect(result.annualPositionEvents).toBe(30);
+    expect(result.removedStaleEvents).toBe(4);
+    expect(events.some((e) => e.stage === "loading-annual-positions")).toBe(true);
+    expect(events.some((e) => e.stage === "synchronizing-annual-position")).toBe(true);
+    const completed = events.find((e) => e.stage === "annual-position-completed");
+    expect(completed?.embarkationStatus).toBe("completed");
+    expect(completed?.availabilityStatus).toBe("completed");
 
     vi.resetModules();
     vi.doUnmock("./auth/environment-credentials-auth.server");
     vi.doUnmock("./api-session.server");
-    vi.doUnmock("./report-api-runner.server");
-    vi.doUnmock("./signalr-session.server");
     vi.doUnmock("./histogram-sync-lease.server");
-    vi.doUnmock("@/lib/histograma/import-drake");
-    vi.doUnmock("@/lib/histograma/import-disponibilidade");
+    vi.doUnmock("./annual-position-sync.server");
   });
 });

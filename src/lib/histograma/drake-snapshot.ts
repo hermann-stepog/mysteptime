@@ -51,6 +51,25 @@ export interface AvailabilitySourceRow {
   data_fim: string;
 }
 
+export interface AnnualPositionWorkerRow {
+  drakeWorkerId: string;
+  matricula: string;
+  nome: string;
+  empresa: string;
+  funcao: string | null;
+  funcaoOperacao: string | null;
+  positions: AnnualPositionDayRow[];
+}
+
+export interface AnnualPositionDayRow {
+  date: string;
+  occurrenceAcronym: string;
+  occurrenceDescription: string;
+  occurrenceType: string | null;
+  unidadeOperacional: string | null;
+  centroDeCusto: string | null;
+}
+
 export function buildEmbarkationSnapshot(rows: EmbarkationSourceRow[]): DrakeHistogramSnapshot {
   const validRows = rows.map((row) => {
     const workerKey = buildWorkerKey(row.empresa, row.matricula);
@@ -128,6 +147,119 @@ export function buildAvailabilitySnapshot(rows: AvailabilitySourceRow[]): DrakeH
       })),
     ),
   };
+}
+
+/**
+ * Converte a ficha diária do Drake em períodos contíguos usados pela grade do Histograma.
+ * A identidade do trabalhador continua empresa + matrícula para reutilizar os registros já
+ * existentes; o UUID do Drake participa somente da chave imutável dos eventos.
+ */
+export function buildAnnualPositionSnapshot(
+  rows: AnnualPositionWorkerRow[],
+): DrakeHistogramSnapshot {
+  const workers = rows.map((row) => ({
+    workerKey: buildWorkerKey(row.empresa, row.matricula),
+    matricula: row.matricula,
+    nome: row.nome,
+    empresa: row.empresa,
+    funcao: row.funcao,
+    funcaoOperacao: row.funcaoOperacao,
+  }));
+  const periods: DrakePeriodSnapshotRow[] = [];
+
+  for (const row of rows) {
+    const workerKey = buildWorkerKey(row.empresa, row.matricula);
+    const days = [...row.positions].sort((left, right) => left.date.localeCompare(right.date));
+    let current: DrakePeriodSnapshotRow | null = null;
+
+    for (const day of days) {
+      assertPeriod(day.date, day.date, day.occurrenceDescription, workerKey);
+      const tipo = mapAnnualPositionType(
+        day.occurrenceAcronym,
+        day.occurrenceDescription,
+        day.occurrenceType,
+      );
+      const unidade = day.unidadeOperacional?.trim() || null;
+      const centro = day.centroDeCusto?.trim() || null;
+      const fingerprint = stableKey([
+        tipo,
+        unidade,
+        centro,
+      ]);
+      const currentFingerprint = current
+        ? stableKey([
+            current.tipo,
+            current.unidadeOperacional,
+            current.centroDeCusto,
+          ])
+        : null;
+
+      if (current && addIsoDay(current.dataFim, 1) === day.date && fingerprint === currentFingerprint) {
+        current.dataFim = day.date;
+        current.dias = inclusiveDays(current.dataInicio, current.dataFim);
+        continue;
+      }
+
+      current = {
+        eventKey: stableKey(["drake-annual-position", row.drakeWorkerId, day.date]),
+        workerKey,
+        unidadeOperacional: unidade,
+        centroDeCusto: centro,
+        tipo,
+        dataInicio: day.date,
+        dataFim: day.date,
+        dias: 1,
+        sourceEventName: day.occurrenceDescription,
+      };
+      periods.push(current);
+    }
+  }
+
+  return {
+    source: "drake",
+    workers: buildWorkers(workers.map((worker) => ({ ...worker, referenceDate: "9999-12-31" }))),
+    periods: deduplicatePeriods(periods),
+  };
+}
+
+export function mapAnnualPositionType(
+  acronym: string,
+  description: string,
+  occurrenceType: string | null,
+): string {
+  const code = normalizeIdentityPart(acronym);
+  const text = normalizeIdentityPart(`${description} ${occurrenceType ?? ""}`);
+
+  if (text.includes("DESEMBARQUE")) {
+    return text.includes("NAO UTIL") || code === "DDN" ? "DDN" : "F";
+  }
+  if (text.includes("EMBARQUE CANCELADO")) return "CANC";
+  if (text.includes("EMPRESA EM CASA")) return "EC";
+  if (code === "E" || code === "D" || text === "EMBARQUE" || text.includes("DOBRA")) return "E";
+  if (code === "P" || text.includes("PROGRAMADO")) return "P";
+  if (code === "F" || text === "FOLGA") return "F";
+  if (code === "FE" || text.includes("FERIAS")) return "FE";
+  if (code === "TE" || text.includes("TRABALHO EXTERNO")) return "TE";
+  if (code === "H" || code === "HTL" || text.includes("HOTEL")) return "HTL";
+  if (code === "FI" || text.includes("FOLGA INDENIZADA")) return "FI";
+  if (code === "DDN") return "DDN";
+  if (code === "EC") return "CANC";
+  if (
+    code === "AT" ||
+    code === "LM" ||
+    code === "LMV" ||
+    text.includes("ATESTADO") ||
+    text.includes("LICENCA MEDICA") ||
+    text.includes("AFASTAMENTO")
+  ) return "AT";
+  if (code === "STB" || code === "AD" || text.includes("STANDBY") || text.includes("DISPOSICAO")) {
+    return "STB";
+  }
+
+  // A grade atual não possui uma categoria visual para todas as ocorrências administrativas
+  // do Drake. Elas permanecem auditáveis em source_event_name e aparecem como Standby, que é
+  // o fallback já existente no Histograma, sem introduzir uma nova regra visual.
+  return "STB";
 }
 
 export function buildWorkerKey(empresa: string | null, matricula: string): string {
@@ -225,4 +357,10 @@ function assertPeriod(
 
 function inclusiveDays(startDate: string, endDate: string): number {
   return Math.round((Date.parse(endDate) - Date.parse(startDate)) / 86_400_000) + 1;
+}
+
+function addIsoDay(date: string, amount: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day + amount));
+  return value.toISOString().slice(0, 10);
 }

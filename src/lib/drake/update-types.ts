@@ -9,6 +9,11 @@ export const DRAKE_UPDATE_STAGES = [
   "session-confirmed",
   "preparing-processing-channel",
   "preparing-period",
+  "loading-workers",
+  "loading-annual-positions",
+  "validating-annual-position",
+  "synchronizing-annual-position",
+  "annual-position-completed",
   "executing-embarkation-query",
   "waiting-embarkation-query",
   "requesting-embarkation-report",
@@ -65,6 +70,11 @@ export const DRAKE_STAGE_PROGRESS: Record<DrakeUpdateStage, number> = {
   "session-confirmed": 15,
   "preparing-processing-channel": 18,
   "preparing-period": 20,
+  "loading-workers": 22,
+  "loading-annual-positions": 25,
+  "validating-annual-position": 86,
+  "synchronizing-annual-position": 92,
+  "annual-position-completed": 98,
   "executing-embarkation-query": 25,
   "waiting-embarkation-query": 32,
   "requesting-embarkation-report": 38,
@@ -96,6 +106,11 @@ export const DRAKE_STAGE_MESSAGE: Record<DrakeUpdateStage, string> = {
   "session-confirmed": "Confirmando ambiente STEP...",
   "preparing-processing-channel": "Preparando canal de processamento...",
   "preparing-period": "Preparando período da consulta...",
+  "loading-workers": "Carregando colaboradores ativos do Drake...",
+  "loading-annual-positions": "Carregando fichas anuais de posição...",
+  "validating-annual-position": "Validando as fichas anuais recebidas...",
+  "synchronizing-annual-position": "Atualizando o Histograma Offshore...",
+  "annual-position-completed": "Histograma Offshore atualizado.",
   "executing-embarkation-query": "Executando consulta de embarque...",
   "waiting-embarkation-query": "Aguardando resposta da consulta de embarque...",
   "requesting-embarkation-report": "Solicitando arquivo de embarque...",
@@ -129,6 +144,9 @@ export interface DrakeUpdateResult {
   report14DurationMs?: number;
   import14DurationMs?: number;
   totalDurationMs?: number;
+  annualPositionEvents?: number;
+  annualPositionWorkers?: number;
+  removedStaleEvents?: number;
 }
 
 export type DrakeProgressEvent = {
@@ -166,6 +184,7 @@ export const DRAKE_AVAILABILITY_EXPORT_FAILED = "DRAKE_AVAILABILITY_EXPORT_FAILE
 export const DRAKE_FILE_VALIDATION_FAILED = "DRAKE_FILE_VALIDATION_FAILED";
 export const DRAKE_EMBARKATION_IMPORT_FAILED = "DRAKE_EMBARKATION_IMPORT_FAILED";
 export const DRAKE_AVAILABILITY_IMPORT_FAILED = "DRAKE_AVAILABILITY_IMPORT_FAILED";
+export const DRAKE_ANNUAL_POSITION_SYNC_FAILED = "DRAKE_ANNUAL_POSITION_SYNC_FAILED";
 export const DRAKE_TEMP_STORAGE_ERROR = "DRAKE_TEMP_STORAGE_ERROR";
 export const DRAKE_UPDATE_ALREADY_RUNNING = "DRAKE_UPDATE_ALREADY_RUNNING";
 export const DRAKE_BROWSER_MODE_INVALID = "DRAKE_BROWSER_MODE_INVALID";
@@ -217,6 +236,8 @@ export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
   [DRAKE_FILE_VALIDATION_FAILED]: "O arquivo recebido do Drake é inválido.",
   [DRAKE_EMBARKATION_IMPORT_FAILED]: "Não foi possível atualizar os dados de embarque.",
   [DRAKE_AVAILABILITY_IMPORT_FAILED]: "Não foi possível atualizar os dados de disponibilidade.",
+  [DRAKE_ANNUAL_POSITION_SYNC_FAILED]:
+    "Não foi possível atualizar as fichas anuais de posição do Drake.",
   [DRAKE_UPDATE_IN_PROGRESS]: "Já existe uma atualização em andamento.",
   [DRAKE_TEMP_STORAGE_ERROR]: "Não foi possível preparar os arquivos temporários da atualização.",
   [DRAKE_UPDATE_ALREADY_RUNNING]: "Já existe uma atualização em andamento.",

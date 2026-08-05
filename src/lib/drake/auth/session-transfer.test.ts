@@ -181,13 +181,14 @@ describe("auth provider contracts", () => {
     expect(auth).not.toMatch(/interactiveBootstrapRequiredError/);
   });
 
-  it("SignalR nao inicia antes da sessao validada", async () => {
+  it("a ficha anual só é consultada depois da sessão validada", async () => {
     const fs = await import("node:fs/promises");
     const src = await fs.readFile("src/lib/drake/update-service.server.ts", "utf8");
     const authIdx = src.indexOf("await authenticate(false)");
-    const signalrIdx = src.indexOf("await openDrakeSignalRSession");
+    const annualIdx = src.indexOf("synchronizeCurrentDrakeAnnualPositions(db, ctx, year");
     expect(authIdx).toBeGreaterThan(-1);
-    expect(signalrIdx).toBeGreaterThan(authIdx);
+    expect(annualIdx).toBeGreaterThan(authIdx);
+    expect(src).not.toMatch(/openDrakeSignalRSession/);
     expect(src).toMatch(/createDrakeApiContextFromAuthenticatedSession/);
     expect(src).toMatch(/renovando automaticamente/);
   });

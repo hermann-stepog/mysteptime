@@ -13,11 +13,10 @@ function read(relativePath: string): string {
 describe("DrakeUpdateCard — UI e streaming", () => {
   const source = read("src/components/histograma/DrakeUpdateCard.tsx");
 
-  it("mantem barra de progresso, texto da etapa e status dos relatorios", () => {
+  it("mantem barra de progresso, texto da etapa e status da ficha anual", () => {
     expect(source).toMatch(/<Progress\b/);
     expect(source).toMatch(/\{progress\}%/);
-    expect(source).toMatch(/Relatório de embarque/);
-    expect(source).toMatch(/Relatório de disponibilidade/);
+    expect(source).toMatch(/Fichas anuais de posição/);
     expect(source).toMatch(/DRAKE_REPORT_STATUS_LABEL/);
     expect(source).toMatch(/setMessage/);
   });

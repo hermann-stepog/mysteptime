@@ -20,8 +20,8 @@ describe("qualification update boundaries", () => {
     for (const source of [service, route, card, scheduler]) {
       expect(source).not.toMatch(/qualification|aptidão|cursos/i);
     }
-    expect(service).toMatch(/API_REPORT_1/);
-    expect(service).toMatch(/API_REPORT_14/);
+    expect(service).toMatch(/synchronizeCurrentDrakeAnnualPositions/);
+    expect(service).not.toMatch(/syncDrakeQualificationNeeds/);
   });
 
   it("mantém a atualização de Aptidão fora do fluxo de relatórios", async () => {

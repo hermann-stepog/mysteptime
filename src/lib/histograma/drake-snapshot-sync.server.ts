@@ -24,6 +24,7 @@ interface RawSyncResult {
 }
 
 const REQUIRED_MIGRATION = "20260805130000_drake_histogram_atomic_sync.sql";
+const ANNUAL_POSITION_MIGRATION = "20260805170000_drake_annual_position_sync.sql";
 
 export async function synchronizeDrakeHistogramSnapshot(
   db: SupabaseClient,
@@ -71,6 +72,64 @@ export async function synchronizeDrakeHistogramSnapshot(
   }
 
   return parseSyncResult(data);
+}
+
+/**
+ * Publica a ficha anual e remove as duas fontes automáticas antigas na mesma transação.
+ * Períodos manuais e dados de timesheet nunca entram na reconciliação.
+ */
+export async function synchronizeDrakeAnnualPositionSnapshot(
+  db: SupabaseClient,
+  snapshot: DrakeHistogramSnapshot,
+  window: DrakeSnapshotWindow,
+): Promise<DrakeSnapshotSyncResult> {
+  validateWindow(window);
+  if (snapshot.workers.length === 0 || snapshot.periods.length === 0) {
+    throw new Error(
+      "A ficha anual do Drake não contém trabalhadores e posições suficientes. O banco não foi alterado.",
+    );
+  }
+
+  const { data, error } = await db.rpc("sync_drake_annual_position_snapshot", {
+    p_window_start: window.startDate,
+    p_window_end: window.endDate,
+    p_workers: serializeWorkers(snapshot),
+    p_periods: serializePeriods(snapshot),
+  });
+  if (error) {
+    if (/sync_drake_annual_position_snapshot|schema cache|PGRST202|PGRST205/i.test(error.message)) {
+      throw new Error(
+        `O banco ainda não possui a sincronização da ficha anual do Drake. Aplique a migration ${ANNUAL_POSITION_MIGRATION} antes de atualizar novamente.`,
+      );
+    }
+    throw error;
+  }
+  return parseSyncResult(data);
+}
+
+function serializeWorkers(snapshot: DrakeHistogramSnapshot) {
+  return snapshot.workers.map((worker) => ({
+    worker_key: worker.workerKey,
+    matricula: worker.matricula,
+    nome: worker.nome,
+    empresa: worker.empresa,
+    funcao: worker.funcao,
+    funcao_operacao: worker.funcaoOperacao,
+  }));
+}
+
+function serializePeriods(snapshot: DrakeHistogramSnapshot) {
+  return snapshot.periods.map((period) => ({
+    event_key: period.eventKey,
+    worker_key: period.workerKey,
+    unidade_operacional: period.unidadeOperacional,
+    centro_de_custo: period.centroDeCusto,
+    tipo: period.tipo,
+    data_inicio: period.dataInicio,
+    data_fim: period.dataFim,
+    dias: period.dias,
+    source_event_name: period.sourceEventName,
+  }));
 }
 
 function parseSyncResult(value: unknown): DrakeSnapshotSyncResult {
