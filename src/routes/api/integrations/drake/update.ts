@@ -53,7 +53,18 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
             const send = async (event: DrakeProgressEvent) => {
-              controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+              // Se quem chamou a atualização fechar a aba/navegador no meio do processo, o
+              // controller do stream fecha sozinho (o runtime cancela a leitura do lado do
+              // cliente) e o próximo enqueue() lança "Invalid state: Controller is already
+              // closed" — sem esse try/catch, essa exceção subia até updateDrakeData e abortava
+              // a atualização inteira, mesmo com o embarque/disponibilidade só pela metade.
+              // A atualização tem que continuar rodando até o fim no servidor independente de
+              // alguém estar ouvindo o progresso ou não.
+              try {
+                controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+              } catch {
+                /* ninguém mais está ouvindo — segue o processamento normalmente */
+              }
             };
 
             try {
