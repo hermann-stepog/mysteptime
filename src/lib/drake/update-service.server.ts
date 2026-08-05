@@ -42,6 +42,10 @@ import { sanitizeError } from "./sanitize-error.server";
 import { importDrakeEmbarkationFromBuffer } from "@/lib/histograma/import-drake";
 import { importDisponibilidadeFromBuffer } from "@/lib/histograma/import-disponibilidade";
 import {
+  acquireDrakeHistogramSyncLease,
+  releaseDrakeHistogramSyncLease,
+} from "./histogram-sync-lease.server";
+import {
   DRAKE_AVAILABILITY_IMPORT_FAILED,
   DRAKE_EMBARKATION_EXPORT_FAILED,
   DRAKE_EMBARKATION_IMPORT_FAILED,
@@ -49,6 +53,7 @@ import {
   DRAKE_STAGE_MESSAGE,
   DRAKE_STAGE_PROGRESS,
   DRAKE_TEMP_STORAGE_ERROR,
+  DRAKE_UPDATE_IN_PROGRESS,
   type DrakeProgressCallback,
   type DrakeReportStatus,
   type DrakeUpdateResult,
@@ -90,10 +95,12 @@ async function updateDrakeDataInner(
   startedAtMs: number,
   trigger: DrakeUpdateTrigger,
 ): Promise<DrakeUpdateResult> {
+  const executionId = getDrakeLogContext()?.executionId ?? createExecutionId();
   let apiContext: DrakeHttpClient | null = null;
   let signalRSession: DrakeSignalRSession | null = null;
   let renewedOnce = false;
   let runFiles: DrakeRunFiles | null = null;
+  let databaseLeaseHeld = false;
 
   let embarkationStatus: DrakeReportStatus = "waiting";
   let availabilityStatus: DrakeReportStatus = "waiting";
@@ -148,18 +155,14 @@ async function updateDrakeDataInner(
     const result = await provider.authenticate();
     const previous: DrakeHttpClient | null = apiContext;
     if (previous) await previous.dispose().catch(() => undefined);
-    apiContext = await createDrakeApiContextFromAuthenticatedSession(
-      result.authenticatedSession,
-    );
+    apiContext = await createDrakeApiContextFromAuthenticatedSession(result.authenticatedSession);
     logger.info("drake-authentication", "Integracao Drake validada", {
       stage: "authenticating",
       durationMs: Date.now() - authStarted,
     });
   }
 
-  async function withSessionRetry<T>(
-    operation: (ctx: DrakeHttpClient) => Promise<T>,
-  ): Promise<T> {
+  async function withSessionRetry<T>(operation: (ctx: DrakeHttpClient) => Promise<T>): Promise<T> {
     if (!apiContext) throw new Error("Contexto HTTP do Drake ausente.");
     try {
       return await operation(apiContext);
@@ -177,6 +180,15 @@ async function updateDrakeDataInner(
 
   try {
     await emit("queued");
+    databaseLeaseHeld = await acquireDrakeHistogramSyncLease(db, executionId);
+    if (!databaseLeaseHeld) {
+      throw new DrakeIntegrationError({
+        code: DRAKE_UPDATE_IN_PROGRESS,
+        message: "Já existe uma atualização dos dados do Drake em andamento.",
+        stage: "queued",
+        progress: 0,
+      });
+    }
     logger.info("drake-update", "Validando credenciais Drake", { stage: "queued" });
     logger.info("drake-authentication", "Validando integracao Drake", {
       stage: "connecting-drake",
@@ -264,7 +276,10 @@ async function updateDrakeDataInner(
         });
         await emit("importing-embarkation", { embarkationStatus: "importing" });
         const importStarted = Date.now();
-        embarkationSummary = await importDrakeEmbarkationFromBuffer(db, downloaded.buffer);
+        embarkationSummary = await importDrakeEmbarkationFromBuffer(db, downloaded.buffer, {
+          startDate: period.apiStartDate,
+          endDate: period.apiEndDate,
+        });
         import1DurationMs = Date.now() - importStarted;
         logger.info("drake-import", "Importacao do relatorio de embarque concluida", {
           reportCode: 1,
@@ -332,7 +347,10 @@ async function updateDrakeDataInner(
         });
         await emit("importing-availability", { availabilityStatus: "importing" });
         const importStarted = Date.now();
-        availabilitySummary = await importDisponibilidadeFromBuffer(db, downloaded.buffer);
+        availabilitySummary = await importDisponibilidadeFromBuffer(db, downloaded.buffer, {
+          startDate: period.apiStartDate,
+          endDate: period.apiEndDate,
+        });
         import14DurationMs = Date.now() - importStarted;
         logger.info("drake-import", "Importacao do relatorio de disponibilidade concluida", {
           reportCode: 14,
@@ -461,6 +479,15 @@ async function updateDrakeDataInner(
 
     throw integration;
   } finally {
+    if (databaseLeaseHeld) {
+      await releaseDrakeHistogramSyncLease(db, executionId).catch((error: unknown) => {
+        logger.warn("drake-update", "Não foi possível liberar imediatamente o bloqueio do banco", {
+          stage: "finalizing",
+          sanitizedMessage: sanitizeError(error).message,
+        });
+      });
+      databaseLeaseHeld = false;
+    }
     const session = signalRSession as DrakeSignalRSession | null;
     signalRSession = null;
     if (session) {

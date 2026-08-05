@@ -1,17 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDaysStr, weekdayLabel, daysBetweenStr, mondayOf } from "@/lib/timesheetOffshore";
+import { addDaysStr, daysBetweenStr, mondayOf, weekdayLabel } from "@/lib/timesheetOffshore";
 import { todayStr } from "@/lib/histogramaNovo";
 
-// Corta [dataInicio, dataFim] em semanas de calendário segunda-a-domingo — sempre alinhado à
-// segunda-feira (mesmo critério do botão manual "+ Nova Semana", via mondayOf), nunca em blocos
-// crus de 7 dias a partir da data real de início do embarque. A semana em si (timesheet_semanas)
-// cobre sempre a semana inteira; só os timesheet_dias ficam restritos a [dataInicio, dataFim] —
-// dias de calendário fora do embarque (ex.: 2ª/3ª da semana em que o embarque só começou na
-// 4ª) não geram linha. Evento nasce "Embarque" nos primeiros 14 dias contados a partir do
-// início desse embarque e "Dobra" do 15º dia em diante — mesmo ciclo que o próprio Drake já
-// projeta automaticamente, mesmo sem desembarque confirmado.
+/** Gera as semanas e os dias de um embarque novo, sem alterar lançamentos existentes. */
 export async function gerarSemanasEDias(
-  supabase: SupabaseClient,
+  db: SupabaseClient,
   embarqueId: string,
   dataInicio: string,
   dataFim: string,
@@ -20,41 +13,42 @@ export async function gerarSemanasEDias(
   let semanaInicio = mondayOf(dataInicio);
   while (semanaInicio <= dataFim) {
     const semanaFim = addDaysStr(semanaInicio, 6);
-
-    const { data: semana, error: semErr } = await supabase
+    const { data: semana, error: semanaError } = await db
       .from("timesheet_semanas")
-      .insert({ embarque_id: embarqueId, data_inicio_semana: semanaInicio, data_fim_semana: semanaFim, recebido_fisico: false })
+      .insert({
+        embarque_id: embarqueId,
+        data_inicio_semana: semanaInicio,
+        data_fim_semana: semanaFim,
+        recebido_fisico: false,
+      })
       .select("id")
       .single();
-    if (semErr) throw semErr;
+    if (semanaError) throw semanaError;
 
-    // BSP nasce igual ao do embarque (Drake ou digitado no "Novo Embarque") — alguns dias podem
-    // ser lançados numa BSP diferente (realocação temporária), por isso fica editável por dia
-    // no formulário em vez de só herdar do embarque pra sempre.
-    const diasToInsert: Record<string, unknown>[] = [];
-    let d = semanaInicio;
-    while (d <= semanaFim) {
-      if (d >= dataInicio && d <= dataFim) {
-        const diaDoEmbarque = daysBetweenStr(dataInicio, d) + 1;
-        const evento = diaDoEmbarque >= 15 ? "Dobra" : "Embarque";
-        diasToInsert.push({ semana_id: (semana as { id: string }).id, data: d, dia_semana: weekdayLabel(d), evento, bsp });
+    const dias: Record<string, unknown>[] = [];
+    let data = semanaInicio;
+    while (data <= semanaFim) {
+      if (data >= dataInicio && data <= dataFim) {
+        const diaDoEmbarque = daysBetweenStr(dataInicio, data) + 1;
+        dias.push({
+          semana_id: (semana as { id: string }).id,
+          data,
+          dia_semana: weekdayLabel(data),
+          evento: diaDoEmbarque >= 15 ? "Dobra" : "Embarque",
+          bsp,
+        });
       }
-      d = addDaysStr(d, 1);
+      data = addDaysStr(data, 1);
     }
-    if (diasToInsert.length) {
-      const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasToInsert);
-      if (diasErr) throw diasErr;
+    if (dias.length > 0) {
+      const { error: diasError } = await db.from("timesheet_dias").insert(dias);
+      if (diasError) throw diasError;
     }
 
     semanaInicio = addDaysStr(semanaFim, 1);
   }
 }
 
-// O Drake às vezes exporta o embarque ainda em aberto (sem desembarque confirmado) com uma
-// data de término "placeholder" bem distante no futuro (ex.: "2027-08-01"), em vez de deixar
-// em branco — mesma situação já tratada no cálculo de status do Histograma. Uma duração real
-// não passa disso na prática (P99 ficou em ~19 dias, raríssimos casos até uns 49). Nesses
-// casos, geramos semanas/dias só até hoje — nunca lançamos um dia que ainda não aconteceu.
 const EMBARQUE_DURACAO_MAX_RAZOAVEL_DIAS = 90;
 
 function dataFimEfetiva(dataInicio: string, dataFim: string): string {
@@ -64,34 +58,9 @@ function dataFimEfetiva(dataInicio: string, dataFim: string): string {
   return dataFim;
 }
 
-// Remove semanas/dias gerados além de um novo fim mais curto — usado quando o Drake corrige
-// depois (embarque que só tinha placeholder passa a ter o desembarque real, mais cedo do que
-// o que já tínhamos gravado). Nunca deixamos dias "no futuro" ou além da correção real.
-async function trimSemanasEDiasApos(supabase: SupabaseClient, embarqueId: string, novoFim: string): Promise<void> {
-  const { data: semanas, error: semErr } = await supabase
-    .from("timesheet_semanas")
-    .select("id, data_inicio_semana, data_fim_semana")
-    .eq("embarque_id", embarqueId);
-  if (semErr) throw semErr;
-
-  for (const s of (semanas ?? []) as { id: string; data_inicio_semana: string; data_fim_semana: string }[]) {
-    if (s.data_inicio_semana > novoFim) {
-      const { error: dErr } = await supabase.from("timesheet_dias").delete().eq("semana_id", s.id);
-      if (dErr) throw dErr;
-      const { error: sErr } = await supabase.from("timesheet_semanas").delete().eq("id", s.id);
-      if (sErr) throw sErr;
-    } else if (s.data_fim_semana > novoFim) {
-      const { error: dErr } = await supabase.from("timesheet_dias").delete().eq("semana_id", s.id).gt("data", novoFim);
-      if (dErr) throw dErr;
-      const { error: sErr } = await supabase.from("timesheet_semanas").update({ data_fim_semana: novoFim }).eq("id", s.id);
-      if (sErr) throw sErr;
-    }
-  }
-}
-
 interface EnsureTimesheetParams {
-  colaboradorId: string;
-  periodoId: string | null;
+  periodoId: string;
+  sourceEventKey: string;
   unidadeOperacional: string | null;
   bsp: string | null;
   funcaoEmbarque: string;
@@ -99,46 +68,74 @@ interface EnsureTimesheetParams {
   dataFim: string;
 }
 
-// Só cria embarque+semanas+dias se esse colaborador não já tiver um timesheet_embarque com
-// datas sobrepondo [dataInicio, dataFim] — mesmo critério de dedup já usado no import de PDF
-// (sobrepoe). Evita duplicar a cada reimport do Drake, que sempre apaga e reinsere as linhas
-// origem="drake" de hist_novo_periodos (então o id do período muda a cada import — não dá
-// pra usar periodo_id como chave de dedup entre imports).
+interface ExistingTimesheet {
+  id: string;
+  periodo_id: string | null;
+  source_event_key: string | null;
+  unidade_operacional: string | null;
+  bsp: string | null;
+  data_inicio_embarque: string;
+  data_fim_embarque: string;
+}
+
+/**
+ * Cria um timesheet por evento exato do Drake. Datas sobrepostas não são critério de igualdade:
+ * dois embarques em unidades distintas continuam separados. Um timesheet que já recebeu dados
+ * do usuário nunca tem datas, semanas ou dias reescritos automaticamente.
+ */
 export async function ensureTimesheetParaPeriodo(
-  supabase: SupabaseClient,
+  db: SupabaseClient,
   params: EnsureTimesheetParams,
 ): Promise<{ criado: boolean }> {
-  const fimEfetivo = dataFimEfetiva(params.dataInicio, params.dataFim);
+  const { data: period, error: periodError } = await db
+    .from("hist_novo_periodos")
+    .select("colaborador_id")
+    .eq("id", params.periodoId)
+    .single();
+  if (periodError) throw periodError;
+  const colaboradorId = (period as { colaborador_id: string }).colaborador_id;
 
-  const { data: existentes, error: exErr } = await supabase
+  const { data: exact, error: exactError } = await db
     .from("timesheet_embarques")
-    .select("id, data_inicio_embarque, data_fim_embarque")
-    .eq("colaborador_id", params.colaboradorId);
-  if (exErr) throw exErr;
+    .select("id")
+    .eq("source_event_key", params.sourceEventKey)
+    .maybeSingle();
+  if (exactError) throw exactError;
+  if (exact) return { criado: false };
 
-  const existente = ((existentes ?? []) as { id: string; data_inicio_embarque: string; data_fim_embarque: string }[])
-    .find((e) => e.data_inicio_embarque <= fimEfetivo && e.data_fim_embarque >= params.dataInicio);
+  // Migração segura do legado: só vincula um timesheet antigo quando colaborador, início,
+  // unidade e BSP identificam o mesmo evento. Não usa mera sobreposição de datas.
+  const { data: legacyRows, error: legacyError } = await db
+    .from("timesheet_embarques")
+    .select(
+      "id, periodo_id, source_event_key, unidade_operacional, bsp, data_inicio_embarque, data_fim_embarque",
+    )
+    .eq("colaborador_id", colaboradorId)
+    .eq("data_inicio_embarque", params.dataInicio)
+    .is("source_event_key", null);
+  if (legacyError) throw legacyError;
 
-  if (existente) {
-    // O Drake pode ter confirmado depois um desembarque real, mais cedo do que o placeholder
-    // (ou do que a duração corrigida) que já tínhamos gravado — corrige o embarque existente e
-    // apara os dias que não aconteceram de verdade, em vez de deixá-los parados pra sempre.
-    if (fimEfetivo < existente.data_fim_embarque) {
-      const { error: updErr } = await supabase
-        .from("timesheet_embarques")
-        .update({ data_fim_embarque: fimEfetivo })
-        .eq("id", existente.id);
-      if (updErr) throw updErr;
-      await trimSemanasEDiasApos(supabase, existente.id, fimEfetivo);
-    }
+  const legacy = ((legacyRows ?? []) as ExistingTimesheet[]).find(
+    (row) =>
+      normalized(row.unidade_operacional) === normalized(params.unidadeOperacional) &&
+      normalized(row.bsp) === normalized(params.bsp),
+  );
+  if (legacy) {
+    const { error: linkError } = await db
+      .from("timesheet_embarques")
+      .update({ periodo_id: params.periodoId, source_event_key: params.sourceEventKey })
+      .eq("id", legacy.id);
+    if (linkError) throw linkError;
     return { criado: false };
   }
 
-  const { data: embarque, error: insErr } = await supabase
+  const fimEfetivo = dataFimEfetiva(params.dataInicio, params.dataFim);
+  const { data: embarque, error: insertError } = await db
     .from("timesheet_embarques")
     .insert({
-      colaborador_id: params.colaboradorId,
+      colaborador_id: colaboradorId,
       periodo_id: params.periodoId,
+      source_event_key: params.sourceEventKey,
       unidade_operacional: params.unidadeOperacional,
       bsp: params.bsp,
       funcao_embarque: params.funcaoEmbarque,
@@ -148,8 +145,18 @@ export async function ensureTimesheetParaPeriodo(
     })
     .select("id")
     .single();
-  if (insErr) throw insErr;
+  if (insertError) throw insertError;
 
-  await gerarSemanasEDias(supabase, (embarque as { id: string }).id, params.dataInicio, fimEfetivo, params.bsp);
+  await gerarSemanasEDias(
+    db,
+    (embarque as { id: string }).id,
+    params.dataInicio,
+    fimEfetivo,
+    params.bsp,
+  );
   return { criado: true };
+}
+
+function normalized(value: string | null): string {
+  return (value ?? "").trim().toUpperCase();
 }

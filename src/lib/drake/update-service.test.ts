@@ -204,6 +204,10 @@ describe("updateDrakeData ordem dos relatorios", () => {
         close: vi.fn().mockResolvedValue(undefined),
       }),
     }));
+    vi.doMock("./histogram-sync-lease.server", () => ({
+      acquireDrakeHistogramSyncLease: vi.fn().mockResolvedValue(true),
+      releaseDrakeHistogramSyncLease: vi.fn().mockResolvedValue(undefined),
+    }));
     vi.doMock("@/lib/histograma/import-drake", () => ({
       importDrakeEmbarkationFromBuffer: importEmbark,
     }));
@@ -241,6 +245,7 @@ describe("updateDrakeData ordem dos relatorios", () => {
     vi.doUnmock("./api-session.server");
     vi.doUnmock("./report-api-runner.server");
     vi.doUnmock("./signalr-session.server");
+    vi.doUnmock("./histogram-sync-lease.server");
     vi.doUnmock("@/lib/histograma/import-drake");
     vi.doUnmock("@/lib/histograma/import-disponibilidade");
   });

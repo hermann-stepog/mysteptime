@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import type { TipoPeriodo } from "@/lib/histogramaNovo";
-import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
+import { normalizeHeader, parseExcelDate } from "./import-drake";
+import { buildAvailabilitySnapshot, type AvailabilitySourceRow } from "./drake-snapshot";
+import {
+  synchronizeDrakeHistogramSnapshot,
+  type DrakeSnapshotWindow,
+} from "./drake-snapshot-sync.server";
 
 export const DISPONIBILIDADE_EVENTO_MAP: Record<string, TipoPeriodo | null> = {
   standby: "STB",
@@ -29,44 +34,33 @@ export const DISPONIBILIDADE_EVENTO_MAP: Record<string, TipoPeriodo | null> = {
   "no show": null,
 };
 
-export interface ParsedDisponibilidadeRow {
-  matricula: string;
-  tipo: TipoPeriodo;
-  data_inicio: string;
-  data_fim: string;
-}
+export type ParsedDisponibilidadeRow = AvailabilitySourceRow & { tipo: TipoPeriodo };
 
 export interface DisponibilidadeImportSummary {
   insertedEvents: number;
   skipped: number;
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+function isoDate(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
 
-function isoDate(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-}
-
-export function parseDisponibilidadeDate(v: unknown): string | null {
-  if (v == null || v === "") return null;
-  if (v instanceof Date) return isoDate(v);
-  const s = String(v).trim();
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (!m) return parseExcelDate(v);
-  const [, dd, mm, yyyy] = m;
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+export function parseDisponibilidadeDate(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (value instanceof Date) return isoDate(value);
+  const text = String(value).trim();
+  const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!match) return parseExcelDate(value);
+  const [, day, month, year] = match;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
 export function parseDisponibilidadeWorkbook(
-  buf: ArrayBuffer | Buffer,
+  buffer: ArrayBuffer | Buffer,
 ): ParsedDisponibilidadeRow[] {
-  const wb = XLSX.read(buf, { cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, {
+  const workbook = XLSX.read(buffer, { cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
     header: 1,
     defval: "",
     blankrows: false,
@@ -74,89 +68,77 @@ export function parseDisponibilidadeWorkbook(
   if (rows.length < 2) throw new Error("Planilha vazia.");
 
   const header = rows[0].map(normalizeHeader);
-  const iMatricula = header.indexOf("matricula do trabalhador");
-  const iEvento = header.indexOf("descricao do evento");
-  const iInicio = header.indexOf("data de inicio do evento");
-  const iFim = header.indexOf("data de termino do evento");
-  const iSituacao = header.indexOf("situacao do trabalhador");
-  if ([iMatricula, iEvento, iInicio, iFim].some((i) => i === -1)) {
+  const companyIndex = header.indexOf("nome da empresa do trabalhador");
+  const registrationIndex = header.indexOf("matricula do trabalhador");
+  const nameIndex = header.indexOf("nome do trabalhador");
+  const eventIndex = header.indexOf("descricao do evento");
+  const functionIndex = header.indexOf("funcao de folha do trabalhador");
+  const startIndex = header.indexOf("data de inicio do evento");
+  const endIndex = header.indexOf("data de termino do evento");
+  const stateIndex = header.indexOf("situacao do trabalhador");
+
+  const required = [companyIndex, registrationIndex, nameIndex, eventIndex, startIndex, endIndex];
+  if (required.some((index) => index === -1)) {
     throw new Error(
-      "Colunas esperadas não encontradas (Matrícula do Trabalhador / Descrição do Evento / Data de Início do Evento / Data de Término do Evento).",
+      "Colunas esperadas não encontradas no relatório de disponibilidade. Empresa, matrícula, nome, evento, início e término são obrigatórios para evitar associações incorretas.",
     );
   }
 
-  const out: ParsedDisponibilidadeRow[] = [];
-  for (const r of rows.slice(1)) {
-    if (!r.some((c) => c !== "")) continue;
-    if (iSituacao !== -1 && normalizeHeader(r[iSituacao]) !== "ativo") continue;
-    const matricula = String(r[iMatricula] ?? "").trim();
-    if (!matricula) continue;
-    const eventoKey = normalizeHeader(r[iEvento]);
-    const tipo = DISPONIBILIDADE_EVENTO_MAP[eventoKey];
+  const parsed: ParsedDisponibilidadeRow[] = [];
+  for (const [index, row] of rows.slice(1).entries()) {
+    if (!row.some((cell) => cell !== "")) continue;
+    if (stateIndex !== -1 && normalizeHeader(row[stateIndex]) !== "ativo") continue;
+
+    const empresa = String(row[companyIndex] ?? "").trim();
+    const matricula = String(row[registrationIndex] ?? "").trim();
+    const nome = String(row[nameIndex] ?? "").trim();
+    const evento = String(row[eventIndex] ?? "").trim();
+    const tipo = DISPONIBILIDADE_EVENTO_MAP[normalizeHeader(evento)];
+    const data_inicio = parseDisponibilidadeDate(row[startIndex]);
+    const data_fim = parseDisponibilidadeDate(row[endIndex]);
     if (!tipo) continue;
-    const data_inicio = parseDisponibilidadeDate(r[iInicio]);
-    const data_fim = parseDisponibilidadeDate(r[iFim]);
-    if (!data_inicio || !data_fim) continue;
-    out.push({ matricula, tipo, data_inicio, data_fim });
+    if (!empresa || !matricula || !nome || !evento || !data_inicio || !data_fim) {
+      throw new Error(
+        `A linha ${index + 2} do relatório de disponibilidade está incompleta. Empresa, matrícula, nome, evento, início e término são obrigatórios. A sincronização foi cancelada sem alterar o banco.`,
+      );
+    }
+
+    parsed.push({
+      empresa,
+      matricula,
+      nome,
+      funcao: functionIndex === -1 ? null : String(row[functionIndex] ?? "").trim() || null,
+      evento,
+      tipo,
+      data_inicio,
+      data_fim,
+    });
   }
-  return out;
+  return parsed;
 }
 
-/** Importa relatório de disponibilidade (mesmo fluxo do botão Importar Relatório de Disponibilidade). */
+/** Reconcilia o relatório 14 sem apagar ou atualizar períodos de outras origens. */
 export async function importDisponibilidade(
-  supabase: SupabaseClient,
+  db: SupabaseClient,
   rows: ParsedDisponibilidadeRow[],
+  window: DrakeSnapshotWindow,
 ): Promise<DisponibilidadeImportSummary> {
-  const matriculas = Array.from(new Set(rows.map((r) => r.matricula)));
-  const existentes: { id: string; matricula: string }[] = [];
-  for (const lote of chunk(matriculas, 300)) {
-    const { data, error: exErr } = await supabase
-      .from("hist_novo_colaboradores")
-      .select("id, matricula")
-      .in("matricula", lote);
-    if (exErr) throw exErr;
-    existentes.push(...(data ?? []));
-  }
-  const idByMatricula = new Map(existentes.map((c) => [c.matricula, c.id]));
-
-  const periodosToInsert = rows
-    .map((r) => ({
-      colaborador_id: idByMatricula.get(r.matricula),
-      unidade_operacional: null,
-      tipo: r.tipo,
-      data_inicio: r.data_inicio,
-      data_fim: r.data_fim,
-      dias:
-        Math.round(
-          (new Date(r.data_fim).getTime() - new Date(r.data_inicio).getTime()) / 86400000,
-        ) + 1,
-      origem: "disponibilidade",
-    }))
-    .filter((p): p is typeof p & { colaborador_id: string } => !!p.colaborador_id);
-
-  const skipped = rows.length - periodosToInsert.length;
-
-  const { error: delErr } = await supabase
-    .from("hist_novo_periodos")
-    .delete()
-    .eq("origem", "disponibilidade");
-  if (delErr) throw delErr;
-
-  for (let i = 0; i < periodosToInsert.length; i += 500) {
-    const lote = periodosToInsert.slice(i, i + 500);
-    const { error: pErr } = await supabase.from("hist_novo_periodos").insert(lote);
-    if (pErr) throw pErr;
-  }
-
-  return { insertedEvents: periodosToInsert.length, skipped };
+  const snapshot = buildAvailabilitySnapshot(rows);
+  const result = await synchronizeDrakeHistogramSnapshot(db, snapshot, window);
+  return {
+    insertedEvents: result.synchronizedEvents,
+    skipped: rows.length - snapshot.periods.length,
+  };
 }
 
 export async function importDisponibilidadeFromBuffer(
-  supabase: SupabaseClient,
-  buf: ArrayBuffer | Buffer,
+  db: SupabaseClient,
+  buffer: ArrayBuffer | Buffer,
+  window: DrakeSnapshotWindow,
 ): Promise<DisponibilidadeImportSummary> {
-  const rows = parseDisponibilidadeWorkbook(buf);
-  if (!rows.length)
+  const rows = parseDisponibilidadeWorkbook(buffer);
+  if (rows.length === 0) {
     throw new Error("Nenhuma linha válida/mapeável encontrada na planilha de disponibilidade.");
-  return importDisponibilidade(supabase, rows);
+  }
+  return importDisponibilidade(db, rows, window);
 }

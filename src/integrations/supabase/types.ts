@@ -627,6 +627,27 @@ export type Database = {
           },
         ]
       }
+      drake_histogram_sync_lease: {
+        Row: {
+          acquired_at: string | null
+          expires_at: string | null
+          owner: string | null
+          singleton: boolean
+        }
+        Insert: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          owner?: string | null
+          singleton?: boolean
+        }
+        Update: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          owner?: string | null
+          singleton?: boolean
+        }
+        Relationships: []
+      }
       drake_qualification_contexts: {
         Row: {
           context_key: string
@@ -917,6 +938,7 @@ export type Database = {
       hist_novo_colaboradores: {
         Row: {
           created_at: string
+          drake_worker_key: string | null
           empresa: string | null
           funcao: string | null
           funcao_operacao: string | null
@@ -926,6 +948,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          drake_worker_key?: string | null
           empresa?: string | null
           funcao?: string | null
           funcao_operacao?: string | null
@@ -935,6 +958,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          drake_worker_key?: string | null
           empresa?: string | null
           funcao?: string | null
           funcao_operacao?: string | null
@@ -953,8 +977,12 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias: number | null
+          drake_event_key: string | null
+          drake_sync_token: string | null
+          drake_synced_at: string | null
           id: string
           origem: string | null
+          source_event_name: string | null
           tipo: string
           unidade_operacional: string | null
         }
@@ -966,8 +994,12 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias?: number | null
+          drake_event_key?: string | null
+          drake_sync_token?: string | null
+          drake_synced_at?: string | null
           id?: string
           origem?: string | null
+          source_event_name?: string | null
           tipo: string
           unidade_operacional?: string | null
         }
@@ -979,8 +1011,12 @@ export type Database = {
           data_fim?: string
           data_inicio?: string
           dias?: number | null
+          drake_event_key?: string | null
+          drake_sync_token?: string | null
+          drake_synced_at?: string | null
           id?: string
           origem?: string | null
+          source_event_name?: string | null
           tipo?: string
           unidade_operacional?: string | null
         }
@@ -1535,6 +1571,7 @@ export type Database = {
           funcao_embarque: string | null
           id: string
           periodo_id: string | null
+          source_event_key: string | null
           status_entrega: string
           unidade_operacional: string | null
         }
@@ -1548,6 +1585,7 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
+          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }
@@ -1561,6 +1599,7 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
+          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }
@@ -2113,6 +2152,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      release_drake_histogram_sync: {
+        Args: { p_owner: string }
+        Returns: boolean
+      }
+      sync_drake_histogram_snapshot: {
+        Args: {
+          p_periods: Json
+          p_source: string
+          p_window_end: string
+          p_window_start: string
+          p_workers: Json
+        }
+        Returns: Json
+      }
+      try_acquire_drake_histogram_sync: {
+        Args: { p_owner: string; p_ttl_seconds?: number }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
