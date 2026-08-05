@@ -68,7 +68,7 @@ serve(async (req) => {
     }));
   }
 
-  return new Response(JSON.stringify({ _debugVersion: "v2-normalizacao", data: result }), {
+  return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
   });
 });
