@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import type { TipoPeriodo } from "@/lib/histogramaNovo";
-import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
+import { normalizeHeader, parseExcelDate, chaveColaborador } from "@/lib/histograma/import-drake";
 
 export const DISPONIBILIDADE_EVENTO_MAP: Record<string, TipoPeriodo | null> = {
   standby: "STB",
@@ -31,6 +31,7 @@ export const DISPONIBILIDADE_EVENTO_MAP: Record<string, TipoPeriodo | null> = {
 
 export interface ParsedDisponibilidadeRow {
   matricula: string;
+  empresa: string | null;
   tipo: TipoPeriodo;
   data_inicio: string;
   data_fim: string;
@@ -79,6 +80,13 @@ export function parseDisponibilidadeWorkbook(
   const iInicio = header.indexOf("data de inicio do evento");
   const iFim = header.indexOf("data de termino do evento");
   const iSituacao = header.indexOf("situacao do trabalhador");
+  // A mesma matrícula pode pertencer a duas pessoas de empresas diferentes (o Drake numera
+  // matrícula por empresa) — essa coluna resolve a ambiguidade igual ao relatório de Embarque.
+  // Se não existir nessa exportação (ex.: versão antiga do relatório), fica null e o import cai
+  // no fallback seguro (pular matrícula ambígua) em vez de arriscar a pessoa errada.
+  const iEmpresa = ["nome da empresa do trabalhador", "empresa do trabalhador", "empresa"]
+    .map((h) => header.indexOf(h))
+    .find((i) => i !== -1) ?? -1;
   if ([iMatricula, iEvento, iInicio, iFim].some((i) => i === -1)) {
     throw new Error(
       "Colunas esperadas não encontradas (Matrícula do Trabalhador / Descrição do Evento / Data de Início do Evento / Data de Término do Evento).",
@@ -97,7 +105,8 @@ export function parseDisponibilidadeWorkbook(
     const data_inicio = parseDisponibilidadeDate(r[iInicio]);
     const data_fim = parseDisponibilidadeDate(r[iFim]);
     if (!data_inicio || !data_fim) continue;
-    out.push({ matricula, tipo, data_inicio, data_fim });
+    const empresa = iEmpresa !== -1 ? String(r[iEmpresa] ?? "").trim() || null : null;
+    out.push({ matricula, empresa, tipo, data_inicio, data_fim });
   }
   return out;
 }
@@ -108,34 +117,36 @@ export async function importDisponibilidade(
   rows: ParsedDisponibilidadeRow[],
 ): Promise<DisponibilidadeImportSummary> {
   const matriculas = Array.from(new Set(rows.map((r) => r.matricula)));
-  const existentes: { id: string; matricula: string }[] = [];
+  const existentes: { id: string; matricula: string; empresa: string | null }[] = [];
   for (const lote of chunk(matriculas, 300)) {
     const { data, error: exErr } = await supabase
       .from("hist_novo_colaboradores")
-      .select("id, matricula")
+      .select("id, matricula, empresa")
       .in("matricula", lote);
     if (exErr) throw exErr;
     existentes.push(...(data ?? []));
   }
-  // O relatório de Disponibilidade não traz coluna de empresa — só matrícula. Como o Drake
-  // numera matrícula por empresa (a mesma matrícula pode ser de duas pessoas diferentes em
-  // empresas diferentes), quando ela aponta pra mais de um colaborador aqui não tem como saber
-  // qual é o dono do evento — melhor pular (conta como "skipped") do que arriscar gravar o
-  // evento na pessoa errada.
+  // Matrícula sem ambiguidade (só um colaborador) resolve direto. Com ambiguidade (Drake numera
+  // matrícula por empresa — a mesma matrícula pode ser de duas pessoas em empresas diferentes),
+  // só resolve se essa exportação trouxe a coluna de empresa e ela bater com exatamente um
+  // colaborador; senão pula (conta como "skipped") em vez de arriscar gravar na pessoa errada.
   const idsPorMatricula = new Map<string, string[]>();
+  const idPorChave = new Map<string, string>();
   for (const c of existentes) {
     if (!idsPorMatricula.has(c.matricula)) idsPorMatricula.set(c.matricula, []);
     idsPorMatricula.get(c.matricula)!.push(c.id);
+    idPorChave.set(chaveColaborador(c.matricula, c.empresa), c.id);
   }
-  const idByMatricula = new Map(
-    Array.from(idsPorMatricula.entries())
-      .filter(([, ids]) => ids.length === 1)
-      .map(([matricula, ids]) => [matricula, ids[0]]),
-  );
+  const resolverColaboradorId = (r: ParsedDisponibilidadeRow): string | undefined => {
+    const candidatos = idsPorMatricula.get(r.matricula) ?? [];
+    if (candidatos.length === 1) return candidatos[0];
+    if (candidatos.length > 1 && r.empresa) return idPorChave.get(chaveColaborador(r.matricula, r.empresa));
+    return undefined;
+  };
 
   const periodosToInsert = rows
     .map((r) => ({
-      colaborador_id: idByMatricula.get(r.matricula),
+      colaborador_id: resolverColaboradorId(r),
       unidade_operacional: null,
       tipo: r.tipo,
       data_inicio: r.data_inicio,

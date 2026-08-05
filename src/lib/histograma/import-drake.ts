@@ -61,7 +61,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 // empresas diferentes (ex.: STEP OIL & GAS e PETROHAB) podem ter a mesma matrícula. A chave de
 // identidade real de um colaborador é empresa+matrícula, nunca matrícula sozinha (ver migração
 // 20260805000000_colaborador_empresa_matricula_key.sql).
-function chaveColaborador(matricula: string, empresa: string | null): string {
+export function chaveColaborador(matricula: string, empresa: string | null): string {
   return `${matricula}::${empresa ?? ""}`;
 }
 
