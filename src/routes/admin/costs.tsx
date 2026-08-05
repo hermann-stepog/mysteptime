@@ -31,11 +31,14 @@ const COST_TYPES = [
 
 // Exportação de custos — usada pelo módulo de Relatórios (card "Custos"). Exporta tudo,
 // sem respeitar os filtros de tela (que só valem enquanto a página de Custos está aberta).
-export async function generateRelatorioCustos(): Promise<void> {
-  const { data: rows, error } = await supabase
+export async function generateRelatorioCustos(dataInicio?: string, dataFim?: string): Promise<void> {
+  let query = supabase
     .from("cost_logs")
     .select("*, profiles!collaborator_id(full_name), clients(name), vendors(name), projects(code)")
     .order("created_at", { ascending: false });
+  if (dataInicio) query = query.gte("created_at", dataInicio);
+  if (dataFim) query = query.lte("created_at", `${dataFim}T23:59:59`);
+  const { data: rows, error } = await query;
   if (error) throw error;
   const out = (rows ?? []).map((r: any) => ({
     colaborador: r.profiles?.full_name, cliente: r.clients?.name, projeto: r.projects?.code,

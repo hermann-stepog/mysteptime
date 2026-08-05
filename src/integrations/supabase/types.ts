@@ -98,6 +98,322 @@ export type Database = {
         }
         Relationships: []
       }
+      bm_lines_logistica: {
+        Row: {
+          amount: number
+          bm_id: string
+          collaborator_name: string | null
+          cost_log_id: string | null
+          cost_type: string
+          id: string
+          is_manual: boolean
+          notes: string | null
+          period_end: string | null
+          period_start: string | null
+          vendor_name: string | null
+        }
+        Insert: {
+          amount: number
+          bm_id: string
+          collaborator_name?: string | null
+          cost_log_id?: string | null
+          cost_type: string
+          id?: string
+          is_manual?: boolean
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          vendor_name?: string | null
+        }
+        Update: {
+          amount?: number
+          bm_id?: string
+          collaborator_name?: string | null
+          cost_log_id?: string | null
+          cost_type?: string
+          id?: string
+          is_manual?: boolean
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          vendor_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_lines_logistica_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bm_lines_logistica_cost_log_id_fkey"
+            columns: ["cost_log_id"]
+            isOneToOne: false
+            referencedRelation: "cost_logs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bm_lines_materiais: {
+        Row: {
+          bm_id: string
+          bsp: string | null
+          categoria: string
+          descricao: string
+          id: string
+          period_end: string | null
+          period_start: string | null
+          qtd: number
+          tag: string | null
+          valor_diario: number | null
+          valor_total: number
+        }
+        Insert: {
+          bm_id: string
+          bsp?: string | null
+          categoria: string
+          descricao: string
+          id?: string
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          valor_diario?: number | null
+          valor_total?: number
+        }
+        Update: {
+          bm_id?: string
+          bsp?: string | null
+          categoria?: string
+          descricao?: string
+          id?: string
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          valor_diario?: number | null
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_lines_materiais_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bm_lines_mo: {
+        Row: {
+          bm_id: string
+          bsp: string | null
+          colaborador_id: string | null
+          colaborador_nome: string
+          dias_dobra: number
+          dias_embarque: number
+          dias_hotel: number
+          funcao: string
+          horas_adicional_noturno: number
+          horas_extras: number
+          id: string
+          rate_adicional_noturno: number | null
+          rate_dobra: number | null
+          rate_embarque: number | null
+          rate_hora_extra: number | null
+          rate_hotel: number | null
+          rate_missing: boolean
+          valor_total: number
+        }
+        Insert: {
+          bm_id: string
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome: string
+          dias_dobra?: number
+          dias_embarque?: number
+          dias_hotel?: number
+          funcao: string
+          horas_adicional_noturno?: number
+          horas_extras?: number
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          rate_missing?: boolean
+          valor_total?: number
+        }
+        Update: {
+          bm_id?: string
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome?: string
+          dias_dobra?: number
+          dias_embarque?: number
+          dias_hotel?: number
+          funcao?: string
+          horas_adicional_noturno?: number
+          horas_extras?: number
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          rate_missing?: boolean
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_lines_mo_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bm_lines_mo_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bm_status_history: {
+        Row: {
+          bm_id: string
+          changed_at: string
+          changed_by_name: string
+          id: string
+          notes: string | null
+          status: string
+        }
+        Insert: {
+          bm_id: string
+          changed_at?: string
+          changed_by_name: string
+          id?: string
+          notes?: string | null
+          status: string
+        }
+        Update: {
+          bm_id?: string
+          changed_at?: string
+          changed_by_name?: string
+          id?: string
+          notes?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_status_history_bm_id_fkey"
+            columns: ["bm_id"]
+            isOneToOne: false
+            referencedRelation: "bms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bms: {
+        Row: {
+          client_id: string | null
+          client_name: string
+          created_at: string
+          created_by: string | null
+          current_status: string
+          id: string
+          markup_enabled: boolean
+          markup_pct: number
+          numero_bm: string | null
+          period_end: string
+          period_start: string
+          po_balance_before: number | null
+          po_number: string | null
+          po_value: number | null
+          project_id: string | null
+          project_name: string | null
+          rejection_reason: string | null
+          smartsheet_synced_at: string | null
+          total_geral: number
+          total_logistica: number
+          total_materiais: number
+          total_mo: number
+          updated_at: string
+          vessel: string
+        }
+        Insert: {
+          client_id?: string | null
+          client_name: string
+          created_at?: string
+          created_by?: string | null
+          current_status?: string
+          id?: string
+          markup_enabled?: boolean
+          markup_pct?: number
+          numero_bm?: string | null
+          period_end: string
+          period_start: string
+          po_balance_before?: number | null
+          po_number?: string | null
+          po_value?: number | null
+          project_id?: string | null
+          project_name?: string | null
+          rejection_reason?: string | null
+          smartsheet_synced_at?: string | null
+          total_geral?: number
+          total_logistica?: number
+          total_materiais?: number
+          total_mo?: number
+          updated_at?: string
+          vessel: string
+        }
+        Update: {
+          client_id?: string | null
+          client_name?: string
+          created_at?: string
+          created_by?: string | null
+          current_status?: string
+          id?: string
+          markup_enabled?: boolean
+          markup_pct?: number
+          numero_bm?: string | null
+          period_end?: string
+          period_start?: string
+          po_balance_before?: number | null
+          po_number?: string | null
+          po_value?: number | null
+          project_id?: string | null
+          project_name?: string | null
+          rejection_reason?: string | null
+          smartsheet_synced_at?: string | null
+          total_geral?: number
+          total_logistica?: number
+          total_materiais?: number
+          total_mo?: number
+          updated_at?: string
+          vessel?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bms_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bms_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           active: boolean
@@ -118,6 +434,47 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      colaborador_funcoes_historico: {
+        Row: {
+          cod_alocacao: string | null
+          colaborador_id: string
+          criado_em: string
+          data_fim: string | null
+          data_inicio: string
+          embarcacao: string | null
+          funcao: string
+          id: string
+        }
+        Insert: {
+          cod_alocacao?: string | null
+          colaborador_id: string
+          criado_em?: string
+          data_fim?: string | null
+          data_inicio: string
+          embarcacao?: string | null
+          funcao: string
+          id?: string
+        }
+        Update: {
+          cod_alocacao?: string | null
+          colaborador_id?: string
+          criado_em?: string
+          data_fim?: string | null
+          data_inicio?: string
+          embarcacao?: string | null
+          funcao?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colaborador_funcoes_historico_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       collaborators: {
         Row: {
@@ -270,6 +627,250 @@ export type Database = {
           },
         ]
       }
+      drake_histogram_sync_lease: {
+        Row: {
+          acquired_at: string | null
+          expires_at: string | null
+          owner: string | null
+          singleton: boolean
+        }
+        Insert: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          owner?: string | null
+          singleton?: boolean
+        }
+        Update: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          owner?: string | null
+          singleton?: boolean
+        }
+        Relationships: []
+      }
+      drake_qualification_contexts: {
+        Row: {
+          context_key: string
+          job_name: string
+          matrix_id: string
+          matrix_name: string
+          operational_unit_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          context_key: string
+          job_name: string
+          matrix_id: string
+          matrix_name: string
+          operational_unit_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          context_key?: string
+          job_name?: string
+          matrix_id?: string
+          matrix_name?: string
+          operational_unit_name?: string
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: []
+      }
+      drake_qualification_options: {
+        Row: {
+          domain_identifier: string
+          option_id: string
+          option_name: string
+          sort_order: number
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          domain_identifier: string
+          option_id: string
+          option_name: string
+          sort_order: number
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          domain_identifier?: string
+          option_id?: string
+          option_name?: string
+          sort_order?: number
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: []
+      }
+      drake_qualification_requirements: {
+        Row: {
+          context_key: string
+          indicated_course_id: string | null
+          indicated_course_name: string | null
+          is_mandatory: boolean
+          qualification_id: string
+          qualification_name: string
+          qualification_need_type_id: string | null
+          qualification_need_type_name: string
+          relationship_set_id: string | null
+          relationship_set_name: string | null
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          context_key: string
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          is_mandatory: boolean
+          qualification_id: string
+          qualification_name: string
+          qualification_need_type_id?: string | null
+          qualification_need_type_name: string
+          relationship_set_id?: string | null
+          relationship_set_name?: string | null
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          context_key?: string
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          is_mandatory?: boolean
+          qualification_id?: string
+          qualification_name?: string
+          qualification_need_type_id?: string | null
+          qualification_need_type_name?: string
+          relationship_set_id?: string | null
+          relationship_set_name?: string | null
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drake_qualification_requirements_context_key_fkey"
+            columns: ["context_key"]
+            isOneToOne: false
+            referencedRelation: "drake_qualification_contexts"
+            referencedColumns: ["context_key"]
+          },
+        ]
+      }
+      drake_qualification_sync_state: {
+        Row: {
+          context_count: number
+          last_success_at: string
+          option_count: number
+          qualification_count: number
+          requirement_count: number
+          singleton: boolean
+          source_row_count: number
+          worker_count: number
+        }
+        Insert: {
+          context_count: number
+          last_success_at: string
+          option_count?: number
+          qualification_count: number
+          requirement_count: number
+          singleton?: boolean
+          source_row_count: number
+          worker_count: number
+        }
+        Update: {
+          context_count?: number
+          last_success_at?: string
+          option_count?: number
+          qualification_count?: number
+          requirement_count?: number
+          singleton?: boolean
+          source_row_count?: number
+          worker_count?: number
+        }
+        Relationships: []
+      }
+      drake_qualification_workers: {
+        Row: {
+          current_operational_unit_name: string | null
+          drake_worker_id: string
+          full_name: string
+          job_name: string | null
+          registration: string
+          sync_id: string
+          synced_at: string
+          worker_state: string | null
+          worker_type: string | null
+        }
+        Insert: {
+          current_operational_unit_name?: string | null
+          drake_worker_id: string
+          full_name: string
+          job_name?: string | null
+          registration: string
+          sync_id: string
+          synced_at: string
+          worker_state?: string | null
+          worker_type?: string | null
+        }
+        Update: {
+          current_operational_unit_name?: string | null
+          drake_worker_id?: string
+          full_name?: string
+          job_name?: string | null
+          registration?: string
+          sync_id?: string
+          synced_at?: string
+          worker_state?: string | null
+          worker_type?: string | null
+        }
+        Relationships: []
+      }
+      drake_worker_qualifications: {
+        Row: {
+          drake_worker_id: string
+          expiration_date: string | null
+          indicated_course_id: string | null
+          indicated_course_name: string | null
+          issue_date: string | null
+          qualification_id: string
+          qualification_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Insert: {
+          drake_worker_id: string
+          expiration_date?: string | null
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          issue_date?: string | null
+          qualification_id: string
+          qualification_name: string
+          sync_id: string
+          synced_at: string
+        }
+        Update: {
+          drake_worker_id?: string
+          expiration_date?: string | null
+          indicated_course_id?: string | null
+          indicated_course_name?: string | null
+          issue_date?: string | null
+          qualification_id?: string
+          qualification_name?: string
+          sync_id?: string
+          synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drake_worker_qualifications_drake_worker_id_fkey"
+            columns: ["drake_worker_id"]
+            isOneToOne: false
+            referencedRelation: "drake_qualification_workers"
+            referencedColumns: ["drake_worker_id"]
+          },
+        ]
+      }
       embarkations: {
         Row: {
           client_id: string | null
@@ -337,6 +938,7 @@ export type Database = {
       hist_novo_colaboradores: {
         Row: {
           created_at: string
+          drake_worker_key: string | null
           empresa: string | null
           funcao: string | null
           funcao_operacao: string | null
@@ -346,6 +948,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          drake_worker_key?: string | null
           empresa?: string | null
           funcao?: string | null
           funcao_operacao?: string | null
@@ -355,6 +958,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          drake_worker_key?: string | null
           empresa?: string | null
           funcao?: string | null
           funcao_operacao?: string | null
@@ -366,38 +970,53 @@ export type Database = {
       }
       hist_novo_periodos: {
         Row: {
+          bsp: string | null
           centro_de_custo: string | null
           colaborador_id: string
           created_at: string
           data_fim: string
           data_inicio: string
           dias: number | null
+          drake_event_key: string | null
+          drake_sync_token: string | null
+          drake_synced_at: string | null
           id: string
           origem: string | null
+          source_event_name: string | null
           tipo: string
           unidade_operacional: string | null
         }
         Insert: {
+          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id: string
           created_at?: string
           data_fim: string
           data_inicio: string
           dias?: number | null
+          drake_event_key?: string | null
+          drake_sync_token?: string | null
+          drake_synced_at?: string | null
           id?: string
           origem?: string | null
+          source_event_name?: string | null
           tipo: string
           unidade_operacional?: string | null
         }
         Update: {
+          bsp?: string | null
           centro_de_custo?: string | null
           colaborador_id?: string
           created_at?: string
           data_fim?: string
           data_inicio?: string
           dias?: number | null
+          drake_event_key?: string | null
+          drake_sync_token?: string | null
+          drake_synced_at?: string | null
           id?: string
           origem?: string | null
+          source_event_name?: string | null
           tipo?: string
           unidade_operacional?: string | null
         }
@@ -542,63 +1161,74 @@ export type Database = {
       }
       nominations: {
         Row: {
-          approved_collaborator_id: string | null
-          approved_collaborator_name: string | null
+          briefing_sms_realizado: boolean
           client: string | null
+          colaborador_id: string
+          colaborador_nome: string
           created_at: string
           current_status: string
-          function_requested: string
+          funcao: string
           id: string
           notes: string | null
-          period_end: string
-          period_start: string
-          pm_name: string
+          period_end: string | null
+          period_start: string | null
+          pm_name: string | null
           pm_user_id: string | null
           project: string | null
+          quality_validated: boolean
           requires_quality_validation: boolean
-          requires_superior_approval: boolean
           updated_at: string
           weld_type: string | null
         }
         Insert: {
-          approved_collaborator_id?: string | null
-          approved_collaborator_name?: string | null
+          briefing_sms_realizado?: boolean
           client?: string | null
+          colaborador_id: string
+          colaborador_nome: string
           created_at?: string
           current_status?: string
-          function_requested: string
+          funcao: string
           id?: string
           notes?: string | null
-          period_end: string
-          period_start: string
-          pm_name: string
+          period_end?: string | null
+          period_start?: string | null
+          pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_validated?: boolean
           requires_quality_validation?: boolean
-          requires_superior_approval?: boolean
           updated_at?: string
           weld_type?: string | null
         }
         Update: {
-          approved_collaborator_id?: string | null
-          approved_collaborator_name?: string | null
+          briefing_sms_realizado?: boolean
           client?: string | null
+          colaborador_id?: string
+          colaborador_nome?: string
           created_at?: string
           current_status?: string
-          function_requested?: string
+          funcao?: string
           id?: string
           notes?: string | null
-          period_end?: string
-          period_start?: string
-          pm_name?: string
+          period_end?: string | null
+          period_start?: string | null
+          pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_validated?: boolean
           requires_quality_validation?: boolean
-          requires_superior_approval?: boolean
           updated_at?: string
           weld_type?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "nominations_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notifications: {
         Row: {
@@ -725,6 +1355,7 @@ export type Database = {
           email: string | null
           id: string
           name: string
+          pm_user_id: string | null
         }
         Insert: {
           active?: boolean
@@ -734,6 +1365,7 @@ export type Database = {
           email?: string | null
           id?: string
           name: string
+          pm_user_id?: string | null
         }
         Update: {
           active?: boolean
@@ -743,6 +1375,7 @@ export type Database = {
           email?: string | null
           id?: string
           name?: string
+          pm_user_id?: string | null
         }
         Relationships: [
           {
@@ -753,6 +1386,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      rates: {
+        Row: {
+          active: boolean
+          bsp: string | null
+          client: string
+          created_at: string
+          funcao: string
+          id: string
+          rate_adicional_noturno: number | null
+          rate_dobra: number | null
+          rate_embarque: number | null
+          rate_hora_extra: number | null
+          rate_hotel: number | null
+          updated_at: string
+          vessel: string
+        }
+        Insert: {
+          active?: boolean
+          bsp?: string | null
+          client: string
+          created_at?: string
+          funcao: string
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          updated_at?: string
+          vessel: string
+        }
+        Update: {
+          active?: boolean
+          bsp?: string | null
+          client?: string
+          created_at?: string
+          funcao?: string
+          id?: string
+          rate_adicional_noturno?: number | null
+          rate_dobra?: number | null
+          rate_embarque?: number | null
+          rate_hora_extra?: number | null
+          rate_hotel?: number | null
+          updated_at?: string
+          vessel?: string
+        }
+        Relationships: []
       }
       rdo_entries: {
         Row: {
@@ -811,6 +1492,7 @@ export type Database = {
       timesheet_dias: {
         Row: {
           adicional_noturno: boolean | null
+          bsp: string | null
           criado_em: string
           data: string
           descricao_tarefa: string | null
@@ -830,6 +1512,7 @@ export type Database = {
         }
         Insert: {
           adicional_noturno?: boolean | null
+          bsp?: string | null
           criado_em?: string
           data: string
           descricao_tarefa?: string | null
@@ -849,6 +1532,7 @@ export type Database = {
         }
         Update: {
           adicional_noturno?: boolean | null
+          bsp?: string | null
           criado_em?: string
           data?: string
           descricao_tarefa?: string | null
@@ -879,6 +1563,7 @@ export type Database = {
       timesheet_embarques: {
         Row: {
           bsp: string | null
+          bsp_2: string | null
           colaborador_id: string
           criado_em: string
           data_fim_embarque: string
@@ -886,11 +1571,13 @@ export type Database = {
           funcao_embarque: string | null
           id: string
           periodo_id: string | null
+          source_event_key: string | null
           status_entrega: string
           unidade_operacional: string | null
         }
         Insert: {
           bsp?: string | null
+          bsp_2?: string | null
           colaborador_id: string
           criado_em?: string
           data_fim_embarque: string
@@ -898,11 +1585,13 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
+          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }
         Update: {
           bsp?: string | null
+          bsp_2?: string | null
           colaborador_id?: string
           criado_em?: string
           data_fim_embarque?: string
@@ -910,6 +1599,7 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
+          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }
@@ -937,8 +1627,11 @@ export type Database = {
           data_inicio_semana: string
           data_recebimento: string | null
           embarque_id: string
+          funcao_override: string | null
           id: string
+          recebido_em: string | null
           recebido_fisico: boolean
+          recebido_por: string | null
         }
         Insert: {
           criado_em?: string
@@ -946,8 +1639,11 @@ export type Database = {
           data_inicio_semana: string
           data_recebimento?: string | null
           embarque_id: string
+          funcao_override?: string | null
           id?: string
+          recebido_em?: string | null
           recebido_fisico?: boolean
+          recebido_por?: string | null
         }
         Update: {
           criado_em?: string
@@ -955,8 +1651,11 @@ export type Database = {
           data_inicio_semana?: string
           data_recebimento?: string | null
           embarque_id?: string
+          funcao_override?: string | null
           id?: string
+          recebido_em?: string | null
           recebido_fisico?: boolean
+          recebido_por?: string | null
         }
         Relationships: [
           {
@@ -1297,6 +1996,9 @@ export type Database = {
           cliente_3: string | null
           column_id: string | null
           created_at: string
+          custo: number | null
+          custo_2: number | null
+          custo_3: number | null
           departure_time: string | null
           destination: string
           destinos_extras: string[]
@@ -1323,6 +2025,9 @@ export type Database = {
           cliente_3?: string | null
           column_id?: string | null
           created_at?: string
+          custo?: number | null
+          custo_2?: number | null
+          custo_3?: number | null
           departure_time?: string | null
           destination: string
           destinos_extras?: string[]
@@ -1349,6 +2054,9 @@ export type Database = {
           cliente_3?: string | null
           column_id?: string | null
           created_at?: string
+          custo?: number | null
+          custo_2?: number | null
+          custo_3?: number | null
           departure_time?: string | null
           destination?: string
           destinos_extras?: string[]
@@ -1450,6 +2158,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      release_drake_histogram_sync: {
+        Args: { p_owner: string }
+        Returns: boolean
+      }
+      sync_drake_histogram_snapshot: {
+        Args: {
+          p_periods: Json
+          p_source: string
+          p_window_end: string
+          p_window_start: string
+          p_workers: Json
+        }
+        Returns: Json
+      }
+      try_acquire_drake_histogram_sync: {
+        Args: { p_owner: string; p_ttl_seconds?: number }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1495,7 +2221,11 @@ export type Database = {
         | "concluido"
         | "cancelado"
       transport_tipo: "pessoas" | "material"
-      transport_trip_status: "em_andamento" | "realizado" | "cancelado"
+      transport_trip_status:
+        | "em_andamento"
+        | "realizado"
+        | "cancelado"
+        | "faturado"
       transport_type: "carro" | "van" | "voo" | "onibus"
     }
     CompositeTypes: {
@@ -1663,7 +2393,12 @@ export const Constants = {
         "cancelado",
       ],
       transport_tipo: ["pessoas", "material"],
-      transport_trip_status: ["em_andamento", "realizado", "cancelado"],
+      transport_trip_status: [
+        "em_andamento",
+        "realizado",
+        "cancelado",
+        "faturado",
+      ],
       transport_type: ["carro", "van", "voo", "onibus"],
     },
   },

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
@@ -23,17 +23,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload } from "lucide-react";
-import { cn, focusNextOnEnter } from "@/lib/utils";
-import { computeDayStatus, generateDateRange, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
+import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
-  FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, type AdicionalCode,
-  STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas,
+  FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
+  STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas, type StatusEntrega,
   mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma,
-  UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno,
+  UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno, horasNoturnas, parseHHMM, daysBetweenStr,
   type TimesheetEmbarque, type TimesheetSemana, type TimesheetDia,
 } from "@/lib/timesheetOffshore";
+import { gerarSemanasEDias } from "@/lib/timesheetAutoGen";
+import { selectAllPages } from "@/lib/supabasePaginate";
 import { pageTitle } from "@/lib/pageTitle";
 import { useAuth } from "@/hooks/useAuth";
+import pdfExtractData from "@/data/pdfTimesheetExtract.json";
 
 export const Route = createFileRoute("/admin/timesheet-offshore")({ head: () => pageTitle("Timesheet Offshore"), component: TimesheetOffshore });
 
@@ -48,6 +52,34 @@ function todayStr(): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// Período (De/Até) do Timesheet Offshore salvo no navegador, pra continuar selecionado entre
+// acessos até a usuária trocar de novo. Cada aba (Lançamento por período, Timesheets Pendentes)
+// guarda o próprio período — trocar numa não deve afetar o filtro já escolhido na outra.
+const PERIODO_STORAGE_KEY = "timesheet-offshore:periodo";
+const PERIODO_STORAGE_KEY_PENDENCIAS = "timesheet-offshore:periodo-pendencias";
+
+function readPeriodoSalvo(key: string = PERIODO_STORAGE_KEY): { de: string; ate: string } {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return { de: "", ate: "" };
+    const parsed = JSON.parse(raw);
+    return {
+      de: typeof parsed.de === "string" ? parsed.de : "",
+      ate: typeof parsed.ate === "string" ? parsed.ate : "",
+    };
+  } catch {
+    return { de: "", ate: "" };
+  }
+}
+
+function salvarPeriodo(de: string, ate: string, key: string = PERIODO_STORAGE_KEY): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ de, ate }));
+  } catch {
+    /* localStorage indisponível (ex.: modo privado) — sem persistência, sem quebrar a tela */
+  }
 }
 
 function defaultStart() {
@@ -68,129 +100,84 @@ function defaultEnd() {
 // alimentar a exportação a partir do módulo de Relatórios, sem duplicar a consulta.
 async function fetchDiasNoPeriodo(dataInicio: string, dataFim: string): Promise<DiaComEmbarque[]> {
   if (!dataInicio || !dataFim) return [];
-  const { data: semanasNoPeriodo, error: semErr } = await supabase
-    .from("timesheet_semanas").select("*")
-    .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio);
-  if (semErr) throw semErr;
-  const semanaIds = (semanasNoPeriodo ?? []).map((s) => s.id);
+  // timesheet_semanas/timesheet_dias já passam de 1000 linhas — sem paginação o Supabase corta
+  // em silêncio e o relatório sai incompleto sem erro nenhum.
+  const semanasNoPeriodo = await selectAllPages<TimesheetSemana>((from, to) =>
+    supabase.from("timesheet_semanas").select("*")
+      .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio).order("id").range(from, to),
+  );
+  const semanaIds = semanasNoPeriodo.map((s) => s.id);
   if (semanaIds.length === 0) return [];
-  const { data: diasData, error: diasErr } = await supabase
-    .from("timesheet_dias").select("*")
-    .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim);
-  if (diasErr) throw diasErr;
-  const embarqueIdBySemanaId = new Map((semanasNoPeriodo ?? []).map((s) => [s.id, s.embarque_id]));
-  return (diasData ?? []).map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
+  const diasData = await selectAllPages<TimesheetDia>((from, to) =>
+    supabase.from("timesheet_dias").select("*")
+      .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim).order("id").range(from, to),
+  );
+  const embarqueIdBySemanaId = new Map(semanasNoPeriodo.map((s) => [s.id, s.embarque_id]));
+  return diasData.map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
 }
 
-// ─── Import "Relatório de Timesheets preenchidos" (Access) ──────────────────
-// Backfill único do que já foi lançado no Access antes desse módulo existir — depois disso os
-// lançamentos continuam manuais. Cada Cod_Alocacao no relatório é um ciclo de embarque completo
-// (mesmo quando aparece picado em várias linhas de "Embarque" por semana).
+// ─── Import "PDFs de Timesheet físico" (lido e extraído previamente pelo Claude) ──────
+// Cada registro aqui já é uma semana completa de um colaborador (um PDF pode ter virado
+// vários registros, se tinha várias semanas em páginas separadas). Diferente do import do
+// Access, aqui não criamos colaborador novo — só casamos com quem já existe em "Colaboradores".
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+interface PdfExtractDia {
+  data: string; dia_semana: string; tarefa: string | null; numero_tarefa: string | null;
+  entrada: string | null; saida: string | null; horas_normais: number | null; horas_extras: number | null;
+  total: number | null; evento: string | null;
 }
 
-// Não usamos { cellDates: true } de propósito: os valores desse relatório vêm em serial numérico
-// do Excel, e converter direto (época UTC 1899-12-30) evita qualquer ambiguidade de fuso horário
-// que o Date nativo do XLSX introduziria (confirmado lendo o arquivo real — bate exatamente com
-// a data/hora esperada, diferente do cellDates:true que fica ~3h deslocado).
-const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30);
-
-function excelSerialToISODate(serial: number): string {
-  const d = new Date(EXCEL_EPOCH_UTC + Math.round(serial) * 86400000);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+interface PdfExtractRegistro {
+  fonte_arquivo: string; pagina: number; nome: string; bsp: string | null; funcao: string;
+  embarcacao: string; semana_inicio: string; semana_fim: string; confianca: string; duvida?: string;
+  dias: PdfExtractDia[]; total_normais: number; total_extras: number; total_geral: number;
 }
 
-function excelSerialToHHMM(serial: number): string {
-  const frac = serial - Math.floor(serial);
-  const totalMin = Math.round(frac * 24 * 60);
-  const h = Math.floor(totalMin / 60), m = totalMin % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+function normalizeName(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase().replace(/\s+/g, " ").trim();
 }
 
-interface ParsedCicloDia {
-  evento?: string;
-  noturno?: boolean;
-  horaExtra?: { qtd: number; de: string | null; ate: string | null };
+// O PDF físico às vezes traz só o apelido da unidade ("Paraty") em vez do nome oficial que o
+// Drake usa ("FPPA - CIDADE DE PARATY") — sem isso, o mesmo local vira duas unidades diferentes
+// nos cartões/filtros (bug real encontrado: "Paraty" e "Saquarema" fragmentados). Se o texto
+// bruto bater com uma das unidades já conhecidas (substring, sem acento/caixa), usa a oficial.
+function normalizarUnidadeOperacional(bruta: string, opcoes: string[]): string {
+  const norm = normalizeName(bruta);
+  const oficial = opcoes.find((o) => normalizeName(o).includes(norm));
+  return oficial ?? bruta;
 }
 
-interface ParsedCiclo {
-  matricula: string;
-  nome: string;
-  unidade_operacional: string | null;
-  funcao_embarque: string;
-  data_inicio: string;
-  data_fim: string;
-  porDia: Map<string, ParsedCicloDia>;
+// Mapeia o texto de evento do PDF pra um dos eventos que o app reconhece (EVENTOS_DIA) —
+// os PDFs às vezes escrevem variações ("EMBARQUE", "Embarque ", etc.).
+function normalizarEvento(texto: string | null): string | null {
+  if (!texto) return null;
+  const norm = normalizeName(texto);
+  const achado = EVENTOS_DIA.find((ev) => normalizeName(ev) === norm);
+  return achado ?? texto;
 }
 
-function parseAccessTimesheetWorkbook(buf: ArrayBuffer): ParsedCiclo[] {
-  const wb = XLSX.read(buf);
-  const ws = wb.Sheets["Hist por Evento"];
-  if (!ws) throw new Error('Aba "Hist por Evento" não encontrada na planilha.');
-  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
-  if (rows.length < 2) throw new Error("Planilha vazia.");
+interface PdfGrupoColaborador {
+  nomeOriginal: string;
+  colaborador?: HistNovoColaborador;
+  semanas: PdfExtractRegistro[];
+  baixaConfianca: number;
+}
 
-  const header = rows[0].map((h: any) => String(h ?? "").trim());
-  const idx = (name: string) => header.indexOf(name);
-  const iCd = idx("CdChamada"), iNome = idx("Nome do Funcionário"), iAlo = idx("Cod_Alocacao"),
-    iVessel = idx("Nome_Embarcacao"), iFuncao = idx("Funcao_Evento"), iEvento = idx("Evento"),
-    iDtIni = idx("Dt_Inicio"), iDtFim = idx("Dt_Fim"), iQtd = idx("Qtd_Horas"), iTurno = idx("Turno"),
-    iHeDe = idx("InicioHoraExtra"), iHeAte = idx("FimHoraExtra");
-  const required = { CdChamada: iCd, Cod_Alocacao: iAlo, Evento: iEvento, Dt_Inicio: iDtIni, Dt_Fim: iDtFim };
-  const missing = Object.entries(required).filter(([, i]) => i === -1).map(([k]) => k);
-  if (missing.length) throw new Error(`Colunas não encontradas na aba "Hist por Evento": ${missing.join(", ")}.`);
-
-  const ciclos = new Map<string, ParsedCiclo>();
-  for (const r of rows.slice(1)) {
-    if (!r.some((c) => c !== "")) continue;
-    const cd = String(r[iCd] ?? "").trim();
-    const alo = String(r[iAlo] ?? "").trim();
-    if (!cd || !alo) continue;
-    const matricula = cd.split("_")[0];
-    const dtIniSerial = Number(r[iDtIni]), dtFimSerial = Number(r[iDtFim]);
-    if (!dtIniSerial || !dtFimSerial) continue;
-    const dataInicio = excelSerialToISODate(dtIniSerial);
-    const dataFim = excelSerialToISODate(dtFimSerial);
-    const evento = String(r[iEvento] ?? "").trim();
-    const nomeVessel = iVessel !== -1 ? String(r[iVessel] ?? "").trim() : "";
-    const funcao = iFuncao !== -1 ? String(r[iFuncao] ?? "").trim() : "";
-
-    const chave = `${cd}::${alo}`;
-    if (!ciclos.has(chave)) {
-      ciclos.set(chave, {
-        matricula, nome: String(r[iNome] ?? "").trim(),
-        unidade_operacional: nomeVessel || null, funcao_embarque: funcao,
-        data_inicio: dataInicio, data_fim: dataFim,
-        porDia: new Map(),
-      });
+function agruparPdfPorColaborador(registros: PdfExtractRegistro[], colaboradores: HistNovoColaborador[]): PdfGrupoColaborador[] {
+  const porNome = new Map<string, PdfGrupoColaborador>();
+  registros.forEach((r) => {
+    const norm = normalizeName(r.nome);
+    if (!porNome.has(norm)) {
+      const match =
+        colaboradores.find((c) => normalizeName(c.nome) === norm) ??
+        colaboradores.find((c) => normalizeName(c.nome).includes(norm) || norm.includes(normalizeName(c.nome)));
+      porNome.set(norm, { nomeOriginal: r.nome, colaborador: match, semanas: [], baixaConfianca: 0 });
     }
-    const ciclo = ciclos.get(chave)!;
-    if (dataInicio < ciclo.data_inicio) ciclo.data_inicio = dataInicio;
-    if (dataFim > ciclo.data_fim) ciclo.data_fim = dataFim;
-    if (!ciclo.unidade_operacional && nomeVessel) ciclo.unidade_operacional = nomeVessel;
-    if (!ciclo.funcao_embarque && funcao) ciclo.funcao_embarque = funcao;
-
-    const noturno = iTurno !== -1 && String(r[iTurno] ?? "").trim() === "Noturno";
-    const datas = generateDateRange(dataInicio, dataFim);
-    for (const data of datas) {
-      const existente = ciclo.porDia.get(data) ?? {};
-      if (evento === "Hora Extra") {
-        const qtd = Number(r[iQtd]) || 0;
-        const de = iHeDe !== -1 && r[iHeDe] !== "" ? excelSerialToHHMM(Number(r[iHeDe])) : null;
-        const ate = iHeAte !== -1 && r[iHeAte] !== "" ? excelSerialToHHMM(Number(r[iHeAte])) : null;
-        existente.horaExtra = { qtd, de, ate };
-      } else if (evento) {
-        existente.evento = evento;
-      }
-      if (noturno) existente.noturno = true;
-      ciclo.porDia.set(data, existente);
-    }
-  }
-  return Array.from(ciclos.values());
+    const grupo = porNome.get(norm)!;
+    grupo.semanas.push(r);
+    if (r.confianca !== "alta") grupo.baixaConfianca++;
+  });
+  return Array.from(porNome.values()).sort((a, b) => a.nomeOriginal.localeCompare(b.nomeOriginal));
 }
 
 // Exportação do Relatório RH — usada pelo módulo de Relatórios (card "Relatório RH").
@@ -200,59 +187,95 @@ export async function generateRelatorioRH(
   dataFim: string = defaultEnd(),
   unidadeFiltro = "all",
 ): Promise<void> {
-  const [{ data: colaboradores }, { data: periodos }, { data: embarques }] = await Promise.all([
+  const [{ data: colaboradores }, embarques, periodosFI, todasSemanas] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    supabase.from("hist_novo_periodos").select("*"),
-    supabase.from("timesheet_embarques").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    // Folga Indenizada (tipo "FI") já vem pronta do Drake no Histograma — não é lançada aqui,
+    // só somada nesse relatório (mesma coluna 413, mesmo adicional de 100%).
+    selectAllPages<HistNovoPeriodo>((from, to) =>
+      supabase.from("hist_novo_periodos").select("*").eq("tipo", "FI")
+        .lte("data_inicio", dataFim).gte("data_fim", dataInicio).order("id").range(from, to),
+    ),
+    selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
-  const embarqueById = new Map(((embarques ?? []) as TimesheetEmbarque[]).map((e) => [e.id, e]));
-  const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
-  ((periodos ?? []) as HistNovoPeriodo[]).forEach((p) => {
-    if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
-    periodosByColaborador.get(p.colaborador_id)!.push(p);
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
+  const semanaById = new Map(todasSemanas.map((s) => [s.id, s]));
+  const semanasByEmbarqueId = new Map<string, TimesheetSemana[]>();
+  todasSemanas.forEach((s) => {
+    if (!semanasByEmbarqueId.has(s.embarque_id)) semanasByEmbarqueId.set(s.embarque_id, []);
+    semanasByEmbarqueId.get(s.embarque_id)!.push(s);
   });
 
   const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
 
-  const byColab = new Map<string, { colaborador: HistNovoColaborador; dias: DiaComEmbarque[] }>();
+  // Agrupado por embarque (não por colaborador): quem teve mais de um embarque no período
+  // entra com uma linha por embarque, mesmo repetindo o nome — a função pode mudar de um
+  // embarque pro outro, e os adicionais são contados por embarque, não somados no colaborador.
+  const byEmbarque = new Map<string, { colaborador: HistNovoColaborador; embarque: TimesheetEmbarque; dias: DiaComEmbarque[] }>();
   diasNoPeriodo.forEach((d) => {
     const embarque = embarqueById.get(d.embarque_id);
     if (!embarque) return;
     if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
     const colaborador = colabById.get(embarque.colaborador_id);
     if (!colaborador) return;
-    if (!byColab.has(colaborador.id)) byColab.set(colaborador.id, { colaborador, dias: [] });
-    byColab.get(colaborador.id)!.dias.push(d);
+    if (!byEmbarque.has(embarque.id)) byEmbarque.set(embarque.id, { colaborador, embarque, dias: [] });
+    byEmbarque.get(embarque.id)!.dias.push(d);
   });
 
-  const linhas = Array.from(byColab.values()).map(({ colaborador, dias }) => {
+  const linhas = Array.from(byEmbarque.values()).map(({ colaborador, embarque, dias }) => {
+    // 055/056/057/033 são por função — mas a função pode ter sido corrigida numa semana
+    // específica (funcao_override, ver formulário de lançamento), então cada dia usa a função
+    // efetiva da SUA semana, não a do embarque inteiro. 208/209 são por evento do dia (regra do
+    // Access, seção 16.5/16.6) — sem filtro de função, e sem contar Desembarque em 208.
     const counts: Record<AdicionalCode, number> = { "055": 0, "056": 0, "057": 0, "033": 0, "209": 0 };
-    let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasHoras = 0;
-    const colabPeriodos = periodosByColaborador.get(colaborador.id) ?? [];
+    let sobreavisoDias = 0;
+    let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasDias = 0;
     dias.forEach((d) => {
-      const embarque = embarqueById.get(d.embarque_id);
-      if (embarque) adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code]++; });
+      const funcaoDoDia = semanaById.get(d.semana_id)?.funcao_override || embarque.funcao_embarque || "";
+      adicionaisPorFuncao(funcaoDoDia).forEach((code) => { counts[code]++; });
+      if (isDiaSobreaviso(d.evento)) sobreavisoDias++;
+      if (isDiaPericulosidade(d.evento)) counts["209"]++;
       horaExtra += d.horas_extras ?? 0;
-      if (d.adicional_noturno) horasNoturno += d.total_horas ?? 0;
-      if (d.feriado) feriadoDias++;
-      if (computeDayStatus(colabPeriodos, d.data).status === "DB") dobrasHoras += d.total_horas ?? 0;
+      if (d.adicional_noturno) horasNoturno += horasNoturnas(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
+      // Feriado só conta nos dias de Embarque (não em folga/hotel/etc. que caiam num feriado).
+      if (d.feriado && d.evento === "Embarque") feriadoDias++;
+      // 413 - Dobras a bordo (100%): marcação manual (evento "Dobra") OU automático a partir do
+      // 15º dia do MESMO embarque (regra confirmada com a usuária — antes de 15 dias é 50%
+      // normal, não entra em 413) — sem contar o mesmo dia duas vezes.
+      const diaDoEmbarque = daysBetweenStr(embarque.data_inicio_embarque, d.data) + 1;
+      if (d.evento === "Dobra" || diaDoEmbarque >= 15) dobrasDias++;
     });
     return {
-      colaborador, counts,
+      colaborador, embarque, counts, sobreavisoDias,
       horaExtra: round2(horaExtra), horasNoturno: round2(horasNoturno),
-      feriadoDias, dobrasHoras: round2(dobrasHoras),
+      feriadoDias, dobrasDias,
     };
-  }).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
+  }).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome) || a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque));
+
+  // Folga Indenizada (100%) soma na mesma coluna 413 — o período FI não pertence a nenhum
+  // embarque (acontece entre dois embarques), então entra na linha do embarque seguinte desse
+  // colaborador; se não houver um embarque seguinte dentro do relatório, cai no mais recente.
+  periodosFI.forEach((p) => {
+    const linhasDoColaborador = linhas.filter((l) => l.colaborador.id === p.colaborador_id);
+    if (!linhasDoColaborador.length) return;
+    const dias = Math.max(0, daysBetweenStr(p.data_inicio, p.data_fim) + 1);
+    const seguinte = linhasDoColaborador
+      .filter((l) => l.embarque.data_inicio_embarque >= p.data_fim)
+      .sort((a, b) => a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque))[0];
+    const alvo = seguinte ?? linhasDoColaborador.sort((a, b) => b.embarque.data_inicio_embarque.localeCompare(a.embarque.data_inicio_embarque))[0];
+    alvo.dobrasDias += dias;
+  });
 
   const header = [
-    "Nome do Funcionário", "055 - Irata N1", "056 - Irata N2", "057 - Irata N3", "033 - Habitat",
+    "Nome do Funcionário", "Função", "055 - Irata N1", "056 - Irata N2", "057 - Irata N3", "033 - Habitat",
     "208 - Adic. Sobreaviso Prop. 20%", "209 - Adic. Periculosidade Prop. 30%",
-    "408 - Hora Extra a bordo +100%", "413 - Dobras a bordo", "220 - Feriado", "035 - Adicional Noturno",
+    "408 - Hora Extra a bordo +100%", "413 - Dobras a bordo", "035 - Adicional Noturno", "220 - Feriado",
   ];
   const dataRows = linhas.map((l) => [
-    l.colaborador.nome, l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
-    0, l.counts["209"], l.horaExtra, l.dobrasHoras, l.feriadoDias, l.horasNoturno,
+    l.colaborador.nome, funcaoEfetivaDoEmbarque(l.embarque, semanasByEmbarqueId.get(l.embarque.id) ?? []),
+    l.counts["055"], l.counts["056"], l.counts["057"], l.counts["033"],
+    l.sobreavisoDias, l.counts["209"], l.horaExtra, l.dobrasDias, l.horasNoturno, l.feriadoDias,
   ]);
   const aoa = [
     ["Step Oil & Gas"],
@@ -268,18 +291,106 @@ export async function generateRelatorioRH(
   XLSX.writeFile(wb, `Relatorio_RH_${dataInicio}_${dataFim}.xlsx`);
 }
 
+// Turno (Diurno/Noturno) a partir do horário de entrada/saída — jornada que cruza a virada do
+// dia (saída "menor" que entrada) conta como Noturno, igual à convenção já usada no legado.
+function turnoDoDia(entrada: string | null, saida: string | null): string {
+  const e = parseHHMM(entrada);
+  const s = parseHHMM(saida);
+  if (e == null || s == null) return "—";
+  return s <= e ? "Noturno" : "Diurno";
+}
+
+// Exportação do Relatório "Timesheets Lançados" — usada pelo módulo de Relatórios. Uma linha
+// por dia lançado (timesheet_dias), no mesmo formato do relatório de migração do Access
+// (Colaborador/Unidade/BSP/datas de embarque/evento/função/jornada/hora extra/comentários).
+export async function generateRelatorioTimesheetsLancados(
+  dataInicio: string = defaultStart(),
+  dataFim: string = defaultEnd(),
+): Promise<void> {
+  const [{ data: colaboradores }, embarques] = await Promise.all([
+    supabase.from("hist_novo_colaboradores").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+  ]);
+  const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
+
+  const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
+
+  const linhas = diasNoPeriodo
+    .map((d) => {
+      const embarque = embarqueById.get(d.embarque_id);
+      const colaborador = embarque ? colabById.get(embarque.colaborador_id) : undefined;
+      if (!embarque || !colaborador) return null;
+      const turno = turnoDoDia(d.hora_entrada, d.hora_saida);
+      const jornadaDescricao = d.hora_entrada && d.hora_saida ? `${turno} ${d.hora_entrada}|${d.hora_saida}hs` : "—";
+      return {
+        data: d.data,
+        dataFmt: fmt(d.data),
+        colaborador: colaborador.nome,
+        unidade: embarque.unidade_operacional ?? "—",
+        bsp: d.bsp || embarque.bsp || "—",
+        dataEmbarque: fmt(embarque.data_inicio_embarque),
+        dataDesembarque: fmt(embarque.data_fim_embarque),
+        evento: d.evento ?? "—",
+        funcaoEmbarque: embarque.funcao_embarque || "—",
+        funcaoColaborador: colaborador.funcao_operacao || colaborador.funcao || "—",
+        turno,
+        jornadaDescricao,
+        jornadaInicio: d.hora_entrada ?? "—",
+        jornadaTermino: d.hora_saida ?? "—",
+        inicioHoraExtra: d.hora_entrada_extra ?? "—",
+        fimHoraExtra: d.hora_saida_extra ?? "—",
+        totalHoras: d.total_horas ?? 0,
+        comentarios: d.descricao_tarefa ?? "",
+      };
+    })
+    .filter((l): l is NonNullable<typeof l> => l !== null)
+    .sort((a, b) => a.colaborador.localeCompare(b.colaborador) || a.data.localeCompare(b.data));
+
+  const header = [
+    "Colaborador", "Data", "Unidade", "BSP", "Dt Embarque", "Dt Desembarque", "Descrição do Evento",
+    "Função de Embarque", "Função do Colaborador", "Turno", "Descrição da Jornada",
+    "Jornada Início", "Jornada Término", "Início Hora Extra", "Fim Hora Extra",
+    "Qtd. Horas Totais", "Comentários",
+  ];
+  const dataRows = linhas.map((l) => [
+    l.colaborador, l.dataFmt, l.unidade, l.bsp, l.dataEmbarque, l.dataDesembarque, l.evento,
+    l.funcaoEmbarque, l.funcaoColaborador, l.turno, l.jornadaDescricao,
+    l.jornadaInicio, l.jornadaTermino, l.inicioHoraExtra, l.fimHoraExtra,
+    l.totalHoras, l.comentarios,
+  ]);
+  const aoa = [
+    ["Step Oil & Gas"],
+    [`Timesheets Lançados — ${fmt(dataInicio)} a ${fmt(dataFim)}`],
+    [],
+    header,
+    ...dataRows,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = header.map(() => ({ wch: 20 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Timesheets Lançados");
+  XLSX.writeFile(wb, `Timesheets_Lancados_${dataInicio}_${dataFim}.xlsx`);
+}
+
 // Exportação do Relatório Medição — usada pelo módulo de Relatórios (card "Relatório Medição").
 export async function generateRelatorioMedicao(
   dataInicio: string = defaultStart(),
   dataFim: string = defaultEnd(),
   unidadeFiltro = "all",
 ): Promise<void> {
-  const [{ data: colaboradores }, { data: embarques }] = await Promise.all([
+  const [{ data: colaboradores }, embarques, periodos] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
-    supabase.from("timesheet_embarques").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
-  const embarqueById = new Map(((embarques ?? []) as TimesheetEmbarque[]).map((e) => [e.id, e]));
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
+  const periodosByColaborador = new Map<string, HistNovoPeriodo[]>();
+  periodos.forEach((p) => {
+    if (!periodosByColaborador.has(p.colaborador_id)) periodosByColaborador.set(p.colaborador_id, []);
+    periodosByColaborador.get(p.colaborador_id)!.push(p);
+  });
 
   const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
 
@@ -290,7 +401,11 @@ export async function generateRelatorioMedicao(
     if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
     const colaborador = colabById.get(embarque.colaborador_id);
     if (!colaborador) return;
-    const bsp = embarque.bsp || "—";
+    // O embarque pode ter sido lançado sem BSP preenchido (ex.: import do Access, que não traz
+    // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
+    // (mesmo conceito de BSP, só que vindo do relatório Drake).
+    const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
+    const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
     const chave = `${colaborador.id}::${bsp}`;
     if (!porChave.has(chave)) {
       porChave.set(chave, {
@@ -324,55 +439,113 @@ export async function generateRelatorioMedicao(
   XLSX.writeFile(wb, `Relatorio_Medicao_${dataInicio}_${dataFim}.xlsx`);
 }
 
+// Relatório Folha de Pagamento / RH — réplica da consulta Con_FP_Novo do sistema legado em
+// Access. Uma linha por lançamento (dia), sem agregação; a soma por colaborador, se precisar,
+// é feita depois em cima desse resultado (igual ao Access). Regras de filtro (confirmadas
+// contra o legado):
+//   1. Excluir = false: não existe soft-delete em timesheet_dias — um lançamento apagado é
+//      removido de verdade da tabela, então esse filtro já é automático (nenhuma linha
+//      "excluída" pode aparecer aqui).
+//   2. Qtd_Horas > 0 (confirmado direto no SQL da Con_FP_Novo real, não é só "IS NOT NULL"):
+//      mapeado pra total_horas > 0 — além de rascunhos sem horas, também ficam de fora
+//      lançamentos com 0 horas.
+//   3. data_inicio BETWEEN Data_Inicial AND Data_Final: mapeado pra data BETWEEN dataInicio E
+//      dataFim — timesheet_dias guarda 1 dia por linha (não uma faixa), então a própria coluna
+//      "data" já é ao mesmo tempo início e fim do lançamento.
+// NaoPassivelMedicao não é filtrado aqui de propósito — não existe no schema atual e é
+// exclusivo do relatório de Medição/faturamento ao cliente, não deste.
+export async function generateRelatorioFolhaRH(
+  dataInicio: string = defaultStart(),
+  dataFim: string = defaultEnd(),
+): Promise<void> {
+  const [{ data: colaboradores }, embarques] = await Promise.all([
+    supabase.from("hist_novo_colaboradores").select("*"),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+  ]);
+  const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
+  const embarqueById = new Map(embarques.map((e) => [e.id, e]));
+
+  const diasNoPeriodo = await fetchDiasNoPeriodo(dataInicio, dataFim);
+
+  const linhas = diasNoPeriodo
+    .filter((d) => (d.total_horas ?? 0) > 0) // regra 2 — Qtd_Horas > 0
+    .map((d) => {
+      const embarque = embarqueById.get(d.embarque_id);
+      const colaborador = embarque ? colabById.get(embarque.colaborador_id) : undefined;
+      return {
+        colaborador: colaborador?.nome ?? "—",
+        embarcacao: embarque?.unidade_operacional ?? "—",
+        funcao: embarque?.funcao_embarque ?? "—",
+        tipo_evento: d.evento ?? "—",
+        data_inicio: d.data,
+        data_fim: d.data,
+        quantidade_horas: d.total_horas,
+        comentarios: d.descricao_tarefa ?? "",
+      };
+    })
+    .sort((a, b) => a.colaborador.localeCompare(b.colaborador) || a.data_inicio.localeCompare(b.data_inicio));
+
+  const header = ["Colaborador", "Embarcação", "Função", "Tipo de Evento", "Data Início", "Data Fim", "Quantidade de Horas", "Comentários"];
+  const dataRows = linhas.map((l) => [
+    l.colaborador, l.embarcacao, l.funcao, l.tipo_evento, fmt(l.data_inicio), fmt(l.data_fim), l.quantidade_horas, l.comentarios,
+  ]);
+  const aoa = [
+    ["Step Oil & Gas"],
+    [`Relatório Folha de Pagamento / RH — ${fmt(dataInicio)} a ${fmt(dataFim)}`],
+    [],
+    header,
+    ...dataRows,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = header.map(() => ({ wch: 22 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Folha RH");
+  XLSX.writeFile(wb, `Relatorio_Folha_RH_${dataInicio}_${dataFim}.xlsx`);
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 function TimesheetOffshore() {
+  // Todas as tabelas abaixo já passam de 1000 linhas — sem paginação o Supabase corta em
+  // silêncio (era o motivo real de "sumiu" BSP/colaborador/dia em várias telas).
   const { data: colaboradores = [], isLoading: l1 } = useQuery({
     queryKey: ["hist-novo-colaboradores"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("hist_novo_colaboradores").select("*").order("nome");
-      if (error) throw error;
-      return (data ?? []) as HistNovoColaborador[];
-    },
+    queryFn: () => selectAllPages<HistNovoColaborador>((from, to) => supabase.from("hist_novo_colaboradores").select("*").order("nome").order("id").range(from, to)),
   });
 
   const { data: periodos = [], isLoading: l2 } = useQuery({
     queryKey: ["hist-novo-periodos"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("hist_novo_periodos").select("*");
-      if (error) throw error;
-      return (data ?? []) as HistNovoPeriodo[];
-    },
+    queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const { data: embarques = [], isLoading: l3 } = useQuery({
     queryKey: ["timesheet-embarques"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_embarques").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetEmbarque[];
-    },
+    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const { data: semanas = [], isLoading: l4 } = useQuery({
     queryKey: ["timesheet-semanas-all"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_semanas").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetSemana[];
-    },
+    queryFn: () => selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const { data: dias = [], isLoading: l5 } = useQuery({
     queryKey: ["timesheet-dias-all"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("timesheet_dias").select("*");
-      if (error) throw error;
-      return (data ?? []) as TimesheetDia[];
-    },
+    queryFn: () => selectAllPages<TimesheetDia>((from, to) => supabase.from("timesheet_dias").select("*").gte("data", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
+
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set([
+      ...UNIDADES_OPERACIONAIS_FIXAS,
+      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
+    ])).sort(),
+    [periodos],
+  );
+
+  // Visitante só consulta esse módulo — nenhuma ação de lançar/editar/excluir fica visível.
+  const { role } = useAuth();
+  const readOnly = role === "visitante";
 
   if (l1 || l2 || l3 || l4 || l5) {
     return (
@@ -412,43 +585,22 @@ function TimesheetOffshore() {
     );
   }
 
-  const unidadeOptions = useMemo(
-    () => Array.from(new Set([
-      ...UNIDADES_OPERACIONAIS_FIXAS,
-      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
-    ])).sort(),
-    [periodos],
-  );
-
-  // Visitante só consulta esse módulo — nenhuma ação de lançar/editar/excluir fica visível.
-  const { role } = useAuth();
-  const readOnly = role === "visitante";
-
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Timesheet Offshore</h1>
-        <p className="text-sm text-muted-foreground">Controle de timesheets físicos por embarque, lançamento semanal e relatório de RH.</p>
       </div>
 
       <Tabs defaultValue="embarques">
         <TabsList>
           <TabsTrigger value="embarques">Lançamento por período</TabsTrigger>
-          <TabsTrigger value="pendentes">Pendentes de Lançamento</TabsTrigger>
-          <TabsTrigger value="relatorio">Relatório RH</TabsTrigger>
-          <TabsTrigger value="medicao">Relatório Medição</TabsTrigger>
+          <TabsTrigger value="pendencias">Timesheets Pendentes</TabsTrigger>
         </TabsList>
         <TabsContent value="embarques" className="mt-4">
           <EmbarquesTab colaboradores={colaboradores} periodos={periodos} periodosE={periodosE} embarques={embarques} semanas={semanas} dias={dias} unidadeOptions={unidadeOptions} readOnly={readOnly} />
         </TabsContent>
-        <TabsContent value="pendentes" className="mt-4">
-          <PendentesTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} semanas={semanas} dias={dias} />
-        </TabsContent>
-        <TabsContent value="relatorio" className="mt-4">
-          <RelatorioTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} />
-        </TabsContent>
-        <TabsContent value="medicao" className="mt-4">
-          <MedicaoTab colaboradores={colaboradores} embarques={embarques} />
+        <TabsContent value="pendencias" className="mt-4">
+          <PendenciasTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} semanas={semanas} unidadeOptions={unidadeOptions} readOnly={readOnly} />
         </TabsContent>
       </Tabs>
     </div>
@@ -498,7 +650,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-          <Command>
+          <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
             <CommandInput placeholder="Buscar por nome ou matrícula..." />
             <CommandList>
               <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
@@ -524,7 +676,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Novo colaborador</DialogTitle></DialogHeader>
-          <div className="grid gap-3" onKeyDown={focusNextOnEnter}>
+          <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
             <div><Label className="text-xs">Matrícula</Label><Input value={nf.matricula} onChange={(e) => setNf({ ...nf, matricula: e.target.value })} /></div>
             <div><Label className="text-xs">Nome</Label><Input value={nf.nome} onChange={(e) => setNf({ ...nf, nome: e.target.value })} /></div>
             <div><Label className="text-xs">Empresa</Label><Input value={nf.empresa} onChange={(e) => setNf({ ...nf, empresa: e.target.value })} /></div>
@@ -544,21 +696,28 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
 // livremente (ou cadastrado na hora) e as datas são digitadas manualmente. O cruzamento com
 // hist_novo_periodos acontece depois, por comparação de datas (ver diasFaltandoNoHistograma),
 // não por vínculo obrigatório.
-function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions, onCreated }: {
+function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unidadeOptions, onCreated }: {
   open: boolean; onOpenChange: (o: boolean) => void;
-  colaboradores: HistNovoColaborador[]; unidadeOptions: string[];
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; unidadeOptions: string[];
   onCreated?: (embarque: TimesheetEmbarque) => void;
 }) {
   const qc = useQueryClient();
   const [f, setF] = useState({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+  // Quando a unidade escolhida já tem mais de um BSP conhecido no histórico, mostra uma lista
+  // em vez de campo livre — reduz erro de digitação. "Outro" volta pro campo livre (BSP novo
+  // que ainda não apareceu em nenhum período dessa unidade).
+  const [bspManual, setBspManual] = useState(false);
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   useEffect(() => {
-    if (!open) setF({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
+    if (!open) { setF({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" }); setBspManual(false); }
   }, [open]);
 
   const onSelectColaborador = (id: string) => {
     const c = colaboradores.find((x) => x.id === id);
-    const nomeFuncao = (c?.funcao_operacao ?? c?.funcao ?? "").toUpperCase();
+    // "funcao" (função de embarque) é a que bate com os rates — "funcao_operacao" é a função
+    // de carteira, mais genérica/interna.
+    const nomeFuncao = (c?.funcao ?? c?.funcao_operacao ?? "").toUpperCase();
     const sugerida = FUNCOES_EMBARQUE.find((fn) => fn.toUpperCase() === nomeFuncao) ?? "";
     setF((prev) => ({ ...prev, colaboradorId: id, funcao_embarque: prev.funcao_embarque || sugerida }));
   };
@@ -579,10 +738,16 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
         status_entrega: "pendente",
       }).select("*").single();
       if (error) throw error;
+      // Gera as semanas + dias automaticamente (blocos de 7 dias a partir da data real de
+      // início, sem alinhar à segunda-feira) — não precisa mais clicar em "+ Nova Semana"
+      // pra começar a lançar horas.
+      await gerarSemanasEDias(supabase, data.id, f.data_inicio, f.data_fim, f.bsp.trim() || null);
       return data as TimesheetEmbarque;
     },
     onSuccess: (embarque) => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
+      qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       notify.success("Embarque lançado");
       onOpenChange(false);
       onCreated?.(embarque);
@@ -594,7 +759,7 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Novo embarque</DialogTitle></DialogHeader>
-        <div className="grid gap-3" onKeyDown={focusNextOnEnter}>
+        <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
           <div>
             <Label className="text-xs">Colaborador</Label>
             <ColaboradorCombobox colaboradores={colaboradores} value={f.colaboradorId} onChange={onSelectColaborador} />
@@ -602,14 +767,24 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Unidade Operacional</Label>
-              <Select value={f.unidade_operacional} onValueChange={(v) => setF({ ...f, unidade_operacional: v })}>
+              <Select value={f.unidade_operacional} onValueChange={(v) => { setF({ ...f, unidade_operacional: v, bsp: "" }); setBspManual(false); }}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
               <Label className="text-xs">BSP</Label>
-              <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              {bspOptions.length > 1 && !bspManual ? (
+                <Select value={f.bsp} onValueChange={(v) => v === "__outro__" ? setBspManual(true) : setF({ ...f, bsp: v })}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                  <SelectContent>
+                    {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                    <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              )}
             </div>
           </div>
           <div>
@@ -638,17 +813,107 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, unidadeOptions,
   );
 }
 
+// Painel de atividade recente — últimas semanas marcadas como recebidas ("Salvar semana"),
+// com quem lançou e quando, mais um resumo de quantas foram lançadas hoje. Só existe registro
+// de quem lançou a partir de quando as colunas recebido_por/recebido_em foram criadas —
+// lançamentos anteriores a isso aparecem sem essa informação (não têm como ser recuperados).
+function fmtHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+function fmtData(iso: string): string {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
+  semanas: TimesheetSemana[]; embarques: TimesheetEmbarque[]; colaboradores: HistNovoColaborador[];
+}) {
+  const colaboradorPorEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.colaborador_id])), [embarques]);
+  const nomePorColaboradorId = useMemo(() => new Map(colaboradores.map((c) => [c.id, c.nome])), [colaboradores]);
+
+  const recentes = useMemo(
+    () => semanas
+      .filter((s): s is TimesheetSemana & { recebido_em: string } => !!s.recebido_em)
+      .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em))
+      .slice(0, 8),
+    [semanas],
+  );
+
+  const idsExecutores = useMemo(
+    () => Array.from(new Set(recentes.map((s) => s.recebido_por).filter((id): id is string => !!id))),
+    [recentes],
+  );
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["profiles-timesheet-recente", idsExecutores],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("id, full_name, email").in("id", idsExecutores);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: idsExecutores.length > 0,
+  });
+  const nomeExecutorById = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name || p.email])), [profiles]);
+
+  const hoje = todayStr();
+  const lancadosHoje = useMemo(() => semanas.filter((s) => s.data_recebimento === hoje).length, [semanas, hoje]);
+
+  return (
+    <Card className="flex w-full flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3 lg:w-64 lg:shrink-0">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">Últimas Atualizações</h3>
+        <span className="flex shrink-0 items-baseline gap-1 rounded-md bg-primary/15 px-2 py-0.5">
+          <span className="text-sm font-bold leading-none text-primary">{lancadosHoje}</span>
+          <span className="text-[9px] uppercase leading-none tracking-wide text-muted-foreground">hoje</span>
+        </span>
+      </div>
+
+      {recentes.length === 0 ? (
+        <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum lançamento registrado ainda.</p>
+      ) : (
+        <div className="flex-1 space-y-1.5 overflow-auto pr-1">
+          {recentes.map((s) => {
+            const colaboradorId = colaboradorPorEmbarqueId.get(s.embarque_id);
+            const nomeColaborador = colaboradorId ? nomePorColaboradorId.get(colaboradorId) : null;
+            const executor = s.recebido_por ? nomeExecutorById.get(s.recebido_por) : null;
+            return (
+              <div key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-primary/10 bg-background/60 px-2 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium">{nomeColaborador ?? "—"}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {fmtData(s.recebido_em!)}{executor ? ` · ${executor}` : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary">
+                  {fmtHora(s.recebido_em!)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ─── Aba 1: Embarques ────────────────────────────────────────────────────────
+
+type EmbarquesSortColumn = "colaborador" | "funcao" | "unidade" | "bsp";
 
 function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, dias, unidadeOptions, readOnly = false }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; periodosE: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; dias: TimesheetDia[]; unidadeOptions: string[]; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  // De/Até ficam salvos no navegador — o período escolhido permanece selecionado entre
+  // sessões até a usuária trocar de novo, em vez de voltar em branco a cada acesso.
+  const [filterDe, setFilterDe] = useState(() => readPeriodoSalvo().de);
+  const [filterAte, setFilterAte] = useState(() => readPeriodoSalvo().ate);
+  useEffect(() => { salvarPeriodo(filterDe, filterAte); }, [filterDe, filterAte]);
   const [novoOpen, setNovoOpen] = useState(false);
   const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
   const [editandoEmbarque, setEditandoEmbarque] = useState<TimesheetEmbarque | null>(null);
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<EmbarquesSortColumn>();
 
   const excluirEmbarque = useMutation({
     mutationFn: async (embarque: TimesheetEmbarque) => {
@@ -672,124 +937,108 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     onError: (e: any) => notify.error(e.message),
   });
 
-  const fileRefAccess = useRef<HTMLInputElement>(null);
+  // ── Import dos PDFs de timesheet físico (já extraídos previamente pra src/data) ──
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const pdfGrupos = useMemo(
+    () => agruparPdfPorColaborador((pdfExtractData as { registros: PdfExtractRegistro[] }).registros, colaboradores),
+    [colaboradores],
+  );
 
-  const importAccess = useMutation({
-    mutationFn: async (ciclos: ParsedCiclo[]) => {
-      const matriculas = Array.from(new Set(ciclos.map((c) => c.matricula)));
-      const existentes: HistNovoColaborador[] = [];
-      for (const lote of chunk(matriculas, 300)) {
-        const { data, error } = await supabase.from("hist_novo_colaboradores").select("*").in("matricula", lote);
-        if (error) throw error;
-        existentes.push(...((data ?? []) as HistNovoColaborador[]));
-      }
-      const idByMatricula = new Map(existentes.map((c) => [c.matricula, c.id]));
-
-      const paraCriar = matriculas.filter((m) => !idByMatricula.has(m));
-      let colaboradoresCriados = 0;
-      if (paraCriar.length) {
-        const nomeByMatricula = new Map(ciclos.map((c) => [c.matricula, c.nome]));
-        const toInsert = paraCriar.map((m) => ({ matricula: m, nome: nomeByMatricula.get(m) || m }));
-        const { data, error } = await supabase.from("hist_novo_colaboradores").insert(toInsert).select("*");
-        if (error) throw error;
-        (data ?? []).forEach((c: any) => idByMatricula.set(c.matricula, c.id));
-        colaboradoresCriados = toInsert.length;
-      }
-
-      // Checagem de sobreposição de datas por colaborador — pra não duplicar embarques se o
-      // import rodar de novo (ex.: engano, ou reimportar depois de corrigir algo na planilha).
-      const { data: embarquesExistentes, error: embErr } = await supabase
-        .from("timesheet_embarques").select("colaborador_id, data_inicio_embarque, data_fim_embarque");
-      if (embErr) throw embErr;
+  const importPdfs = useMutation({
+    mutationFn: async (grupos: PdfGrupoColaborador[]) => {
+      const embarquesExistentes = await selectAllPages<{ colaborador_id: string; data_inicio_embarque: string; data_fim_embarque: string }>(
+        (from, to) => supabase.from("timesheet_embarques").select("colaborador_id, data_inicio_embarque, data_fim_embarque").order("colaborador_id").range(from, to),
+      );
       const porColaborador = new Map<string, { data_inicio_embarque: string; data_fim_embarque: string }[]>();
-      (embarquesExistentes ?? []).forEach((e: any) => {
+      embarquesExistentes.forEach((e) => {
         if (!porColaborador.has(e.colaborador_id)) porColaborador.set(e.colaborador_id, []);
         porColaborador.get(e.colaborador_id)!.push(e);
       });
       const sobrepoe = (colaboradorId: string, inicio: string, fim: string) =>
         (porColaborador.get(colaboradorId) ?? []).some((e) => e.data_inicio_embarque <= fim && e.data_fim_embarque >= inicio);
 
-      let ciclosImportados = 0, ciclosIgnorados = 0, semanasCount = 0, diasCount = 0;
-      for (const ciclo of ciclos) {
-        const colaboradorId = idByMatricula.get(ciclo.matricula);
-        if (!colaboradorId || sobrepoe(colaboradorId, ciclo.data_inicio, ciclo.data_fim)) { ciclosIgnorados++; continue; }
+      let embarquesCriados = 0, ciclosIgnorados = 0, semanasCount = 0, diasCount = 0;
 
-        const { data: embarque, error: insErr } = await supabase.from("timesheet_embarques").insert({
-          colaborador_id: colaboradorId, periodo_id: null,
-          unidade_operacional: ciclo.unidade_operacional, bsp: null,
-          funcao_embarque: ciclo.funcao_embarque || "—",
-          data_inicio_embarque: ciclo.data_inicio, data_fim_embarque: ciclo.data_fim,
-          status_entrega: "pendente",
-        }).select("*").single();
-        if (insErr) throw insErr;
-        if (!porColaborador.has(colaboradorId)) porColaborador.set(colaboradorId, []);
-        porColaborador.get(colaboradorId)!.push({ data_inicio_embarque: ciclo.data_inicio, data_fim_embarque: ciclo.data_fim });
+      for (const grupo of grupos) {
+        if (!grupo.colaborador) continue;
+        const colaboradorId = grupo.colaborador.id;
+        const semanasOrdenadas = [...grupo.semanas].sort((a, b) => a.semana_inicio.localeCompare(b.semana_inicio));
 
-        const semanasToInsert: { embarque_id: string; data_inicio_semana: string; data_fim_semana: string; recebido_fisico: boolean; data_recebimento: string }[] = [];
-        const semanaDatesList: string[][] = [];
-        for (let semanaInicio = mondayOf(ciclo.data_inicio); semanaInicio <= ciclo.data_fim; semanaInicio = addDaysStr(semanaInicio, 7)) {
-          const datas = weekDates(semanaInicio);
-          semanasToInsert.push({ embarque_id: embarque.id, data_inicio_semana: semanaInicio, data_fim_semana: datas[6], recebido_fisico: true, data_recebimento: todayStr() });
-          semanaDatesList.push(datas);
-        }
-        const { data: semanasInseridas, error: semErr } = await supabase.from("timesheet_semanas").insert(semanasToInsert).select("*");
-        if (semErr) throw semErr;
-        semanasCount += semanasInseridas?.length ?? 0;
-
-        const diasToInsert: any[] = [];
-        (semanasInseridas ?? []).forEach((semana: any, i: number) => {
-          semanaDatesList[i].forEach((data) => {
-            const info = ciclo.porDia.get(data);
-            const extrasQtd = info?.horaExtra?.qtd ?? 0;
-            diasToInsert.push({
-              semana_id: semana.id, data, dia_semana: weekdayLabel(data),
-              evento: info?.evento ?? null,
-              hora_entrada_extra: info?.horaExtra?.de ?? null, hora_saida_extra: info?.horaExtra?.ate ?? null,
-              horas_normais: 12, horas_extras: extrasQtd || null, total_horas: 12 + extrasQtd,
-              adicional_noturno: !!info?.noturno || (info?.horaExtra ? suggestAdicionalNoturno(info.horaExtra.de, info.horaExtra.ate) : false),
-              feriado: false,
-            });
-          });
+        // Agrupa semanas consecutivas (sem lacuna) do mesmo colaborador num único ciclo de embarque.
+        const ciclos: PdfExtractRegistro[][] = [];
+        let atual: PdfExtractRegistro[] = [];
+        semanasOrdenadas.forEach((semana) => {
+          const anterior = atual[atual.length - 1];
+          if (anterior && addDaysStr(anterior.semana_fim, 1) !== semana.semana_inicio) {
+            ciclos.push(atual);
+            atual = [];
+          }
+          atual.push(semana);
         });
-        for (const lote of chunk(diasToInsert, 500)) {
-          const { error: diasErr } = await supabase.from("timesheet_dias").insert(lote);
-          if (diasErr) throw diasErr;
+        if (atual.length) ciclos.push(atual);
+
+        for (const ciclo of ciclos) {
+          const inicio = ciclo[0].semana_inicio;
+          const fim = ciclo[ciclo.length - 1].semana_fim;
+          if (sobrepoe(colaboradorId, inicio, fim)) { ciclosIgnorados++; continue; }
+
+          const { data: embarque, error: insErr } = await supabase.from("timesheet_embarques").insert({
+            colaborador_id: colaboradorId, periodo_id: null,
+            unidade_operacional: ciclo[0].embarcacao ? normalizarUnidadeOperacional(ciclo[0].embarcacao, unidadeOptions) : null,
+            bsp: ciclo[0].bsp || null,
+            funcao_embarque: ciclo[0].funcao || "—",
+            data_inicio_embarque: inicio, data_fim_embarque: fim,
+            status_entrega: "pendente",
+          }).select("*").single();
+          if (insErr) throw insErr;
+          if (!porColaborador.has(colaboradorId)) porColaborador.set(colaboradorId, []);
+          porColaborador.get(colaboradorId)!.push({ data_inicio_embarque: inicio, data_fim_embarque: fim });
+          embarquesCriados++;
+
+          for (const semana of ciclo) {
+            const { data: semanaInserida, error: semErr } = await supabase.from("timesheet_semanas").insert({
+              embarque_id: embarque.id, data_inicio_semana: semana.semana_inicio, data_fim_semana: semana.semana_fim,
+              recebido_fisico: true, data_recebimento: todayStr(),
+            }).select("*").single();
+            if (semErr) throw semErr;
+            semanasCount++;
+
+            const diasToInsert = semana.dias.map((d) => ({
+              semana_id: semanaInserida.id, data: d.data, dia_semana: weekdayLabel(d.data),
+              descricao_tarefa: d.tarefa, numero_tarefa: d.numero_tarefa,
+              hora_entrada: d.entrada, hora_saida: d.saida,
+              evento: normalizarEvento(d.evento),
+              horas_normais: d.horas_normais, horas_extras: d.horas_extras, total_horas: d.total,
+              adicional_noturno: suggestAdicionalNoturno(d.entrada, d.saida),
+              feriado: false,
+            }));
+            if (diasToInsert.length) {
+              const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasToInsert);
+              if (diasErr) throw diasErr;
+              diasCount += diasToInsert.length;
+            }
+          }
+
+          const total = totalSemanasEsperadas(inicio, fim);
+          const status = computeStatusEntrega(ciclo.length, total);
+          await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
         }
-        diasCount += diasToInsert.length;
-
-        const total = totalSemanasEsperadas(ciclo.data_inicio, ciclo.data_fim);
-        const status = computeStatusEntrega(semanasInseridas?.length ?? 0, total);
-        await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
-
-        ciclosImportados++;
       }
 
-      return { colaboradoresCriados, ciclosImportados, ciclosIgnorados, semanas: semanasCount, dias: diasCount };
+      return { embarquesCriados, ciclosIgnorados, semanas: semanasCount, dias: diasCount };
     },
-    onSuccess: ({ colaboradoresCriados, ciclosImportados, ciclosIgnorados, semanas, dias }) => {
+    onSuccess: ({ embarquesCriados, ciclosIgnorados, semanas, dias }) => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
       qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
       qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       notify.success(
-        `Importado: ${colaboradoresCriados} colaborador(es) criado(s), ${ciclosImportados} ciclo(s) de embarque, ${semanas} semana(s), ${dias} dia(s).` +
-        (ciclosIgnorados > 0 ? ` ${ciclosIgnorados} ciclo(s) ignorado(s) (colaborador não encontrado ou já havia embarque com datas sobrepostas).` : ""),
+        `Importado: ${embarquesCriados} embarque(s), ${semanas} semana(s), ${dias} dia(s).` +
+        (ciclosIgnorados > 0 ? ` ${ciclosIgnorados} ciclo(s) ignorado(s) (já havia embarque com datas sobrepostas).` : ""),
       );
+      setPdfPreviewOpen(false);
     },
-    onError: (e: any) => notify.error(e.message || "Erro ao importar planilha."),
+    onError: (e: any) => notify.error(e.message || "Erro ao importar PDFs."),
   });
-
-  const onImportAccess = async (file: File) => {
-    try {
-      const buf = await file.arrayBuffer();
-      const ciclos = parseAccessTimesheetWorkbook(buf);
-      if (!ciclos.length) { notify.error("Nenhum ciclo de embarque encontrado na planilha."); return; }
-      importAccess.mutate(ciclos);
-    } catch (e: any) {
-      notify.error(e.message || "Erro ao ler a planilha.");
-    } finally {
-      if (fileRefAccess.current) fileRefAccess.current.value = "";
-    }
-  };
 
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
   const periodosByColaborador = useMemo(() => {
@@ -825,63 +1074,147 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     return m;
   }, [dias, semanas, embarques]);
 
+  const semanasByEmbarqueIdRows = useMemo(() => {
+    const m = new Map<string, TimesheetSemana[]>();
+    semanas.forEach((s) => {
+      if (!m.has(s.embarque_id)) m.set(s.embarque_id, []);
+      m.get(s.embarque_id)!.push(s);
+    });
+    return m;
+  }, [semanas]);
+
   const rows = useMemo(() => embarques.map((embarque) => {
     const colaborador = colabById.get(embarque.colaborador_id);
     const diasFaltando = diasFaltandoNoHistograma(
       periodosEByColaborador.get(embarque.colaborador_id) ?? [],
       diasSalvosPorColaborador.get(embarque.colaborador_id) ?? new Set(),
     );
-    return { embarque, colaborador, diasFaltando };
-  }), [embarques, colabById, periodosEByColaborador, diasSalvosPorColaborador]);
+    const funcaoEfetiva = funcaoEfetivaDoEmbarque(embarque, semanasByEmbarqueIdRows.get(embarque.id) ?? []);
+    return { embarque, colaborador, diasFaltando, funcaoEfetiva };
+  }), [embarques, colabById, periodosEByColaborador, diasSalvosPorColaborador, semanasByEmbarqueIdRows]);
+
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
 
   const filtered = rows.filter((r) =>
     (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
-    (!filterNome || (r.colaborador?.nome ?? "").toLowerCase().includes(filterNome.toLowerCase())),
-  );
+    (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
+    (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
+    (!filterDe || r.embarque.data_fim_embarque >= filterDe) &&
+    (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
+  ).sort((a, b) => {
+    if (!sortColumn) return 0;
+    const dir = sortDirection === "asc" ? 1 : -1;
+    switch (sortColumn) {
+      case "colaborador":
+        return dir * (a.colaborador?.nome ?? "").localeCompare(b.colaborador?.nome ?? "");
+      case "funcao":
+        return dir * a.funcaoEfetiva.localeCompare(b.funcaoEfetiva);
+      case "unidade":
+        return dir * (a.embarque.unidade_operacional ?? "").localeCompare(b.embarque.unidade_operacional ?? "");
+      case "bsp":
+        return dir * [a.embarque.bsp, a.embarque.bsp_2].filter(Boolean).join(" · ").localeCompare([b.embarque.bsp, b.embarque.bsp_2].filter(Boolean).join(" · "));
+      default:
+        return 0;
+    }
+  });
+
+  // Cartões por Unidade — mesmo critério de sobreposição de datas usado no filtro da tabela
+  // abaixo (por embarque, não por timesheet_dias já lançado): um colaborador cujo embarque
+  // cobre o período aparece mesmo que os dias ainda não tenham sido gerados/lançados um a um,
+  // senão o cartão ficava incompleto em relação à tabela que ele mesmo filtra ao ser clicado.
+  const cardsPorUnidade = useMemo(() => {
+    const unidades = new Set<string>();
+    embarques.forEach((e) => {
+      if (!e.unidade_operacional) return;
+      if (filterDe && e.data_fim_embarque < filterDe) return;
+      if (filterAte && e.data_inicio_embarque > filterAte) return;
+      if (filterBsp !== "all" && e.bsp !== filterBsp) return;
+      unidades.add(e.unidade_operacional);
+    });
+    return Array.from(unidades).sort((a, b) => a.localeCompare(b));
+  }, [embarques, filterDe, filterAte, filterBsp]);
 
   return (
     <div className="space-y-3">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5 w-48">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={filterUnidade} onValueChange={setFilterUnidade}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-56">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
-          </div>
-          {!readOnly && (
-            <div className="ml-auto flex items-center gap-2">
-              <input
-                ref={fileRefAccess} type="file" accept=".xlsx,.xls" className="hidden"
-                onChange={(e) => e.target.files?.[0] && onImportAccess(e.target.files[0])}
-              />
-              <Button variant="outline" onClick={() => fileRefAccess.current?.click()} loading={importAccess.isPending}>
-                <Upload className="mr-1.5 h-4 w-4" />Importar Excel (Access)
-              </Button>
-              <Button onClick={() => setNovoOpen(true)}>
-                <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
-              </Button>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+        <div className="flex flex-1 flex-col gap-3">
+          <Card className="p-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-0.5 w-36">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
+                <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+              </div>
+              <div className="space-y-0.5 w-36">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+                <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+              </div>
+              <div className="space-y-0.5 w-48">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
+                <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                    {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-0.5 w-40">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+                <Select value={filterBsp} onValueChange={setFilterBsp}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                    {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-0.5 w-56">
+                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+                <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+              </div>
+              {!readOnly && (
+                <div className="ml-auto flex items-center gap-2">
+                  <Button onClick={() => setNovoOpen(true)}>
+                    <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {cardsPorUnidade.length > 0 && (
+            <div className="flex flex-wrap content-start gap-1.5">
+              {cardsPorUnidade.map((unidade) => (
+                <Card
+                  key={unidade}
+                  role="button" tabIndex={0}
+                  onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
+                  style={{ flex: "1 1 6rem" }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent px-2 py-1.5 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                    filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
+                  )}
+                >
+                  <p className="truncate text-xs font-semibold leading-tight text-primary">{unidade}</p>
+                </Card>
+              ))}
             </div>
           )}
         </div>
-      </Card>
+
+        {cardsPorUnidade.length > 0 && (
+          <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} />
+        )}
+      </div>
 
       <Card>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Colaborador</TableHead>
-              <TableHead>Função</TableHead>
-              <TableHead>Unidade</TableHead>
-              <TableHead>BSP</TableHead>
+              <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-16">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -889,9 +1222,11 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
             {filtered.map((r) => (
               <TableRow key={r.embarque.id}>
                 <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.funcao_embarque}</TableCell>
+                <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.bsp ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <Button
@@ -942,10 +1277,10 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         </Table>
       </Card>
 
-      <NovoEmbarqueDialog open={novoOpen} onOpenChange={setNovoOpen} colaboradores={colaboradores} unidadeOptions={unidadeOptions} />
+      <NovoEmbarqueDialog open={novoOpen} onOpenChange={setNovoOpen} colaboradores={colaboradores} periodos={periodos} unidadeOptions={unidadeOptions} />
 
       <Dialog open={!!lancandoEmbarque} onOpenChange={(o) => !o && setLancandoEmbarque(null)}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Lançamento de horas — {lancandoEmbarque ? colabById.get(lancandoEmbarque.colaborador_id)?.nome ?? "—" : ""}
@@ -956,6 +1291,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
               embarque={lancandoEmbarque}
               colaborador={colabById.get(lancandoEmbarque.colaborador_id)}
               periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
+              periodos={periodos}
               diasFaltando={rows.find((r) => r.embarque.id === lancandoEmbarque.id)?.diasFaltando ?? []}
               readOnly={readOnly}
             />
@@ -968,28 +1304,81 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         open={!!editandoEmbarque}
         onOpenChange={(o) => !o && setEditandoEmbarque(null)}
         colaboradorNome={editandoEmbarque ? colabById.get(editandoEmbarque.colaborador_id)?.nome ?? "—" : ""}
+        periodos={periodos}
         unidadeOptions={unidadeOptions}
       />
+
+      <Dialog open={pdfPreviewOpen} onOpenChange={setPdfPreviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Conferir importação dos PDFs de timesheet</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            {pdfGrupos.filter((g) => g.colaborador).length} de {pdfGrupos.length} nome(s) casados com colaboradores já cadastrados.
+            Os não encontrados abaixo não serão importados — lance esses manualmente depois.
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome no PDF</TableHead>
+                <TableHead>Colaborador casado</TableHead>
+                <TableHead>Semanas</TableHead>
+                <TableHead>Baixa confiança</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pdfGrupos.map((g) => (
+                <TableRow key={g.nomeOriginal}>
+                  <TableCell className="font-medium">{g.nomeOriginal}</TableCell>
+                  <TableCell>
+                    {g.colaborador
+                      ? <StatusBadge tone="success">{g.colaborador.nome}</StatusBadge>
+                      : <StatusBadge tone="destructive">Não encontrado</StatusBadge>}
+                  </TableCell>
+                  <TableCell>{g.semanas.length}</TableCell>
+                  <TableCell>{g.baixaConfianca > 0 ? <StatusBadge tone="warning">{g.baixaConfianca} semana(s)</StatusBadge> : "—"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <DialogFooter>
+            <Button
+              onClick={() => importPdfs.mutate(pdfGrupos)}
+              loading={importPdfs.isPending}
+              disabled={pdfGrupos.filter((g) => g.colaborador).length === 0}
+            >
+              Confirmar importação ({pdfGrupos.filter((g) => g.colaborador).length} colaborador(es))
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, unidadeOptions }: {
+function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, periodos, unidadeOptions }: {
   embarque: TimesheetEmbarque | null; open: boolean; onOpenChange: (o: boolean) => void;
-  colaboradorNome: string; unidadeOptions: string[];
+  colaboradorNome: string; periodos: HistNovoPeriodo[]; unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
   const [f, setF] = useState({ unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" });
   const [bound, setBound] = useState<string | null>(null);
+  // Se o BSP já gravado no embarque não estiver entre as opções conhecidas da unidade, começa
+  // em modo manual (campo livre) pra não esconder/perder o valor já salvo.
+  const [bspManual, setBspManual] = useState(false);
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, f.unidade_operacional), [periodos, f.unidade_operacional]);
 
   if (open && embarque && bound !== embarque.id) {
+    const bspAtual = embarque.bsp ?? "";
+    const opcoesUnidade = bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? "");
     setF({
       unidade_operacional: embarque.unidade_operacional ?? "",
-      bsp: embarque.bsp ?? "",
-      funcao_embarque: embarque.funcao_embarque,
+      bsp: bspAtual,
+      funcao_embarque: embarque.funcao_embarque ?? "",
       data_inicio: embarque.data_inicio_embarque,
       data_fim: embarque.data_fim_embarque,
     });
+    setBspManual(!!bspAtual && !opcoesUnidade.includes(bspAtual));
     setBound(embarque.id);
   }
   if (!open && bound !== null) setBound(null);
@@ -1018,18 +1407,28 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, u
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Editar embarque — {colaboradorNome}</DialogTitle></DialogHeader>
-        <div className="grid gap-3" onKeyDown={focusNextOnEnter}>
+        <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Unidade Operacional</Label>
-              <Select value={f.unidade_operacional} onValueChange={(v) => setF({ ...f, unidade_operacional: v })}>
+              <Select value={f.unidade_operacional} onValueChange={(v) => { setF({ ...f, unidade_operacional: v }); setBspManual(false); }}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
               <Label className="text-xs">BSP</Label>
-              <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              {bspOptions.length > 1 && !bspManual ? (
+                <Select value={f.bsp} onValueChange={(v) => v === "__outro__" ? setBspManual(true) : setF({ ...f, bsp: v })}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+                  <SelectContent>
+                    {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                    <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Nº do BSP" />
+              )}
             </div>
           </div>
           <div>
@@ -1058,26 +1457,34 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, u
   );
 }
 
-// ─── Aba: Pendentes de Lançamento ────────────────────────────────────────────
+// Já que o embarque agora pode não ter periodo_id, encontramos o período do Histograma que mais
+// se sobrepõe com as datas do embarque lançado, só pra exibir dados auxiliares (ex.: BSP).
+function periodoCorrespondente(embarque: TimesheetEmbarque, periodosDoColaborador: HistNovoPeriodo[]): HistNovoPeriodo | undefined {
+  return periodosDoColaborador.find((p) => p.data_fim >= embarque.data_inicio_embarque && p.data_inicio <= embarque.data_fim_embarque);
+}
 
-const PENDENTES_PISO_DATA = "2026-01-01";
-const PENDENTES_TETO_DATA = "2026-12-31";
+// Função exibida nas listas (não no formulário de lançamento em si) — reflete a correção feita
+// na semana mais recente daquele embarque, se houver (funcao_override), senão a do embarque
+// (Drake). Corrigir uma semana antiga não muda o que aparece aqui; só a mais recente "manda".
+function funcaoEfetivaDoEmbarque(embarque: TimesheetEmbarque, semanasDoEmbarque: TimesheetSemana[]): string {
+  const maisRecente = [...semanasDoEmbarque].sort((a, b) => b.data_fim_semana.localeCompare(a.data_fim_semana))[0];
+  return maisRecente?.funcao_override || embarque.funcao_embarque || "—";
+}
 
-function PendentesTab({ colaboradores, periodos, embarques, semanas, dias }: {
-  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; dias: TimesheetDia[];
+// ─── Aba 2: Timesheets Pendentes ────────────────────────────────────────────
+// Lista os embarques cujo timesheet físico ainda não foi recebido por completo (status_entrega
+// "pendente" ou "parcial") — pra cobrar do colaborador o físico que está faltando.
+
+type PendenciasSortColumn = "colaborador" | "funcao" | "unidade" | "bsp" | "periodo" | "semanas" | "status";
+
+// Ordem de prioridade lógica do status (não alfabética) — Pendente antes de Parcial antes de
+// Completo (embora Completo não apareça aqui, já filtrado fora da lista de pendências).
+const STATUS_ENTREGA_ORDER: Record<StatusEntrega, number> = { pendente: 0, parcial: 1, completo: 2 };
+
+function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOptions, readOnly = false }: {
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; unidadeOptions: string[]; readOnly?: boolean;
 }) {
-  // Sem filtro preenchido, a aba já nasce mostrando todas as pendências do ano de 2026;
-  // o De/Até só serve pra restringir essa lista ainda mais (sempre dentro de 2026) quando o
-  // usuário quiser.
-  const [dataInicio, setDataInicio] = useState("");
-  const [dataFim, setDataFim] = useState("");
-
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
-
-  // Precisamos de TODOS os períodos do colaborador (não só os "E") pra computar o status de
-  // cada dia do mesmo jeito que o Histograma Offshore Novo faz (prioridade AT>FE>E>...>DB),
-  // já que um dia dentro de um período "E" pode não ser efetivamente um dia "E" (ex.: o último
-  // dia do período costuma virar Desembarque, e dias após o 14º viram Dobra).
   const periodosByColaborador = useMemo(() => {
     const m = new Map<string, HistNovoPeriodo[]>();
     periodos.forEach((p) => {
@@ -1086,78 +1493,118 @@ function PendentesTab({ colaboradores, periodos, embarques, semanas, dias }: {
     });
     return m;
   }, [periodos]);
-
-  // Dias que o colaborador de fato já teve horas salvas (via "Salvar semana").
-  const diasSalvosPorColaborador = useMemo(() => {
-    const colaboradorIdByEmbarqueId = new Map(embarques.map((e) => [e.id, e.colaborador_id]));
-    const colaboradorIdBySemanaId = new Map(semanas.map((s) => [s.id, colaboradorIdByEmbarqueId.get(s.embarque_id)]));
-    const m = new Map<string, Set<string>>();
-    dias.forEach((d) => {
-      if (d.horas_normais == null) return;
-      const colaboradorId = colaboradorIdBySemanaId.get(d.semana_id);
-      if (!colaboradorId) return;
-      if (!m.has(colaboradorId)) m.set(colaboradorId, new Set());
-      m.get(colaboradorId)!.add(d.data);
+  const semanasByEmbarqueId = useMemo(() => {
+    const m = new Map<string, TimesheetSemana[]>();
+    semanas.forEach((s) => {
+      if (!m.has(s.embarque_id)) m.set(s.embarque_id, []);
+      m.get(s.embarque_id)!.push(s);
     });
     return m;
-  }, [dias, semanas, embarques]);
+  }, [semanas]);
 
-  const pendencias = useMemo(() => {
-    const linhas: { colaborador: HistNovoColaborador; periodo: HistNovoPeriodo; diasFaltando: string[] }[] = [];
-    const piso = dataInicio && dataInicio > PENDENTES_PISO_DATA ? dataInicio : PENDENTES_PISO_DATA;
-    const teto = dataFim && dataFim < PENDENTES_TETO_DATA ? dataFim : PENDENTES_TETO_DATA;
-    periodos.forEach((p) => {
-      if (p.tipo !== "E") return;
-      if (p.data_fim < piso || p.data_inicio > teto) return;
-      const colaborador = colabById.get(p.colaborador_id);
-      if (!colaborador) return;
-      const colabPeriodos = periodosByColaborador.get(p.colaborador_id) ?? [];
-      const salvos = diasSalvosPorColaborador.get(p.colaborador_id) ?? new Set<string>();
-      const diasDoPeriodo = generateDateRange(p.data_inicio, p.data_fim).filter((d) => d >= piso && d <= teto);
-      const diasFaltando = diasDoPeriodo.filter((d) => !salvos.has(d) && computeDayStatus(colabPeriodos, d).status === "E");
-      if (diasFaltando.length > 0) linhas.push({ colaborador, periodo: p, diasFaltando });
-    });
-    return linhas.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [periodos, colabById, periodosByColaborador, diasSalvosPorColaborador, dataInicio, dataFim]);
+  const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
+  const [filterNome, setFilterNome] = useState("");
+  // De/Até ficam salvos no navegador — o período escolhido nessa aba permanece selecionado
+  // entre sessões até a usuária trocar de novo, independente do período da aba de Lançamento.
+  const [filterDe, setFilterDe] = useState(() => readPeriodoSalvo(PERIODO_STORAGE_KEY_PENDENCIAS).de);
+  const [filterAte, setFilterAte] = useState(() => readPeriodoSalvo(PERIODO_STORAGE_KEY_PENDENCIAS).ate);
+  useEffect(() => { salvarPeriodo(filterDe, filterAte, PERIODO_STORAGE_KEY_PENDENCIAS); }, [filterDe, filterAte]);
+  const [lancandoEmbarque, setLancandoEmbarque] = useState<TimesheetEmbarque | null>(null);
 
-  // Diagnóstico temporário: ajuda a identificar em qual etapa a lista está zerando
-  // (sem períodos "E" no banco, sem eles caindo em 2026, ou tudo já contando como salvo).
-  const diagnostico = useMemo(() => {
-    const piso = dataInicio && dataInicio > PENDENTES_PISO_DATA ? dataInicio : PENDENTES_PISO_DATA;
-    const teto = dataFim && dataFim < PENDENTES_TETO_DATA ? dataFim : PENDENTES_TETO_DATA;
-    const todosE = periodos.filter((p) => p.tipo === "E");
-    const eNaJanela = todosE.filter((p) => !(p.data_fim < piso || p.data_inicio > teto));
-    const colaboradoresUnicos = new Set(eNaJanela.map((p) => p.colaborador_id));
-    const comAlgumDiaSalvo = Array.from(colaboradoresUnicos).filter((id) => (diasSalvosPorColaborador.get(id)?.size ?? 0) > 0);
-    return {
-      totalPeriodosE: todosE.length,
-      periodosENaJanela: eNaJanela.length,
-      colaboradoresUnicos: colaboradoresUnicos.size,
-      comAlgumDiaSalvo: comAlgumDiaSalvo.length,
-    };
-  }, [periodos, diasSalvosPorColaborador, dataInicio, dataFim]);
+  // Ordenação clicável no cabeçalho — aplicada só nos dados já carregados/filtrados na tela,
+  // sem refazer a consulta ao banco. Sem coluna escolhida, mantém a ordem padrão (período de
+  // início do embarque, mais antigo primeiro).
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<PendenciasSortColumn>();
+
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
+
+  const pendencias = useMemo(() => embarques
+    .filter((e) => e.status_entrega !== "completo")
+    .map((e) => {
+      const semanasDoEmbarque = semanasByEmbarqueId.get(e.id) ?? [];
+      const recebidas = semanasDoEmbarque.filter((s) => s.recebido_fisico).length;
+      // Nunca menos que as semanas que realmente existem — mesmo ajuste feito ao gravar
+      // status_entrega (ver salvar/excluirSemana em SemanaGrid): embarque editado (data
+      // encurtada) depois que as semanas já existiam com intervalo mais largo não pode
+      // mostrar "1/1" quando na real tem 2 semanas, uma delas ainda não recebida.
+      const total = Math.max(totalSemanasEsperadas(e.data_inicio_embarque, e.data_fim_embarque), semanasDoEmbarque.length);
+      const funcaoEfetiva = funcaoEfetivaDoEmbarque(e, semanasDoEmbarque);
+      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva };
+    })
+    .filter((r) =>
+      (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
+      (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
+      (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
+      // Diferente da aba de Lançamento (que usa sobreposição de data, pra achar quem esteve
+      // embarcado em algum dia do intervalo): aqui o período filtra pelo início do embarque —
+      // um embarque começado bem antes do período selecionado (ex.: maio) não deve reaparecer
+      // só porque a cauda dele encosta no intervalo (ex.: início de julho), senão pendência
+      // antiga de outro mês fica "grudada" no período atual.
+      (!filterDe || r.embarque.data_inicio_embarque >= filterDe) &&
+      (!filterAte || r.embarque.data_inicio_embarque <= filterAte),
+    )
+    .sort((a, b) => {
+      if (!sortColumn) return a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque);
+      const dir = sortDirection === "asc" ? 1 : -1;
+      switch (sortColumn) {
+        case "colaborador":
+          return dir * (a.colaborador?.nome ?? "").localeCompare(b.colaborador?.nome ?? "");
+        case "funcao":
+          return dir * a.funcaoEfetiva.localeCompare(b.funcaoEfetiva);
+        case "unidade":
+          return dir * (a.embarque.unidade_operacional ?? "").localeCompare(b.embarque.unidade_operacional ?? "");
+        case "bsp":
+          return dir * ([a.embarque.bsp, a.embarque.bsp_2].filter(Boolean).join(" · ")).localeCompare([b.embarque.bsp, b.embarque.bsp_2].filter(Boolean).join(" · "));
+        case "periodo":
+          return dir * a.embarque.data_inicio_embarque.localeCompare(b.embarque.data_inicio_embarque);
+        case "semanas":
+          return dir * (a.recebidas - b.recebidas);
+        case "status":
+          return dir * (STATUS_ENTREGA_ORDER[a.embarque.status_entrega as StatusEntrega] - STATUS_ENTREGA_ORDER[b.embarque.status_entrega as StatusEntrega]);
+        default:
+          return 0;
+      }
+    }),
+  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
 
   return (
-    <div className="space-y-3">
-      <p className="text-[11px] text-muted-foreground">
-        Diagnóstico: {diagnostico.totalPeriodosE} período(s) "E" no banco · {diagnostico.periodosENaJanela} dentro da janela de datas ·{" "}
-        {diagnostico.colaboradoresUnicos} colaborador(es) único(s) com período "E" na janela · {diagnostico.comAlgumDiaSalvo} já têm pelo menos 1 dia salvo.
-      </p>
+    <div className="space-y-4">
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De (opcional)</Label>
-            <Input type="date" className="h-8 text-xs" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
+            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
           </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até (opcional)</Label>
-            <Input type="date" className="h-8 text-xs" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
           </div>
-          {(dataInicio || dataFim) && (
-            <Button variant="ghost" size="sm" onClick={() => { setDataInicio(""); setDataFim(""); }}>
-              Limpar filtro
-            </Button>
-          )}
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
+            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+          </div>
+          <div className="ml-auto text-xs text-muted-foreground">{pendencias.length} embarque(s) com físico pendente</div>
         </div>
       </Card>
 
@@ -1165,43 +1612,70 @@ function PendentesTab({ colaboradores, periodos, embarques, semanas, dias }: {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Colaborador</TableHead>
-              <TableHead>Unidade</TableHead>
-              <TableHead>Período (Histograma)</TableHead>
-              <TableHead>Dias faltando lançar</TableHead>
+              <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Período do embarque" column="periodo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Semanas recebidas" column="semanas" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead className="w-16">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pendencias.map((l) => (
-              <TableRow key={`${l.colaborador.id}-${l.periodo.id}`}>
-                <TableCell className="font-medium">{l.colaborador.nome}</TableCell>
-                <TableCell className="text-muted-foreground">{l.periodo.unidade_operacional ?? "—"}</TableCell>
-                <TableCell>{fmt(l.periodo.data_inicio)} – {fmt(l.periodo.data_fim)}</TableCell>
-                <TableCell className="text-xs text-destructive" title={l.diasFaltando.map(fmt).join(", ")}>
-                  {l.diasFaltando.length} dia(s)
+            {pendencias.length === 0 ? (
+              <EmptyStateRow colSpan={8} icon={CheckCircle2} title="Nenhum timesheet físico pendente" description="Todos os embarques já tiveram o físico recebido por completo." />
+            ) : pendencias.map((r) => (
+              <TableRow key={r.embarque.id}>
+                <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
+                <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{fmt(r.embarque.data_inicio_embarque)} a {fmt(r.embarque.data_fim_embarque)}</TableCell>
+                <TableCell className="text-muted-foreground">{r.recebidas} / {r.total}</TableCell>
+                <TableCell>
+                  <StatusBadge tone={STATUS_ENTREGA_TONE[r.embarque.status_entrega as StatusEntrega]}>
+                    {STATUS_ENTREGA_LABEL[r.embarque.status_entrega as StatusEntrega]}
+                  </StatusBadge>
+                </TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" title="Lançar horas" onClick={() => setLancandoEmbarque(r.embarque)}>
+                    <Clock className="h-3.5 w-3.5" />
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
-            {pendencias.length === 0 && (
-              <EmptyStateRow colSpan={4} icon={CheckCircle2} title="Nenhuma pendência de lançamento" description="Tudo lançado no período selecionado." />
-            )}
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={!!lancandoEmbarque} onOpenChange={(o) => !o && setLancandoEmbarque(null)}>
+        <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Lançamento de horas — {lancandoEmbarque ? colabById.get(lancandoEmbarque.colaborador_id)?.nome ?? "—" : ""}
+            </DialogTitle>
+          </DialogHeader>
+          {lancandoEmbarque && (
+            <EmbarqueTimesheetPanel
+              embarque={lancandoEmbarque}
+              colaborador={colabById.get(lancandoEmbarque.colaborador_id)}
+              periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
+              periodos={periodos}
+              diasFaltando={[]}
+              readOnly={readOnly}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-// Já que o embarque agora pode não ter periodo_id, encontramos o período do Histograma que mais
-// se sobrepõe com as datas do embarque lançado, só pra exibir dados auxiliares (ex.: BSP).
-function periodoCorrespondente(embarque: TimesheetEmbarque, periodosDoColaborador: HistNovoPeriodo[]): HistNovoPeriodo | undefined {
-  return periodosDoColaborador.find((p) => p.data_fim >= embarque.data_inicio_embarque && p.data_inicio <= embarque.data_fim_embarque);
-}
-
 // Painel de lançamento semanal de horas de um embarque específico — aberto via o ícone
 // "Lançar horas" na linha do embarque (não existe mais como aba separada).
-function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, readOnly = false }: {
-  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; diasFaltando: string[]; readOnly?: boolean;
+function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, diasFaltando, readOnly = false }: {
+  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; diasFaltando: string[]; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const [selectedSemanaId, setSelectedSemanaId] = useState("");
@@ -1237,10 +1711,26 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
       const diasIniciais = weekDates(inicio).map((d) => ({ semana_id: semana.id, data: d, dia_semana: weekdayLabel(d) }));
       const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasIniciais);
       if (diasErr) throw diasErr;
+
+      // Recalcula status_entrega (e estende data_fim_embarque se a semana nova for além do que
+      // já existia) — sem isso, um embarque já "Completo" que ganha uma semana manual aqui
+      // ficava com status_entrega desatualizado e sumia de Timesheets Pendentes (o filtro
+      // descarta status_entrega === "completo"), mesmo tendo uma semana de verdade não recebida.
+      const totalReal = semanas.length + 1;
+      const recebidas = semanas.filter((s) => s.recebido_fisico).length;
+      const total = Math.max(totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque), totalReal);
+      const status = computeStatusEntrega(recebidas, total);
+      const patch: { status_entrega: StatusEntrega; data_fim_embarque?: string } = { status_entrega: status };
+      if (fim > embarque.data_fim_embarque) patch.data_fim_embarque = fim;
+      const { error: embErr } = await supabase.from("timesheet_embarques").update(patch).eq("id", embarque.id);
+      if (embErr) throw embErr;
+
       return semana as TimesheetSemana;
     },
     onSuccess: (semana) => {
       qc.invalidateQueries({ queryKey: ["timesheet-semanas", embarque.id] });
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
       setSelectedSemanaId(semana.id);
       notify.success("Semana criada");
     },
@@ -1291,7 +1781,12 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
       if (error) throw error;
       const restantes = semanas.filter((s) => s.id !== semana.id);
       const recebidas = restantes.filter((s) => s.recebido_fisico).length;
-      const total = totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque);
+      // Nunca menos que as semanas que realmente existem — se o embarque foi editado (data
+      // encurtada) depois que as semanas já tinham sido criadas com um intervalo mais largo,
+      // o cálculo teórico por data ficava menor que a contagem real e podia marcar como
+      // "completo" um embarque que ainda tem semana não recebida sobrando fora do intervalo
+      // atual do embarque.
+      const total = Math.max(totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque), restantes.length);
       const status = computeStatusEntrega(recebidas, total);
       await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
     },
@@ -1369,18 +1864,18 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
           className="animate-pulse rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11px] font-medium text-destructive shadow-[0_0_10px_2px_rgba(220,38,38,0.45)]"
           title={diasFaltando.map(fmt).join(", ")}
         >
-          Ainda falta lançar {diasFaltando.length} dia(s) embarcado(s) segundo o Histograma Offshore Novo: {diasFaltando.slice(0, 6).map(fmt).join(", ")}{diasFaltando.length > 6 ? "…" : ""}
+          Ainda falta lançar {diasFaltando.length} dia(s) embarcado(s) segundo o Histograma Offshore: {diasFaltando.slice(0, 6).map(fmt).join(", ")}{diasFaltando.length > 6 ? "…" : ""}
         </div>
       )}
 
       {selectedSemana && (
-        <SemanaGrid semana={selectedSemana} colaborador={colaborador} periodo={periodo} embarque={embarque} readOnly={readOnly} />
+        <SemanaGrid semana={selectedSemana} colaborador={colaborador} periodo={periodo} periodos={periodos} embarque={embarque} readOnly={readOnly} />
       )}
 
       <Dialog open={!!editandoSemana} onOpenChange={(o) => !o && setEditandoSemana(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar semana</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-3" onKeyDown={focusNextOnEnter}>
+          <div className="grid grid-cols-2 gap-3" onKeyDownCapture={focusNextOnEnter}>
             <div>
               <Label className="text-xs">De</Label>
               <Input type="date" value={novaDataInicio} onChange={(e) => setNovaDataInicio(e.target.value)} />
@@ -1405,20 +1900,28 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, diasFaltando, 
   );
 }
 
-function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: HistNovoPeriodo | undefined, embarque: TimesheetEmbarque, rows: TimesheetDia[], totals: { normais: number; extras: number; total: number }) {
+// Dia da semana + dia do mês juntos, ex: "Segunda 06" — em vez do "Segunda-feira / Monday"
+// cru guardado em dia_semana.
+function diaLabelCurto(d: TimesheetDia): string {
+  const diaSemanaAbrev = (d.dia_semana ?? "").split(" / ")[0].slice(0, 3);
+  const [ano, mes, dia] = d.data.split("-");
+  return `${diaSemanaAbrev} - ${dia}/${mes}/${ano.slice(2)}`;
+}
+
+function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: HistNovoPeriodo | undefined, embarque: TimesheetEmbarque, rows: TimesheetDia[], totals: { normais: number; extras: number; total: number }, funcaoEfetiva?: string) {
   const win = window.open("", "_blank", "width=900,height=700");
   if (!win) return;
   const linhas = rows.map((r) => `
     <tr>
-      <td>${fmt(r.data)}</td><td>${r.dia_semana}</td><td>${r.evento ?? ""}</td>
+      <td>${diaLabelCurto(r)}</td><td>${r.evento ?? ""}</td>
+      <td>${r.hora_entrada ?? ""}</td><td>${r.hora_saida ?? ""}</td>
       <td>${r.horas_normais ?? ""}</td><td>${r.horas_extras ?? ""}</td><td>${r.total_horas ?? ""}</td>
-      <td>${r.adicional_noturno ? "Noturno" : "Diurno"}</td><td>${r.feriado ? "X" : ""}</td>
     </tr>`).join("");
   win.document.write(`
     <html><head><title>Offshore Daily Timesheet</title>
     <style>
       body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-      h1 { font-size: 18px; margin-bottom: 12px; }
+      h1 { font-size: 18px; margin-bottom: 12px; letter-spacing: 0.02em; }
       .info { font-size: 13px; margin-bottom: 2px; }
       table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 11px; }
       th, td { border: 1px solid #333; padding: 4px 6px; text-align: center; }
@@ -1426,19 +1929,20 @@ function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: H
       .totals { margin-top: 12px; font-weight: bold; text-align: right; font-size: 13px; }
     </style></head>
     <body>
-      <h1>Offshore Daily Timesheet</h1>
-      <div class="info"><strong>Local:</strong> ${periodo?.unidade_operacional ?? "—"}</div>
+      <h1>OFFSHORE DAILY TIMESHEET</h1>
+      <div class="info"><strong>Unidade:</strong> ${embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"}</div>
       <div class="info"><strong>Nome:</strong> ${colaborador?.nome ?? "—"}</div>
       <div class="info"><strong>BSP:</strong> ${embarque.bsp ?? "—"}</div>
-      <div class="info"><strong>Função:</strong> ${embarque.funcao_embarque}</div>
-      <div class="info"><strong>Período do embarque:</strong> ${fmt(embarque.data_inicio_embarque)} – ${fmt(embarque.data_fim_embarque)}</div>
+      <div class="info"><strong>Função:</strong> ${funcaoEfetiva ?? embarque.funcao_embarque}</div>
+      <div class="info"><strong>Período:</strong> ${fmt(rows[0]?.data ?? embarque.data_inicio_embarque)} a ${fmt(rows[rows.length - 1]?.data ?? embarque.data_fim_embarque)}</div>
       <table>
         <thead><tr>
-          <th>Data</th><th>Dia</th><th>Evento</th><th>Normais</th><th>Extras</th><th>Total</th><th>Turno</th><th>Fer.</th>
+          <th>Dia</th><th>Evento</th>
+          <th>Entrada</th><th>Saída</th><th>Horas Normais</th><th>Horas Extras</th><th>Total</th>
         </tr></thead>
         <tbody>${linhas}</tbody>
       </table>
-      <div class="totals">Normais: ${totals.normais.toFixed(1)}h &nbsp;&nbsp; Extras: ${totals.extras.toFixed(1)}h &nbsp;&nbsp; Total: ${totals.total.toFixed(1)}h</div>
+      <div class="totals">Total Hours — Normais: ${totals.normais.toFixed(1)}h &nbsp;&nbsp; Extras: ${totals.extras.toFixed(1)}h &nbsp;&nbsp; Total: ${totals.total.toFixed(1)}h</div>
     </body></html>
   `);
   win.document.close();
@@ -1446,22 +1950,115 @@ function imprimirSemana(colaborador: HistNovoColaborador | undefined, periodo: H
   win.print();
 }
 
-const TIPOS_MARCACAO = [...EVENTOS_DIA, "Feriado", "Hora Extra"];
+const EVENTO_OPCOES = ["Nenhum", ...EVENTOS_DIA];
 
-// Lançamento simplificado: uma única entrada de turno pra semana toda — o app aplica 12h
-// normais em cada dia automaticamente. Dias que fujam do padrão (embarque, desembarque, dobra,
-// hotel, feriado, hora extra) são marcados à parte, sem precisar editar dia a dia.
-function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }: {
-  semana: TimesheetSemana; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; embarque: TimesheetEmbarque; readOnly?: boolean;
+// Referência estável pro fallback do useQuery abaixo — um array literal `[]` inline no
+// destructuring é recriado a cada render, o que faz o useEffect(() => setDraft(dias), [dias])
+// nunca estabilizar enquanto a query ainda está carregando e estoura "Maximum update depth
+// exceeded" (loop de render) assim que o formulário abre.
+const EMPTY_DIAS: TimesheetDia[] = [];
+
+// Formulário no padrão da folha física — uma linha editável por dia (Descrição, Nº Trabalho,
+// Entrada, Saída, Horas Normais, Horas Extras, Evento), sem nenhum valor pré-calculado ou
+// assumido: só o físico em mãos define o que vai em cada campo. Total é o único campo
+// calculado (Normais + Extras), nunca digitado.
+function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly = false }: {
+  semana: TimesheetSemana; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; embarque: TimesheetEmbarque; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
-  const [turno, setTurno] = useState<"diurno" | "noturno">("diurno");
-  const [novaMarcacaoData, setNovaMarcacaoData] = useState("");
-  const [novaMarcacaoTipo, setNovaMarcacaoTipo] = useState("");
-  const [novaMarcacaoDe, setNovaMarcacaoDe] = useState("");
-  const [novaMarcacaoAte, setNovaMarcacaoAte] = useState("");
+  const { user } = useAuth();
+  // BSPs já conhecidos pra unidade desse embarque — quando há mais de um, o campo BSP de cada
+  // dia vira lista em vez de texto livre (reduz erro de digitação); "Outro" mantém o texto
+  // livre pra um BSP novo que ainda não apareceu nessa unidade.
+  const bspOptionsConhecidas = useMemo(
+    () => bspOptionsForUnidade(periodos, embarque.unidade_operacional ?? ""),
+    [periodos, embarque.unidade_operacional],
+  );
+  // BSPs digitadas na hora (via "Outro") entram aqui pra ficar disponíveis na lista pros
+  // outros dias da mesma semana também, sem precisar redigitar uma por uma.
+  const [bspExtras, setBspExtras] = useState<string[]>([]);
+  const bspOptions = useMemo(
+    () => Array.from(new Set([...bspOptionsConhecidas, ...bspExtras])).sort(),
+    [bspOptionsConhecidas, bspExtras],
+  );
+  const [bspManualIds, setBspManualIds] = useState<Set<string>>(new Set());
+  const [bspManualValores, setBspManualValores] = useState<Record<string, string>>({});
 
-  const { data: dias = [] } = useQuery({
+  const adicionarBspExtra = (diaId: string, valor: string) => {
+    const limpo = valor.trim();
+    if (!limpo) return;
+    setBspExtras((prev) => (prev.includes(limpo) ? prev : [...prev, limpo]));
+    editarCampo(diaId, { bsp: limpo });
+    setBspManualIds((prev) => { const novo = new Set(prev); novo.delete(diaId); return novo; });
+    setBspManualValores((prev) => { const { [diaId]: _remove, ...resto } = prev; return resto; });
+  };
+
+  // BSP do embarque (o "padrão" que aparece no cabeçalho, diferente do BSP por dia — esse é o
+  // valor que os dias herdam quando não têm um BSP próprio lançado). Editável em lista, igual
+  // ao campo por dia; se o valor digitado for novo, também entra pra lista de BSPs conhecidas.
+  const [editandoBsp, setEditandoBsp] = useState(false);
+  const [bspEditManual, setBspEditManual] = useState(false);
+  const [bspValor, setBspValor] = useState(embarque.bsp ?? "");
+
+  const salvarBspEmbarque = useMutation({
+    mutationFn: async (valor: string | null) => {
+      const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarque.id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, valor) => {
+      if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      notify.success("BSP do embarque atualizado");
+      setEditandoBsp(false);
+      setBspEditManual(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  // Segundo BSP do mesmo embarque — quando parte dos dias precisa ser lançada numa BSP
+  // diferente da padrão (mesma unidade, "lançamento quebrado"). Puramente informativo aqui;
+  // a atribuição de qual dia usa qual BSP continua sendo feita por dia, na tabela abaixo.
+  const [editandoBsp2, setEditandoBsp2] = useState(false);
+  const [bsp2EditManual, setBsp2EditManual] = useState(false);
+  const [bsp2Valor, setBsp2Valor] = useState(embarque.bsp_2 ?? "");
+
+  const salvarBsp2Embarque = useMutation({
+    mutationFn: async (valor: string | null) => {
+      const { error } = await supabase.from("timesheet_embarques").update({ bsp_2: valor }).eq("id", embarque.id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, valor) => {
+      if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      notify.success("2º BSP atualizado");
+      setEditandoBsp2(false);
+      setBsp2EditManual(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  // Correção de função só pra essa semana — quando o físico não bate com o que veio do Drake
+  // (embarque.funcao_embarque). Não mexe nas outras semanas do mesmo embarque nem no cadastro
+  // do colaborador; sem edição, continua puxando do Drake normalmente.
+  const [editandoFuncao, setEditandoFuncao] = useState(false);
+  const [funcaoValor, setFuncaoValor] = useState(semana.funcao_override ?? embarque.funcao_embarque ?? "");
+  const funcaoEfetiva = semana.funcao_override || embarque.funcao_embarque || "—";
+
+  const salvarFuncaoOverride = useMutation({
+    mutationFn: async (valor: string | null) => {
+      const { error } = await supabase.from("timesheet_semanas").update({ funcao_override: valor }).eq("id", semana.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas", embarque.id] });
+      qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
+      notify.success("Função da semana atualizada");
+      setEditandoFuncao(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const { data: dias = EMPTY_DIAS } = useQuery({
     queryKey: ["timesheet-dias", semana.id],
     queryFn: async () => {
       const { data, error } = await supabase.from("timesheet_dias").select("*").eq("semana_id", semana.id).order("data");
@@ -1470,35 +2067,63 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
     },
   });
 
-  useEffect(() => {
-    if (!dias.length) return;
-    setTurno(dias.some((d) => d.adicional_noturno) ? "noturno" : "diurno");
-  }, [dias]);
+  const [draft, setDraft] = useState<TimesheetDia[]>([]);
+  useEffect(() => { setDraft(dias); }, [dias]);
+
+  const editarCampo = (id: string, patch: Partial<TimesheetDia>) => {
+    setDraft((prev) => prev.map((d) => {
+      if (d.id !== id) return d;
+      const atualizado = { ...d, ...patch };
+      // Entrada/Saída (normal ou HE) recalcula a duração automaticamente — evita ter que
+      // digitar a conta na mão. Editar Horas Normais/Extras direto continua funcionando (só
+      // não mexe nos horários, então não entra nesse recálculo).
+      if ("hora_entrada" in patch || "hora_saida" in patch) {
+        atualizado.horas_normais = computeDuracaoHoras(atualizado.hora_entrada, atualizado.hora_saida);
+      }
+      if ("hora_entrada_extra" in patch || "hora_saida_extra" in patch) {
+        atualizado.horas_extras = computeDuracaoHoras(atualizado.hora_entrada_extra, atualizado.hora_saida_extra);
+      }
+      atualizado.total_horas = round2((atualizado.horas_normais ?? 0) + (atualizado.horas_extras ?? 0));
+      return atualizado;
+    }));
+  };
 
   const salvar = useMutation({
     mutationFn: async () => {
-      const noturno = turno === "noturno";
-      await Promise.all(dias.map((d) => {
-        const extrasAtual = d.horas_extras ?? 0;
-        // Se a hora extra lançada nesse dia cruzar a janela 22h–05h, o dia continua contando
-        // como adicional noturno mesmo que o turno normal da semana seja Diurno.
-        const extraNoturno = suggestAdicionalNoturno(d.hora_entrada_extra, d.hora_saida_extra);
+      await Promise.all(draft.map((d) => {
+        // Sugere adicional noturno quando o horário digitado (jornada normal OU a faixa da
+        // hora extra) cruza a janela 22h–05h — mesma regra usada no resto do módulo — mas não
+        // sobrescreve se já tiver sido marcado antes.
+        const adicionalNoturno =
+          d.adicional_noturno ||
+          suggestAdicionalNoturno(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
         return supabase.from("timesheet_dias").update({
-          horas_normais: 12,
-          total_horas: 12 + extrasAtual,
-          adicional_noturno: noturno || extraNoturno,
+          descricao_tarefa: d.descricao_tarefa || null,
+          numero_tarefa: d.numero_tarefa || null,
+          bsp: d.bsp || null,
+          hora_entrada: d.hora_entrada || null,
+          hora_saida: d.hora_saida || null,
+          hora_entrada_extra: d.hora_entrada_extra || null,
+          hora_saida_extra: d.hora_saida_extra || null,
+          horas_normais: d.horas_normais,
+          horas_extras: d.horas_extras,
+          total_horas: d.total_horas,
+          evento: d.evento || null,
+          adicional_noturno: adicionalNoturno,
         }).eq("id", d.id).then(({ error }) => { if (error) throw error; });
       }));
 
       const { error: semErr } = await supabase.from("timesheet_semanas").update({
         recebido_fisico: true, data_recebimento: todayStr(),
+        recebido_por: user?.id ?? null, recebido_em: new Date().toISOString(),
       }).eq("id", semana.id);
       if (semErr) throw semErr;
 
       const { data: todasSemanas, error: listErr } = await supabase.from("timesheet_semanas").select("recebido_fisico").eq("embarque_id", embarque.id);
       if (listErr) throw listErr;
       const recebidas = (todasSemanas ?? []).filter((s) => s.recebido_fisico).length;
-      const total = totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque);
+      // Nunca menos que as semanas que realmente existem — ver mesmo comentário em excluirSemana.
+      const total = Math.max(totalSemanasEsperadas(embarque.data_inicio_embarque, embarque.data_fim_embarque), (todasSemanas ?? []).length);
       const status = computeStatusEntrega(recebidas, total);
       await supabase.from("timesheet_embarques").update({ status_entrega: status }).eq("id", embarque.id);
     },
@@ -1512,178 +2137,278 @@ function SemanaGrid({ semana, colaborador, periodo, embarque, readOnly = false }
     onError: (e: any) => notify.error(e.message),
   });
 
-  const adicionarMarcacao = useMutation({
-    mutationFn: async () => {
-      if (!novaMarcacaoData || !novaMarcacaoTipo) throw new Error("Selecione o dia e o evento.");
-      if (novaMarcacaoTipo === "Hora Extra") {
-        if (!novaMarcacaoDe || !novaMarcacaoAte) throw new Error("Informe o horário de início e fim da hora extra.");
-        const extra = computeDuracaoHoras(novaMarcacaoDe, novaMarcacaoAte);
-        if (extra == null || extra <= 0) throw new Error("Horário inválido.");
-        const dia = dias.find((d) => d.data === novaMarcacaoData);
-        const normais = dia?.horas_normais ?? 12;
-        // Se o intervalo da hora extra cruzar a janela 22h–05h, o dia todo passa a contar como
-        // adicional noturno no Relatório RH — o modelo de relatório trabalha no nível do dia, não
-        // da hora exata.
-        const noturno = suggestAdicionalNoturno(novaMarcacaoDe, novaMarcacaoAte);
-        const patch: Partial<TimesheetDia> = {
-          hora_entrada_extra: novaMarcacaoDe, hora_saida_extra: novaMarcacaoAte,
-          horas_extras: extra, total_horas: normais + extra,
-        };
-        if (noturno) patch.adicional_noturno = true;
-        const { error } = await supabase.from("timesheet_dias").update(patch).eq("semana_id", semana.id).eq("data", novaMarcacaoData);
-        if (error) throw error;
-        return;
-      }
-      const patch = novaMarcacaoTipo === "Feriado" ? { feriado: true } : { evento: novaMarcacaoTipo };
-      const { error } = await supabase.from("timesheet_dias").update(patch).eq("semana_id", semana.id).eq("data", novaMarcacaoData);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["timesheet-dias", semana.id] });
-      setNovaMarcacaoData("");
-      setNovaMarcacaoTipo("");
-      setNovaMarcacaoDe("");
-      setNovaMarcacaoAte("");
-      notify.success("Evento adicionado");
-    },
-    onError: (e: any) => notify.error(e.message),
-  });
-
-  const removerMarcacao = useMutation({
-    mutationFn: async (dia: TimesheetDia) => {
-      const { error } = await supabase.from("timesheet_dias").update({
-        evento: null, feriado: false, horas_extras: 0, total_horas: dia.horas_normais ?? 12,
-        hora_entrada_extra: null, hora_saida_extra: null,
-      }).eq("id", dia.id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["timesheet-dias", semana.id] }),
-    onError: (e: any) => notify.error(e.message),
-  });
-
-  const totals = useMemo(() => dias.reduce((acc, d) => ({
-    normais: acc.normais + (d.horas_normais ?? 0),
-    extras: acc.extras + (d.horas_extras ?? 0),
-    total: acc.total + (d.total_horas ?? 0),
-  }), { normais: 0, extras: 0, total: 0 }), [dias]);
-
-  const marcacoes = dias.filter((d) => d.evento || d.feriado || (d.horas_extras ?? 0) > 0);
-
-  const labelMarcacao = (d: TimesheetDia) => {
-    if (d.evento) return d.evento;
-    if (d.feriado) return "Feriado";
-    if (d.hora_entrada_extra && d.hora_saida_extra) return `Hora Extra: ${d.hora_entrada_extra}–${d.hora_saida_extra} (${d.horas_extras}h)`;
-    return `Hora Extra: ${d.horas_extras}h`;
-  };
+  const totals = useMemo(() => draft.reduce((acc, d) => {
+    // Mesmo critério usado ao salvar e no Relatório RH: só conta como hora noturna a parte do
+    // turno que de fato cai na janela 22h–05h, não o total_horas do dia inteiro.
+    const ehNoturno = d.adicional_noturno || suggestAdicionalNoturno(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra);
+    return {
+      normais: acc.normais + (d.horas_normais ?? 0),
+      extras: acc.extras + (d.horas_extras ?? 0),
+      noturno: acc.noturno + (ehNoturno ? horasNoturnas(d.hora_entrada, d.hora_saida, d.hora_entrada_extra, d.hora_saida_extra) : 0),
+      total: acc.total + (d.total_horas ?? 0),
+    };
+  }, { normais: 0, extras: 0, noturno: 0, total: 0 }), [draft]);
 
   return (
     <Card className="p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm space-y-0.5">
-          <div><strong>Local:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong> {embarque.bsp ?? "—"} &nbsp;·&nbsp; <strong>Função:</strong> {embarque.funcao_embarque}</div>
-          <div className="text-xs text-muted-foreground">Semana: {fmt(semana.data_inicio_semana)} – {fmt(semana.data_fim_semana)}</div>
+          <div className="flex flex-wrap items-center gap-x-1">
+            <strong>Unidade:</strong> {embarque.unidade_operacional ?? periodo?.unidade_operacional ?? "—"} &nbsp;·&nbsp; <strong>Nome:</strong> {colaborador?.nome ?? "—"} &nbsp;·&nbsp; <strong>BSP:</strong>{" "}
+            {editandoBsp ? (
+              <span className="inline-flex items-center gap-1">
+                {bspOptions.length > 0 && !bspEditManual ? (
+                  <Select
+                    value={bspValor || "__nenhum__"}
+                    onValueChange={(v) => {
+                      if (v === "__outro__") { setBspEditManual(true); return; }
+                      setBspValor(v === "__nenhum__" ? "" : v);
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-44 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input className="h-6 w-44 text-xs" placeholder="BSP novo" value={bspValor} onChange={(e) => setBspValor(e.target.value)} />
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarBspEmbarque.isPending} onClick={() => salvarBspEmbarque.mutate(bspValor.trim() || null)}>Salvar</Button>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBsp(false); setBspEditManual(false); setBspValor(embarque.bsp ?? ""); }}>Cancelar</Button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                {embarque.bsp ?? "—"}
+                {!readOnly && (
+                  <button type="button" title="Editar BSP do embarque" onClick={() => setEditandoBsp(true)} className="text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            )}
+            {editandoBsp2 ? (
+              <span className="inline-flex items-center gap-1">
+                {bspOptions.length > 0 && !bsp2EditManual ? (
+                  <Select
+                    value={bsp2Valor || "__nenhum__"}
+                    onValueChange={(v) => {
+                      if (v === "__outro__") { setBsp2EditManual(true); return; }
+                      setBsp2Valor(v === "__nenhum__" ? "" : v);
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-44 text-xs"><SelectValue placeholder="2º BSP" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input className="h-6 w-44 text-xs" placeholder="Nº do 2º BSP" value={bsp2Valor} onChange={(e) => setBsp2Valor(e.target.value)} />
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarBsp2Embarque.isPending} onClick={() => salvarBsp2Embarque.mutate(bsp2Valor.trim() || null)}>Salvar</Button>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoBsp2(false); setBsp2EditManual(false); setBsp2Valor(embarque.bsp_2 ?? ""); }}>Cancelar</Button>
+              </span>
+            ) : embarque.bsp_2 ? (
+              <span className="inline-flex items-center gap-1">
+                &nbsp;·&nbsp;{embarque.bsp_2}
+                {!readOnly && (
+                  <button type="button" title="Editar 2º BSP" onClick={() => setEditandoBsp2(true)} className="text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            ) : (
+              !readOnly && (
+                <button
+                  type="button" title="Adicionar mais um BSP (lançamento quebrado)"
+                  onClick={() => setEditandoBsp2(true)}
+                  className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="h-3 w-3" />BSP
+                </button>
+              )
+            )}
+            {" "}&nbsp;·&nbsp; <strong>Função:</strong>{" "}
+            {editandoFuncao ? (
+              <span className="inline-flex items-center gap-1">
+                <Input className="h-6 w-48 text-xs" value={funcaoValor} onChange={(e) => setFuncaoValor(e.target.value)} />
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" loading={salvarFuncaoOverride.isPending} onClick={() => salvarFuncaoOverride.mutate(funcaoValor.trim() || null)}>Salvar</Button>
+                {semana.funcao_override && (
+                  <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setFuncaoValor(embarque.funcao_embarque ?? ""); salvarFuncaoOverride.mutate(null); }}>Usar do Drake</Button>
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditandoFuncao(false); setFuncaoValor(semana.funcao_override ?? embarque.funcao_embarque ?? ""); }}>Cancelar</Button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                {funcaoEfetiva}
+                {semana.funcao_override && <span className="text-[10px] text-muted-foreground">(editado nessa semana)</span>}
+                {!readOnly && (
+                  <button type="button" title="Corrigir função só nessa semana" onClick={() => setEditandoFuncao(true)} className="text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground">Período: {fmt(semana.data_inicio_semana)} a {fmt(semana.data_fim_semana)}</div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => imprimirSemana(colaborador, periodo, embarque, dias, totals)}>
+          <Button variant="outline" size="sm" onClick={() => imprimirSemana(colaborador, periodo, embarque, draft, totals, funcaoEfetiva)}>
             <Printer className="mr-1.5 h-3.5 w-3.5" />Visualizar / Imprimir
           </Button>
-          {!readOnly && <Button size="sm" onClick={() => salvar.mutate()} disabled={dias.length === 0} loading={salvar.isPending}>Salvar semana</Button>}
+          {!readOnly && <Button size="sm" onClick={() => salvar.mutate()} disabled={draft.length === 0} loading={salvar.isPending}>Salvar semana</Button>}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-0.5 w-36">
-          <Label className="text-xs">Turno</Label>
-          <Select value={turno} onValueChange={(v) => setTurno(v as "diurno" | "noturno")}>
-            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="diurno">Diurno</SelectItem>
-              <SelectItem value="noturno">Noturno</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <p className="pb-2 text-xs text-muted-foreground">
-          {dias.length} dia(s) × 12h normais ({turno === "noturno" ? "noturno" : "diurno"})
-        </p>
-      </div>
-
-      <div className="space-y-2 border-t pt-3">
-        <Label className="text-xs">Evento diferente nesse período (opcional)</Label>
-        {!readOnly && (
-          <div className="flex flex-wrap items-end gap-2" onKeyDown={focusNextOnEnter}>
-            <Select value={novaMarcacaoData} onValueChange={setNovaMarcacaoData}>
-              <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="Dia" /></SelectTrigger>
-              <SelectContent>
-                {dias.map((d) => <SelectItem key={d.id} value={d.data} className="text-xs">{fmt(d.data)} · {d.dia_semana.split(" / ")[0]}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={novaMarcacaoTipo} onValueChange={setNovaMarcacaoTipo}>
-              <SelectTrigger className="h-8 w-48 text-xs"><SelectValue placeholder="Evento" /></SelectTrigger>
-              <SelectContent>
-                {TIPOS_MARCACAO.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {novaMarcacaoTipo === "Hora Extra" && (
-              <>
-                <div className="space-y-0.5">
-                  <Label className="text-[10px] text-muted-foreground">De</Label>
-                  <Input type="time" className="h-8 w-24 text-xs" value={novaMarcacaoDe} onChange={(e) => setNovaMarcacaoDe(e.target.value)} />
-                </div>
-                <div className="space-y-0.5">
-                  <Label className="text-[10px] text-muted-foreground">Até</Label>
-                  <Input type="time" className="h-8 w-24 text-xs" value={novaMarcacaoAte} onChange={(e) => setNovaMarcacaoAte(e.target.value)} />
-                </div>
-              </>
-            )}
-            <Button size="sm" variant="outline" onClick={() => adicionarMarcacao.mutate()} loading={adicionarMarcacao.isPending}>
-              <Plus className="mr-1 h-3.5 w-3.5" />Adicionar
-            </Button>
-          </div>
-        )}
-        {marcacoes.length > 0 && (
-          <ul className="space-y-1 pt-1">
-            {marcacoes.map((d) => (
-              <li key={d.id} className="flex items-center gap-2 text-xs">
-                <span className="font-medium">{fmt(d.data)}</span>
-                <StatusBadge tone="muted">{labelMarcacao(d)}</StatusBadge>
-                {!readOnly && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5"
-                    onClick={() => removerMarcacao.mutate(d)}
-                    loading={removerMarcacao.isPending && removerMarcacao.variables?.id === d.id}
+      <div className="overflow-x-auto" onKeyDownCapture={focusNextOnEnter}>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-24">Dia</TableHead>
+              <TableHead className="w-40">Evento</TableHead>
+              <TableHead className="w-28">BSP</TableHead>
+              <TableHead className="w-24">Entrada</TableHead>
+              <TableHead className="w-24">Saída</TableHead>
+              <TableHead className="w-28">Horas Normais</TableHead>
+              <TableHead className="w-28">Horas Extras</TableHead>
+              <TableHead className="w-24">HE Entrada</TableHead>
+              <TableHead className="w-24">HE Saída</TableHead>
+              <TableHead className="w-20">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {draft.map((d) => (
+              <TableRow key={d.id}>
+                <TableCell className="text-xs font-medium">{diaLabelCurto(d)}</TableCell>
+                <TableCell>
+                  <Select
+                    value={d.evento ?? "Nenhum"} disabled={readOnly}
+                    onValueChange={(v) => {
+                      // "Nenhum" no evento significa que não houve nada nesse dia — não faz
+                      // sentido continuar puxando o BSP padrão do embarque nesse caso.
+                      if (v === "Nenhum") { editarCampo(d.id, { evento: null, bsp: null }); return; }
+                      editarCampo(d.id, { evento: v });
+                    }}
                   >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                )}
-              </li>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{EVENTO_OPCOES.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}</SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  {bspOptions.length > 1 && !bspManualIds.has(d.id) ? (
+                    <Select
+                      value={d.bsp ?? "__nenhum__"} disabled={readOnly}
+                      onValueChange={(v) => {
+                        if (v === "__outro__") { setBspManualIds((prev) => new Set(prev).add(d.id)); return; }
+                        editarCampo(d.id, { bsp: v === "__nenhum__" ? null : v });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                        {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                        <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        className="h-8 text-xs" disabled={readOnly} placeholder="BSP novo"
+                        value={bspManualValores[d.id] ?? d.bsp ?? ""}
+                        onChange={(e) => setBspManualValores((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === "Enter") adicionarBspExtra(d.id, bspManualValores[d.id] ?? ""); }}
+                      />
+                      {!readOnly && (bspManualValores[d.id] ?? "").trim() && (
+                        <Button
+                          type="button" size="sm" variant="ghost" className="h-8 px-1.5 text-xs shrink-0"
+                          title="Adicionar esse BSP à lista" onClick={() => adicionarBspExtra(d.id, bspManualValores[d.id] ?? "")}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_entrada ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_saida ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number" step="0.5" className="h-8 min-w-[4.5rem] text-sm font-medium" disabled={readOnly}
+                    value={d.horas_normais ?? ""} onChange={(e) => editarCampo(d.id, { horas_normais: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number" step="0.5" className="h-8 min-w-[4.5rem] text-sm font-medium" disabled={readOnly}
+                    value={d.horas_extras ?? ""} onChange={(e) => editarCampo(d.id, { horas_extras: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_entrada_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada_extra: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="time" className="h-8 text-xs" disabled={readOnly}
+                    value={d.hora_saida_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida_extra: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell className="text-xs font-semibold">{d.total_horas ?? 0}</TableCell>
+              </TableRow>
             ))}
-          </ul>
-        )}
+            {draft.length === 0 && <EmptyStateRow colSpan={10} icon={Clock} title="Nenhum dia nessa semana" />}
+          </TableBody>
+        </Table>
       </div>
 
       <div className="flex justify-end gap-4 border-t pt-3 text-sm font-semibold">
-        <span>Normais: {totals.normais.toFixed(1)}h</span>
+        <span>Total Hours — Normais: {totals.normais.toFixed(1)}h</span>
         <span>Extras: {totals.extras.toFixed(1)}h</span>
+        <span>Adic. Noturno: {totals.noturno.toFixed(1)}h</span>
         <span>Total: {totals.total.toFixed(1)}h</span>
       </div>
     </Card>
   );
 }
 
-// ─── Aba 3: Relatório RH ─────────────────────────────────────────────────────
-
 interface DiaComEmbarque extends TimesheetDia {
   embarque_id: string;
 }
 
-function RelatorioTab({ colaboradores, periodos, embarques }: {
-  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[];
+// ─── Aba 4: Relatório Medição ────────────────────────────────────────────────
+
+interface LinhaMedicao {
+  colaborador: HistNovoColaborador;
+  bsp: string;
+  unidade: string;
+  horasNormais: number;
+  horasExtras: number;
+  totalHoras: number;
+  dias: number;
+}
+
+function MedicaoTab({ colaboradores, embarques, periodos }: {
+  colaboradores: HistNovoColaborador[]; embarques: TimesheetEmbarque[]; periodos: HistNovoPeriodo[];
 }) {
   const [dataInicio, setDataInicio] = useState(defaultStart);
   const [dataFim, setDataFim] = useState(defaultEnd);
   const [unidadeFiltro, setUnidadeFiltro] = useState("all");
+  const [bspFiltro, setBspFiltro] = useState("all");
 
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
   const embarqueById = useMemo(() => new Map(embarques.map((e) => [e.id, e])), [embarques]);
@@ -1700,195 +2425,11 @@ function RelatorioTab({ colaboradores, periodos, embarques }: {
     () => Array.from(new Set(embarques.map((e) => e.unidade_operacional).filter((u): u is string => !!u))).sort(),
     [embarques],
   );
-
-  const { data: diasNoPeriodo = [], isLoading } = useQuery({
-    queryKey: ["timesheet-dias-periodo", dataInicio, dataFim],
-    queryFn: async (): Promise<DiaComEmbarque[]> => {
-      if (!dataInicio || !dataFim) return [];
-      const { data: semanasNoPeriodo, error: semErr } = await supabase
-        .from("timesheet_semanas").select("*")
-        .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio);
-      if (semErr) throw semErr;
-      const semanaIds = (semanasNoPeriodo ?? []).map((s) => s.id);
-      if (semanaIds.length === 0) return [];
-      const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("*")
-        .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim);
-      if (diasErr) throw diasErr;
-      const embarqueIdBySemanaId = new Map((semanasNoPeriodo ?? []).map((s) => [s.id, s.embarque_id]));
-      return (diasData ?? []).map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
-    },
-    enabled: !!dataInicio && !!dataFim,
-  });
-
-  const linhas = useMemo(() => {
-    const byColab = new Map<string, { colaborador: HistNovoColaborador; dias: DiaComEmbarque[] }>();
-    diasNoPeriodo.forEach((d) => {
-      const embarque = embarqueById.get(d.embarque_id);
-      if (!embarque) return;
-      if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
-      const colaborador = colabById.get(embarque.colaborador_id);
-      if (!colaborador) return;
-      if (!byColab.has(colaborador.id)) byColab.set(colaborador.id, { colaborador, dias: [] });
-      byColab.get(colaborador.id)!.dias.push(d);
-    });
-
-    return Array.from(byColab.values()).map(({ colaborador, dias }) => {
-      const counts: Record<AdicionalCode, number> = { "055": 0, "056": 0, "057": 0, "033": 0, "209": 0 };
-      let horaExtra = 0, horasNoturno = 0, feriadoDias = 0, dobrasHoras = 0;
-      const colabPeriodos = periodosByColaborador.get(colaborador.id) ?? [];
-      dias.forEach((d) => {
-        const embarque = embarqueById.get(d.embarque_id);
-        if (embarque) adicionaisPorFuncao(embarque.funcao_embarque).forEach((code) => { counts[code]++; });
-        horaExtra += d.horas_extras ?? 0;
-        if (d.adicional_noturno) horasNoturno += d.total_horas ?? 0;
-        if (d.feriado) feriadoDias++;
-        if (computeDayStatus(colabPeriodos, d.data).status === "DB") dobrasHoras += d.total_horas ?? 0;
-      });
-      return {
-        colaborador, counts,
-        horaExtra: round2(horaExtra), horasNoturno: round2(horasNoturno),
-        feriadoDias, dobrasHoras: round2(dobrasHoras),
-      };
-    }).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [diasNoPeriodo, embarqueById, colabById, periodosByColaborador, unidadeFiltro]);
-
-  const pendentes = useMemo(() => embarques.filter((e) => {
-    if (e.data_fim_embarque < dataInicio || e.data_inicio_embarque > dataFim) return false;
-    if (unidadeFiltro !== "all" && e.unidade_operacional !== unidadeFiltro) return false;
-    return e.status_entrega !== "completo";
-  }), [embarques, dataInicio, dataFim, unidadeFiltro]);
-
-  // Exportação em Excel foi centralizada no módulo de Relatórios.
-
-  return (
-    <div className="space-y-3">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
-          </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-48">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={unidadeFiltro} onValueChange={setUnidadeFiltro}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </Card>
-
-      {pendentes.length > 0 && (
-        <Card className="p-3 border-destructive/30 bg-destructive/5">
-          <div className="flex items-center gap-2 text-sm text-destructive font-medium">
-            <AlertTriangle className="h-4 w-4" />
-            {pendentes.length} embarque(s) com timesheet pendente/parcial neste período
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {pendentes.map((p) => colabById.get(p.colaborador_id)?.nome ?? "—").join(", ")}
-          </p>
-        </Card>
-      )}
-
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nome do Funcionário</TableHead>
-              <TableHead>{ADICIONAL_LABEL["055"]}</TableHead>
-              <TableHead>{ADICIONAL_LABEL["056"]}</TableHead>
-              <TableHead>{ADICIONAL_LABEL["057"]}</TableHead>
-              <TableHead>{ADICIONAL_LABEL["033"]}</TableHead>
-              <TableHead>208 - Sobreaviso 20%</TableHead>
-              <TableHead>{ADICIONAL_LABEL["209"]}</TableHead>
-              <TableHead>408 - HE +100%</TableHead>
-              <TableHead>413 - Dobras (h)</TableHead>
-              <TableHead>220 - Feriado</TableHead>
-              <TableHead>035 - Adic. Noturno (h)</TableHead>
-            </TableRow>
-          </TableHeader>
-          {isLoading ? (
-            <TableSkeleton rows={6} cols={11} />
-          ) : (
-            <TableBody>
-              {linhas.map((l) => (
-                <TableRow key={l.colaborador.id}>
-                  <TableCell className="font-medium">{l.colaborador.nome}</TableCell>
-                  <TableCell>{l.counts["055"]}</TableCell>
-                  <TableCell>{l.counts["056"]}</TableCell>
-                  <TableCell>{l.counts["057"]}</TableCell>
-                  <TableCell>{l.counts["033"]}</TableCell>
-                  <TableCell className="text-muted-foreground">0</TableCell>
-                  <TableCell>{l.counts["209"]}</TableCell>
-                  <TableCell>{l.horaExtra}</TableCell>
-                  <TableCell>{l.dobrasHoras}</TableCell>
-                  <TableCell>{l.feriadoDias}</TableCell>
-                  <TableCell>{l.horasNoturno}</TableCell>
-                </TableRow>
-              ))}
-              {linhas.length === 0 && (
-                <EmptyStateRow colSpan={11} icon={Clock} title="Nenhum lançamento no período selecionado" />
-              )}
-            </TableBody>
-          )}
-        </Table>
-      </Card>
-    </div>
-  );
-}
-
-// ─── Aba 4: Relatório Medição ────────────────────────────────────────────────
-
-interface LinhaMedicao {
-  colaborador: HistNovoColaborador;
-  bsp: string;
-  unidade: string;
-  horasNormais: number;
-  horasExtras: number;
-  totalHoras: number;
-  dias: number;
-}
-
-function MedicaoTab({ colaboradores, embarques }: {
-  colaboradores: HistNovoColaborador[]; embarques: TimesheetEmbarque[];
-}) {
-  const [dataInicio, setDataInicio] = useState(defaultStart);
-  const [dataFim, setDataFim] = useState(defaultEnd);
-  const [unidadeFiltro, setUnidadeFiltro] = useState("all");
-
-  const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
-  const embarqueById = useMemo(() => new Map(embarques.map((e) => [e.id, e])), [embarques]);
-
-  const unidadeOptions = useMemo(
-    () => Array.from(new Set(embarques.map((e) => e.unidade_operacional).filter((u): u is string => !!u))).sort(),
-    [embarques],
-  );
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFiltro), [periodos, unidadeFiltro]);
 
   const { data: diasNoPeriodo = [], isLoading } = useQuery({
     queryKey: ["timesheet-dias-medicao", dataInicio, dataFim],
-    queryFn: async (): Promise<DiaComEmbarque[]> => {
-      if (!dataInicio || !dataFim) return [];
-      const { data: semanasNoPeriodo, error: semErr } = await supabase
-        .from("timesheet_semanas").select("*")
-        .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio);
-      if (semErr) throw semErr;
-      const semanaIds = (semanasNoPeriodo ?? []).map((s) => s.id);
-      if (semanaIds.length === 0) return [];
-      const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("*")
-        .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim);
-      if (diasErr) throw diasErr;
-      const embarqueIdBySemanaId = new Map((semanasNoPeriodo ?? []).map((s) => [s.id, s.embarque_id]));
-      return (diasData ?? []).map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
-    },
+    queryFn: () => fetchDiasNoPeriodo(dataInicio, dataFim),
     enabled: !!dataInicio && !!dataFim,
   });
 
@@ -1901,7 +2442,12 @@ function MedicaoTab({ colaboradores, embarques }: {
       if (unidadeFiltro !== "all" && embarque.unidade_operacional !== unidadeFiltro) return;
       const colaborador = colabById.get(embarque.colaborador_id);
       if (!colaborador) return;
-      const bsp = embarque.bsp || "—";
+      // O embarque pode ter sido lançado sem BSP preenchido (ex.: import do Access, que não traz
+      // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
+      // (mesmo conceito de BSP, só que vindo do relatório Drake).
+      const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
+      const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
+      if (bspFiltro !== "all" && bsp !== bspFiltro) return;
       const chave = `${colaborador.id}::${bsp}`;
       if (!porChave.has(chave)) {
         porChave.set(chave, {
@@ -1918,12 +2464,47 @@ function MedicaoTab({ colaboradores, embarques }: {
     return Array.from(porChave.values())
       .map((l) => ({ ...l, horasNormais: round2(l.horasNormais), horasExtras: round2(l.horasExtras), totalHoras: round2(l.totalHoras) }))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome) || a.bsp.localeCompare(b.bsp));
-  }, [diasNoPeriodo, embarqueById, colabById, unidadeFiltro]);
+  }, [diasNoPeriodo, embarqueById, colabById, periodosByColaborador, unidadeFiltro, bspFiltro]);
 
   // Exportação em Excel foi centralizada no módulo de Relatórios.
 
+  // Totais de HH normal/extra por unidade — soma das linhas (que já estão por colaborador+BSP)
+  // agrupadas só por unidade, pra dar uma visão rápida antes de ir pro detalhe por colaborador.
+  const porUnidade = useMemo(() => {
+    const m = new Map<string, { unidade: string; horasNormais: number; horasExtras: number }>();
+    linhas.forEach((l) => {
+      if (!m.has(l.unidade)) m.set(l.unidade, { unidade: l.unidade, horasNormais: 0, horasExtras: 0 });
+      const u = m.get(l.unidade)!;
+      u.horasNormais += l.horasNormais;
+      u.horasExtras += l.horasExtras;
+    });
+    return Array.from(m.values())
+      .map((u) => ({ ...u, horasNormais: round2(u.horasNormais), horasExtras: round2(u.horasExtras) }))
+      .sort((a, b) => a.unidade.localeCompare(b.unidade));
+  }, [linhas]);
+
   return (
     <div className="space-y-3">
+      {porUnidade.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {porUnidade.map((u) => (
+            <Card key={u.unidade} className="min-w-[160px] flex-1 p-3">
+              <p className="truncate text-xs font-medium text-muted-foreground" title={u.unidade}>{u.unidade}</p>
+              <div className="mt-1.5 flex items-baseline gap-3">
+                <div>
+                  <span className="text-lg font-semibold">{u.horasNormais}</span>
+                  <span className="ml-1 text-[10px] text-muted-foreground">HH normal</span>
+                </div>
+                <div>
+                  <span className="text-lg font-semibold text-amber-600">{u.horasExtras}</span>
+                  <span className="ml-1 text-[10px] text-muted-foreground">HE</span>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5">
@@ -1936,11 +2517,21 @@ function MedicaoTab({ colaboradores, embarques }: {
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-            <Select value={unidadeFiltro} onValueChange={setUnidadeFiltro}>
+            <Select value={unidadeFiltro} onValueChange={(v) => { setUnidadeFiltro(v); setBspFiltro("all"); }}>
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todas</SelectItem>
                 {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={bspFiltro} onValueChange={setBspFiltro}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>

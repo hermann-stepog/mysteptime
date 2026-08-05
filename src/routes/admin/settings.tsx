@@ -14,6 +14,7 @@ import { notify } from "@/lib/notify";
 import { Plus, Trash2, Pencil } from "lucide-react";
 import { useState } from "react";
 import { pageTitle } from "@/lib/pageTitle";
+import { createAppUser } from "@/lib/api/users.functions";
 
 export const Route = createFileRoute("/admin/settings")({ head: () => pageTitle("Configurações"), component: SettingsPage });
 
@@ -253,9 +254,51 @@ function Users() {
     qc.invalidateQueries({ queryKey: ["users-with-roles"] });
     notify.success("Papel atualizado");
   };
+  const [nu, setNu] = useState({ full_name: "", email: "", password: "", role: "collaborator" });
+  const [creating, setCreating] = useState(false);
+  const createUser = async () => {
+    if (!nu.full_name || !nu.email || nu.password.length < 8) {
+      notify.error("Preencha nome, e-mail e uma senha com ao menos 8 caracteres");
+      return;
+    }
+    setCreating(true);
+    try {
+      await createAppUser({ data: { ...nu, role: nu.role as any } });
+      notify.success("Usuário criado");
+      setNu({ full_name: "", email: "", password: "", role: "collaborator" });
+      qc.invalidateQueries({ queryKey: ["users-with-roles"] });
+    } catch (e: any) {
+      notify.error(e?.message ?? "Erro ao criar usuário");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <Card className="p-5">
-      <h3 className="font-semibold">Usuários &amp; papéis</h3>
+      <h3 className="font-semibold">Novo usuário</h3>
+      <p className="mb-3 text-sm text-muted-foreground">Crie o acesso e já defina a senha inicial.</p>
+      <div className="grid gap-3 md:grid-cols-5">
+        <div><Label>Nome</Label><Input value={nu.full_name} onChange={(e) => setNu({ ...nu, full_name: e.target.value })} /></div>
+        <div><Label>E-mail</Label><Input type="email" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} /></div>
+        <div><Label>Senha</Label><Input type="text" placeholder="mín. 8 caracteres" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} /></div>
+        <div><Label>Papel</Label>
+          <Select value={nu.role} onValueChange={(v) => setNu({ ...nu, role: v })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pendente</SelectItem>
+              <SelectItem value="collaborator">Colaborador</SelectItem>
+              <SelectItem value="logistics_operator">Operador Logístico</SelectItem>
+              <SelectItem value="pm">PM</SelectItem>
+              <SelectItem value="visitante">Visitante</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-end"><Button onClick={createUser} loading={creating} className="w-full"><Plus className="mr-2 h-4 w-4" />Criar usuário</Button></div>
+      </div>
+
+      <h3 className="mt-8 font-semibold">Usuários &amp; papéis</h3>
+
       <Table className="mt-4">
         <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead></TableRow></TableHeader>
         <TableBody>
@@ -269,6 +312,7 @@ function Users() {
                     <SelectItem value="pending">Pendente</SelectItem>
                     <SelectItem value="collaborator">Colaborador</SelectItem>
                     <SelectItem value="logistics_operator">Operador Logístico</SelectItem>
+                    <SelectItem value="pm">PM</SelectItem>
                     <SelectItem value="visitante">Visitante</SelectItem>
                   </SelectContent>
                 </Select>

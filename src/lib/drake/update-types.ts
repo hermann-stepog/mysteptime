@@ -1,0 +1,266 @@
+/** Tipos compartilhados do fluxo Drake (sem Node/Playwright). */
+
+export const DRAKE_UPDATE_STAGES = [
+  "queued",
+  "validating-session",
+  "connecting-drake",
+  "authenticating",
+  "confirming-tenant",
+  "session-confirmed",
+  "preparing-processing-channel",
+  "preparing-period",
+  "loading-workers",
+  "loading-annual-positions",
+  "validating-annual-position",
+  "synchronizing-annual-position",
+  "annual-position-completed",
+  "executing-embarkation-query",
+  "waiting-embarkation-query",
+  "requesting-embarkation-report",
+  "waiting-embarkation-report",
+  "downloading-embarkation-report",
+  "validating-embarkation-file",
+  "importing-embarkation",
+  "embarkation-completed",
+  "executing-availability-query",
+  "waiting-availability-query",
+  "requesting-availability-report",
+  "waiting-availability-report",
+  "downloading-availability-report",
+  "validating-availability-file",
+  "importing-availability",
+  "availability-completed",
+  "finalizing",
+  "completed",
+  "completed-with-errors",
+  "failed",
+] as const;
+
+export type DrakeUpdateStage = (typeof DRAKE_UPDATE_STAGES)[number];
+
+/** Status serializado no stream NDJSON. */
+export type DrakeReportStatus =
+  | "waiting"
+  | "not-started"
+  | "processing"
+  | "downloading"
+  | "validating"
+  | "importing"
+  | "completed"
+  | "failed";
+
+/** Rótulos em português para a UI do card. */
+export const DRAKE_REPORT_STATUS_LABEL: Record<DrakeReportStatus, string> = {
+  waiting: "Aguardando",
+  "not-started": "Não iniciado",
+  processing: "Em processamento",
+  downloading: "Baixando",
+  validating: "Validando",
+  importing: "Importando",
+  completed: "Concluído",
+  failed: "Falhou",
+};
+
+export const DRAKE_STAGE_PROGRESS: Record<DrakeUpdateStage, number> = {
+  queued: 0,
+  "validating-session": 5,
+  "connecting-drake": 5,
+  authenticating: 10,
+  "confirming-tenant": 15,
+  "session-confirmed": 15,
+  "preparing-processing-channel": 18,
+  "preparing-period": 20,
+  "loading-workers": 22,
+  "loading-annual-positions": 25,
+  "validating-annual-position": 86,
+  "synchronizing-annual-position": 92,
+  "annual-position-completed": 98,
+  "executing-embarkation-query": 25,
+  "waiting-embarkation-query": 32,
+  "requesting-embarkation-report": 38,
+  "waiting-embarkation-report": 44,
+  "downloading-embarkation-report": 48,
+  "validating-embarkation-file": 52,
+  "importing-embarkation": 58,
+  "embarkation-completed": 62,
+  "executing-availability-query": 66,
+  "waiting-availability-query": 72,
+  "requesting-availability-report": 78,
+  "waiting-availability-report": 84,
+  "downloading-availability-report": 88,
+  "validating-availability-file": 92,
+  "importing-availability": 96,
+  "availability-completed": 96,
+  finalizing: 99,
+  completed: 100,
+  "completed-with-errors": 100,
+  failed: 0,
+};
+
+export const DRAKE_STAGE_MESSAGE: Record<DrakeUpdateStage, string> = {
+  queued: "Preparando atualização...",
+  "validating-session": "Acessando o Drake...",
+  "connecting-drake": "Acessando o Drake...",
+  authenticating: "Confirmando login no Drake...",
+  "confirming-tenant": "Confirmando ambiente STEP...",
+  "session-confirmed": "Confirmando ambiente STEP...",
+  "preparing-processing-channel": "Preparando canal de processamento...",
+  "preparing-period": "Preparando período da consulta...",
+  "loading-workers": "Carregando colaboradores ativos do Drake...",
+  "loading-annual-positions": "Carregando fichas anuais de posição...",
+  "validating-annual-position": "Validando as fichas anuais recebidas...",
+  "synchronizing-annual-position": "Atualizando o Histograma Offshore...",
+  "annual-position-completed": "Histograma Offshore atualizado.",
+  "executing-embarkation-query": "Executando consulta de embarque...",
+  "waiting-embarkation-query": "Aguardando resposta da consulta de embarque...",
+  "requesting-embarkation-report": "Solicitando arquivo de embarque...",
+  "waiting-embarkation-report": "Aguardando geração do arquivo de embarque...",
+  "downloading-embarkation-report": "Baixando informações de embarque...",
+  "validating-embarkation-file": "Validando relatório de embarque...",
+  "importing-embarkation": "Atualizando colaboradores e períodos de embarque...",
+  "embarkation-completed": "Relatório de embarque atualizado.",
+  "executing-availability-query": "Executando consulta de disponibilidade...",
+  "waiting-availability-query": "Aguardando resposta da consulta de disponibilidade...",
+  "requesting-availability-report": "Solicitando arquivo de disponibilidade...",
+  "waiting-availability-report": "Aguardando geração do arquivo de disponibilidade...",
+  "downloading-availability-report": "Baixando informações de disponibilidade...",
+  "validating-availability-file": "Validando relatório de disponibilidade...",
+  "importing-availability": "Atualizando períodos de disponibilidade...",
+  "availability-completed": "Relatório de disponibilidade atualizado.",
+  finalizing: "Finalizando atualização...",
+  completed: "Dados atualizados com sucesso.",
+  "completed-with-errors": "Atualização concluída com pendências.",
+  failed: "Não foi possível atualizar os dados do Drake.",
+};
+
+export interface DrakeUpdateResult {
+  created?: number;
+  updated?: number;
+  embarkationEvents?: number;
+  availabilityEvents?: number;
+  skipped?: number;
+  report1DurationMs?: number;
+  import1DurationMs?: number;
+  report14DurationMs?: number;
+  import14DurationMs?: number;
+  totalDurationMs?: number;
+  annualPositionEvents?: number;
+  annualPositionWorkers?: number;
+  removedStaleEvents?: number;
+}
+
+export type DrakeProgressEvent = {
+  type: "progress" | "completed" | "error";
+  stage: DrakeUpdateStage | string;
+  progress: number;
+  message: string;
+  embarkationStatus: DrakeReportStatus;
+  availabilityStatus: DrakeReportStatus;
+  result?: DrakeUpdateResult;
+  code?: string;
+};
+
+export type DrakeProgressCallback = (event: DrakeProgressEvent) => void | Promise<void>;
+
+export const DRAKE_SESSION_EXPIRED = "DRAKE_SESSION_EXPIRED";
+export const DRAKE_UPDATE_IN_PROGRESS = "DRAKE_UPDATE_IN_PROGRESS";
+export const DRAKE_CREDENTIALS_NOT_CONFIGURED = "DRAKE_CREDENTIALS_NOT_CONFIGURED";
+export const DRAKE_INTERACTIVE_AUTH_REQUIRED = "DRAKE_INTERACTIVE_AUTH_REQUIRED";
+export const DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED = "DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED";
+export const DRAKE_AUTH_FAILED = "DRAKE_AUTH_FAILED";
+export const DRAKE_EXPORT_FAILED = "DRAKE_EXPORT_FAILED";
+export const DRAKE_EXPORT_TIMEOUT = "DRAKE_EXPORT_TIMEOUT";
+export const DRAKE_BACKGROUND_JOB_FAILED = "DRAKE_BACKGROUND_JOB_FAILED";
+export const DRAKE_BACKGROUND_JOB_NOT_CREATED = "DRAKE_BACKGROUND_JOB_NOT_CREATED";
+export const DRAKE_SIGNALR_REQUIRED_FOR_EXPORT = "DRAKE_SIGNALR_REQUIRED_FOR_EXPORT";
+export const DRAKE_SIGNALR_CONNECTION_FAILED = "DRAKE_SIGNALR_CONNECTION_FAILED";
+export const DRAKE_SIGNALR_PROTOCOL_UNKNOWN = "DRAKE_SIGNALR_PROTOCOL_UNKNOWN";
+export const DRAKE_QUERY_EXECUTION_NOT_CREATED = "DRAKE_QUERY_EXECUTION_NOT_CREATED";
+export const DRAKE_EXECUTION_STATUS_CONTRACT_UNKNOWN = "DRAKE_EXECUTION_STATUS_CONTRACT_UNKNOWN";
+export const DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB = "DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB";
+export const BACKGROUND_JOBS_INVALID_RESPONSE = "BACKGROUND_JOBS_INVALID_RESPONSE";
+export const DRAKE_EMBARKATION_EXPORT_FAILED = "DRAKE_EMBARKATION_EXPORT_FAILED";
+export const DRAKE_AVAILABILITY_EXPORT_FAILED = "DRAKE_AVAILABILITY_EXPORT_FAILED";
+export const DRAKE_FILE_VALIDATION_FAILED = "DRAKE_FILE_VALIDATION_FAILED";
+export const DRAKE_EMBARKATION_IMPORT_FAILED = "DRAKE_EMBARKATION_IMPORT_FAILED";
+export const DRAKE_AVAILABILITY_IMPORT_FAILED = "DRAKE_AVAILABILITY_IMPORT_FAILED";
+export const DRAKE_ANNUAL_POSITION_SYNC_FAILED = "DRAKE_ANNUAL_POSITION_SYNC_FAILED";
+export const DRAKE_TEMP_STORAGE_ERROR = "DRAKE_TEMP_STORAGE_ERROR";
+export const DRAKE_UPDATE_ALREADY_RUNNING = "DRAKE_UPDATE_ALREADY_RUNNING";
+export const DRAKE_BROWSER_MODE_INVALID = "DRAKE_BROWSER_MODE_INVALID";
+export const DRAKE_REMOTE_BROWSER_NOT_CONFIGURED = "DRAKE_REMOTE_BROWSER_NOT_CONFIGURED";
+export const DRAKE_REMOTE_BROWSER_CONNECTION_FAILED = "DRAKE_REMOTE_BROWSER_CONNECTION_FAILED";
+export const DRAKE_REMOTE_BROWSER_DISCONNECTED = "DRAKE_REMOTE_BROWSER_DISCONNECTED";
+export const DRAKE_LOCAL_BROWSER_NOT_INSTALLED = "DRAKE_LOCAL_BROWSER_NOT_INSTALLED";
+export const DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED = "DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED";
+export const DRAKE_SESSION_TRANSFER_FAILED = "DRAKE_SESSION_TRANSFER_FAILED";
+export const DRAKE_CLIENT_NOT_FOUND = "DRAKE_CLIENT_NOT_FOUND";
+export const DRAKE_CLIENT_SELECTION_AMBIGUOUS = "DRAKE_CLIENT_SELECTION_AMBIGUOUS";
+export const DRAKE_CLIENT_SELECTION_FAILED = "DRAKE_CLIENT_SELECTION_FAILED";
+export const MYSTEPTIME_AUTOMATION_CREDENTIALS_MISSING =
+  "MYSTEPTIME_AUTOMATION_CREDENTIALS_MISSING";
+export const MYSTEPTIME_AUTOMATION_LOGIN_FAILED = "MYSTEPTIME_AUTOMATION_LOGIN_FAILED";
+export const MYSTEPTIME_AUTOMATION_INTERACTIVE_AUTH_REQUIRED =
+  "MYSTEPTIME_AUTOMATION_INTERACTIVE_AUTH_REQUIRED";
+
+export type DrakeUpdateTrigger =
+  | "manual"
+  | "scheduled-midnight"
+  | "scheduled-noon"
+  | "scheduled-test";
+
+export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
+  [DRAKE_CREDENTIALS_NOT_CONFIGURED]: "As credenciais da integração Drake não estão configuradas.",
+  [DRAKE_AUTH_FAILED]: "Não foi possível autenticar no Drake.",
+  [DRAKE_INTERACTIVE_AUTH_REQUIRED]: "O Drake solicitou uma confirmação adicional de login.",
+  [DRAKE_INTERACTIVE_BOOTSTRAP_REQUIRED]:
+    "A autenticação do Drake precisa ser concluída manualmente uma vez.",
+  [DRAKE_SESSION_EXPIRED]: "A sessão do Drake expirou e precisa ser conectada novamente.",
+  [DRAKE_EXPORT_FAILED]: "Não foi possível gerar um dos relatórios.",
+  [DRAKE_EXPORT_TIMEOUT]: "O Drake demorou mais que o esperado para gerar o relatório.",
+  [DRAKE_BACKGROUND_JOB_FAILED]: "Não foi possível gerar um dos relatórios.",
+  [DRAKE_BACKGROUND_JOB_NOT_CREATED]:
+    "O Drake aceitou a solicitação, mas não iniciou a geração do relatório.",
+  [DRAKE_SIGNALR_REQUIRED_FOR_EXPORT]: "O Drake não iniciou a exportação do relatório.",
+  [DRAKE_SIGNALR_CONNECTION_FAILED]: "Não foi possível iniciar o processamento do relatório.",
+  [DRAKE_SIGNALR_PROTOCOL_UNKNOWN]: "Não foi possível iniciar o processamento do relatório.",
+  [DRAKE_QUERY_EXECUTION_NOT_CREATED]:
+    "Não foi possível iniciar o processamento do relatório de embarque.",
+  [DRAKE_EXECUTION_STATUS_CONTRACT_UNKNOWN]:
+    "Não foi possível iniciar o processamento do relatório.",
+  [DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB]:
+    "O Drake aceitou a solicitação, mas não gerou o arquivo de embarque.",
+  [BACKGROUND_JOBS_INVALID_RESPONSE]: "Não foi possível gerar um dos relatórios.",
+  [DRAKE_EMBARKATION_EXPORT_FAILED]: "Não foi possível gerar o relatório de embarque.",
+  [DRAKE_AVAILABILITY_EXPORT_FAILED]: "Não foi possível gerar o relatório de disponibilidade.",
+  [DRAKE_FILE_VALIDATION_FAILED]: "O arquivo recebido do Drake é inválido.",
+  [DRAKE_EMBARKATION_IMPORT_FAILED]: "Não foi possível atualizar os dados de embarque.",
+  [DRAKE_AVAILABILITY_IMPORT_FAILED]: "Não foi possível atualizar os dados de disponibilidade.",
+  [DRAKE_ANNUAL_POSITION_SYNC_FAILED]:
+    "Não foi possível atualizar as fichas anuais de posição do Drake.",
+  [DRAKE_UPDATE_IN_PROGRESS]: "Já existe uma atualização em andamento.",
+  [DRAKE_TEMP_STORAGE_ERROR]: "Não foi possível preparar os arquivos temporários da atualização.",
+  [DRAKE_UPDATE_ALREADY_RUNNING]: "Já existe uma atualização em andamento.",
+  [DRAKE_SESSION_TRANSFER_FAILED]:
+    "A sessão do Drake foi criada, mas não pôde ser transferida para o cliente de integração.",
+  [DRAKE_CLIENT_NOT_FOUND]: "O ambiente configurado não foi encontrado na conta do Drake.",
+  [DRAKE_CLIENT_SELECTION_AMBIGUOUS]:
+    "Foi encontrada mais de uma opção para o ambiente configurado no Drake.",
+  [DRAKE_CLIENT_SELECTION_FAILED]: "Não foi possível acessar o ambiente configurado no Drake.",
+  [DRAKE_BROWSER_MODE_INVALID]: "O modo de execução do navegador Drake é inválido.",
+  [DRAKE_REMOTE_BROWSER_NOT_CONFIGURED]:
+    "O navegador remoto da integração Drake não está configurado.",
+  [DRAKE_REMOTE_BROWSER_CONNECTION_FAILED]:
+    "Não foi possível conectar ao navegador da integração Drake.",
+  [DRAKE_REMOTE_BROWSER_DISCONNECTED]:
+    "A conexão com o navegador da integração Drake foi encerrada.",
+  [DRAKE_LOCAL_BROWSER_NOT_INSTALLED]: "O navegador local da integração Drake não está instalado.",
+  [DRAKE_BROWSER_SESSION_NOT_AUTHENTICATED]:
+    "O login no Drake não produziu uma sessão autenticada.",
+  [MYSTEPTIME_AUTOMATION_CREDENTIALS_MISSING]:
+    "As credenciais da conta de automação do MyStepTime não estão configuradas.",
+  [MYSTEPTIME_AUTOMATION_LOGIN_FAILED]:
+    "Não foi possível entrar no MyStepTime com a conta de automação.",
+  [MYSTEPTIME_AUTOMATION_INTERACTIVE_AUTH_REQUIRED]:
+    "A conta de automação exige uma etapa adicional de autenticação.",
+};

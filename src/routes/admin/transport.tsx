@@ -13,7 +13,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2, Check, ChevronsUpDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { notify } from "@/lib/notify";
 import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
@@ -23,13 +25,13 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
 import { CLIENTES } from "@/lib/clientes";
 import { useAuth } from "@/hooks/useAuth";
-import { fmtDate, fmtDateTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
+import { cn, matchesNameSearch } from "@/lib/utils";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 import { pageTitle } from "@/lib/pageTitle";
 
 
-type TripStatus = "em_andamento" | "realizado" | "cancelado";
+type TripStatus = "em_andamento" | "realizado" | "faturado" | "cancelado";
 type TripTipo = "pessoas" | "material";
 
 type TransportSearch = { tab?: string; tag?: string; status?: string; cliente?: string; tipo?: string };
@@ -67,20 +69,25 @@ type Trip = {
   departure_time: string | null;
   arrival_time: string | null;
   status: TripStatus;
+  custo: number | null;
+  custo_2: number | null;
+  custo_3: number | null;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
   materials: { material_id: string; quantidade: number | null }[];
 };
 
-const STATUS_LABEL: Record<TripStatus, string> = { em_andamento: "Em Andamento", realizado: "Realizado", cancelado: "Cancelado" };
+const STATUS_LABEL: Record<TripStatus, string> = { em_andamento: "Em Andamento", realizado: "Realizado", faturado: "Faturado", cancelado: "Cancelado" };
 const STATUS_BADGE: Record<TripStatus, string> = {
   em_andamento: "bg-primary/15 text-primary border-primary/30",
   realizado: "bg-success/15 text-success border-success/30",
+  faturado: "bg-violet-500/15 text-violet-700 border-violet-500/30",
   cancelado: "bg-destructive/15 text-destructive border-destructive/30",
 };
 const STATUS_BORDER: Record<TripStatus, string> = {
   em_andamento: "border-l-primary",
   realizado: "border-l-success",
+  faturado: "border-l-violet-500",
   cancelado: "border-l-destructive",
 };
 
@@ -89,6 +96,11 @@ function todayISO() {
 }
 function fmtTime(iso: string) {
   return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+}
+// Soma o valor rateado entre os até 3 BSPs de uma viagem (null quando nenhum foi preenchido).
+function custoTotal(t: Trip): number | null {
+  const valores = [t.custo, t.custo_2, t.custo_3].filter((v): v is number => v != null);
+  return valores.length ? valores.reduce((a, b) => a + b, 0) : null;
 }
 function compareCarNumber(a: string, b: string) {
   const na = parseInt((a.match(/\d+/) ?? ["0"])[0], 10);
@@ -100,11 +112,15 @@ function compareCarNumber(a: string, b: string) {
 // Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
 // Busca os próprios dados (não depende de nenhuma tela já aberta) e já baixa tudo, sem
 // diálogo de opções — igual ao resto dos cartões de Relatórios.
-export async function generateRelatorioTransporte(): Promise<void> {
+export async function generateRelatorioTransporte(dataInicio?: string, dataFim?: string): Promise<void> {
+  let tripsQuery = supabase.from("transport_trips")
+    .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
+    .order("scheduled_at");
+  if (dataInicio) tripsQuery = tripsQuery.gte("scheduled_at", dataInicio);
+  if (dataFim) tripsQuery = tripsQuery.lte("scheduled_at", `${dataFim}T23:59:59`);
+
   const [{ data: trips, error: tripsErr }, { data: tags }, { data: collabs }, { data: materials }] = await Promise.all([
-    supabase.from("transport_trips")
-      .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
-      .order("scheduled_at"),
+    tripsQuery,
     supabase.from("transport_tags").select("*"),
     supabase.from("collaborators").select("*").eq("active", true),
     supabase.from("materials").select("*").eq("active", true),
@@ -134,6 +150,9 @@ export async function generateRelatorioTransporte(): Promise<void> {
     Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
     Observações: t.notes ?? "",
     Status: STATUS_LABEL[t.status],
+    Custo: t.custo ?? "",
+    "Custo 2": t.custo_2 ?? "",
+    "Custo 3": t.custo_3 ?? "",
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -257,6 +276,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
           <SelectContent>
             <SelectItem value="em_andamento">Em Andamento</SelectItem>
             <SelectItem value="realizado">Realizado</SelectItem>
+            <SelectItem value="faturado">Faturado</SelectItem>
             <SelectItem value="cancelado">Cancelado</SelectItem>
           </SelectContent>
         </Select>
@@ -387,6 +407,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     origens_extras: string[]; destinos_extras: string[];
     notes: string;
     tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
+    custo: string; custo_2: string; custo_3: string;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -401,6 +422,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
       cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
       unidade: t.unidade ?? "", status: t.status,
+      custo: t.custo != null ? String(t.custo) : "",
+      custo_2: t.custo_2 != null ? String(t.custo_2) : "",
+      custo_3: t.custo_3 != null ? String(t.custo_3) : "",
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -415,6 +439,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       bsp: "", bsp_2: "", bsp_3: "",
       cliente: "", cliente_2: "", cliente_3: "",
       unidade: "", status: "em_andamento",
+      custo: "", custo_2: "", custo_3: "",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
@@ -442,6 +467,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         cliente: f.cliente || null, cliente_2: f.cliente_2 || null, cliente_3: f.cliente_3 || null,
         unidade: f.unidade.trim() || null,
         status: f.status,
+        custo: f.custo.trim() ? Number(f.custo.trim()) : null,
+        custo_2: f.custo_2.trim() ? Number(f.custo_2.trim()) : null,
+        custo_3: f.custo_3.trim() ? Number(f.custo_3.trim()) : null,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
       };
       let id = f.id;
@@ -570,19 +598,46 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
 
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Cliente/BSP/Valor em até 3 linhas — cobre o caso raro de uma mesma viagem levar
+              colaboradores de BSPs diferentes, ratear o custo entre eles preenchendo mais de
+              uma linha. Na maioria das viagens só a primeira linha é usada. */}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente" value={f.cliente} onChange={(v) => setF({ ...f, cliente: v })} />
             <div><Label>BSP (opcional)</Label><Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Número do BSP" /></div>
+            <div>
+              <Label>Valor (opcional)</Label>
+              <Input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })}
+                placeholder="R$ 0,00"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente 2 (opcional)" value={f.cliente_2} onChange={(v) => setF({ ...f, cliente_2: v })} />
             <div><Label>BSP 2 (opcional)</Label><Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Número do BSP" /></div>
+            <div>
+              <Label>Valor 2 (opcional)</Label>
+              <Input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={f.custo_2} onChange={(e) => setF({ ...f, custo_2: e.target.value })}
+                placeholder="R$ 0,00"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente 3 (opcional)" value={f.cliente_3} onChange={(v) => setF({ ...f, cliente_3: v })} />
             <div><Label>BSP 3 (opcional)</Label><Input value={f.bsp_3} onChange={(e) => setF({ ...f, bsp_3: e.target.value })} placeholder="Número do BSP" /></div>
+            <div>
+              <Label>Valor 3 (opcional)</Label>
+              <Input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={f.custo_3} onChange={(e) => setF({ ...f, custo_3: e.target.value })}
+                placeholder="R$ 0,00"
+              />
+            </div>
           </div>
 
           <div><Label>Unidade</Label><Input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value })} placeholder="Preenchido automaticamente ao selecionar colaborador" /></div>
@@ -604,6 +659,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
               <SelectContent>
                 <SelectItem value="em_andamento">Em Andamento</SelectItem>
                 <SelectItem value="realizado">Realizado</SelectItem>
+                <SelectItem value="faturado">Faturado</SelectItem>
                 <SelectItem value="cancelado">Cancelado</SelectItem>
               </SelectContent>
             </Select>
@@ -1146,6 +1202,45 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
   );
 }
 
+// Busca com autocomplete (digitar e escolher da lista) — mesmo padrão do CollaboratorMultiSelect,
+// só que single-select, pro filtro por colaborador do Quadro Detalhado.
+function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { data: collaborators = [] } = useCollaboratorsQuery();
+  const [open, setOpen] = useState(false);
+  const selected = collaborators.find((c) => c.id === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-48 justify-between font-normal">
+          <span className="truncate">{selected ? selected.full_name : "Todos"}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
+          <CommandInput placeholder="Buscar colaborador..." />
+          <CommandList>
+            <CommandEmpty>Nenhum encontrado.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem value="Todos" onSelect={() => { onChange(""); setOpen(false); }}>
+                <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                Todos
+              </CommandItem>
+              {collaborators.map((c) => (
+                <CommandItem key={c.id} value={c.full_name} onSelect={() => { onChange(c.id); setOpen(false); }}>
+                  <Check className={cn("mr-2 h-4 w-4", value === c.id ? "opacity-100" : "opacity-0")} />
+                  {c.full_name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -1153,6 +1248,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [status, setStatus] = useState(initialStatus ?? "all");
   const [cliente, setCliente] = useState(initialCliente ?? "all");
   const [tipo, setTipo] = useState(initialTipo ?? "all");
+  const [colaboradorId, setColaboradorId] = useState("");
 
   const filtered = useMemo(() => {
     return (trips as Trip[]).filter((t) => {
@@ -1162,9 +1258,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (status !== "all" && t.status !== status) return false;
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
+      if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
     }).sort((a, b) => compareCarNumber(a.car_number, b.car_number));
-  }, [trips, from, to, tagId, status, cliente, tipo]);
+  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId]);
 
   return (
     <div className="space-y-3">
@@ -1210,9 +1307,14 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="em_andamento">Em Andamento</SelectItem>
               <SelectItem value="realizado">Realizado</SelectItem>
+              <SelectItem value="faturado">Faturado</SelectItem>
               <SelectItem value="cancelado">Cancelado</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Colaborador</Label>
+          <ColaboradorFiltroCombobox value={colaboradorId} onChange={setColaboradorId} />
         </div>
       </div>
       <Card className="overflow-x-auto">
@@ -1230,6 +1332,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <TableHead>Destino</TableHead>
               <TableHead>Pessoas/Materiais</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Custo</TableHead>
               <TableHead className="w-[1%]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -1251,6 +1354,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                     : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
+                <TableCell>{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   {onDuplicate && (
                     <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
@@ -1321,11 +1425,12 @@ function TimelineView({ trips, tagsById }: { trips: Trip[]; tagsById: Map<string
 const STATUS_COLOR: Record<TripStatus, string> = {
   em_andamento: "hsl(var(--primary))",
   realizado: "hsl(var(--success))",
+  faturado: "#7c3aed",
   cancelado: "hsl(var(--destructive))",
 };
 
 const BLUES = ["#1e3a8a", "#1d4ed8", "#1e40af", "#2563eb", "#475569", "#64748b", "#0369a1", "#334155", "#0284c7", "#94a3b8"];
-const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", cancelado: "#c00000" };
+const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", faturado: "#5b21b6", cancelado: "#c00000" };
 
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
@@ -1349,6 +1454,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const total = filtered.length;
   const realizados = filtered.filter((t) => t.status === "realizado").length;
   const emAndamento = filtered.filter((t) => t.status === "em_andamento").length;
+  const faturados = filtered.filter((t) => t.status === "faturado").length;
   const cancelados = filtered.filter((t) => t.status === "cancelado").length;
 
   const avgCarsPerDay = useMemo(() => {
@@ -1367,6 +1473,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
   const statusData = [
     { name: "Realizado", value: realizados, color: STATUS_BLUES.realizado },
     { name: "Em Andamento", value: emAndamento, color: STATUS_BLUES.em_andamento },
+    { name: "Faturado", value: faturados, color: STATUS_BLUES.faturado },
     { name: "Cancelado", value: cancelados, color: STATUS_BLUES.cancelado },
   ].filter((d) => d.value > 0);
 

@@ -17,6 +17,7 @@ import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PmIndexRouteImport } from './routes/pm/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as PmBmsRouteImport } from './routes/pm/bms'
 import { Route as AppTransportRouteImport } from './routes/app/transport'
 import { Route as AppTimesheetRouteImport } from './routes/app/timesheet'
 import { Route as AppScheduleRouteImport } from './routes/app/schedule'
@@ -26,14 +27,20 @@ import { Route as AdminTransportRouteImport } from './routes/admin/transport'
 import { Route as AdminTimesheetOffshoreRouteImport } from './routes/admin/timesheet-offshore'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
+import { Route as AdminRatesRouteImport } from './routes/admin/rates'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
+import { Route as AdminPassagensAereasRouteImport } from './routes/admin/passagens-aereas'
 import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
 import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
+import { Route as AdminHospedagemRouteImport } from './routes/admin/hospedagem'
 import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
-import { Route as AdminEmbarkationsRouteImport } from './routes/admin/embarkations'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
+import { Route as AdminBmRouteImport } from './routes/admin/bm'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
+import { Route as ApiIntegrationsDrakeUpdateRouteImport } from './routes/api/integrations/drake/update'
+import { Route as ApiIntegrationsDrakeQualificationUpdateRouteImport } from './routes/api/integrations/drake/qualification-update'
+import { Route as ApiIntegrationsDrakeQualificationEligibilityRouteImport } from './routes/api/integrations/drake/qualification-eligibility'
 
 const PendingRoute = PendingRouteImport.update({
   id: '/pending',
@@ -74,6 +81,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRouteRoute,
+} as any)
+const PmBmsRoute = PmBmsRouteImport.update({
+  id: '/bms',
+  path: '/bms',
+  getParentRoute: () => PmRouteRoute,
 } as any)
 const AppTransportRoute = AppTransportRouteImport.update({
   id: '/transport',
@@ -120,9 +132,19 @@ const AdminReportsRoute = AdminReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminRatesRoute = AdminRatesRouteImport.update({
+  id: '/rates',
+  path: '/rates',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminPayrollRoute = AdminPayrollRouteImport.update({
   id: '/payroll',
   path: '/payroll',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminPassagensAereasRoute = AdminPassagensAereasRouteImport.update({
+  id: '/passagens-aereas',
+  path: '/passagens-aereas',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminNominationsRoute = AdminNominationsRouteImport.update({
@@ -135,14 +157,14 @@ const AdminMaterialsRoute = AdminMaterialsRouteImport.update({
   path: '/materials',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminHospedagemRoute = AdminHospedagemRouteImport.update({
+  id: '/hospedagem',
+  path: '/hospedagem',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminHistogramaNovoRoute = AdminHistogramaNovoRouteImport.update({
   id: '/histograma-novo',
   path: '/histograma-novo',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
-const AdminEmbarkationsRoute = AdminEmbarkationsRouteImport.update({
-  id: '/embarkations',
-  path: '/embarkations',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminCostsRoute = AdminCostsRouteImport.update({
@@ -155,11 +177,34 @@ const AdminCollaboratorsRoute = AdminCollaboratorsRouteImport.update({
   path: '/collaborators',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminBmRoute = AdminBmRouteImport.update({
+  id: '/bm',
+  path: '/bm',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
   id: '/approvals',
   path: '/approvals',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const ApiIntegrationsDrakeUpdateRoute =
+  ApiIntegrationsDrakeUpdateRouteImport.update({
+    id: '/api/integrations/drake/update',
+    path: '/api/integrations/drake/update',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiIntegrationsDrakeQualificationUpdateRoute =
+  ApiIntegrationsDrakeQualificationUpdateRouteImport.update({
+    id: '/api/integrations/drake/qualification-update',
+    path: '/api/integrations/drake/qualification-update',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiIntegrationsDrakeQualificationEligibilityRoute =
+  ApiIntegrationsDrakeQualificationEligibilityRouteImport.update({
+    id: '/api/integrations/drake/qualification-eligibility',
+    path: '/api/integrations/drake/qualification-eligibility',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -169,13 +214,16 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
+  '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
+  '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -185,8 +233,12 @@ export interface FileRoutesByFullPath {
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
+  '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
+  '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -194,13 +246,16 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
+  '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
+  '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -210,8 +265,12 @@ export interface FileRoutesByTo {
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
+  '/pm/bms': typeof PmBmsRoute
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
+  '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
+  '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -222,13 +281,16 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
-  '/admin/embarkations': typeof AdminEmbarkationsRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
+  '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
   '/admin/nominations': typeof AdminNominationsRoute
+  '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/rates': typeof AdminRatesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -238,8 +300,12 @@ export interface FileRoutesById {
   '/app/schedule': typeof AppScheduleRoute
   '/app/timesheet': typeof AppTimesheetRoute
   '/app/transport': typeof AppTransportRoute
+  '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
+  '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -251,13 +317,16 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/embarkations'
     | '/admin/histograma-novo'
+    | '/admin/hospedagem'
     | '/admin/materials'
     | '/admin/nominations'
+    | '/admin/passagens-aereas'
     | '/admin/payroll'
+    | '/admin/rates'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -267,8 +336,12 @@ export interface FileRouteTypes {
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
+    | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/integrations/drake/qualification-eligibility'
+    | '/api/integrations/drake/qualification-update'
+    | '/api/integrations/drake/update'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -276,13 +349,16 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/embarkations'
     | '/admin/histograma-novo'
+    | '/admin/hospedagem'
     | '/admin/materials'
     | '/admin/nominations'
+    | '/admin/passagens-aereas'
     | '/admin/payroll'
+    | '/admin/rates'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -292,8 +368,12 @@ export interface FileRouteTypes {
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
+    | '/pm/bms'
     | '/app'
     | '/pm'
+    | '/api/integrations/drake/qualification-eligibility'
+    | '/api/integrations/drake/qualification-update'
+    | '/api/integrations/drake/update'
   id:
     | '__root__'
     | '/'
@@ -303,13 +383,16 @@ export interface FileRouteTypes {
     | '/auth'
     | '/pending'
     | '/admin/approvals'
+    | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
-    | '/admin/embarkations'
     | '/admin/histograma-novo'
+    | '/admin/hospedagem'
     | '/admin/materials'
     | '/admin/nominations'
+    | '/admin/passagens-aereas'
     | '/admin/payroll'
+    | '/admin/rates'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -319,8 +402,12 @@ export interface FileRouteTypes {
     | '/app/schedule'
     | '/app/timesheet'
     | '/app/transport'
+    | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/integrations/drake/qualification-eligibility'
+    | '/api/integrations/drake/qualification-update'
+    | '/api/integrations/drake/update'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -330,6 +417,9 @@ export interface RootRouteChildren {
   PmRouteRoute: typeof PmRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
+  ApiIntegrationsDrakeQualificationEligibilityRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRoute
+  ApiIntegrationsDrakeQualificationUpdateRoute: typeof ApiIntegrationsDrakeQualificationUpdateRoute
+  ApiIntegrationsDrakeUpdateRoute: typeof ApiIntegrationsDrakeUpdateRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -389,6 +479,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
+    }
+    '/pm/bms': {
+      id: '/pm/bms'
+      path: '/bms'
+      fullPath: '/pm/bms'
+      preLoaderRoute: typeof PmBmsRouteImport
+      parentRoute: typeof PmRouteRoute
     }
     '/app/transport': {
       id: '/app/transport'
@@ -453,11 +550,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminReportsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/rates': {
+      id: '/admin/rates'
+      path: '/rates'
+      fullPath: '/admin/rates'
+      preLoaderRoute: typeof AdminRatesRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/payroll': {
       id: '/admin/payroll'
       path: '/payroll'
       fullPath: '/admin/payroll'
       preLoaderRoute: typeof AdminPayrollRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/passagens-aereas': {
+      id: '/admin/passagens-aereas'
+      path: '/passagens-aereas'
+      fullPath: '/admin/passagens-aereas'
+      preLoaderRoute: typeof AdminPassagensAereasRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/nominations': {
@@ -474,18 +585,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMaterialsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/hospedagem': {
+      id: '/admin/hospedagem'
+      path: '/hospedagem'
+      fullPath: '/admin/hospedagem'
+      preLoaderRoute: typeof AdminHospedagemRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/histograma-novo': {
       id: '/admin/histograma-novo'
       path: '/histograma-novo'
       fullPath: '/admin/histograma-novo'
       preLoaderRoute: typeof AdminHistogramaNovoRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/embarkations': {
-      id: '/admin/embarkations'
-      path: '/embarkations'
-      fullPath: '/admin/embarkations'
-      preLoaderRoute: typeof AdminEmbarkationsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/costs': {
@@ -502,6 +613,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCollaboratorsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/bm': {
+      id: '/admin/bm'
+      path: '/bm'
+      fullPath: '/admin/bm'
+      preLoaderRoute: typeof AdminBmRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/approvals': {
       id: '/admin/approvals'
       path: '/approvals'
@@ -509,18 +627,42 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminApprovalsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/api/integrations/drake/update': {
+      id: '/api/integrations/drake/update'
+      path: '/api/integrations/drake/update'
+      fullPath: '/api/integrations/drake/update'
+      preLoaderRoute: typeof ApiIntegrationsDrakeUpdateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/integrations/drake/qualification-update': {
+      id: '/api/integrations/drake/qualification-update'
+      path: '/api/integrations/drake/qualification-update'
+      fullPath: '/api/integrations/drake/qualification-update'
+      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationUpdateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/integrations/drake/qualification-eligibility': {
+      id: '/api/integrations/drake/qualification-eligibility'
+      path: '/api/integrations/drake/qualification-eligibility'
+      fullPath: '/api/integrations/drake/qualification-eligibility'
+      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AdminRouteRouteChildren {
   AdminApprovalsRoute: typeof AdminApprovalsRoute
+  AdminBmRoute: typeof AdminBmRoute
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
   AdminCostsRoute: typeof AdminCostsRoute
-  AdminEmbarkationsRoute: typeof AdminEmbarkationsRoute
   AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
+  AdminHospedagemRoute: typeof AdminHospedagemRoute
   AdminMaterialsRoute: typeof AdminMaterialsRoute
   AdminNominationsRoute: typeof AdminNominationsRoute
+  AdminPassagensAereasRoute: typeof AdminPassagensAereasRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
+  AdminRatesRoute: typeof AdminRatesRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTimesheetOffshoreRoute: typeof AdminTimesheetOffshoreRoute
@@ -529,13 +671,16 @@ interface AdminRouteRouteChildren {
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminApprovalsRoute: AdminApprovalsRoute,
+  AdminBmRoute: AdminBmRoute,
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
   AdminCostsRoute: AdminCostsRoute,
-  AdminEmbarkationsRoute: AdminEmbarkationsRoute,
   AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,
+  AdminHospedagemRoute: AdminHospedagemRoute,
   AdminMaterialsRoute: AdminMaterialsRoute,
   AdminNominationsRoute: AdminNominationsRoute,
+  AdminPassagensAereasRoute: AdminPassagensAereasRoute,
   AdminPayrollRoute: AdminPayrollRoute,
+  AdminRatesRoute: AdminRatesRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTimesheetOffshoreRoute: AdminTimesheetOffshoreRoute,
@@ -569,10 +714,12 @@ const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
 )
 
 interface PmRouteRouteChildren {
+  PmBmsRoute: typeof PmBmsRoute
   PmIndexRoute: typeof PmIndexRoute
 }
 
 const PmRouteRouteChildren: PmRouteRouteChildren = {
+  PmBmsRoute: PmBmsRoute,
   PmIndexRoute: PmIndexRoute,
 }
 
@@ -586,6 +733,11 @@ const rootRouteChildren: RootRouteChildren = {
   PmRouteRoute: PmRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
+  ApiIntegrationsDrakeQualificationEligibilityRoute:
+    ApiIntegrationsDrakeQualificationEligibilityRoute,
+  ApiIntegrationsDrakeQualificationUpdateRoute:
+    ApiIntegrationsDrakeQualificationUpdateRoute,
+  ApiIntegrationsDrakeUpdateRoute: ApiIntegrationsDrakeUpdateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

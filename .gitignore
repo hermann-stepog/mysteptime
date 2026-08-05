@@ -34,3 +34,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Env
+.env.*
+!.env.example
+
+# Drake HTTP session / temp downloads (never commit)
+private/drake/storage-state.json
+private/drake/*.tmp
+private/drake/diagnostics/
+private/drake/diagnostics/**
+tmp/drake/
+tmp/drake/**
+

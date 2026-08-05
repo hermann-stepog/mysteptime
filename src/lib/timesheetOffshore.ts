@@ -6,7 +6,12 @@ export interface TimesheetEmbarque {
   periodo_id: string | null;
   unidade_operacional: string | null;
   bsp: string | null;
-  funcao_embarque: string;
+  // Segundo BSP do mesmo embarque, quando parte dos dias é lançada numa BSP diferente da
+  // padrão (mesma unidade, "lançamento quebrado") — puro dado informativo, exibido junto do
+  // BSP principal nas listas; a atribuição de qual dia usa qual BSP continua sendo por dia
+  // (timesheet_dias.bsp).
+  bsp_2: string | null;
+  funcao_embarque: string | null;
   data_inicio_embarque: string;
   data_fim_embarque: string;
   status_entrega: string;
@@ -21,16 +26,24 @@ export interface TimesheetSemana {
   recebido_fisico: boolean;
   data_recebimento: string | null;
   criado_em: string;
+  // Correção pontual de função só pra essa semana, quando o físico não bate com o que veio do
+  // Drake (embarque.funcao_embarque) — nula por padrão, continua puxando do Drake.
+  funcao_override: string | null;
+  // Quem marcou essa semana como recebida ("Salvar semana") e quando — só passa a valer a
+  // partir da criação dessas colunas; semanas recebidas antes disso ficam null.
+  recebido_por: string | null;
+  recebido_em: string | null;
 }
 
 export interface TimesheetDia {
   id: string;
   semana_id: string;
   data: string;
-  dia_semana: string;
+  dia_semana: string | null;
   descricao_tarefa: string | null;
   numero_tarefa: string | null;
   evento: string | null;
+  bsp: string | null;
   hora_entrada: string | null;
   hora_saida: string | null;
   hora_entrada_extra: string | null;
@@ -38,8 +51,8 @@ export interface TimesheetDia {
   horas_normais: number | null;
   horas_extras: number | null;
   total_horas: number | null;
-  adicional_noturno: boolean;
-  feriado: boolean;
+  adicional_noturno: boolean | null;
+  feriado: boolean | null;
   criado_em: string;
 }
 
@@ -97,7 +110,9 @@ export const ADICIONAL_LABEL: Record<AdicionalCode, string> = {
   "209": "209 - Periculosidade 30%",
 };
 
-// A função do embarque define automaticamente quais adicionais se aplicam.
+// A função do embarque define automaticamente quais adicionais se aplicam (055/056/057/033).
+// 209 saiu daqui — regra do Access (REGRAS_ACCESS_TIMESHEET_RH.txt, seção 16.6) é por evento
+// do dia, não por função: ver isDiaPericulosidade/isDiaSobreaviso abaixo.
 export function adicionaisPorFuncao(funcao: string): AdicionalCode[] {
   const f = funcao.toUpperCase();
   const codes: AdicionalCode[] = [];
@@ -105,8 +120,21 @@ export function adicionaisPorFuncao(funcao: string): AdicionalCode[] {
   if (f.includes("IRATA N2")) codes.push("056");
   if (f.includes("IRATA N3")) codes.push("057");
   if (f.includes("HABITAT")) codes.push("033");
-  if (["WELDER", "FITTER", "MECANICO", "RIGGER", "SCAFFOLDER", "PAINTER", "E&I"].some((k) => f.includes(k))) codes.push("209");
   return codes;
+}
+
+// 209 - Periculosidade 30% (regra do Access, seção 16.6): todo dia de evento Embarque conta,
+// qualquer função — sem filtro de função.
+export function isDiaPericulosidade(evento: string | null): boolean {
+  return evento === "Embarque";
+}
+
+// 208 - Sobreaviso 20% (regra do Access, seção 16.5): Embarque + Embarque Cancelado + Hotel
+// Embarque Cancelado + Hotel Pré-Embarque contam; Desembarque fica de fora explicitamente.
+// ("Quarentena Hotel" também conta na regra original, mas não existe como evento neste app.)
+const EVENTOS_SOBREAVISO = new Set(["Embarque", "Hotel Pré Embarque", "Hotel Embarque Cancelado", "Embarque Cancelado"]);
+export function isDiaSobreaviso(evento: string | null): boolean {
+  return !!evento && EVENTOS_SOBREAVISO.has(evento);
 }
 
 export const WEEKDAY_PT = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
@@ -205,9 +233,34 @@ export function suggestAdicionalNoturno(
     if (totalMin <= 0) totalMin += 24 * 60;
     const workEnd = e + totalMin;
     const overlaps = (aStart: number, aEnd: number) => e < aEnd && workEnd > aStart;
-    return overlaps(22 * 60, 24 * 60) || overlaps(24 * 60, 24 * 60 + 5 * 60);
+    // "24h–29h" cobre a virada da meia-noite quando o turno começa tarde (ex.: 22h–05h); "0h–5h"
+    // cobre separadamente o caso do período já ser digitado começando dentro da madrugada (ex.:
+    // HE Entrada 00:00, HE Saída 03:00) — sem essa 3ª janela esse caso não batia com nenhuma das
+    // outras duas e ficava de fora do adicional noturno.
+    return overlaps(22 * 60, 24 * 60) || overlaps(24 * 60, 24 * 60 + 5 * 60) || overlaps(0, 5 * 60);
   };
   return overlapsNoite(entrada, saida) || overlapsNoite(entradaExtra, saidaExtra);
+}
+
+// Quantas horas do dia caem de fato na janela 22h–05h (não a duração do turno inteiro) —
+// soma o período normal e o extra, tratando a virada da meia-noite.
+export function horasNoturnas(
+  entrada: string | null, saida: string | null,
+  entradaExtra: string | null = null, saidaExtra: string | null = null,
+): number {
+  const overlapMinutos = (ini: string | null, fim: string | null) => {
+    const e = parseHHMM(ini);
+    const s = parseHHMM(fim);
+    if (e == null || s == null) return 0;
+    let totalMin = s - e;
+    if (totalMin <= 0) totalMin += 24 * 60;
+    const workEnd = e + totalMin;
+    const overlap = (aStart: number, aEnd: number) => Math.max(0, Math.min(workEnd, aEnd) - Math.max(e, aStart));
+    // Mesma correção do overlapsNoite acima: "0h–5h" cobre o período que já começa na madrugada
+    // (ex.: 00:00–03:00), que não é alcançado pela virada de meia-noite calculada via workEnd.
+    return overlap(22 * 60, 24 * 60) + overlap(24 * 60, 24 * 60 + 5 * 60) + overlap(0, 5 * 60);
+  };
+  return round2((overlapMinutos(entrada, saida) + overlapMinutos(entradaExtra, saidaExtra)) / 60);
 }
 
 // Compara os dias marcados como Embarcado (E) do colaborador no Histograma contra os dias que
@@ -218,5 +271,10 @@ export function diasFaltandoNoHistograma(periodosEDoColaborador: HistNovoPeriodo
   periodosEDoColaborador.forEach((p) => {
     generateDateRangeHistograma(p.data_inicio, p.data_fim).forEach((d) => diasHistograma.add(d));
   });
-  return Array.from(diasHistograma).filter((d) => !diasSalvosDoColaborador.has(d)).sort();
+  // Só avisa de falta de lançamento no ano vigente — embarque de anos anteriores (ex.: dez/2025
+  // arrastando pro início de um período) não deve gerar aviso pendente aqui.
+  const anoVigente = String(new Date().getFullYear());
+  return Array.from(diasHistograma)
+    .filter((d) => !diasSalvosDoColaborador.has(d) && d.startsWith(anoVigente))
+    .sort();
 }
