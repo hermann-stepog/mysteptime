@@ -297,7 +297,13 @@ export function DrakeUpdateCard() {
         colabPorNome.get(key)!.push(c);
       });
       const periodosPorColab = new Map<string, HistNovoPeriodo[]>();
+      // Ignora tipo="BASE" ao montar o status atual — senão, quem já tinha sido marcado "Na
+      // Base" numa importação anterior (ou no dia anterior, já que sem data fim própria o
+      // registro vale por 365 dias) aparecia com status "Base" em vez de Folga/Standby, e essa
+      // reimportação (que é exatamente o que vai SUBSTITUIR esse mesmo registro) achava que já
+      // tinha uma info "mais autoritativa" e pulava a pessoa, zerando ela do lote novo.
       periodos.forEach((p) => {
+        if (p.tipo === "BASE") return;
         if (!periodosPorColab.has(p.colaborador_id)) periodosPorColab.set(p.colaborador_id, []);
         periodosPorColab.get(p.colaborador_id)!.push(p);
       });
