@@ -20,7 +20,7 @@ import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
 import { parseExcelDate } from "@/lib/histograma/import-drake";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
-  computeDayStatus, toOldBucket, STATUS_LABEL, addDays,
+  computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { cn } from "@/lib/utils";
@@ -243,20 +243,31 @@ export function DrakeUpdateCard() {
       const norm = (k: unknown) => String(k ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
       const first = rows[0].map(norm);
       let idxNome = first.findIndex((c) => ["nome", "colaborador", "trabalhador", "funcionario"].includes(c));
-      let idxInicio = first.findIndex((c) => ["data inicio", "inicio", "data_inicio", "data de inicio"].includes(c));
-      let idxFim = first.findIndex((c) => ["data fim", "fim", "data_fim", "data de fim", "data termino", "termino"].includes(c));
+      const idxInicio = first.findIndex((c) => ["data inicio", "inicio", "data_inicio", "data de inicio"].includes(c));
+      const idxFim = first.findIndex((c) => ["data fim", "fim", "data_fim", "data de fim", "data termino", "termino"].includes(c));
       const hasHeader = idxNome >= 0 || idxInicio >= 0 || idxFim >= 0;
       const dataRows = hasHeader ? rows.slice(1) : rows;
       if (idxNome < 0) idxNome = 0;
-      if (idxInicio < 0) idxInicio = 1;
-      if (idxFim < 0) idxFim = 2;
+      // O relatório real ("Relatório de acesso diário") só tem Nome + Função — nenhuma coluna
+      // de data. Sem essa checagem, o código caía no fallback posicional (coluna 1 = "Data
+      // Início"), lendo a FUNÇÃO como se fosse data, o que nunca dá parse e zera o import
+      // inteiro. Sem coluna de data nenhuma, a planilha já É o retrato de hoje: todo mundo
+      // listado está na base HOJE, sem precisar de datas explícitas.
+      const semColunaDeData = idxInicio < 0 && idxFim < 0;
+      const idxInicioResolvido = idxInicio < 0 ? 1 : idxInicio;
+      const idxFimResolvido = idxFim < 0 ? 2 : idxFim;
 
       const linhas = dataRows
         .map((r) => {
-          const dataInicio = parseExcelDate(r[idxInicio]);
-          const dataFimInformada = parseExcelDate(r[idxFim]);
+          const nome = String(r[idxNome] ?? "").trim();
+          if (semColunaDeData) {
+            const hoje = todayStr();
+            return { nome, dataInicio: hoje, dataFim: addDays(hoje, 365) };
+          }
+          const dataInicio = parseExcelDate(r[idxInicioResolvido]);
+          const dataFimInformada = parseExcelDate(r[idxFimResolvido]);
           return {
-            nome: String(r[idxNome] ?? "").trim(),
+            nome,
             dataInicio,
             // A planilha do dia normalmente só traz "hoje" (sem data fim própria) — nesse
             // caso o "Na Base" precisa continuar valendo nos dias seguintes até ela importar
