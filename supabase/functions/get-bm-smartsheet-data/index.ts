@@ -50,13 +50,18 @@ serve(async (req) => {
     // Soma os valores agrupando por PO
     const totaisPorPo: Record<string, number> = {};
 
+    const posInvalidas = ["n/a", "wating confirmation", ""];
+
     for (const row of rows) {
       const poNumero = getCellValue(row, columns, "PO_Numero");
       const valorPo = getCellValue(row, columns, "Valor_PO");
 
       if (poNumero == null || valorPo == null) continue;
 
-      const poKey = String(poNumero);
+      const poKey = String(poNumero).trim();
+
+      if (posInvalidas.includes(poKey.toLowerCase())) continue;
+
       const valorNumerico = Number(valorPo) || 0;
 
       totaisPorPo[poKey] = (totaisPorPo[poKey] || 0) + valorNumerico;
