@@ -553,9 +553,33 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     () => round2(Object.values(medicoes).reduce((a, v) => a + v, 0)),
     [medicoes],
   );
-  const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes);
+
+  // ── Logística Mob/Desmob (transporte e hotel) aplicada ao BSP selecionado ───────────────
+  // Os custos importados na aba "Logística Mob/Desmob" são aplicados por BSP; ao selecionar
+  // o BSP aqui, os totais de transporte e hotel já aplicados entram no cálculo do BM.
+  const { data: mobDesmob = { transporte: 0, hotel: 0, outros: 0 } } = useQuery({
+    queryKey: ["bm-mob-desmob-aplicados", cab.bsp, numeroBmAtual],
+    enabled: !!cab.bsp,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number")
+        .eq("applied", true).eq("bsp", cab.bsp);
+      if (error) throw error;
+      const acc = { transporte: 0, hotel: 0, outros: 0 };
+      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+        if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
+        const k = (r.categoria in acc ? r.categoria : "outros") as keyof typeof acc;
+        acc[k] = round2(acc[k] + (Number(r.total_cost) || 0));
+      }
+      return acc;
+    },
+  });
+  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros);
+
+  const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes + totalMobDesmob);
 
   const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totalGeralComMedicoes) : null;
+
 
 
   const bmExportData: BmExportData = useMemo(() => ({
