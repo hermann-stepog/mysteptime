@@ -314,13 +314,19 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         .map((d: any) => {
           const embarqueId = embarqueBySemanaId.get(d.semana_id) ?? "";
           const embarque = embarqueById.get(embarqueId);
-          const bspEfetivo = d.bsp ?? embarque?.bsp ?? null;
+          const copia = copiaBySourceId.get(d.id);
+          const bspEfetivo = copia?.bsp ?? d.bsp ?? embarque?.bsp ?? null;
           return {
-            data: d.data, evento: d.evento, horas_extras: d.horas_extras, adicional_noturno: d.adicional_noturno, total_horas: d.total_horas,
+            data: d.data,
+            evento: copia ? copia.evento : d.evento,
+            horas_extras: copia ? copia.horas_extras : d.horas_extras,
+            adicional_noturno: copia ? copia.adicional_noturno : d.adicional_noturno,
+            total_horas: copia ? copia.total_horas : d.total_horas,
             colaborador_id: embarque?.colaborador_id ?? "", colaborador_nome: nomeById.get(embarque?.colaborador_id) ?? "—",
-            funcao_embarque: embarque?.funcao_embarque ?? "—", bsp: bspEfetivo,
+            funcao_embarque: copia?.funcao ?? embarque?.funcao_embarque ?? "—", bsp: bspEfetivo,
           };
         })
+
         .filter((d: TimesheetDiaComColaborador) => d.colaborador_id && (!bspAlvo || normalizarBsp(d.bsp) === bspAlvo));
 
       return diasComColaborador.sort((a, b) => a.colaborador_nome.localeCompare(b.colaborador_nome) || a.data.localeCompare(b.data));
