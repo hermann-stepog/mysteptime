@@ -349,6 +349,72 @@ export type Database = {
         }
         Relationships: []
       }
+      bm_mob_desmob_costs: {
+        Row: {
+          applied: boolean
+          applied_at: string | null
+          applied_bm_number: string | null
+          bsp: string
+          categoria: string
+          created_at: string
+          created_by: string | null
+          data: string
+          id: string
+          import_batch: string | null
+          markup: number | null
+          nome: string
+          notes: string | null
+          period_end: string | null
+          period_start: string | null
+          qtd: number
+          total_cost: number
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          bsp: string
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          data: string
+          id?: string
+          import_batch?: string | null
+          markup?: number | null
+          nome: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          total_cost?: number
+          updated_at?: string
+          valor?: number
+        }
+        Update: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          bsp?: string
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          data?: string
+          id?: string
+          import_batch?: string | null
+          markup?: number | null
+          nome?: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          total_cost?: number
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: []
+      }
       bm_status_history: {
         Row: {
           bm_id: string
