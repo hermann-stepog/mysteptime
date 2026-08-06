@@ -470,23 +470,33 @@ export function MobDesmobTab() {
         {grupos.map((g) => {
           const aberto = !!abertos[g.bsp];
           return (
-            <Card key={g.bsp} className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-2">
+            <Card key={g.bsp} className="p-4 space-y-3 transition-colors hover:border-primary/40">
+              {/* O cartão inteiro é clicável: abre/fecha o detalhamento dos lançamentos do BSP. */}
+              <div
+                role="button" tabIndex={0}
+                aria-expanded={aberto}
+                className="flex cursor-pointer items-start justify-between gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setAbertos((p) => ({ ...p, [g.bsp]: !aberto }))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setAbertos((p) => ({ ...p, [g.bsp]: !aberto }));
+                  }
+                }}
+              >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button" className="text-muted-foreground hover:text-foreground"
-                      onClick={() => setAbertos((p) => ({ ...p, [g.bsp]: !aberto }))}
-                      aria-label={aberto ? "Recolher" : "Expandir"}
-                    >
+                    <span className="text-muted-foreground">
                       {aberto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </button>
+                    </span>
                     <h4 className="truncate text-sm font-semibold">BSP {g.bsp}</h4>
                     {g.bmsAplicados.map((b) => (
                       <Badge key={b} variant="secondary" className="text-[10px]">BM {b}</Badge>
                     ))}
                   </div>
-                  <p className="mt-1 pl-6 text-xs text-muted-foreground">{g.itens.length} lançamento(s)</p>
+                  <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                    {g.itens.length} lançamento(s) · {aberto ? "clique para recolher" : "clique para ver o detalhe"}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold">{fmtMoney(g.total)}</p>
@@ -496,7 +506,10 @@ export function MobDesmobTab() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-xs">
+              <div
+                className="grid cursor-pointer grid-cols-3 gap-2 text-xs"
+                onClick={() => setAbertos((p) => ({ ...p, [g.bsp]: !aberto }))}
+              >
                 <div className="rounded-md border p-2">
                   <p className="flex items-center gap-1 text-muted-foreground"><Car className="h-3 w-3" />Transporte</p>
                   <p className="font-medium">{fmtMoney(g.transporte)}</p>
@@ -520,7 +533,10 @@ export function MobDesmobTab() {
                         <TableHead className="text-xs">Cat.</TableHead>
                         <TableHead className="text-xs">Data</TableHead>
                         <TableHead className="text-xs">Qtd</TableHead>
+                        <TableHead className="text-xs">Valor unit.</TableHead>
+                        <TableHead className="text-xs">Markup</TableHead>
                         <TableHead className="text-xs">Total</TableHead>
+                        <TableHead className="text-xs">Notes</TableHead>
                         <TableHead className="text-xs">BM</TableHead>
                         <TableHead className="w-8" />
                       </TableRow>
@@ -532,7 +548,12 @@ export function MobDesmobTab() {
                           <TableCell className="text-xs">{CATEGORIA_LABEL[c.categoria] ?? c.categoria}</TableCell>
                           <TableCell className="text-xs">{fmt(c.data)}</TableCell>
                           <TableCell className="text-xs">{c.qtd}</TableCell>
+                          <TableCell className="text-xs">{fmtMoney(c.valor)}</TableCell>
+                          <TableCell className="text-xs">{c.markup == null ? "—" : fmtMoney(c.markup)}</TableCell>
                           <TableCell className="text-xs font-medium">{fmtMoney(c.total_cost)}</TableCell>
+                          <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground" title={c.notes ?? ""}>
+                            {c.notes || "—"}
+                          </TableCell>
                           <TableCell className="text-xs">{c.applied_bm_number ?? "—"}</TableCell>
                           <TableCell>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
