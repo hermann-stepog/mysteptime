@@ -288,9 +288,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         getPoInfo({ data: { poNumber } }),
         getBmHistoryForPo({ data: { poNumber } }),
       ]);
-      const poValue = info?.poValue ?? null;
+      // O Valor Total da PO vem da Job Order (soma de todas as ocorrências); o getPoInfo
+      // só é usado como fallback quando a PO não está na Job Order.
+      const poValue = poSelecionada?.totalValue ?? info?.poValue ?? null;
       const bmsIssued = hist?.totalIssued ?? 0;
       setCab((c) => ({ ...c, poValue, poBalanceBefore: poValue != null ? poValue - bmsIssued : null }));
+
       notify.success("Dados do Smartsheet carregados.");
     } catch (e: any) {
       notify.error(e.message || "Integração com Smartsheet ainda não disponível — preencha o PO Value manualmente.");
