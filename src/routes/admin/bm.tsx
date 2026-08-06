@@ -36,6 +36,8 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { DRAKE_DATA_CUTOFF } from "@/lib/histogramaNovo";
 import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
+import { MedicaoTab } from "@/components/bm/MedicaoTab";
+
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
 import { getPoInfo, getBmHistoryForPo, recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
