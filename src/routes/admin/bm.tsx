@@ -885,6 +885,16 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                   <span>{MEDICOES_LABEL[k]}</span><span className="font-medium">{fmtMoney(medicoes[k])}</span>
                 </div>
               ))}
+              {mobDesmob.transporte > 0 && (
+                <div className="flex justify-between"><span>Transporte (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.transporte)}</span></div>
+              )}
+              {mobDesmob.hotel > 0 && (
+                <div className="flex justify-between"><span>Hotel (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.hotel)}</span></div>
+              )}
+              {mobDesmob.outros > 0 && (
+                <div className="flex justify-between"><span>Outros (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.outros)}</span></div>
+              )}
+
               <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totalGeralComMedicoes)}</span></div>
 
             </div>
