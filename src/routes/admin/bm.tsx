@@ -167,6 +167,26 @@ const CABECALHO_VAZIO: Cabecalho = {
   poNumber: "", poValue: null, poBalanceBefore: null, numeroBm: "",
 };
 
+type MedicaoKey = "habitat" | "locacao" | "consumiveis" | "mob_desmob_materiais";
+
+const MEDICOES_ZERO: Record<MedicaoKey, number> = {
+  habitat: 0, locacao: 0, consumiveis: 0, mob_desmob_materiais: 0,
+};
+
+const MEDICOES_LABEL: Record<MedicaoKey, string> = {
+  habitat: "Medição de Habitat",
+  locacao: "Medição de Locação",
+  consumiveis: "Medição de Consumíveis",
+  mob_desmob_materiais: "Medição de Mob/Desmob de Materiais",
+};
+
+const MEDICOES_COLUNA: Record<MedicaoKey, string> = {
+  habitat: "total_habitat",
+  locacao: "total_locacao",
+  consumiveis: "total_consumiveis",
+  mob_desmob_materiais: "total_mob_desmob_materiais",
+};
+
 
 function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
   const qc = useQueryClient();
