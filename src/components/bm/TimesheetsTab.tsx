@@ -310,29 +310,44 @@ export function TimesheetsTab() {
               {grupos.length === 0 && (
                 <Card className="p-4"><EmptyState icon={Users} title="Nenhum colaborador encontrado" /></Card>
               )}
-              {grupos.map((g) => (
+              {grupos.map((g) => {
+                const totais = g.dias.reduce(
+                  (acc, d) => ({
+                    normais: acc.normais + (d.horas_normais ?? 0),
+                    extras: acc.extras + (d.horas_extras ?? 0),
+                    total: acc.total + (d.total_horas ?? 0),
+                  }),
+                  { normais: 0, extras: 0, total: 0 },
+                );
+                const primeiro = g.dias[0];
+                const ultimo = g.dias[g.dias.length - 1];
+                return (
                 <Card key={g.nome + g.funcao} className="overflow-hidden">
-                  <div className="flex flex-wrap items-baseline gap-2 border-b px-4 py-2">
-                    <p className="text-sm font-semibold">{g.nome}</p>
-                    <p className="text-xs text-muted-foreground">{g.funcao || "Sem função"} · {g.dias.length} dia(s)</p>
+                  <div className="space-y-0.5 border-b px-4 py-3">
+                    <p className="text-sm font-semibold uppercase tracking-wide">{g.nome}</p>
+                    <p className="text-xs text-muted-foreground">
+                      <strong>Unidade:</strong> {primeiro?.unidade_operacional ?? "—"}
+                      {" · "}<strong>BSP:</strong> {bspSelecionada}
+                      {" · "}<strong>Função:</strong> {g.funcao || "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      <strong>Período:</strong> {primeiro ? fmtData(primeiro.data) : "—"} a {ultimo ? fmtData(ultimo.data) : "—"} · {g.dias.length} dia(s)
+                    </p>
                   </div>
                   <div className="overflow-x-auto">
-                    <Table className="text-xs">
+                    <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-24">Data</TableHead>
                           <TableHead className="w-28">Dia</TableHead>
-                          <TableHead className="w-36">Evento</TableHead>
+                          <TableHead className="w-40">Evento</TableHead>
                           <TableHead className="w-28">BSP</TableHead>
-                          <TableHead className="w-48">Tarefa</TableHead>
-                          <TableHead className="w-24">Nº tarefa</TableHead>
-                          <TableHead className="w-20">Entrada</TableHead>
-                          <TableHead className="w-20">Saída</TableHead>
-                          <TableHead className="w-20">Extra in</TableHead>
-                          <TableHead className="w-20">Extra out</TableHead>
-                          <TableHead className="w-20">H. normais</TableHead>
-                          <TableHead className="w-20">H. extras</TableHead>
-                          <TableHead className="w-20">Total</TableHead>
+                          <TableHead className="w-24">Entrada</TableHead>
+                          <TableHead className="w-24">Saída</TableHead>
+                          <TableHead className="w-28">Horas Normais</TableHead>
+                          <TableHead className="w-28">Horas Extras</TableHead>
+                          <TableHead className="w-24">HE Entrada</TableHead>
+                          <TableHead className="w-24">HE Saída</TableHead>
+                          <TableHead className="w-24">Total</TableHead>
                           <TableHead className="w-14">Not.</TableHead>
                           <TableHead className="w-14">Fer.</TableHead>
                           <TableHead className="w-10" />
@@ -350,8 +365,15 @@ export function TimesheetsTab() {
                       </TableBody>
                     </Table>
                   </div>
+                  <div className="flex flex-wrap justify-end gap-4 border-t px-4 py-3 text-sm font-semibold">
+                    <span>Total Hours — Normais: {totais.normais.toFixed(1)}h</span>
+                    <span>Extras: {totais.extras.toFixed(1)}h</span>
+                    <span>Total: {totais.total.toFixed(1)}h</span>
+                  </div>
                 </Card>
-              ))}
+                );
+              })}
+
             </div>
           )}
         </>
