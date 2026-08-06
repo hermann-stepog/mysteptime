@@ -292,7 +292,7 @@ export function TimesheetsTab() {
             {bsps.map((b) => (
               <Card
                 key={b.key}
-                onClick={() => setBspSelecionada(b.key === bspSelecionada ? null : b.key)}
+                onClick={() => { setColaboradorAberto(null); setBspSelecionada(b.key === bspSelecionada ? null : b.key); }}
                 className={cn(
                   "cursor-pointer p-4 transition-shadow hover:shadow-md",
                   b.key === bspSelecionada && "border-primary ring-1 ring-primary",
