@@ -1352,12 +1352,24 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
             já testado e funcionando na visualização inline do wizard). */}
         <DialogContent className="print:hidden max-w-[95vw] max-h-[90vh] overflow-y-auto">
           {viewingBm && (
-            <BmConsolidatedView
-              bm={viewingBm}
-              linesMo={viewingLinhas?.mo ?? []}
-              linesLogistica={viewingLinhas?.logistica ?? []}
-            />
+            <>
+              {/* Marcação de medição vive dentro do BM; a lista só exibe a flag "Medido". */}
+              <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm print:hidden">
+                <Checkbox
+                  checked={!!(bms.find((x) => x.id === viewingBm.id)?.ja_medido ?? viewingBm.ja_medido)}
+                  disabled={toggleJaMedido.isPending}
+                  onCheckedChange={(v) => toggleJaMedido.mutate({ id: viewingBm.id, value: v === true })}
+                />
+                <span>Já foi medido</span>
+              </label>
+              <BmConsolidatedView
+                bm={viewingBm}
+                linesMo={viewingLinhas?.mo ?? []}
+                linesLogistica={viewingLinhas?.logistica ?? []}
+              />
+            </>
           )}
+
         </DialogContent>
       </Dialog>
       {viewingBm && (
