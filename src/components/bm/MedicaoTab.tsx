@@ -73,16 +73,23 @@ const FORM_VAZIO: Form = {
   period_start: "", period_end: "", qtd: "1", valor_unitario: "", notes: "",
 };
 
+/** Coluna do cabeçalho do BM (tabela bms) onde o total consolidado da medição é gravado. */
+export type MedicaoBmColumn =
+  | "total_habitat" | "total_locacao" | "total_consumiveis" | "total_mob_desmob_materiais";
+
 interface Props {
   tipo: MedicaoTipo;
   titulo: string;
   /** Coluna do Smartsheet onde o valor da medição é lançado no cabeçalho do BM. */
   smartsheetColumn: string;
+  /** Campo do cabeçalho do BM correspondente a esta medição. */
+  bmColumn: MedicaoBmColumn;
   descricaoLabel?: string;
   descricaoPlaceholder?: string;
 }
 
-export function MedicaoTab({ tipo, titulo, smartsheetColumn, descricaoLabel = "Descrição", descricaoPlaceholder }: Props) {
+export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricaoLabel = "Descrição", descricaoPlaceholder }: Props) {
+
   const qc = useQueryClient();
   const [form, setForm] = useState<Form>(FORM_VAZIO);
   const [edits, setEdits] = useState<Record<string, Partial<MedicaoRow>>>({});
