@@ -1298,17 +1298,15 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                 <TableCell>{fmtMoney(b.total_geral)}</TableCell>
                 <TableCell><StatusBadge tone={STATUS_TONE[b.current_status]}>{STATUS_LABELS[b.current_status]}</StatusBadge></TableCell>
                 <TableCell>
-                  <label className="flex cursor-pointer items-center gap-2 text-xs">
-                    <Checkbox
-                      checked={!!b.ja_medido}
-                      disabled={toggleJaMedido.isPending && toggleJaMedido.variables?.id === b.id}
-                      onCheckedChange={(v) => toggleJaMedido.mutate({ id: b.id, value: v === true })}
-                    />
-                    <span className={b.ja_medido ? "text-foreground" : "text-muted-foreground"}>
-                      {b.ja_medido ? "Já medido" : "Pendente"}
+                  {b.ja_medido ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
+                      <CheckCircle2 className="h-3 w-3" /> Medido
                     </span>
-                  </label>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
                 </TableCell>
+
 
                 <TableCell>
                   <Button size="sm" variant="ghost" onClick={() => setViewingBm(b)}>Ver</Button>
