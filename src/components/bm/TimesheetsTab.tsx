@@ -207,6 +207,15 @@ export function TimesheetsTab() {
     onError: (e: any) => notify.error(e.message),
   });
 
+  const salvarFuncao = useMutation({
+    mutationFn: async ({ ids, funcao }: { ids: string[]; funcao: string }) => {
+      const { error } = await supabase.from("bm_timesheet_dias").update({ funcao: funcao || null }).in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bm-ts-copias", de, ate] }),
+    onError: (e: any) => notify.error(e.message),
+  });
+
   const restaurar = useMutation({
     mutationFn: async (row: BmTimesheetDia) => {
       if (!row.original) throw new Error("Sem valores originais guardados para esta linha.");
