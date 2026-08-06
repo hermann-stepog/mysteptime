@@ -183,6 +183,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       client: reopenBm.client_name, bsp: reopenBm.project_name ?? "",
       vessel: reopenBm.vessel, periodStart: reopenBm.period_start, periodEnd: reopenBm.period_end,
       poNumber: reopenBm.po_number ?? "", poValue: reopenBm.po_value, poBalanceBefore: reopenBm.po_balance_before,
+      numeroBm: reopenBm.numero_bm ?? "",
+
     });
     setMarkupEnabled(reopenBm.markup_enabled);
     setMarkupPct(reopenBm.markup_pct);
