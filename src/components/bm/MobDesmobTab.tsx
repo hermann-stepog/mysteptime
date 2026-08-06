@@ -303,7 +303,22 @@ export function MobDesmobTab() {
     return bms.filter((b) => [b.bmNumber, b.poNumber, b.client, b.vessel].some((v) => (v ?? "").toLowerCase().includes(q)));
   }, [bms, busca]);
 
-  const grupoAplicando = grupos.find((g) => g.bsp === aplicarBsp) ?? null;
+  // "__todos__" = aplicar em lote tudo o que está pendente no período filtrado.
+  const grupoAplicando = useMemo(() => {
+    if (aplicarBsp === TODOS) {
+      const pendentes = grupos.flatMap((g) => g.pendentes);
+      const soma = (f: (c: BmMobDesmobCost) => boolean) =>
+        round2(custosFiltrados.filter(f).reduce((a, c) => a + c.total_cost, 0));
+      return {
+        bsp: TODOS,
+        pendentes,
+        transporte: soma((c) => c.categoria === "transporte"),
+        hotel: soma((c) => c.categoria === "hotel"),
+        totalPendente: round2(pendentes.reduce((a, c) => a + c.total_cost, 0)),
+      };
+    }
+    return grupos.find((g) => g.bsp === aplicarBsp) ?? null;
+  }, [grupos, custosFiltrados, aplicarBsp]);
 
   const aplicar = useMutation({
     mutationFn: async () => {
@@ -320,10 +335,15 @@ export function MobDesmobTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-costs"] });
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
-      notify.success(`Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`);
+      notify.success(
+        aplicarBsp === TODOS
+          ? `Custos pendentes aplicados ao BM ${bmSelecionado?.bmNumber}.`
+          : `Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`,
+      );
       setAplicarBsp(null);
       setBmSelecionado(null);
     },
+
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
   });
 
