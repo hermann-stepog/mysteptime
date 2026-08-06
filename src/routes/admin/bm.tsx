@@ -40,7 +40,17 @@ import { MedicaoTab } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { getPoInfo, getBmHistoryForPo, recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
+import { getPoInfo, getBmHistoryForPo, recordIssuedBm, listJobOrderPos, getNextBmNumber } from "@/lib/api/smartsheetBm.functions";
+
+interface JobOrderPoOption {
+  poNumber: string;
+  totalValue: number;
+  occurrences: number;
+  client: string | null;
+  vessel: string | null;
+}
+const EMPTY_PO_LIST: JobOrderPoOption[] = [];
+
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
 
@@ -144,12 +154,14 @@ interface Cabecalho {
   poNumber: string;
   poValue: number | null;
   poBalanceBefore: number | null;
+  numeroBm: string;
 }
 
 const CABECALHO_VAZIO: Cabecalho = {
   client: "", bsp: "", vessel: "", periodStart: "", periodEnd: "",
-  poNumber: "", poValue: null, poBalanceBefore: null,
+  poNumber: "", poValue: null, poBalanceBefore: null, numeroBm: "",
 };
+
 
 function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
   const qc = useQueryClient();
@@ -181,6 +193,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       client: reopenBm.client_name, bsp: reopenBm.project_name ?? "",
       vessel: reopenBm.vessel, periodStart: reopenBm.period_start, periodEnd: reopenBm.period_end,
       poNumber: reopenBm.po_number ?? "", poValue: reopenBm.po_value, poBalanceBefore: reopenBm.po_balance_before,
+      numeroBm: reopenBm.numero_bm ?? "",
+
     });
     setMarkupEnabled(reopenBm.markup_enabled);
     setMarkupPct(reopenBm.markup_pct);
@@ -274,9 +288,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         getPoInfo({ data: { poNumber } }),
         getBmHistoryForPo({ data: { poNumber } }),
       ]);
-      const poValue = info?.poValue ?? null;
+      // O Valor Total da PO vem da Job Order (soma de todas as ocorrências); o getPoInfo
+      // só é usado como fallback quando a PO não está na Job Order.
+      const poValue = poSelecionada?.totalValue ?? info?.poValue ?? null;
       const bmsIssued = hist?.totalIssued ?? 0;
       setCab((c) => ({ ...c, poValue, poBalanceBefore: poValue != null ? poValue - bmsIssued : null }));
+
       notify.success("Dados do Smartsheet carregados.");
     } catch (e: any) {
       notify.error(e.message || "Integração com Smartsheet ainda não disponível — preencha o PO Value manualmente.");
@@ -284,6 +301,43 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       setSmartsheetLoading(false);
     }
   };
+
+  // ── Smartsheet: Job Order (lista de POs) e Controle de BM (sequência) ──────────────────
+  // Só leitura: a planilha Job Order alimenta o autocomplete de PO (uma linha por PO, valor
+  // somado de todas as ocorrências) e o Controle de BM dá o próximo número da sequência.
+  const { data: jobOrderPos = EMPTY_PO_LIST } = useQuery<JobOrderPoOption[]>({
+    queryKey: ["smartsheet-job-order-pos"],
+    queryFn: async () => (await listJobOrderPos()) as JobOrderPoOption[],
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: proximoBm } = useQuery({
+    queryKey: ["smartsheet-next-bm"],
+    queryFn: async () => await getNextBmNumber(),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Preenche o número do BM com o próximo da sequência (sem sobrescrever edição manual
+  // nem BM reaberto).
+  useEffect(() => {
+    if (proximoBm?.nextBmNumber && !cab.numeroBm && !reopenBmId) {
+      setCab((c) => (c.numeroBm ? c : { ...c, numeroBm: proximoBm.nextBmNumber }));
+    }
+  }, [proximoBm?.nextBmNumber, cab.numeroBm, reopenBmId]);
+
+  const poSelecionada = useMemo(
+    () => jobOrderPos.find((p) => p.poNumber.toLowerCase() === cab.poNumber.trim().toLowerCase()) ?? null,
+    [jobOrderPos, cab.poNumber],
+  );
+
+  // Recalcula o Valor Total da PO sempre que a PO muda.
+  useEffect(() => {
+    setCab((c) => {
+      const total = poSelecionada?.totalValue ?? null;
+      return c.poValue === total ? c : { ...c, poValue: total };
+    });
+  }, [poSelecionada]);
+
 
   // ── Step 1: Horas do Timesheet (compilado editável, alimenta a Mão de Obra) ─────────────
   // Busca os dias "crus" do timesheet real pro vessel/período/BSP escolhidos — sem agregar
@@ -463,7 +517,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const salvarBm = useMutation({
     mutationFn: async (targetStatus: "draft" | "pending_pm") => {
       const payload = {
-        numero_bm: null,
+        numero_bm: cab.numeroBm.trim() || null,
         client_id: clientIdAtual,
         client_name: cab.client,
         project_id: null,
@@ -592,17 +646,49 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               </Select>
             </div>
             <div>
-              <Label className="text-xs">PO Number (opcional)</Label>
+              <Label className="text-xs">PO</Label>
               <div className="flex gap-2">
-                <Input value={cab.poNumber} onChange={(e) => setCab({ ...cab, poNumber: e.target.value })} placeholder="Ex: P3231161" />
-                <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Buscar</Button>
+                <Input
+                  list="job-order-pos"
+                  value={cab.poNumber}
+                  onChange={(e) => setCab({ ...cab, poNumber: e.target.value })}
+                  placeholder="Digite para buscar a PO"
+                />
+                <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Saldo</Button>
               </div>
+              <datalist id="job-order-pos">
+                {jobOrderPos.map((p) => (
+                  <option key={p.poNumber} value={p.poNumber}>{fmtMoney(p.totalValue)}</option>
+                ))}
+              </datalist>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Valor Total da PO</Label>
+              <Input readOnly className="bg-muted/40" value={cab.poValue != null ? fmtMoney(cab.poValue) : "—"} />
+              {poSelecionada && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Soma de {poSelecionada.occurrences} lançamento(s) da PO.
+                </p>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs">Número do BM</Label>
+              <Input value={cab.numeroBm} onChange={(e) => setCab({ ...cab, numeroBm: e.target.value })} placeholder="Sequência do Controle de BM" />
+              {proximoBm?.lastBmNumber && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Último BM: {proximoBm.lastBmNumber}
+                  {proximoBm.lastBmValue != null && <> · {fmtMoney(proximoBm.lastBmValue)}</>}
+                </p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Período — De</Label><Input type="date" value={cab.periodStart} onChange={(e) => setCab({ ...cab, periodStart: e.target.value })} /></div>
             <div><Label className="text-xs">Período — Até</Label><Input type="date" value={cab.periodEnd} onChange={(e) => setCab({ ...cab, periodEnd: e.target.value })} /></div>
           </div>
+
           {cab.poValue != null && (
             <p className="text-xs text-muted-foreground">
               PO Value: <strong>{fmtMoney(cab.poValue)}</strong>
