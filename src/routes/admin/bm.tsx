@@ -363,18 +363,48 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     }
   }, [proximoBm?.nextBmNumber, cab.numeroBm, reopenBmId]);
 
+  // Controle de Medição (Smartsheet): lista de BMs já existentes — alimenta a lista de
+  // números de BM e a lista de POs; o valor do BM vem da própria linha da planilha.
+  const { data: smartsheetBms = EMPTY_BM_LIST } = useQuery<SmartsheetBmOption[]>({
+    queryKey: ["smartsheet-bm-list"],
+    queryFn: async () => (await listSmartsheetBms()) as SmartsheetBmOption[],
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const bmSelecionado = useMemo(
+    () => smartsheetBms.find((b) => b.bmNumber.trim().toLowerCase() === cab.numeroBm.trim().toLowerCase()) ?? null,
+    [smartsheetBms, cab.numeroBm],
+  );
+
+  // POs disponíveis: as que aparecem no Controle de BM, com o valor somado da Job Order.
+  const poOptions = useMemo(() => {
+    const jobByPo = new Map(jobOrderPos.map((p) => [p.poNumber.trim().toLowerCase(), p]));
+    const out = new Map<string, JobOrderPoOption>();
+    for (const bm of smartsheetBms) {
+      const po = (bm.poNumber ?? "").trim();
+      if (!po) continue;
+      const key = po.toLowerCase();
+      if (out.has(key)) continue;
+      const job = jobByPo.get(key);
+      out.set(key, job ?? { poNumber: po, totalValue: 0, occurrences: 0, client: bm.client, vessel: bm.vessel });
+    }
+    for (const p of jobOrderPos) if (!out.has(p.poNumber.trim().toLowerCase())) out.set(p.poNumber.trim().toLowerCase(), p);
+    return Array.from(out.values()).sort((a, b) => a.poNumber.localeCompare(b.poNumber, "pt-BR", { numeric: true }));
+  }, [smartsheetBms, jobOrderPos]);
+
   const poSelecionada = useMemo(
     () => jobOrderPos.find((p) => p.poNumber.toLowerCase() === cab.poNumber.trim().toLowerCase()) ?? null,
     [jobOrderPos, cab.poNumber],
   );
 
-  // Recalcula o Valor Total da PO sempre que a PO muda.
+  // Recalcula o Valor Total da PO sempre que a PO muda (soma das linhas da Job Order).
   useEffect(() => {
     setCab((c) => {
       const total = poSelecionada?.totalValue ?? null;
       return c.poValue === total ? c : { ...c, poValue: total };
     });
   }, [poSelecionada]);
+
 
 
   // ── Step 1: Horas do Timesheet (compilado editável, alimenta a Mão de Obra) ─────────────
