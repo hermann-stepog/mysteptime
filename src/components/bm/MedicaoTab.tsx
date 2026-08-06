@@ -112,6 +112,11 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
 
   const pendentes = useMemo(() => registros.filter((r) => !r.applied), [registros]);
   const totalPendente = useMemo(() => round2(pendentes.reduce((a, r) => a + (r.valor_total || 0), 0)), [pendentes]);
+  const totalAplicado = useMemo(
+    () => round2(registros.filter((r) => r.applied).reduce((a, r) => a + (r.valor_total || 0), 0)),
+    [registros],
+  );
+
 
   const incluir = useMutation({
     mutationFn: async () => {
