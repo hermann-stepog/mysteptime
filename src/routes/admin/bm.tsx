@@ -767,8 +767,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
               {numeroBmAtual
-                ? `Valores consolidados nas abas de medição e aplicados ao BM ${numeroBmAtual} (campos ${Object.values(MEDICOES_COLUNA).length} do cabeçalho).`
+                ? `Totais consolidados nas abas de medição e aplicados ao BM ${numeroBmAtual}.`
                 : "Informe o Número do BM para carregar as medições já aplicadas a ele."}
+
             </p>
           </div>
 
