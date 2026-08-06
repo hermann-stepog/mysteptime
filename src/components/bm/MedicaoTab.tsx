@@ -282,17 +282,27 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
       </Card>
 
       <Card className="p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm">
-            <span className="font-semibold">Registros</span>{" "}
+            <span className="font-semibold">Conferência</span>{" "}
             <span className="text-muted-foreground">
-              — {pendentes.length} pendente(s), total {fmtMoney(totalPendente)}
+              — {pendentes.length} lançamento(s) a aplicar
             </span>
+            <div className="mt-1 text-lg font-semibold">{fmtMoney(totalPendente)}</div>
+            <p className="text-[11px] text-muted-foreground">
+              Valor total consolidado desta aba — é este valor que vai para o cabeçalho do BM.
+            </p>
+            {totalAplicado > 0 && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Já aplicado em BMs: <strong>{fmtMoney(totalAplicado)}</strong>
+              </p>
+            )}
           </div>
           <Button size="sm" onClick={() => setAplicarOpen(true)} disabled={pendentes.length === 0}>
             <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar ao BM
           </Button>
         </div>
+
 
         <div className="overflow-x-auto">
           <Table>
