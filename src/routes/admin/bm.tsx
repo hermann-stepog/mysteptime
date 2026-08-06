@@ -24,7 +24,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2 } from "lucide-react";
 import { CLIENTES } from "@/lib/clientes";
 import { UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import {
@@ -1298,17 +1298,15 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                 <TableCell>{fmtMoney(b.total_geral)}</TableCell>
                 <TableCell><StatusBadge tone={STATUS_TONE[b.current_status]}>{STATUS_LABELS[b.current_status]}</StatusBadge></TableCell>
                 <TableCell>
-                  <label className="flex cursor-pointer items-center gap-2 text-xs">
-                    <Checkbox
-                      checked={!!b.ja_medido}
-                      disabled={toggleJaMedido.isPending && toggleJaMedido.variables?.id === b.id}
-                      onCheckedChange={(v) => toggleJaMedido.mutate({ id: b.id, value: v === true })}
-                    />
-                    <span className={b.ja_medido ? "text-foreground" : "text-muted-foreground"}>
-                      {b.ja_medido ? "Já medido" : "Pendente"}
+                  {b.ja_medido ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
+                      <CheckCircle2 className="h-3 w-3" /> Medido
                     </span>
-                  </label>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
                 </TableCell>
+
 
                 <TableCell>
                   <Button size="sm" variant="ghost" onClick={() => setViewingBm(b)}>Ver</Button>
@@ -1354,12 +1352,24 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
             já testado e funcionando na visualização inline do wizard). */}
         <DialogContent className="print:hidden max-w-[95vw] max-h-[90vh] overflow-y-auto">
           {viewingBm && (
-            <BmConsolidatedView
-              bm={viewingBm}
-              linesMo={viewingLinhas?.mo ?? []}
-              linesLogistica={viewingLinhas?.logistica ?? []}
-            />
+            <>
+              {/* Marcação de medição vive dentro do BM; a lista só exibe a flag "Medido". */}
+              <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm print:hidden">
+                <Checkbox
+                  checked={!!(bms.find((x) => x.id === viewingBm.id)?.ja_medido ?? viewingBm.ja_medido)}
+                  disabled={toggleJaMedido.isPending}
+                  onCheckedChange={(v) => toggleJaMedido.mutate({ id: viewingBm.id, value: v === true })}
+                />
+                <span>Já foi medido</span>
+              </label>
+              <BmConsolidatedView
+                bm={viewingBm}
+                linesMo={viewingLinhas?.mo ?? []}
+                linesLogistica={viewingLinhas?.logistica ?? []}
+              />
+            </>
           )}
+
         </DialogContent>
       </Dialog>
       {viewingBm && (
