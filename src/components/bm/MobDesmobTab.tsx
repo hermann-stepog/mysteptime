@@ -181,6 +181,10 @@ export function MobDesmobTab() {
   const [aplicarBsp, setAplicarBsp] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [bmSelecionado, setBmSelecionado] = useState<SmartsheetBm | null>(null);
+  // Filtro por período (data do lançamento) — só afeta a visualização/aplicação em lote.
+  const [dataDe, setDataDe] = useState("");
+  const [dataAte, setDataAte] = useState("");
+
 
   const fetchBms = useServerFn(listSmartsheetBms);
 
