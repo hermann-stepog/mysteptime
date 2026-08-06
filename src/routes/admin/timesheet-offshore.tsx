@@ -1203,8 +1203,15 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         </div>
 
         {cardsPorUnidade.length > 0 && (
-          <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} />
+          // Wrapper relativo: no desktop o card vira overlay absoluto pra não empurrar a altura
+          // da linha — ele acompanha a altura da coluna de filtros/unidades e rola por dentro.
+          <div className="relative w-full lg:w-64 lg:shrink-0">
+            <div className="lg:absolute lg:inset-0">
+              <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} className="lg:h-full" />
+            </div>
+          </div>
         )}
+
       </div>
 
       <Card>
