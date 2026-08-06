@@ -36,6 +36,7 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { DRAKE_DATA_CUTOFF } from "@/lib/histogramaNovo";
 import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
+import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
 import { getPoInfo, getBmHistoryForPo, recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
 import { pageTitle } from "@/lib/pageTitle";
@@ -87,11 +88,15 @@ function BmPage() {
       <Tabs defaultValue="gerar">
         <TabsList>
           <TabsTrigger value="gerar">Gerar Novo BM</TabsTrigger>
+          <TabsTrigger value="timesheets">Timesheets</TabsTrigger>
           <TabsTrigger value="mob-desmob">Logística Mob/Desmob</TabsTrigger>
           <TabsTrigger value="historico">Histórico de BMs</TabsTrigger>
         </TabsList>
         <TabsContent value="gerar" className="mt-4">
           <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+        </TabsContent>
+        <TabsContent value="timesheets" className="mt-4">
+          <TimesheetsTab />
         </TabsContent>
         <TabsContent value="mob-desmob" className="mt-4">
           <MobDesmobTab />
