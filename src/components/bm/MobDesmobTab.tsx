@@ -350,6 +350,9 @@ export function MobDesmobTab() {
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
   });
 
+  const totalPendenteFiltrado = round2(grupos.reduce((a, g) => a + g.totalPendente, 0));
+
+
   return (
     <div className="space-y-4">
       <Card className="p-4">
