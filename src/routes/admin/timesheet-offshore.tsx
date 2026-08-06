@@ -824,8 +824,8 @@ function fmtData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
-function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
-  semanas: TimesheetSemana[]; embarques: TimesheetEmbarque[]; colaboradores: HistNovoColaborador[];
+function AtividadeRecenteCard({ semanas, embarques, colaboradores, className }: {
+  semanas: TimesheetSemana[]; embarques: TimesheetEmbarque[]; colaboradores: HistNovoColaborador[]; className?: string;
 }) {
   const colaboradorPorEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.colaborador_id])), [embarques]);
   const nomePorColaboradorId = useMemo(() => new Map(colaboradores.map((c) => [c.id, c.nome])), [colaboradores]);
