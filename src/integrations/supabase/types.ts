@@ -318,6 +318,87 @@ export type Database = {
           },
         ]
       }
+      bm_timesheet_dias: {
+        Row: {
+          adicional_noturno: boolean
+          bsp: string | null
+          colaborador_id: string | null
+          colaborador_nome: string
+          created_at: string
+          data: string
+          descricao_tarefa: string | null
+          dia_semana: string | null
+          evento: string | null
+          feriado: boolean
+          funcao: string | null
+          hora_entrada: string | null
+          hora_entrada_extra: string | null
+          hora_saida: string | null
+          hora_saida_extra: string | null
+          horas_extras: number | null
+          horas_normais: number | null
+          id: string
+          numero_tarefa: string | null
+          original: Json | null
+          source_dia_id: string | null
+          total_horas: number | null
+          unidade_operacional: string | null
+          updated_at: string
+        }
+        Insert: {
+          adicional_noturno?: boolean
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome?: string
+          created_at?: string
+          data: string
+          descricao_tarefa?: string | null
+          dia_semana?: string | null
+          evento?: string | null
+          feriado?: boolean
+          funcao?: string | null
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          original?: Json | null
+          source_dia_id?: string | null
+          total_horas?: number | null
+          unidade_operacional?: string | null
+          updated_at?: string
+        }
+        Update: {
+          adicional_noturno?: boolean
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome?: string
+          created_at?: string
+          data?: string
+          descricao_tarefa?: string | null
+          dia_semana?: string | null
+          evento?: string | null
+          feriado?: boolean
+          funcao?: string | null
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          original?: Json | null
+          source_dia_id?: string | null
+          total_horas?: number | null
+          unidade_operacional?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bms: {
         Row: {
           client_id: string | null
