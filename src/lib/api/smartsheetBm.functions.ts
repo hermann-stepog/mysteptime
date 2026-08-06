@@ -36,3 +36,13 @@ export const applyMedicaoToBm = createServerFn({ method: "POST" })
     const { applyMedicaoToBmRow } = await import("../smartsheetBm.server");
     return applyMedicaoToBmRow(data);
   });
+
+export const listJobOrderPos = createServerFn({ method: "GET" }).handler(async () => {
+  const { fetchJobOrderPos } = await import("../smartsheetBm.server");
+  return fetchJobOrderPos();
+});
+
+export const getNextBmNumber = createServerFn({ method: "GET" }).handler(async () => {
+  const { fetchNextBmNumber } = await import("../smartsheetBm.server");
+  return fetchNextBmNumber();
+});

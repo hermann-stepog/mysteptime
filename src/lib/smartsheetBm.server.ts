@@ -180,3 +180,80 @@ export async function applyMedicaoToBmRow(params: {
   await smartsheetPut(token, `/sheets/${sheetId}/rows`, [{ id: params.rowId, cells }]);
   return { applied: true };
 }
+
+// ─── Job Order: lista de POs consolidada ────────────────────────────────────
+
+const SHEET_NAME_JOB_ORDER = "Job Order";
+
+export interface JobOrderPo {
+  poNumber: string;
+  totalValue: number;
+  occurrences: number;
+  client: string | null;
+  vessel: string | null;
+}
+
+// Agrupa a planilha Job Order por PO: cada PO aparece uma única vez e o valor é a
+// soma de TODAS as linhas com aquela PO. Somente leitura — nada é escrito no Smartsheet.
+export async function fetchJobOrderPos(): Promise<JobOrderPo[]> {
+  const token = getToken();
+  const sheetId = await findSheetIdByName(token, SHEET_NAME_JOB_ORDER);
+  const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
+  const byPo = new Map<string, JobOrderPo>();
+  for (const r of sheet.rows ?? []) {
+    const c = cellMap(sheet, r);
+    const po = String(pick(c, ["PO Number", "PO", "PO #", "Nº PO", "No PO", "Numero PO", "Número PO", "Purchase Order"]) ?? "").trim();
+    if (!po) continue;
+    const raw = pick(c, ["Valor", "Value", "Valor Total", "Total Value", "Total", "Amount", "PO Value", "Valor da PO"]);
+    const value = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[^\d,.-]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")) || 0;
+    const prev = byPo.get(po);
+    if (prev) {
+      prev.totalValue += value;
+      prev.occurrences += 1;
+      prev.client ??= (pick(c, ["Cliente", "Client"]) as string | null) ?? null;
+      prev.vessel ??= (pick(c, ["Embarcação", "Vessel", "Embarcacao"]) as string | null) ?? null;
+    } else {
+      byPo.set(po, {
+        poNumber: po,
+        totalValue: value,
+        occurrences: 1,
+        client: (pick(c, ["Cliente", "Client"]) as string | null) ?? null,
+        vessel: (pick(c, ["Embarcação", "Vessel", "Embarcacao"]) as string | null) ?? null,
+      });
+    }
+  }
+  return Array.from(byPo.values())
+    .map((p) => ({ ...p, totalValue: Math.round(p.totalValue * 100) / 100 }))
+    .sort((a, b) => a.poNumber.localeCompare(b.poNumber, "pt-BR", { numeric: true }));
+}
+
+// ─── Controle de BM: próximo número da sequência ────────────────────────────
+
+export interface NextBmInfo {
+  nextBmNumber: string;
+  lastBmNumber: string | null;
+  lastBmValue: number | null;
+  count: number;
+}
+
+function incrementBmNumber(last: string | null): string {
+  if (!last) return "1";
+  const m = last.match(/^(.*?)(\d+)(\D*)$/);
+  if (!m) return `${last}-1`;
+  const [, prefix, digits, suffix] = m;
+  const next = String(Number(digits) + 1).padStart(digits.length, "0");
+  return `${prefix}${next}${suffix}`;
+}
+
+export async function fetchNextBmNumber(): Promise<NextBmInfo> {
+  const list = await fetchBmList();
+  if (list.length === 0) return { nextBmNumber: "1", lastBmNumber: null, lastBmValue: null, count: 0 };
+  const sorted = [...list].sort((a, b) => a.bmNumber.localeCompare(b.bmNumber, "pt-BR", { numeric: true }));
+  const last = sorted[sorted.length - 1]!;
+  return {
+    nextBmNumber: incrementBmNumber(last.bmNumber),
+    lastBmNumber: last.bmNumber,
+    lastBmValue: last.value ?? null,
+    count: list.length,
+  };
+}
