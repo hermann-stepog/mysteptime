@@ -239,6 +239,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setMarkupEnabled(reopenBm.markup_enabled);
     setMarkupPct(reopenBm.markup_pct);
     setReopenBmId(reopenBm.id);
+    setBmNovoManual(true);
     (async () => {
       const { data, error } = await supabase.from("bm_dias_overrides").select("*").eq("bm_id", reopenBm.id);
       if (error) { notify.error(error.message); return; }
