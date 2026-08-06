@@ -858,7 +858,7 @@ function AtividadeRecenteCard({ semanas, embarques, colaboradores, className }: 
   const lancadosHoje = useMemo(() => semanas.filter((s) => s.data_recebimento === hoje).length, [semanas, hoje]);
 
   return (
-    <Card className="flex w-full flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3 lg:w-64 lg:shrink-0">
+    <Card className={cn("flex w-full min-h-0 flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3", className)}>
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">Últimas Atualizações</h3>
         <span className="flex shrink-0 items-baseline gap-1 rounded-md bg-primary/15 px-2 py-0.5">
