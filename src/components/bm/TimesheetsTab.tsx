@@ -343,25 +343,45 @@ export function TimesheetsTab() {
                 const ultimo = g.dias[g.dias.length - 1];
                 return (
                 <Card key={chave} className="overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setColaboradorAberto(aberto ? null : chave)}
-                    className="flex w-full items-start gap-2 border-b px-4 py-3 text-left hover:bg-muted/40"
-                  >
-                    <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 transition-transform", aberto && "rotate-90")} />
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-semibold uppercase tracking-wide">{g.nome}</p>
-                      <p className="text-xs text-muted-foreground">
-                        <strong>Unidade:</strong> {primeiro?.unidade_operacional ?? "—"}
-                        {" · "}<strong>BSP:</strong> {bspSelecionada}
-                        {" · "}<strong>Função:</strong> {g.funcao || "—"}
+                  <div className="flex w-full items-start gap-2 border-b px-4 py-3 text-left">
+                    <button
+                      type="button"
+                      onClick={() => setColaboradorAberto(aberto ? null : chave)}
+                      className="mt-0.5 shrink-0 rounded hover:bg-muted"
+                      aria-label={aberto ? "Recolher" : "Expandir"}
+                    >
+                      <ChevronRight className={cn("h-4 w-4 transition-transform", aberto && "rotate-90")} />
+                    </button>
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => setColaboradorAberto(aberto ? null : chave)}
+                        className="text-sm font-semibold uppercase tracking-wide hover:underline"
+                      >
+                        {g.nome}
+                      </button>
+                      <p className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
+                        <span><strong>Unidade:</strong> {primeiro?.unidade_operacional ?? "—"}</span>
+                        <span>{" · "}<strong>BSP:</strong> {bspSelecionada}</span>
+                        <span>{" · "}<strong>Função:</strong></span>
+                        <Input
+                          defaultValue={g.funcao}
+                          key={`funcao-${chave}`}
+                          placeholder="Função"
+                          className="h-7 w-48 text-xs"
+                          onBlur={(e) => {
+                            const valor = e.target.value.trim();
+                            if (valor === (g.funcao ?? "")) return;
+                            salvarFuncao.mutate({ ids: g.dias.map((d) => d.id), funcao: valor });
+                          }}
+                        />
                       </p>
                       <p className="text-xs text-muted-foreground">
                         <strong>Período:</strong> {primeiro ? fmtData(primeiro.data) : "—"} a {ultimo ? fmtData(ultimo.data) : "—"} · {g.dias.length} dia(s)
                         {" · "}Normais {totais.normais.toFixed(1)}h · Extras {totais.extras.toFixed(1)}h · Total {totais.total.toFixed(1)}h
                       </p>
                     </div>
-                  </button>
+                  </div>
                   {aberto && (
                   <>
                   <div className="overflow-x-auto">
@@ -378,8 +398,8 @@ export function TimesheetsTab() {
                           <TableHead className="w-24">HE Entrada</TableHead>
                           <TableHead className="w-24">HE Saída</TableHead>
                           <TableHead className="w-24">Total</TableHead>
-                          <TableHead className="w-14">Not.</TableHead>
-                          <TableHead className="w-14">Fer.</TableHead>
+                          <TableHead className="w-16" title="Adicional noturno">Adic. Not.</TableHead>
+                          <TableHead className="w-16" title="Feriado">Feriado</TableHead>
                           <TableHead className="w-10" />
                         </TableRow>
                       </TableHeader>
