@@ -751,6 +751,27 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               {cab.poBalanceBefore != null && <> · Saldo antes deste BM: <strong>{fmtMoney(cab.poBalanceBefore)}</strong></>}
             </p>
           )}
+
+          <div className="rounded-md border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold">Medições aplicadas ao cabeçalho</span>
+              <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMedicoes)}</strong></span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).map((k) => (
+                <div key={k}>
+                  <Label className="text-xs">{MEDICOES_LABEL[k]}</Label>
+                  <Input readOnly className="bg-muted/40" value={fmtMoney(medicoes[k])} />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {numeroBmAtual
+                ? `Valores consolidados nas abas de medição e aplicados ao BM ${numeroBmAtual} (campos ${Object.values(MEDICOES_COLUNA).length} do cabeçalho).`
+                : "Informe o Número do BM para carregar as medições já aplicadas a ele."}
+            </p>
+          </div>
+
         </div>
       )}
 
