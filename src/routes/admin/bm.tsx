@@ -289,6 +289,43 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     }
   };
 
+  // ── Smartsheet: Job Order (lista de POs) e Controle de BM (sequência) ──────────────────
+  // Só leitura: a planilha Job Order alimenta o autocomplete de PO (uma linha por PO, valor
+  // somado de todas as ocorrências) e o Controle de BM dá o próximo número da sequência.
+  const { data: jobOrderPos = EMPTY_PO_LIST } = useQuery<JobOrderPoOption[]>({
+    queryKey: ["smartsheet-job-order-pos"],
+    queryFn: async () => (await listJobOrderPos()) as JobOrderPoOption[],
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: proximoBm } = useQuery({
+    queryKey: ["smartsheet-next-bm"],
+    queryFn: async () => await getNextBmNumber(),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Preenche o número do BM com o próximo da sequência (sem sobrescrever edição manual
+  // nem BM reaberto).
+  useEffect(() => {
+    if (proximoBm?.nextBmNumber && !cab.numeroBm && !reopenBmId) {
+      setCab((c) => (c.numeroBm ? c : { ...c, numeroBm: proximoBm.nextBmNumber }));
+    }
+  }, [proximoBm?.nextBmNumber, cab.numeroBm, reopenBmId]);
+
+  const poSelecionada = useMemo(
+    () => jobOrderPos.find((p) => p.poNumber.toLowerCase() === cab.poNumber.trim().toLowerCase()) ?? null,
+    [jobOrderPos, cab.poNumber],
+  );
+
+  // Recalcula o Valor Total da PO sempre que a PO muda.
+  useEffect(() => {
+    setCab((c) => {
+      const total = poSelecionada?.totalValue ?? null;
+      return c.poValue === total ? c : { ...c, poValue: total };
+    });
+  }, [poSelecionada]);
+
+
   // ── Step 1: Horas do Timesheet (compilado editável, alimenta a Mão de Obra) ─────────────
   // Busca os dias "crus" do timesheet real pro vessel/período/BSP escolhidos — sem agregar
   // ainda. A aba "Horas do Timesheet" deixa corrigir um dia específico (ver diasOverrides);
