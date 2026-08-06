@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
-import { CalendarRange, RotateCcw, Users } from "lucide-react";
+import { CalendarRange, ChevronRight, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +81,7 @@ export function TimesheetsTab() {
   const [ate, setAte] = useState(ultimoDiaDoMes);
   const [bspSelecionada, setBspSelecionada] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
+  const [colaboradorAberto, setColaboradorAberto] = useState<string | null>(null);
 
   const periodoValido = !!de && !!ate && de <= ate;
 
@@ -291,7 +292,7 @@ export function TimesheetsTab() {
             {bsps.map((b) => (
               <Card
                 key={b.key}
-                onClick={() => setBspSelecionada(b.key === bspSelecionada ? null : b.key)}
+                onClick={() => { setColaboradorAberto(null); setBspSelecionada(b.key === bspSelecionada ? null : b.key); }}
                 className={cn(
                   "cursor-pointer p-4 transition-shadow hover:shadow-md",
                   b.key === bspSelecionada && "border-primary ring-1 ring-primary",
@@ -311,6 +312,8 @@ export function TimesheetsTab() {
                 <Card className="p-4"><EmptyState icon={Users} title="Nenhum colaborador encontrado" /></Card>
               )}
               {grupos.map((g) => {
+                const chave = `${g.nome}||${g.funcao}`;
+                const aberto = colaboradorAberto === chave;
                 const totais = g.dias.reduce(
                   (acc, d) => ({
                     normais: acc.normais + (d.horas_normais ?? 0),
@@ -322,18 +325,28 @@ export function TimesheetsTab() {
                 const primeiro = g.dias[0];
                 const ultimo = g.dias[g.dias.length - 1];
                 return (
-                <Card key={g.nome + g.funcao} className="overflow-hidden">
-                  <div className="space-y-0.5 border-b px-4 py-3">
-                    <p className="text-sm font-semibold uppercase tracking-wide">{g.nome}</p>
-                    <p className="text-xs text-muted-foreground">
-                      <strong>Unidade:</strong> {primeiro?.unidade_operacional ?? "—"}
-                      {" · "}<strong>BSP:</strong> {bspSelecionada}
-                      {" · "}<strong>Função:</strong> {g.funcao || "—"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      <strong>Período:</strong> {primeiro ? fmtData(primeiro.data) : "—"} a {ultimo ? fmtData(ultimo.data) : "—"} · {g.dias.length} dia(s)
-                    </p>
-                  </div>
+                <Card key={chave} className="overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setColaboradorAberto(aberto ? null : chave)}
+                    className="flex w-full items-start gap-2 border-b px-4 py-3 text-left hover:bg-muted/40"
+                  >
+                    <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 transition-transform", aberto && "rotate-90")} />
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-semibold uppercase tracking-wide">{g.nome}</p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Unidade:</strong> {primeiro?.unidade_operacional ?? "—"}
+                        {" · "}<strong>BSP:</strong> {bspSelecionada}
+                        {" · "}<strong>Função:</strong> {g.funcao || "—"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Período:</strong> {primeiro ? fmtData(primeiro.data) : "—"} a {ultimo ? fmtData(ultimo.data) : "—"} · {g.dias.length} dia(s)
+                        {" · "}Normais {totais.normais.toFixed(1)}h · Extras {totais.extras.toFixed(1)}h · Total {totais.total.toFixed(1)}h
+                      </p>
+                    </div>
+                  </button>
+                  {aberto && (
+                  <>
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
@@ -370,9 +383,12 @@ export function TimesheetsTab() {
                     <span>Extras: {totais.extras.toFixed(1)}h</span>
                     <span>Total: {totais.total.toFixed(1)}h</span>
                   </div>
+                  </>
+                  )}
                 </Card>
                 );
               })}
+
 
             </div>
           )}
