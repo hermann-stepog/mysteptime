@@ -280,9 +280,18 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       if (!semanaIds.length) return [];
 
       const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("data, evento, horas_extras, adicional_noturno, total_horas, semana_id, bsp")
+        .from("timesheet_dias").select("id, data, evento, horas_extras, adicional_noturno, total_horas, semana_id, bsp")
         .in("semana_id", semanaIds).gte("data", cab.periodStart).lte("data", cab.periodEnd);
       if (diasErr) throw diasErr;
+
+      // Cópia editável da aba "Timesheets" do BM — quando existe, ela é a fonte da medição
+      // (os ajustes da Medição valem só aqui, nunca voltam pro Timesheet Offshore).
+      const { data: copiasData, error: copiasErr } = await supabase
+        .from("bm_timesheet_dias").select("source_dia_id, evento, horas_extras, adicional_noturno, total_horas, bsp, funcao")
+        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
+      if (copiasErr) throw copiasErr;
+      const copiaBySourceId = new Map<string, any>((copiasData ?? []).filter((c: any) => c.source_dia_id).map((c: any) => [c.source_dia_id, c]));
+
 
       const embarqueBySemanaId = new Map<string, string>((semanasData ?? []).map((s: any) => [s.id, s.embarque_id]));
       const embarqueById = new Map<string, any>((embarquesData ?? []).map((e: any) => [e.id, e]));
