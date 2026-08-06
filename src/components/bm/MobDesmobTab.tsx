@@ -561,7 +561,10 @@ export function MobDesmobTab() {
       <Dialog open={!!aplicarBsp} onOpenChange={(o) => { if (!o) { setAplicarBsp(null); setBmSelecionado(null); } }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Aplicar custos do BSP {aplicarBsp} ao BM</DialogTitle>
+            <DialogTitle>
+              {aplicarBsp === TODOS ? "Aplicar todos os custos pendentes do período ao BM" : `Aplicar custos do BSP ${aplicarBsp} ao BM`}
+            </DialogTitle>
+
           </DialogHeader>
           <div className="space-y-3">
             <div className="rounded-md border p-3 text-xs">
