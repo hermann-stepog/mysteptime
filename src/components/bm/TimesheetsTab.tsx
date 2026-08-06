@@ -454,6 +454,8 @@ function LinhaDia({ row, onSave, onRestore }: {
   const [local, setLocal] = useState(row);
   useEffect(() => setLocal(row), [row]);
 
+  // Mesma regra do módulo Timesheet Offshore: horas normais/extras/total e adicional noturno
+  // são derivados automaticamente dos horários — não há mais marcação manual.
   const hora = (campo: CampoCopia) => (
     <Input
       type="time"
@@ -461,8 +463,24 @@ function LinhaDia({ row, onSave, onRestore }: {
       value={((local as any)[campo] as string | null)?.slice(0, 5) ?? ""}
       onChange={(e) => {
         const valor = e.target.value || null;
-        setLocal({ ...local, [campo]: valor });
-        if (valor !== (((row as any)[campo] as string | null)?.slice(0, 5) ?? null)) onSave({ [campo]: valor });
+        const next = { ...local, [campo]: valor } as BmTimesheetDia;
+        const { normais, extras, total } = computeHorasDia(
+          next.hora_entrada, next.hora_saida, next.hora_entrada_extra, next.hora_saida_extra,
+        );
+        next.horas_normais = normais;
+        next.horas_extras = extras;
+        next.total_horas = total;
+        next.adicional_noturno = suggestAdicionalNoturno(
+          next.hora_entrada, next.hora_saida, next.hora_entrada_extra, next.hora_saida_extra,
+        );
+        setLocal(next);
+        onSave({
+          [campo]: valor,
+          horas_normais: normais,
+          horas_extras: extras,
+          total_horas: total,
+          adicional_noturno: next.adicional_noturno,
+        });
       }}
     />
   );
@@ -481,16 +499,6 @@ function LinhaDia({ row, onSave, onRestore }: {
     />
   );
 
-  const bool = (campo: CampoCopia) => (
-    <Checkbox
-      checked={!!(local as any)[campo]}
-      onCheckedChange={(v) => {
-        const valor = v === true;
-        setLocal({ ...local, [campo]: valor });
-        onSave({ [campo]: valor });
-      }}
-    />
-  );
 
   const diaLabel = `${(local.dia_semana ?? "").split(" / ")[0].slice(0, 3)} - ${fmtData(row.data).slice(0, 6)}${row.data.slice(2, 4)}`;
 
