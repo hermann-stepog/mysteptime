@@ -197,6 +197,18 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
         applied_at: new Date().toISOString(),
       }).in("id", pendentes.map((r) => r.id));
       if (error) throw error;
+
+      // Cabeçalho do BM local: acumula o total consolidado no campo desta medição,
+      // pra que o valor fique registrado no BM mesmo depois de aplicado.
+      const { data: bmLocal } = await supabase
+        .from("bms").select(`id, ${bmColumn}`).eq("numero_bm", bmSelecionado.bmNumber).maybeSingle();
+      if (bmLocal?.id) {
+        const atual = Number(bmLocal[bmColumn] ?? 0);
+        const { error: errBm } = await supabase.from("bms")
+          .update({ [bmColumn]: round2(atual + totalPendente) }).eq("id", bmLocal.id);
+        if (errBm) throw errBm;
+      }
+
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bm-medicoes", tipo] });
