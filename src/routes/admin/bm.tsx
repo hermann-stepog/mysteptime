@@ -86,10 +86,14 @@ function BmPage() {
         <p className="text-sm text-muted-foreground">Geração automática de BM a partir do Timesheet Offshore e Logística.</p>
       </div>
       <Tabs defaultValue="gerar">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="gerar">Gerar Novo BM</TabsTrigger>
           <TabsTrigger value="timesheets">Timesheets</TabsTrigger>
           <TabsTrigger value="mob-desmob">Logística Mob/Desmob</TabsTrigger>
+          <TabsTrigger value="habitat">Medição de Habitat</TabsTrigger>
+          <TabsTrigger value="locacao">Medição de Locação</TabsTrigger>
+          <TabsTrigger value="consumiveis">Medição de Consumíveis</TabsTrigger>
+          <TabsTrigger value="mob-materiais">Medição de Mob/Desmob de Materiais</TabsTrigger>
           <TabsTrigger value="historico">Histórico de BMs</TabsTrigger>
         </TabsList>
         <TabsContent value="gerar" className="mt-4">
@@ -101,10 +105,28 @@ function BmPage() {
         <TabsContent value="mob-desmob" className="mt-4">
           <MobDesmobTab />
         </TabsContent>
+        <TabsContent value="habitat" className="mt-4">
+          <MedicaoTab tipo="habitat" titulo="Lançar medição de Habitat" smartsheetColumn="Medição Habitat"
+            descricaoLabel="Habitat / Módulo" descricaoPlaceholder="Ex: Habitat 4 pax - Convés principal" />
+        </TabsContent>
+        <TabsContent value="locacao" className="mt-4">
+          <MedicaoTab tipo="locacao" titulo="Lançar medição de Locação" smartsheetColumn="Medição Locação"
+            descricaoLabel="Equipamento locado" descricaoPlaceholder="Ex: Compressor 185 PCM" />
+        </TabsContent>
+        <TabsContent value="consumiveis" className="mt-4">
+          <MedicaoTab tipo="consumiveis" titulo="Lançar medição de Consumíveis" smartsheetColumn="Medição Consumíveis"
+            descricaoLabel="Consumível" descricaoPlaceholder="Ex: Eletrodo E7018 3,25mm" />
+        </TabsContent>
+        <TabsContent value="mob-materiais" className="mt-4">
+          <MedicaoTab tipo="mob_desmob_materiais" titulo="Lançar medição de Mob/Desmob de Materiais"
+            smartsheetColumn="Medição Mob/Desmob Materiais"
+            descricaoLabel="Material" descricaoPlaceholder="Ex: Container 20' - Macaé → Base" />
+        </TabsContent>
         <TabsContent value="historico" className="mt-4">
           <HistoricoBmsTab onReopen={setReopenBm} />
         </TabsContent>
       </Tabs>
+
     </div>
   );
 }
