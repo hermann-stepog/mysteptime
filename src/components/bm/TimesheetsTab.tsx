@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
-import { CalendarRange, RotateCcw, Users } from "lucide-react";
+import { CalendarRange, ChevronRight, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +81,7 @@ export function TimesheetsTab() {
   const [ate, setAte] = useState(ultimoDiaDoMes);
   const [bspSelecionada, setBspSelecionada] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
+  const [colaboradorAberto, setColaboradorAberto] = useState<string | null>(null);
 
   const periodoValido = !!de && !!ate && de <= ate;
 
