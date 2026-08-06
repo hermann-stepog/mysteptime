@@ -119,21 +119,26 @@ function BmPage() {
         </TabsContent>
         <TabsContent value="habitat" className="mt-4">
           <MedicaoTab tipo="habitat" titulo="Lançar medição de Habitat" smartsheetColumn="Medição Habitat"
+            bmColumn="total_habitat"
             descricaoLabel="Habitat / Módulo" descricaoPlaceholder="Ex: Habitat 4 pax - Convés principal" />
         </TabsContent>
         <TabsContent value="locacao" className="mt-4">
           <MedicaoTab tipo="locacao" titulo="Lançar medição de Locação" smartsheetColumn="Medição Locação"
+            bmColumn="total_locacao"
             descricaoLabel="Equipamento locado" descricaoPlaceholder="Ex: Compressor 185 PCM" />
         </TabsContent>
         <TabsContent value="consumiveis" className="mt-4">
           <MedicaoTab tipo="consumiveis" titulo="Lançar medição de Consumíveis" smartsheetColumn="Medição Consumíveis"
+            bmColumn="total_consumiveis"
             descricaoLabel="Consumível" descricaoPlaceholder="Ex: Eletrodo E7018 3,25mm" />
         </TabsContent>
         <TabsContent value="mob-materiais" className="mt-4">
           <MedicaoTab tipo="mob_desmob_materiais" titulo="Lançar medição de Mob/Desmob de Materiais"
             smartsheetColumn="Medição Mob/Desmob Materiais"
+            bmColumn="total_mob_desmob_materiais"
             descricaoLabel="Material" descricaoPlaceholder="Ex: Container 20' - Macaé → Base" />
         </TabsContent>
+
         <TabsContent value="historico" className="mt-4">
           <HistoricoBmsTab onReopen={setReopenBm} />
         </TabsContent>
