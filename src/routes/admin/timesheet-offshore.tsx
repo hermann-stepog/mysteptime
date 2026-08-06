@@ -869,7 +869,7 @@ function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
       {recentes.length === 0 ? (
         <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum lançamento registrado ainda.</p>
       ) : (
-        <div className="flex-1 space-y-1.5 overflow-auto pr-1">
+        <div className="max-h-64 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
           {recentes.map((s) => {
             const colaboradorId = colaboradorPorEmbarqueId.get(s.embarque_id);
             const nomeColaborador = colaboradorId ? nomePorColaboradorId.get(colaboradorId) : null;
