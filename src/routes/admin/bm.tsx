@@ -797,6 +797,33 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             </p>
           </div>
 
+          <div className="rounded-md border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold">Logística Mob/Desmob aplicada ao BSP</span>
+              <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <div>
+                <Label className="text-xs">Transporte</Label>
+                <Input readOnly className="bg-muted/40" value={fmtMoney(mobDesmob.transporte)} />
+              </div>
+              <div>
+                <Label className="text-xs">Hotel</Label>
+                <Input readOnly className="bg-muted/40" value={fmtMoney(mobDesmob.hotel)} />
+              </div>
+              <div>
+                <Label className="text-xs">Outros</Label>
+                <Input readOnly className="bg-muted/40" value={fmtMoney(mobDesmob.outros)} />
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {cab.bsp
+                ? `Custos importados e aplicados na aba Logística Mob/Desmob para o BSP ${cab.bsp}.`
+                : "Selecione o BSP para carregar os custos de transporte e hotel já aplicados."}
+            </p>
+          </div>
+
+
         </div>
       )}
 
