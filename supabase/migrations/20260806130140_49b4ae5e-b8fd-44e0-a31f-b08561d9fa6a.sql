@@ -1,0 +1,1 @@
+ALTER TABLE public.bms ADD COLUMN IF NOT EXISTS ja_medido boolean NOT NULL DEFAULT false;
