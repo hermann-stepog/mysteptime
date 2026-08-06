@@ -506,7 +506,10 @@ export function MobDesmobTab() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-xs">
+              <div
+                className="grid cursor-pointer grid-cols-3 gap-2 text-xs"
+                onClick={() => setAbertos((p) => ({ ...p, [g.bsp]: !aberto }))}
+              >
                 <div className="rounded-md border p-2">
                   <p className="flex items-center gap-1 text-muted-foreground"><Car className="h-3 w-3" />Transporte</p>
                   <p className="font-medium">{fmtMoney(g.transporte)}</p>
@@ -530,7 +533,10 @@ export function MobDesmobTab() {
                         <TableHead className="text-xs">Cat.</TableHead>
                         <TableHead className="text-xs">Data</TableHead>
                         <TableHead className="text-xs">Qtd</TableHead>
+                        <TableHead className="text-xs">Valor unit.</TableHead>
+                        <TableHead className="text-xs">Markup</TableHead>
                         <TableHead className="text-xs">Total</TableHead>
+                        <TableHead className="text-xs">Notes</TableHead>
                         <TableHead className="text-xs">BM</TableHead>
                         <TableHead className="w-8" />
                       </TableRow>
@@ -542,7 +548,12 @@ export function MobDesmobTab() {
                           <TableCell className="text-xs">{CATEGORIA_LABEL[c.categoria] ?? c.categoria}</TableCell>
                           <TableCell className="text-xs">{fmt(c.data)}</TableCell>
                           <TableCell className="text-xs">{c.qtd}</TableCell>
+                          <TableCell className="text-xs">{fmtMoney(c.valor)}</TableCell>
+                          <TableCell className="text-xs">{c.markup == null ? "—" : fmtMoney(c.markup)}</TableCell>
                           <TableCell className="text-xs font-medium">{fmtMoney(c.total_cost)}</TableCell>
+                          <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground" title={c.notes ?? ""}>
+                            {c.notes || "—"}
+                          </TableCell>
                           <TableCell className="text-xs">{c.applied_bm_number ?? "—"}</TableCell>
                           <TableCell>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
