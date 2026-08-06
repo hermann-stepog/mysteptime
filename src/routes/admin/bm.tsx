@@ -643,17 +643,49 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               </Select>
             </div>
             <div>
-              <Label className="text-xs">PO Number (opcional)</Label>
+              <Label className="text-xs">PO</Label>
               <div className="flex gap-2">
-                <Input value={cab.poNumber} onChange={(e) => setCab({ ...cab, poNumber: e.target.value })} placeholder="Ex: P3231161" />
-                <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Buscar</Button>
+                <Input
+                  list="job-order-pos"
+                  value={cab.poNumber}
+                  onChange={(e) => setCab({ ...cab, poNumber: e.target.value })}
+                  placeholder="Digite para buscar a PO"
+                />
+                <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Saldo</Button>
               </div>
+              <datalist id="job-order-pos">
+                {jobOrderPos.map((p) => (
+                  <option key={p.poNumber} value={p.poNumber}>{fmtMoney(p.totalValue)}</option>
+                ))}
+              </datalist>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Valor Total da PO</Label>
+              <Input readOnly className="bg-muted/40" value={cab.poValue != null ? fmtMoney(cab.poValue) : "—"} />
+              {poSelecionada && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Soma de {poSelecionada.occurrences} lançamento(s) da PO.
+                </p>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs">Número do BM</Label>
+              <Input value={cab.numeroBm} onChange={(e) => setCab({ ...cab, numeroBm: e.target.value })} placeholder="Sequência do Controle de BM" />
+              {proximoBm?.lastBmNumber && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Último BM: {proximoBm.lastBmNumber}
+                  {proximoBm.lastBmValue != null && <> · {fmtMoney(proximoBm.lastBmValue)}</>}
+                </p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Período — De</Label><Input type="date" value={cab.periodStart} onChange={(e) => setCab({ ...cab, periodStart: e.target.value })} /></div>
             <div><Label className="text-xs">Período — Até</Label><Input type="date" value={cab.periodEnd} onChange={(e) => setCab({ ...cab, periodEnd: e.target.value })} /></div>
           </div>
+
           {cab.poValue != null && (
             <p className="text-xs text-muted-foreground">
               PO Value: <strong>{fmtMoney(cab.poValue)}</strong>
