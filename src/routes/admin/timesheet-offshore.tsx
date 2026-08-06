@@ -824,8 +824,8 @@ function fmtData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
-function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
-  semanas: TimesheetSemana[]; embarques: TimesheetEmbarque[]; colaboradores: HistNovoColaborador[];
+function AtividadeRecenteCard({ semanas, embarques, colaboradores, className }: {
+  semanas: TimesheetSemana[]; embarques: TimesheetEmbarque[]; colaboradores: HistNovoColaborador[]; className?: string;
 }) {
   const colaboradorPorEmbarqueId = useMemo(() => new Map(embarques.map((e) => [e.id, e.colaborador_id])), [embarques]);
   const nomePorColaboradorId = useMemo(() => new Map(colaboradores.map((c) => [c.id, c.nome])), [colaboradores]);
@@ -834,9 +834,10 @@ function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
     () => semanas
       .filter((s): s is TimesheetSemana & { recebido_em: string } => !!s.recebido_em)
       .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em))
-      .slice(0, 8),
+      .slice(0, 30),
     [semanas],
   );
+
 
   const idsExecutores = useMemo(
     () => Array.from(new Set(recentes.map((s) => s.recebido_por).filter((id): id is string => !!id))),
@@ -857,7 +858,7 @@ function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
   const lancadosHoje = useMemo(() => semanas.filter((s) => s.data_recebimento === hoje).length, [semanas, hoje]);
 
   return (
-    <Card className="flex w-full flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3 lg:w-64 lg:shrink-0">
+    <Card className={cn("flex w-full min-h-0 flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3", className)}>
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">Últimas Atualizações</h3>
         <span className="flex shrink-0 items-baseline gap-1 rounded-md bg-primary/15 px-2 py-0.5">
@@ -1203,8 +1204,15 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         </div>
 
         {cardsPorUnidade.length > 0 && (
-          <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} />
+          // Wrapper relativo: no desktop o card vira overlay absoluto pra não empurrar a altura
+          // da linha — ele acompanha a altura da coluna de filtros/unidades e rola por dentro.
+          <div className="relative w-full lg:w-64 lg:shrink-0">
+            <div className="lg:absolute lg:inset-0">
+              <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} className="lg:h-full" />
+            </div>
+          </div>
         )}
+
       </div>
 
       <Card>

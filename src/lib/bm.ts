@@ -27,6 +27,9 @@ export interface Bm {
   current_status: BmStatus;
   rejection_reason: string | null;
   smartsheet_synced_at: string | null;
+  /** Marcação manual do setor: true = BM já medido, false = pendente de medição. */
+  ja_medido?: boolean;
+
 }
 
 export interface BmStatusHistory {
@@ -91,6 +94,8 @@ export interface BmDiaOverride {
 // Custo de logística de Mob/Desmob, lançado manualmente por enquanto (ver comentário na
 // migration) — independente de um bm_id específico, igual cost_logs: consultado por
 // BSP/período direto na aba, não fica preso a um BM já gerado.
+export type MobDesmobCategoria = "transporte" | "hotel" | "outros";
+
 export interface BmMobDesmobCost {
   id: string;
   created_at: string;
@@ -102,6 +107,13 @@ export interface BmMobDesmobCost {
   markup: number | null;
   total_cost: number;
   notes: string | null;
+  categoria: MobDesmobCategoria;
+  period_start: string | null;
+  period_end: string | null;
+  import_batch: string | null;
+  applied: boolean;
+  applied_bm_number: string | null;
+  applied_at: string | null;
 }
 
 export type MaterialCategoria = "habitat" | "rental" | "consumable";

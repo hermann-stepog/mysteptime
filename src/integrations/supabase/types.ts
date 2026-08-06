@@ -283,6 +283,138 @@ export type Database = {
           },
         ]
       }
+      bm_medicoes: {
+        Row: {
+          applied: boolean
+          applied_at: string | null
+          applied_bm_number: string | null
+          applied_bm_row_id: string | null
+          bsp: string | null
+          cliente: string | null
+          created_at: string
+          created_by: string | null
+          descricao: string
+          id: string
+          notes: string | null
+          period_end: string | null
+          period_start: string | null
+          qtd: number
+          tag: string | null
+          tipo: string
+          updated_at: string
+          valor_total: number
+          valor_unitario: number
+        }
+        Insert: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          applied_bm_row_id?: string | null
+          bsp?: string | null
+          cliente?: string | null
+          created_at?: string
+          created_by?: string | null
+          descricao: string
+          id?: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          tipo: string
+          updated_at?: string
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Update: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          applied_bm_row_id?: string | null
+          bsp?: string | null
+          cliente?: string | null
+          created_at?: string
+          created_by?: string | null
+          descricao?: string
+          id?: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          tipo?: string
+          updated_at?: string
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Relationships: []
+      }
+      bm_mob_desmob_costs: {
+        Row: {
+          applied: boolean
+          applied_at: string | null
+          applied_bm_number: string | null
+          bsp: string
+          categoria: string
+          created_at: string
+          created_by: string | null
+          data: string
+          id: string
+          import_batch: string | null
+          markup: number | null
+          nome: string
+          notes: string | null
+          period_end: string | null
+          period_start: string | null
+          qtd: number
+          total_cost: number
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          bsp: string
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          data: string
+          id?: string
+          import_batch?: string | null
+          markup?: number | null
+          nome: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          total_cost?: number
+          updated_at?: string
+          valor?: number
+        }
+        Update: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          bsp?: string
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          data?: string
+          id?: string
+          import_batch?: string | null
+          markup?: number | null
+          nome?: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          total_cost?: number
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: []
+      }
       bm_status_history: {
         Row: {
           bm_id: string
@@ -318,6 +450,87 @@ export type Database = {
           },
         ]
       }
+      bm_timesheet_dias: {
+        Row: {
+          adicional_noturno: boolean
+          bsp: string | null
+          colaborador_id: string | null
+          colaborador_nome: string
+          created_at: string
+          data: string
+          descricao_tarefa: string | null
+          dia_semana: string | null
+          evento: string | null
+          feriado: boolean
+          funcao: string | null
+          hora_entrada: string | null
+          hora_entrada_extra: string | null
+          hora_saida: string | null
+          hora_saida_extra: string | null
+          horas_extras: number | null
+          horas_normais: number | null
+          id: string
+          numero_tarefa: string | null
+          original: Json | null
+          source_dia_id: string | null
+          total_horas: number | null
+          unidade_operacional: string | null
+          updated_at: string
+        }
+        Insert: {
+          adicional_noturno?: boolean
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome?: string
+          created_at?: string
+          data: string
+          descricao_tarefa?: string | null
+          dia_semana?: string | null
+          evento?: string | null
+          feriado?: boolean
+          funcao?: string | null
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          original?: Json | null
+          source_dia_id?: string | null
+          total_horas?: number | null
+          unidade_operacional?: string | null
+          updated_at?: string
+        }
+        Update: {
+          adicional_noturno?: boolean
+          bsp?: string | null
+          colaborador_id?: string | null
+          colaborador_nome?: string
+          created_at?: string
+          data?: string
+          descricao_tarefa?: string | null
+          dia_semana?: string | null
+          evento?: string | null
+          feriado?: boolean
+          funcao?: string | null
+          hora_entrada?: string | null
+          hora_entrada_extra?: string | null
+          hora_saida?: string | null
+          hora_saida_extra?: string | null
+          horas_extras?: number | null
+          horas_normais?: number | null
+          id?: string
+          numero_tarefa?: string | null
+          original?: Json | null
+          source_dia_id?: string | null
+          total_horas?: number | null
+          unidade_operacional?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bms: {
         Row: {
           client_id: string | null
@@ -326,6 +539,7 @@ export type Database = {
           created_by: string | null
           current_status: string
           id: string
+          ja_medido: boolean
           markup_enabled: boolean
           markup_pct: number
           numero_bm: string | null
@@ -338,10 +552,14 @@ export type Database = {
           project_name: string | null
           rejection_reason: string | null
           smartsheet_synced_at: string | null
+          total_consumiveis: number
           total_geral: number
+          total_habitat: number
+          total_locacao: number
           total_logistica: number
           total_materiais: number
           total_mo: number
+          total_mob_desmob_materiais: number
           updated_at: string
           vessel: string
         }
@@ -352,6 +570,7 @@ export type Database = {
           created_by?: string | null
           current_status?: string
           id?: string
+          ja_medido?: boolean
           markup_enabled?: boolean
           markup_pct?: number
           numero_bm?: string | null
@@ -364,10 +583,14 @@ export type Database = {
           project_name?: string | null
           rejection_reason?: string | null
           smartsheet_synced_at?: string | null
+          total_consumiveis?: number
           total_geral?: number
+          total_habitat?: number
+          total_locacao?: number
           total_logistica?: number
           total_materiais?: number
           total_mo?: number
+          total_mob_desmob_materiais?: number
           updated_at?: string
           vessel: string
         }
@@ -378,6 +601,7 @@ export type Database = {
           created_by?: string | null
           current_status?: string
           id?: string
+          ja_medido?: boolean
           markup_enabled?: boolean
           markup_pct?: number
           numero_bm?: string | null
@@ -390,10 +614,14 @@ export type Database = {
           project_name?: string | null
           rejection_reason?: string | null
           smartsheet_synced_at?: string | null
+          total_consumiveis?: number
           total_geral?: number
+          total_habitat?: number
+          total_locacao?: number
           total_logistica?: number
           total_materiais?: number
           total_mo?: number
+          total_mob_desmob_materiais?: number
           updated_at?: string
           vessel?: string
         }
