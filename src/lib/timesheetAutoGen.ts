@@ -47,8 +47,8 @@ export async function gerarSemanasEDias(
       diasToInsert.push({ semana_id: (semana as { id: string }).id, data: d, dia_semana: weekdayLabel(d), evento, bsp: dentroDoEmbarque ? bsp : null });
       d = addDaysStr(d, 1);
     }
-    if (dias.length > 0) {
-      const { error: diasError } = await db.from("timesheet_dias").insert(dias);
+    if (diasToInsert.length > 0) {
+      const { error: diasError } = await db.from("timesheet_dias").insert(diasToInsert);
       if (diasError) throw diasError;
     }
 
