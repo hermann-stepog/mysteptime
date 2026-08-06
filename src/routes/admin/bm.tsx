@@ -119,21 +119,26 @@ function BmPage() {
         </TabsContent>
         <TabsContent value="habitat" className="mt-4">
           <MedicaoTab tipo="habitat" titulo="Lançar medição de Habitat" smartsheetColumn="Medição Habitat"
+            bmColumn="total_habitat"
             descricaoLabel="Habitat / Módulo" descricaoPlaceholder="Ex: Habitat 4 pax - Convés principal" />
         </TabsContent>
         <TabsContent value="locacao" className="mt-4">
           <MedicaoTab tipo="locacao" titulo="Lançar medição de Locação" smartsheetColumn="Medição Locação"
+            bmColumn="total_locacao"
             descricaoLabel="Equipamento locado" descricaoPlaceholder="Ex: Compressor 185 PCM" />
         </TabsContent>
         <TabsContent value="consumiveis" className="mt-4">
           <MedicaoTab tipo="consumiveis" titulo="Lançar medição de Consumíveis" smartsheetColumn="Medição Consumíveis"
+            bmColumn="total_consumiveis"
             descricaoLabel="Consumível" descricaoPlaceholder="Ex: Eletrodo E7018 3,25mm" />
         </TabsContent>
         <TabsContent value="mob-materiais" className="mt-4">
           <MedicaoTab tipo="mob_desmob_materiais" titulo="Lançar medição de Mob/Desmob de Materiais"
             smartsheetColumn="Medição Mob/Desmob Materiais"
+            bmColumn="total_mob_desmob_materiais"
             descricaoLabel="Material" descricaoPlaceholder="Ex: Container 20' - Macaé → Base" />
         </TabsContent>
+
         <TabsContent value="historico" className="mt-4">
           <HistoricoBmsTab onReopen={setReopenBm} />
         </TabsContent>
@@ -160,6 +165,26 @@ interface Cabecalho {
 const CABECALHO_VAZIO: Cabecalho = {
   client: "", bsp: "", vessel: "", periodStart: "", periodEnd: "",
   poNumber: "", poValue: null, poBalanceBefore: null, numeroBm: "",
+};
+
+type MedicaoKey = "habitat" | "locacao" | "consumiveis" | "mob_desmob_materiais";
+
+const MEDICOES_ZERO: Record<MedicaoKey, number> = {
+  habitat: 0, locacao: 0, consumiveis: 0, mob_desmob_materiais: 0,
+};
+
+const MEDICOES_LABEL: Record<MedicaoKey, string> = {
+  habitat: "Medição de Habitat",
+  locacao: "Medição de Locação",
+  consumiveis: "Medição de Consumíveis",
+  mob_desmob_materiais: "Medição de Mob/Desmob de Materiais",
+};
+
+const MEDICOES_COLUNA: Record<MedicaoKey, string> = {
+  habitat: "total_habitat",
+  locacao: "total_locacao",
+  consumiveis: "total_consumiveis",
+  mob_desmob_materiais: "total_mob_desmob_materiais",
 };
 
 
@@ -505,7 +530,33 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     [linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct],
   );
 
-  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totals.grandTotal) : null;
+  // ── Medições aplicadas a este BM (Habitat, Locação, Consumíveis, Mob/Desmob) ───────────
+  // Cada aba de medição consolida seus lançamentos e aplica o total ao BM; aqui o cabeçalho
+  // apenas lê os totais já aplicados ao número de BM selecionado.
+  const numeroBmAtual = cab.numeroBm.trim();
+  const { data: medicoes = MEDICOES_ZERO } = useQuery<Record<MedicaoKey, number>>({
+    queryKey: ["bm-medicoes-aplicadas", numeroBmAtual],
+    enabled: !!numeroBmAtual,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bm_medicoes").select("tipo, valor_total")
+        .eq("applied", true).eq("applied_bm_number", numeroBmAtual);
+      if (error) throw error;
+      const acc: Record<MedicaoKey, number> = { ...MEDICOES_ZERO };
+      for (const r of (data ?? []) as { tipo: MedicaoKey; valor_total: number }[]) {
+        if (r.tipo in acc) acc[r.tipo] = round2(acc[r.tipo] + (Number(r.valor_total) || 0));
+      }
+      return acc;
+    },
+  });
+  const totalMedicoes = useMemo(
+    () => round2(Object.values(medicoes).reduce((a, v) => a + v, 0)),
+    [medicoes],
+  );
+  const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes);
+
+  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totalGeralComMedicoes) : null;
+
 
   const bmExportData: BmExportData = useMemo(() => ({
     client: cab.client, vessel: cab.vessel, projectName: cab.bsp,
@@ -535,7 +586,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         total_mo: totals.totalMo,
         total_logistica: totals.totalLogisticaComMarkup,
         total_materiais: totals.totalMateriais,
-        total_geral: totals.grandTotal,
+        total_habitat: medicoes.habitat,
+        total_locacao: medicoes.locacao,
+        total_consumiveis: medicoes.consumiveis,
+        total_mob_desmob_materiais: medicoes.mob_desmob_materiais,
+        total_geral: totalGeralComMedicoes,
+
         current_status: targetStatus,
       };
 
@@ -695,6 +751,28 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               {cab.poBalanceBefore != null && <> · Saldo antes deste BM: <strong>{fmtMoney(cab.poBalanceBefore)}</strong></>}
             </p>
           )}
+
+          <div className="rounded-md border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold">Medições aplicadas ao cabeçalho</span>
+              <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMedicoes)}</strong></span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).map((k) => (
+                <div key={k}>
+                  <Label className="text-xs">{MEDICOES_LABEL[k]}</Label>
+                  <Input readOnly className="bg-muted/40" value={fmtMoney(medicoes[k])} />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {numeroBmAtual
+                ? `Totais consolidados nas abas de medição e aplicados ao BM ${numeroBmAtual}.`
+                : "Informe o Número do BM para carregar as medições já aplicadas a ele."}
+
+            </p>
+          </div>
+
         </div>
       )}
 
@@ -778,7 +856,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             <div className="space-y-1">
               <div className="flex justify-between"><span>Mão de Obra</span><span className="font-medium">{fmtMoney(totals.totalMo)}</span></div>
               <div className="flex justify-between"><span>Logística{markupEnabled ? ` (+${markupPct}%)` : ""}</span><span className="font-medium">{fmtMoney(totals.totalLogisticaComMarkup)}</span></div>
-              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totals.grandTotal)}</span></div>
+              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).filter((k) => medicoes[k] > 0).map((k) => (
+                <div key={k} className="flex justify-between">
+                  <span>{MEDICOES_LABEL[k]}</span><span className="font-medium">{fmtMoney(medicoes[k])}</span>
+                </div>
+              ))}
+              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totalGeralComMedicoes)}</span></div>
+
             </div>
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm">

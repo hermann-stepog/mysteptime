@@ -485,10 +485,14 @@ export type Database = {
           project_name: string | null
           rejection_reason: string | null
           smartsheet_synced_at: string | null
+          total_consumiveis: number
           total_geral: number
+          total_habitat: number
+          total_locacao: number
           total_logistica: number
           total_materiais: number
           total_mo: number
+          total_mob_desmob_materiais: number
           updated_at: string
           vessel: string
         }
@@ -511,10 +515,14 @@ export type Database = {
           project_name?: string | null
           rejection_reason?: string | null
           smartsheet_synced_at?: string | null
+          total_consumiveis?: number
           total_geral?: number
+          total_habitat?: number
+          total_locacao?: number
           total_logistica?: number
           total_materiais?: number
           total_mo?: number
+          total_mob_desmob_materiais?: number
           updated_at?: string
           vessel: string
         }
@@ -537,10 +545,14 @@ export type Database = {
           project_name?: string | null
           rejection_reason?: string | null
           smartsheet_synced_at?: string | null
+          total_consumiveis?: number
           total_geral?: number
+          total_habitat?: number
+          total_locacao?: number
           total_logistica?: number
           total_materiais?: number
           total_mo?: number
+          total_mob_desmob_materiais?: number
           updated_at?: string
           vessel?: string
         }

@@ -73,16 +73,23 @@ const FORM_VAZIO: Form = {
   period_start: "", period_end: "", qtd: "1", valor_unitario: "", notes: "",
 };
 
+/** Coluna do cabeçalho do BM (tabela bms) onde o total consolidado da medição é gravado. */
+export type MedicaoBmColumn =
+  | "total_habitat" | "total_locacao" | "total_consumiveis" | "total_mob_desmob_materiais";
+
 interface Props {
   tipo: MedicaoTipo;
   titulo: string;
   /** Coluna do Smartsheet onde o valor da medição é lançado no cabeçalho do BM. */
   smartsheetColumn: string;
+  /** Campo do cabeçalho do BM correspondente a esta medição. */
+  bmColumn: MedicaoBmColumn;
   descricaoLabel?: string;
   descricaoPlaceholder?: string;
 }
 
-export function MedicaoTab({ tipo, titulo, smartsheetColumn, descricaoLabel = "Descrição", descricaoPlaceholder }: Props) {
+export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricaoLabel = "Descrição", descricaoPlaceholder }: Props) {
+
   const qc = useQueryClient();
   const [form, setForm] = useState<Form>(FORM_VAZIO);
   const [edits, setEdits] = useState<Record<string, Partial<MedicaoRow>>>({});
@@ -105,6 +112,11 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, descricaoLabel = "D
 
   const pendentes = useMemo(() => registros.filter((r) => !r.applied), [registros]);
   const totalPendente = useMemo(() => round2(pendentes.reduce((a, r) => a + (r.valor_total || 0), 0)), [pendentes]);
+  const totalAplicado = useMemo(
+    () => round2(registros.filter((r) => r.applied).reduce((a, r) => a + (r.valor_total || 0), 0)),
+    [registros],
+  );
+
 
   const incluir = useMutation({
     mutationFn: async () => {
@@ -190,9 +202,24 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, descricaoLabel = "D
         applied_at: new Date().toISOString(),
       }).in("id", pendentes.map((r) => r.id));
       if (error) throw error;
+
+      // Cabeçalho do BM local: acumula o total consolidado no campo desta medição,
+      // pra que o valor fique registrado no BM mesmo depois de aplicado.
+      const { data: bmLocal } = await supabase
+        .from("bms").select(`id, ${bmColumn}`).eq("numero_bm", bmSelecionado.bmNumber).maybeSingle();
+      if (bmLocal?.id) {
+        const atual = Number(bmLocal[bmColumn] ?? 0);
+        const { error: errBm } = await supabase.from("bms")
+          .update({ [bmColumn]: round2(atual + totalPendente) }).eq("id", bmLocal.id);
+        if (errBm) throw errBm;
+      }
+
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bm-medicoes", tipo] });
+      qc.invalidateQueries({ queryKey: ["bm-medicoes-aplicadas"] });
+      notify.success(`Medição de ${fmtMoney(totalPendente)} aplicada ao BM ${bmSelecionado?.bmNumber}.`);
+
       notify.success(`Medição aplicada ao BM ${bmSelecionado?.bmNumber}.`);
       setAplicarOpen(false);
       setBmSelecionado(null);
@@ -260,17 +287,27 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, descricaoLabel = "D
       </Card>
 
       <Card className="p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm">
-            <span className="font-semibold">Registros</span>{" "}
+            <span className="font-semibold">Conferência</span>{" "}
             <span className="text-muted-foreground">
-              — {pendentes.length} pendente(s), total {fmtMoney(totalPendente)}
+              — {pendentes.length} lançamento(s) a aplicar
             </span>
+            <div className="mt-1 text-lg font-semibold">{fmtMoney(totalPendente)}</div>
+            <p className="text-[11px] text-muted-foreground">
+              Valor total consolidado desta aba — é este valor que vai para o cabeçalho do BM.
+            </p>
+            {totalAplicado > 0 && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Já aplicado em BMs: <strong>{fmtMoney(totalAplicado)}</strong>
+              </p>
+            )}
           </div>
           <Button size="sm" onClick={() => setAplicarOpen(true)} disabled={pendentes.length === 0}>
             <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar ao BM
           </Button>
         </div>
+
 
         <div className="overflow-x-auto">
           <Table>
