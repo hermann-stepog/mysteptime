@@ -172,7 +172,10 @@ const NOVO_CUSTO_VAZIO: NovoCusto = {
   nome: "", bsp: "", data: "", qtd: "1", valor: "", markup: "", notes: "", categoria: "transporte",
 };
 
+const TODOS = "__todos__";
+
 export function MobDesmobTab() {
+
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [novo, setNovo] = useState<NovoCusto>(NOVO_CUSTO_VAZIO);
@@ -181,6 +184,10 @@ export function MobDesmobTab() {
   const [aplicarBsp, setAplicarBsp] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [bmSelecionado, setBmSelecionado] = useState<SmartsheetBm | null>(null);
+  // Filtro por período (data do lançamento) — só afeta a visualização/aplicação em lote.
+  const [dataDe, setDataDe] = useState("");
+  const [dataAte, setDataAte] = useState("");
+
 
   const fetchBms = useServerFn(listSmartsheetBms);
 
@@ -201,13 +208,19 @@ export function MobDesmobTab() {
   });
 
   // Agrupamento por BSP — cada BSP vira um cartão com seus custos de transporte e hotel.
+  const custosFiltrados = useMemo(
+    () => custos.filter((c) => (!dataDe || (c.data ?? "") >= dataDe) && (!dataAte || (c.data ?? "") <= dataAte)),
+    [custos, dataDe, dataAte],
+  );
+
   const grupos = useMemo(() => {
     const map = new Map<string, BmMobDesmobCost[]>();
-    for (const c of custos) {
+    for (const c of custosFiltrados) {
       const arr = map.get(c.bsp) ?? [];
       arr.push(c);
       map.set(c.bsp, arr);
     }
+
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([bsp, itens]) => {
@@ -226,7 +239,7 @@ export function MobDesmobTab() {
           bmsAplicados: Array.from(new Set(itens.filter((c) => c.applied && c.applied_bm_number).map((c) => c.applied_bm_number!))),
         };
       });
-  }, [custos]);
+  }, [custosFiltrados]);
 
   const importar = useMutation({
     mutationFn: async (file: File) => {
@@ -293,7 +306,22 @@ export function MobDesmobTab() {
     return bms.filter((b) => [b.bmNumber, b.poNumber, b.client, b.vessel].some((v) => (v ?? "").toLowerCase().includes(q)));
   }, [bms, busca]);
 
-  const grupoAplicando = grupos.find((g) => g.bsp === aplicarBsp) ?? null;
+  // "__todos__" = aplicar em lote tudo o que está pendente no período filtrado.
+  const grupoAplicando = useMemo(() => {
+    if (aplicarBsp === TODOS) {
+      const pendentes = grupos.flatMap((g) => g.pendentes);
+      const soma = (f: (c: BmMobDesmobCost) => boolean) =>
+        round2(custosFiltrados.filter(f).reduce((a, c) => a + c.total_cost, 0));
+      return {
+        bsp: TODOS,
+        pendentes,
+        transporte: soma((c) => c.categoria === "transporte"),
+        hotel: soma((c) => c.categoria === "hotel"),
+        totalPendente: round2(pendentes.reduce((a, c) => a + c.total_cost, 0)),
+      };
+    }
+    return grupos.find((g) => g.bsp === aplicarBsp) ?? null;
+  }, [grupos, custosFiltrados, aplicarBsp]);
 
   const aplicar = useMutation({
     mutationFn: async () => {
@@ -310,12 +338,20 @@ export function MobDesmobTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-costs"] });
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
-      notify.success(`Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`);
+      notify.success(
+        aplicarBsp === TODOS
+          ? `Custos pendentes aplicados ao BM ${bmSelecionado?.bmNumber}.`
+          : `Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`,
+      );
       setAplicarBsp(null);
       setBmSelecionado(null);
     },
+
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
   });
+
+  const totalPendenteFiltrado = round2(grupos.reduce((a, g) => a + g.totalPendente, 0));
+
 
   return (
     <div className="space-y-4">
@@ -344,6 +380,31 @@ export function MobDesmobTab() {
             </Button>
           </div>
         </div>
+
+        <div className="mt-4 flex flex-wrap items-end gap-3 border-t pt-4">
+          <div>
+            <Label className="text-xs">De</Label>
+            <Input type="date" className="h-8 w-[150px] text-xs" value={dataDe} onChange={(e) => setDataDe(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Até</Label>
+            <Input type="date" className="h-8 w-[150px] text-xs" value={dataAte} onChange={(e) => setDataAte(e.target.value)} />
+          </div>
+          {(dataDe || dataAte) && (
+            <Button size="sm" variant="ghost" onClick={() => { setDataDe(""); setDataAte(""); }}>Limpar</Button>
+          )}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              Pendente no período: <span className="font-semibold">{fmtMoney(totalPendenteFiltrado)}</span>
+            </span>
+            <Button size="sm" disabled={totalPendenteFiltrado <= 0}
+              onClick={() => { setAplicarBsp(TODOS); setBmSelecionado(null); setBusca(""); }}>
+              <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar tudo ao BM
+            </Button>
+          </div>
+        </div>
+
+
 
         {lancamentoAberto && (
           <div className="mt-4 space-y-3 border-t pt-4">
@@ -500,7 +561,10 @@ export function MobDesmobTab() {
       <Dialog open={!!aplicarBsp} onOpenChange={(o) => { if (!o) { setAplicarBsp(null); setBmSelecionado(null); } }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Aplicar custos do BSP {aplicarBsp} ao BM</DialogTitle>
+            <DialogTitle>
+              {aplicarBsp === TODOS ? "Aplicar todos os custos pendentes do período ao BM" : `Aplicar custos do BSP ${aplicarBsp} ao BM`}
+            </DialogTitle>
+
           </DialogHeader>
           <div className="space-y-3">
             <div className="rounded-md border p-3 text-xs">
