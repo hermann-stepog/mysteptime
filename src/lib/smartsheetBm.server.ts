@@ -100,3 +100,83 @@ export async function insertIssuedBm(params: { poNumber: string; bmNumber: strin
   const result = await smartsheetPost(token, `/sheets/${sheetId}/rows`, [{ toBottom: true, cells }]);
   return { inserted: true, result };
 }
+
+// ─── Lista de BMs existentes no Smartsheet (usada pelas abas de Medição) ─────
+
+export interface SmartsheetBmRow {
+  rowId: string;
+  bmNumber: string;
+  poNumber: string | null;
+  client: string | null;
+  vessel: string | null;
+  value: number | null;
+  date: string | null;
+}
+
+function pick(row: Record<string, any>, titles: string[]): any {
+  for (const t of titles) if (row[t] != null && String(row[t]).trim() !== "") return row[t];
+  return null;
+}
+
+export async function fetchBmList(): Promise<SmartsheetBmRow[]> {
+  const token = getToken();
+  const sheetId = await findSheetIdByName(token, SHEET_NAME_BM);
+  const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
+  return (sheet.rows ?? []).map((r: any) => {
+    const c = cellMap(sheet, r);
+    return {
+      rowId: String(r.id),
+      bmNumber: String(pick(c, ["BM", "BM Number", "Número BM", "Numero BM"]) ?? ""),
+      poNumber: pick(c, ["PO Number", "PO"]) as string | null,
+      client: pick(c, ["Cliente", "Client"]) as string | null,
+      vessel: pick(c, ["Embarcação", "Vessel", "Embarcacao"]) as string | null,
+      value: Number(pick(c, ["Valor", "Value"]) ?? 0) || null,
+      date: pick(c, ["Data", "Date"]) as string | null,
+    } satisfies SmartsheetBmRow;
+  }).filter((r: SmartsheetBmRow) => r.bmNumber.trim() !== "");
+}
+
+async function smartsheetPut(token: string, path: string, body: unknown) {
+  const res = await fetch(`${SMARTSHEET_BASE}${path}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Smartsheet API error: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+// Lança o valor da medição no cabeçalho do BM já existente no Smartsheet.
+// Nunca cria linha nova: só atualiza a linha (rowId) do BM selecionado.
+export async function applyMedicaoToBmRow(params: {
+  rowId: string;
+  columnTitle: string;   // ex: "Medição Habitat"
+  value: number;         // valor da medição aplicada
+  addToTotal: boolean;   // também soma no campo "Valor" (total do BM)
+}) {
+  const token = getToken();
+  const sheetId = await findSheetIdByName(token, SHEET_NAME_BM);
+  const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
+  const colIdByTitle = new Map<string, number>(sheet.columns.map((c: any) => [c.title, c.id]));
+  const row = (sheet.rows ?? []).find((r: any) => String(r.id) === String(params.rowId));
+  if (!row) throw new Error("BM não encontrado no Smartsheet.");
+  const current = cellMap(sheet, row);
+
+  const cells: any[] = [];
+  const targetCol = colIdByTitle.get(params.columnTitle);
+  if (targetCol) {
+    const prev = Number(current[params.columnTitle] ?? 0) || 0;
+    cells.push({ columnId: targetCol, value: prev + params.value });
+  }
+  if (params.addToTotal) {
+    const totalTitle = colIdByTitle.has("Valor") ? "Valor" : colIdByTitle.has("Value") ? "Value" : null;
+    if (totalTitle) {
+      const prev = Number(current[totalTitle] ?? 0) || 0;
+      cells.push({ columnId: colIdByTitle.get(totalTitle)!, value: prev + params.value });
+    }
+  }
+  if (cells.length === 0) throw new Error(`Nenhuma coluna "${params.columnTitle}" ou "Valor" encontrada na planilha de BMs.`);
+
+  await smartsheetPut(token, `/sheets/${sheetId}/rows`, [{ id: params.rowId, cells }]);
+  return { applied: true };
+}

@@ -19,3 +19,20 @@ export const recordIssuedBm = createServerFn({ method: "POST" })
     value: z.number(),
   }))
   .handler(async ({ data }) => insertIssuedBm(data));
+
+export const listSmartsheetBms = createServerFn({ method: "GET" }).handler(async () => {
+  const { fetchBmList } = await import("../smartsheetBm.server");
+  return fetchBmList();
+});
+
+export const applyMedicaoToBm = createServerFn({ method: "POST" })
+  .inputValidator(z.object({
+    rowId: z.string().min(1),
+    columnTitle: z.string().min(1),
+    value: z.number(),
+    addToTotal: z.boolean().default(true),
+  }))
+  .handler(async ({ data }) => {
+    const { applyMedicaoToBmRow } = await import("../smartsheetBm.server");
+    return applyMedicaoToBmRow(data);
+  });
