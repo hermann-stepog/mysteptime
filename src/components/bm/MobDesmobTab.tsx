@@ -470,23 +470,33 @@ export function MobDesmobTab() {
         {grupos.map((g) => {
           const aberto = !!abertos[g.bsp];
           return (
-            <Card key={g.bsp} className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-2">
+            <Card key={g.bsp} className="p-4 space-y-3 transition-colors hover:border-primary/40">
+              {/* O cartão inteiro é clicável: abre/fecha o detalhamento dos lançamentos do BSP. */}
+              <div
+                role="button" tabIndex={0}
+                aria-expanded={aberto}
+                className="flex cursor-pointer items-start justify-between gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setAbertos((p) => ({ ...p, [g.bsp]: !aberto }))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setAbertos((p) => ({ ...p, [g.bsp]: !aberto }));
+                  }
+                }}
+              >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button" className="text-muted-foreground hover:text-foreground"
-                      onClick={() => setAbertos((p) => ({ ...p, [g.bsp]: !aberto }))}
-                      aria-label={aberto ? "Recolher" : "Expandir"}
-                    >
+                    <span className="text-muted-foreground">
                       {aberto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </button>
+                    </span>
                     <h4 className="truncate text-sm font-semibold">BSP {g.bsp}</h4>
                     {g.bmsAplicados.map((b) => (
                       <Badge key={b} variant="secondary" className="text-[10px]">BM {b}</Badge>
                     ))}
                   </div>
-                  <p className="mt-1 pl-6 text-xs text-muted-foreground">{g.itens.length} lançamento(s)</p>
+                  <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                    {g.itens.length} lançamento(s) · {aberto ? "clique para recolher" : "clique para ver o detalhe"}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold">{fmtMoney(g.total)}</p>
