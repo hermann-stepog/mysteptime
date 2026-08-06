@@ -236,7 +236,7 @@ export function MobDesmobTab() {
           bmsAplicados: Array.from(new Set(itens.filter((c) => c.applied && c.applied_bm_number).map((c) => c.applied_bm_number!))),
         };
       });
-  }, [custos]);
+  }, [custosFiltrados]);
 
   const importar = useMutation({
     mutationFn: async (file: File) => {
