@@ -172,7 +172,10 @@ const NOVO_CUSTO_VAZIO: NovoCusto = {
   nome: "", bsp: "", data: "", qtd: "1", valor: "", markup: "", notes: "", categoria: "transporte",
 };
 
+const TODOS = "__todos__";
+
 export function MobDesmobTab() {
+
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [novo, setNovo] = useState<NovoCusto>(NOVO_CUSTO_VAZIO);
