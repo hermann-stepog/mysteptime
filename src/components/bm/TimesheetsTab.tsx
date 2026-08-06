@@ -75,6 +75,14 @@ function numOrNull(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function numeroSeguro(value: unknown): number {
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 export function TimesheetsTab() {
   const qc = useQueryClient();
   const [de, setDe] = useState(primeiroDiaDoMes);
@@ -316,9 +324,9 @@ export function TimesheetsTab() {
                 const aberto = colaboradorAberto === chave;
                 const totais = g.dias.reduce(
                   (acc, d) => ({
-                    normais: acc.normais + (d.horas_normais ?? 0),
-                    extras: acc.extras + (d.horas_extras ?? 0),
-                    total: acc.total + (d.total_horas ?? 0),
+                    normais: acc.normais + numeroSeguro(d.horas_normais),
+                    extras: acc.extras + numeroSeguro(d.horas_extras),
+                    total: acc.total + numeroSeguro(d.total_horas),
                   }),
                   { normais: 0, extras: 0, total: 0 },
                 );
