@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // bms/bm_lines_*/rates ainda não existem no schema gerado (types.ts) — cast local pra não
@@ -25,31 +25,55 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2 } from "lucide-react";
-import { CLIENTES } from "@/lib/clientes";
-import { UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA } from "@/lib/timesheetOffshore";
+import { EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import {
   type Bm, type BmStatus, type BmLineMo, type BmLineLogistica, type BmLineMateriais, type BmDiaOverride, type MaterialCategoria,
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
-import { selectAllPages } from "@/lib/supabasePaginate";
-import { DRAKE_DATA_CUTOFF } from "@/lib/histogramaNovo";
 import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
 import { MedicaoTab } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { getPoInfo, getBmHistoryForPo, recordIssuedBm, listJobOrderPos, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
+import { getPoInfo, getBmHistoryForPo, recordIssuedBm, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
+import { listBmFlowRows } from "@/lib/api/bmFlow.functions";
+import { getJobOrderPoTotal } from "@/lib/api/jobOrderPoTotal.functions";
 
-interface JobOrderPoOption {
+interface BmFlowRowOption {
+  client: string;
+  vessel: string;
+  bsp: string;
   poNumber: string;
-  totalValue: number;
-  occurrences: number;
-  client: string | null;
-  vessel: string | null;
 }
-const EMPTY_PO_LIST: JobOrderPoOption[] = [];
+
+const EMPTY_BM_FLOW_ROWS: BmFlowRowOption[] = [];
+
+function bmFlowKey(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
+}
+
+function distinctBmFlowValues(values: string[]): string[] {
+  const distinct = new Map<string, string>();
+
+  for (const rawValue of values) {
+    const value = rawValue.trim();
+    if (!value) continue;
+
+    const key = bmFlowKey(value);
+
+    if (!distinct.has(key)) {
+      distinct.set(key, value);
+    }
+  }
+
+  return Array.from(distinct.values()).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { numeric: true }),
+  );
+}
 
 interface SmartsheetBmOption {
   rowId: string;
@@ -218,6 +242,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [smartsheetLoading, setSmartsheetLoading] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
   const [bmNovoManual, setBmNovoManual] = useState(false);
+  const [selectedBmNumbers, setSelectedBmNumbers] =
+    useState<string[]>([]);
+  const previousPoNumberRef = useRef("");
   // Resultado do último BM gerado/salvo — enquanto preenchido, a tela mostra o BmConsolidatedView
   // (Consolidado + Diárias + Horas) no lugar do wizard, pra "Gerar BM" ter um resultado visível
   // imediato em vez de só um toast e o formulário voltando em branco.
@@ -240,6 +267,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setMarkupPct(reopenBm.markup_pct);
     setReopenBmId(reopenBm.id);
     setBmNovoManual(true);
+    setSelectedBmNumbers([]);
     (async () => {
       const { data, error } = await supabase.from("bm_dias_overrides").select("*").eq("bm_id", reopenBm.id);
       if (error) { notify.error(error.message); return; }
@@ -260,6 +288,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setDiasOverrides({});
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
     setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
+    setSelectedBmNumbers([]);
+    setBmNovoManual(false);
+    previousPoNumberRef.current = "";
   };
 
   // Clientes cadastrados (tabela antiga) — usado só pra resolver o client_id ao salvar o BM
@@ -277,45 +308,64 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     [clientRows, cab.client],
   );
 
-  // BSP (Centro de Custo) por embarcação — busca os pares reais já lançados no Histograma, no
-  // lugar do antigo "Projeto" (tabela `projects`, desconectada do Drake/Histograma). Guardado
-  // por unidade pra a lista de BSP filtrar de acordo com a Embarcação escolhida.
-  const { data: unidadeBspPares = [] } = useQuery<{ unidade: string; bsp: string }[]>({
-    queryKey: ["bm-unidade-bsp-pares"],
-    queryFn: async () => {
-      // hist_novo_periodos já passa de 1000 linhas — sem paginação o Supabase corta em
-      // silêncio e BSPs "somem" da lista (ficam de fora do lote retornado).
-      const data = await selectAllPages<{ unidade_operacional: string | null; centro_de_custo: string | null }>(
-        (from, to) => supabase.from("hist_novo_periodos").select("unidade_operacional, centro_de_custo").gte("data_fim", DRAKE_DATA_CUTOFF).range(from, to),
-      );
-      const pares: { unidade: string; bsp: string }[] = data
-        .filter((r) => !!r.unidade_operacional && !!r.centro_de_custo)
-        .map((r) => ({ unidade: r.unidade_operacional as string, bsp: r.centro_de_custo as string }));
-      return pares;
-    },
+  // As quatro opções do cabeçalho vêm das mesmas linhas do Smartsheet.
+  // Isso preserva a relação CLIENTE -> UNIDADE -> BSP -> PO.
+  const {
+    data: bmFlowRows = EMPTY_BM_FLOW_ROWS,
+    isLoading: bmFlowLoading,
+    error: bmFlowError,
+  } = useQuery<BmFlowRowOption[]>({
+    queryKey: ["smartsheet-bm-flow-rows"],
+    queryFn: async () =>
+      (await listBmFlowRows()) as BmFlowRowOption[],
+    staleTime: 10 * 60 * 1000,
   });
 
-  const bspByUnidade = useMemo(() => {
-    const m = new Map<string, Set<string>>();
-    unidadeBspPares.forEach(({ unidade, bsp }) => {
-      if (!m.has(unidade)) m.set(unidade, new Set());
-      m.get(unidade)!.add(bsp);
-    });
-    return m;
-  }, [unidadeBspPares]);
-
-  // Sem embarcação escolhida ainda, mostra todos os BSPs já vistos (fallback); depois de
-  // escolher a Embarcação, a lista fica restrita só aos BSPs daquela unidade.
-  const bspOptions = useMemo(() => {
-    if (cab.vessel) return Array.from(bspByUnidade.get(cab.vessel) ?? []).sort();
-    return Array.from(new Set(unidadeBspPares.map((p) => p.bsp))).sort();
-  }, [bspByUnidade, unidadeBspPares, cab.vessel]);
-
-  const unidadesHistograma = useMemo(() => Array.from(bspByUnidade.keys()), [bspByUnidade]);
+  const clientOptions = useMemo(
+    () => distinctBmFlowValues(bmFlowRows.map((row) => row.client)),
+    [bmFlowRows],
+  );
 
   const vesselOptions = useMemo(
-    () => Array.from(new Set([...UNIDADES_OPERACIONAIS_FIXAS, ...unidadesHistograma])).sort(),
-    [unidadesHistograma],
+    () =>
+      distinctBmFlowValues(
+        bmFlowRows
+          .filter(
+            (row) =>
+              bmFlowKey(row.client) === bmFlowKey(cab.client),
+          )
+          .map((row) => row.vessel),
+      ),
+    [bmFlowRows, cab.client],
+  );
+
+  const bspOptions = useMemo(
+    () =>
+      distinctBmFlowValues(
+        bmFlowRows
+          .filter(
+            (row) =>
+              bmFlowKey(row.client) === bmFlowKey(cab.client) &&
+              bmFlowKey(row.vessel) === bmFlowKey(cab.vessel),
+          )
+          .map((row) => row.bsp),
+      ),
+    [bmFlowRows, cab.client, cab.vessel],
+  );
+
+  const poOptions = useMemo(
+    () =>
+      distinctBmFlowValues(
+        bmFlowRows
+          .filter(
+            (row) =>
+              bmFlowKey(row.client) === bmFlowKey(cab.client) &&
+              bmFlowKey(row.vessel) === bmFlowKey(cab.vessel) &&
+              bmFlowKey(row.bsp) === bmFlowKey(cab.bsp),
+          )
+          .map((row) => row.poNumber),
+      ),
+    [bmFlowRows, cab.client, cab.vessel, cab.bsp],
   );
 
   const headerCompleto = !!(cab.client && cab.vessel && cab.periodStart && cab.periodEnd);
@@ -331,7 +381,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       ]);
       // O Valor Total da PO vem da Job Order (soma de todas as ocorrências); o getPoInfo
       // só é usado como fallback quando a PO não está na Job Order.
-      const poValue = poSelecionada?.totalValue ?? info?.poValue ?? null;
+      const poValue =
+        jobOrderPoTotal?.totalValue ??
+        info?.poValue ??
+        null;
       const bmsIssued = hist?.totalIssued ?? 0;
       setCab((c) => ({ ...c, poValue, poBalanceBefore: poValue != null ? poValue - bmsIssued : null }));
 
@@ -346,11 +399,53 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // ── Smartsheet: Job Order (lista de POs) e Controle de BM (sequência) ──────────────────
   // Só leitura: a planilha Job Order alimenta o autocomplete de PO (uma linha por PO, valor
   // somado de todas as ocorrências) e o Controle de BM dá o próximo número da sequência.
-  const { data: jobOrderPos = EMPTY_PO_LIST } = useQuery<JobOrderPoOption[]>({
-    queryKey: ["smartsheet-job-order-pos"],
-    queryFn: async () => (await listJobOrderPos()) as JobOrderPoOption[],
+  const {
+    data: jobOrderPoTotal,
+    isFetching: jobOrderPoTotalLoading,
+    error: jobOrderPoTotalError,
+  } = useQuery({
+    queryKey: [
+      "smartsheet-job-order-po-total",
+      cab.poNumber.trim(),
+    ],
+    enabled: !!cab.poNumber.trim(),
+    queryFn: async () =>
+      await getJobOrderPoTotal({
+        data: {
+          poNumber: cab.poNumber.trim(),
+        },
+      }),
     staleTime: 10 * 60 * 1000,
   });
+
+  // Preenche automaticamente o Valor Total da PO assim que
+  // a PO de Faturamento é selecionada.
+  useEffect(() => {
+    if (!cab.poNumber.trim()) {
+      setCab((current) =>
+        current.poValue == null
+          ? current
+          : {
+              ...current,
+              poValue: null,
+              poBalanceBefore: null,
+            },
+      );
+
+      return;
+    }
+
+    if (!jobOrderPoTotal) return;
+
+    setCab((current) =>
+      current.poValue === jobOrderPoTotal.totalValue
+        ? current
+        : {
+            ...current,
+            poValue: jobOrderPoTotal.totalValue,
+          },
+    );
+  }, [cab.poNumber, jobOrderPoTotal]);
 
   const { data: proximoBm } = useQuery({
     queryKey: ["smartsheet-next-bm"],
@@ -366,39 +461,148 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     staleTime: 10 * 60 * 1000,
   });
 
-  const bmSelecionado = useMemo(
-    () => smartsheetBms.find((b) => b.bmNumber.trim().toLowerCase() === cab.numeroBm.trim().toLowerCase()) ?? null,
-    [smartsheetBms, cab.numeroBm],
-  );
+  const bmsDaPo = useMemo(() => {
+    const poKey = bmFlowKey(cab.poNumber);
 
-  // POs disponíveis: as que aparecem no Controle de BM, com o valor somado da Job Order.
-  const poOptions = useMemo(() => {
-    const jobByPo = new Map(jobOrderPos.map((p) => [p.poNumber.trim().toLowerCase(), p]));
-    const out = new Map<string, JobOrderPoOption>();
+    if (!poKey) return [];
+
+    const grouped = new Map<string, SmartsheetBmOption>();
+
     for (const bm of smartsheetBms) {
-      const po = (bm.poNumber ?? "").trim();
-      if (!po) continue;
-      const key = po.toLowerCase();
-      if (out.has(key)) continue;
-      const job = jobByPo.get(key);
-      out.set(key, job ?? { poNumber: po, totalValue: 0, occurrences: 0, client: bm.client, vessel: bm.vessel });
-    }
-    for (const p of jobOrderPos) if (!out.has(p.poNumber.trim().toLowerCase())) out.set(p.poNumber.trim().toLowerCase(), p);
-    return Array.from(out.values()).sort((a, b) => a.poNumber.localeCompare(b.poNumber, "pt-BR", { numeric: true }));
-  }, [smartsheetBms, jobOrderPos]);
+      if (bmFlowKey(bm.poNumber ?? "") !== poKey) {
+        continue;
+      }
 
-  const poSelecionada = useMemo(
-    () => jobOrderPos.find((p) => p.poNumber.toLowerCase() === cab.poNumber.trim().toLowerCase()) ?? null,
-    [jobOrderPos, cab.poNumber],
+      const bmKey = bmFlowKey(bm.bmNumber);
+
+      if (!bmKey) continue;
+
+      const current = grouped.get(bmKey);
+
+      if (current) {
+        current.value = round2(
+          (current.value ?? 0) + (bm.value ?? 0),
+        );
+      } else {
+        grouped.set(bmKey, { ...bm });
+      }
+    }
+
+    return Array.from(grouped.values()).sort((a, b) =>
+      a.bmNumber.localeCompare(
+        b.bmNumber,
+        "pt-BR",
+        { numeric: true },
+      ),
+    );
+  }, [smartsheetBms, cab.poNumber]);
+
+  const selectedBmKeys = useMemo(
+    () =>
+      new Set(
+        selectedBmNumbers.map((number) =>
+          bmFlowKey(number),
+        ),
+      ),
+    [selectedBmNumbers],
   );
 
-  // Recalcula o Valor Total da PO sempre que a PO muda (soma das linhas da Job Order).
+  const bmsSelecionados = useMemo(
+    () =>
+      bmsDaPo.filter((bm) =>
+        selectedBmKeys.has(bmFlowKey(bm.bmNumber)),
+      ),
+    [bmsDaPo, selectedBmKeys],
+  );
+
+  const valorTotalBms = useMemo(
+    () =>
+      round2(
+        bmsSelecionados.reduce(
+          (total, bm) => total + (bm.value ?? 0),
+          0,
+        ),
+      ),
+    [bmsSelecionados],
+  );
+
   useEffect(() => {
-    setCab((c) => {
-      const total = poSelecionada?.totalValue ?? null;
-      return c.poValue === total ? c : { ...c, poValue: total };
+    const currentPo = cab.poNumber.trim();
+    const previousPo = previousPoNumberRef.current;
+
+    if (
+      previousPo &&
+      bmFlowKey(previousPo) !== bmFlowKey(currentPo)
+    ) {
+      setSelectedBmNumbers([]);
+      setBmNovoManual(false);
+    }
+
+    previousPoNumberRef.current = currentPo;
+  }, [cab.poNumber]);
+
+  useEffect(() => {
+    const available = new Set(
+      bmsDaPo.map((bm) => bmFlowKey(bm.bmNumber)),
+    );
+
+    setSelectedBmNumbers((current) => {
+      const next = current.filter((number) =>
+        available.has(bmFlowKey(number)),
+      );
+
+      const unchanged =
+        next.length === current.length &&
+        next.every(
+          (number, index) => number === current[index],
+        );
+
+      return unchanged ? current : next;
     });
-  }, [poSelecionada]);
+  }, [bmsDaPo]);
+
+  useEffect(() => {
+    if (bmNovoManual) return;
+
+    const joined = selectedBmNumbers.join(", ");
+
+    setCab((current) =>
+      current.numeroBm === joined
+        ? current
+        : {
+            ...current,
+            numeroBm: joined,
+          },
+    );
+  }, [selectedBmNumbers, bmNovoManual]);
+
+  function toggleBmSelection(
+    bmNumber: string,
+    checked: boolean,
+  ) {
+    setBmNovoManual(false);
+
+    setSelectedBmNumbers((current) => {
+      const selectedKey = bmFlowKey(bmNumber);
+      const alreadySelected = current.some(
+        (number) =>
+          bmFlowKey(number) === selectedKey,
+      );
+
+      if (checked && !alreadySelected) {
+        return [...current, bmNumber];
+      }
+
+      if (!checked && alreadySelected) {
+        return current.filter(
+          (number) =>
+            bmFlowKey(number) !== selectedKey,
+        );
+      }
+
+      return current;
+    });
+  }
 
 
 
@@ -742,94 +946,380 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Cliente</Label>
-              <Select value={cab.client} onValueChange={(v) => setCab({ ...cab, client: v })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              <Select
+                value={cab.client}
+                disabled={bmFlowLoading}
+                onValueChange={(client) =>
+                  setCab((current) => ({
+                    ...current,
+                    client,
+                    vessel: "",
+                    bsp: "",
+                    poNumber: "",
+                    poValue: null,
+                    poBalanceBefore: null,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      bmFlowLoading
+                        ? "Carregando clientes..."
+                        : "Selecione"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientOptions.map((client) => (
+                    <SelectItem key={client} value={client}>
+                      {client}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
+
+              {bmFlowError && (
+                <p className="mt-1 text-[11px] text-destructive">
+                  {bmFlowError instanceof Error
+                    ? bmFlowError.message
+                    : "Falha ao carregar clientes do Smartsheet."}
+                </p>
+              )}
+
+              {!bmFlowLoading &&
+                !bmFlowError &&
+                clientOptions.length === 0 && (
+                  <p className="mt-1 text-[11px] text-destructive">
+                    Nenhum cliente foi retornado pelo Smartsheet.
+                  </p>
+                )}
             </div>
+
             <div>
-              <Label className="text-xs">BSP</Label>
-              <Select value={cab.bsp} onValueChange={(v) => setCab({ ...cab, bsp: v })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+              <Label className="text-xs">Embarcação</Label>
+              <Select
+                value={cab.vessel}
+                disabled={!cab.client || bmFlowLoading}
+                onValueChange={(vessel) =>
+                  setCab((current) => ({
+                    ...current,
+                    vessel,
+                    bsp: "",
+                    poNumber: "",
+                    poValue: null,
+                    poBalanceBefore: null,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      cab.client
+                        ? "Selecione"
+                        : "Selecione o cliente primeiro"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {vesselOptions.map((vessel) => (
+                    <SelectItem key={vessel} value={vessel}>
+                      {vessel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Embarcação</Label>
-              <Select value={cab.vessel} onValueChange={(v) => setCab({ ...cab, vessel: v, bsp: "" })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{vesselOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+              <Label className="text-xs">BSP</Label>
+              <Select
+                value={cab.bsp}
+                disabled={!cab.client || !cab.vessel || bmFlowLoading}
+                onValueChange={(bsp) =>
+                  setCab((current) => ({
+                    ...current,
+                    bsp,
+                    poNumber: "",
+                    poValue: null,
+                    poBalanceBefore: null,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      cab.vessel
+                        ? "Selecione"
+                        : "Selecione a embarcação primeiro"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {bspOptions.map((bsp) => (
+                    <SelectItem key={bsp} value={bsp}>
+                      {bsp}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
+
             <div>
               <Label className="text-xs">PO</Label>
               <div className="flex gap-2">
-                <Select value={cab.poNumber} onValueChange={(v) => setCab({ ...cab, poNumber: v })}>
-                  <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione a PO" /></SelectTrigger>
+                <Select
+                  value={cab.poNumber}
+                  disabled={
+                    !cab.client ||
+                    !cab.vessel ||
+                    !cab.bsp ||
+                    bmFlowLoading
+                  }
+                  onValueChange={(poNumber) =>
+                    setCab((current) => ({
+                      ...current,
+                      poNumber,
+                      poValue: null,
+                      poBalanceBefore: null,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue
+                      placeholder={
+                        cab.bsp
+                          ? "Selecione a PO"
+                          : "Selecione o BSP primeiro"
+                      }
+                    />
+                  </SelectTrigger>
                   <SelectContent>
-                    {poOptions.map((p) => (
-                      <SelectItem key={p.poNumber} value={p.poNumber}>
-                        {p.poNumber}{p.totalValue > 0 ? ` — ${fmtMoney(p.totalValue)}` : ""}
+                    {poOptions.map((poNumber) => (
+                      <SelectItem key={poNumber} value={poNumber}>
+                        {poNumber}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Saldo</Button>
               </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">POs do Controle de BM · valor somado da Job Order.</p>
+
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                POs de Faturamento filtradas por Cliente, Embarcação e BSP.
+              </p>
             </div>
           </div>
+
           <div className="grid grid-cols-3 gap-3">
             <div>
               <Label className="text-xs">Valor Total da PO</Label>
               <Input readOnly className="bg-muted/40" value={cab.poValue != null ? fmtMoney(cab.poValue) : "—"} />
-              {poSelecionada && (
+              {jobOrderPoTotalLoading && (
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Soma de {poSelecionada.occurrences} lançamento(s) da Job Order.
+                  Somando os valores da Job Order...
+                </p>
+              )}
+
+              {jobOrderPoTotalError && (
+                <p className="mt-1 text-[11px] text-destructive">
+                  {jobOrderPoTotalError instanceof Error
+                    ? jobOrderPoTotalError.message
+                    : "Falha ao calcular o valor da PO."}
+                </p>
+              )}
+
+              {!jobOrderPoTotalLoading &&
+                !jobOrderPoTotalError &&
+                jobOrderPoTotal && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Soma de {jobOrderPoTotal.occurrences} linha(s)
+                    da coluna Valor_PO.
+                  </p>
+                )}
+            </div>
+            <div>
+              <Label className="text-xs">
+                Número(s) do BM
+              </Label>
+
+              {bmNovoManual ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={cab.numeroBm}
+                    onChange={(event) =>
+                      setCab({
+                        ...cab,
+                        numeroBm: event.target.value,
+                      })
+                    }
+                    placeholder="Novo número de BM"
+                  />
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setBmNovoManual(false);
+                      setSelectedBmNumbers([]);
+                    }}
+                  >
+                    Lista
+                  </Button>
+                </div>
+              ) : (
+                <details className="relative">
+                  <summary
+                    aria-disabled={!cab.poNumber}
+                    className={cn(
+                      "flex h-10 cursor-pointer list-none items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
+                      "[&::-webkit-details-marker]:hidden",
+                      !cab.poNumber &&
+                        "pointer-events-none opacity-50",
+                    )}
+                  >
+                    <span className="truncate">
+                      {selectedBmNumbers.length === 0
+                        ? "Selecione uma ou mais BMs"
+                        : selectedBmNumbers.length <= 2
+                          ? selectedBmNumbers.join(", ")
+                          : `${selectedBmNumbers.length} BMs selecionadas`}
+                    </span>
+
+                    <span
+                      aria-hidden="true"
+                      className="ml-2 text-muted-foreground"
+                    >
+                      ▾
+                    </span>
+                  </summary>
+
+                  <div className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                    <button
+                      type="button"
+                      className="flex w-full items-center rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                      onClick={(event) => {
+                        setSelectedBmNumbers([]);
+                        setBmNovoManual(true);
+
+                        setCab((current) => ({
+                          ...current,
+                          numeroBm:
+                            proximoBm?.nextBmNumber ?? "",
+                        }));
+
+                        event.currentTarget
+                          .closest("details")
+                          ?.removeAttribute("open");
+                      }}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Criar nova BM
+                      {proximoBm?.nextBmNumber
+                        ? ` (${proximoBm.nextBmNumber})`
+                        : ""}
+                    </button>
+
+                    <div className="my-1 border-t" />
+
+                    {!cab.poNumber ? (
+                      <p className="px-2 py-3 text-xs text-muted-foreground">
+                        Selecione primeiro a PO de Faturamento.
+                      </p>
+                    ) : bmsDaPo.length === 0 ? (
+                      <p className="px-2 py-3 text-xs text-muted-foreground">
+                        Nenhuma BM encontrada para esta PO.
+                      </p>
+                    ) : (
+                      bmsDaPo.map((bm) => {
+                        const checked =
+                          selectedBmKeys.has(
+                            bmFlowKey(bm.bmNumber),
+                          );
+
+                        return (
+                          <label
+                            key={bm.rowId}
+                            className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm hover:bg-accent"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                toggleBmSelection(
+                                  bm.bmNumber,
+                                  value === true,
+                                )
+                              }
+                            />
+
+                            <span className="min-w-0 flex-1 truncate">
+                              {bm.bmNumber}
+                            </span>
+
+                            <span className="whitespace-nowrap text-xs text-muted-foreground">
+                              {bm.value != null
+                                ? fmtMoney(bm.value)
+                                : "Sem valor"}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+
+                    {selectedBmNumbers.length > 0 && (
+                      <>
+                        <div className="my-1 border-t" />
+
+                        <button
+                          type="button"
+                          className="w-full rounded-sm px-2 py-2 text-left text-xs text-muted-foreground hover:bg-accent"
+                          onClick={() =>
+                            setSelectedBmNumbers([])
+                          }
+                        >
+                          Limpar seleção
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </details>
+              )}
+
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {cab.poNumber
+                  ? `${bmsDaPo.length} BM(s) encontrada(s) para a PO selecionada.`
+                  : "Selecione a PO de Faturamento para carregar as BMs."}
+              </p>
+
+              {proximoBm?.lastBmNumber && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Último BM: {proximoBm.lastBmNumber}
                 </p>
               )}
             </div>
+
             <div>
-              <Label className="text-xs">Número do BM</Label>
-              {bmNovoManual ? (
-                <div className="flex gap-2">
-                  <Input value={cab.numeroBm} onChange={(e) => setCab({ ...cab, numeroBm: e.target.value })} placeholder="Novo número de BM" />
-                  <Button variant="ghost" size="sm" onClick={() => setBmNovoManual(false)}>Lista</Button>
-                </div>
-              ) : (
-                <Select
-                  value={bmSelecionado ? bmSelecionado.bmNumber : ""}
-                  onValueChange={(v) => {
-                    if (v === NOVO_BM) {
-                      setBmNovoManual(true);
-                      setCab((c) => ({ ...c, numeroBm: proximoBm?.nextBmNumber ?? "" }));
-                      return;
-                    }
-                    const row = smartsheetBms.find((b) => b.bmNumber === v);
-                    setCab((c) => ({ ...c, numeroBm: v, poNumber: row?.poNumber?.trim() || c.poNumber }));
-                  }}
-                >
-                  <SelectTrigger><SelectValue placeholder="Selecione o BM" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NOVO_BM}>+ Criar novo{proximoBm?.nextBmNumber ? ` (${proximoBm.nextBmNumber})` : ""}</SelectItem>
-                    {smartsheetBms.map((b) => (
-                      <SelectItem key={b.rowId} value={b.bmNumber}>
-                        {b.bmNumber}{b.value != null ? ` — ${fmtMoney(b.value)}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {proximoBm?.lastBmNumber && (
-                <p className="mt-1 text-[11px] text-muted-foreground">Último BM: {proximoBm.lastBmNumber}</p>
-              )}
-            </div>
-            <div>
-              <Label className="text-xs">Valor do BM</Label>
-              <Input readOnly className="bg-muted/40" value={bmSelecionado?.value != null ? fmtMoney(bmSelecionado.value) : "—"} />
-              <p className="mt-1 text-[11px] text-muted-foreground">Valor registrado no Controle de Medição.</p>
+              <Label className="text-xs">
+                Valor do BM
+              </Label>
+
+              <Input
+                readOnly
+                className="bg-muted/40"
+                value={
+                  bmsSelecionados.length > 0
+                    ? fmtMoney(valorTotalBms)
+                    : "—"
+                }
+              />
+
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {bmsSelecionados.length > 0
+                  ? `Soma de ${bmsSelecionados.length} BM(s) selecionada(s) na coluna VALOR BM.`
+                  : "Selecione uma ou mais BMs para calcular o total."}
+              </p>
             </div>
           </div>
 
