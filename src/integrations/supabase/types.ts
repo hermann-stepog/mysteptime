@@ -283,6 +283,72 @@ export type Database = {
           },
         ]
       }
+      bm_medicoes: {
+        Row: {
+          applied: boolean
+          applied_at: string | null
+          applied_bm_number: string | null
+          applied_bm_row_id: string | null
+          bsp: string | null
+          cliente: string | null
+          created_at: string
+          created_by: string | null
+          descricao: string
+          id: string
+          notes: string | null
+          period_end: string | null
+          period_start: string | null
+          qtd: number
+          tag: string | null
+          tipo: string
+          updated_at: string
+          valor_total: number
+          valor_unitario: number
+        }
+        Insert: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          applied_bm_row_id?: string | null
+          bsp?: string | null
+          cliente?: string | null
+          created_at?: string
+          created_by?: string | null
+          descricao: string
+          id?: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          tipo: string
+          updated_at?: string
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Update: {
+          applied?: boolean
+          applied_at?: string | null
+          applied_bm_number?: string | null
+          applied_bm_row_id?: string | null
+          bsp?: string | null
+          cliente?: string | null
+          created_at?: string
+          created_by?: string | null
+          descricao?: string
+          id?: string
+          notes?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          qtd?: number
+          tag?: string | null
+          tipo?: string
+          updated_at?: string
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Relationships: []
+      }
       bm_status_history: {
         Row: {
           bm_id: string
