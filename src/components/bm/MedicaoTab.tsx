@@ -212,6 +212,9 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bm-medicoes", tipo] });
+      qc.invalidateQueries({ queryKey: ["bm-medicoes-aplicadas"] });
+      notify.success(`Medição de ${fmtMoney(totalPendente)} aplicada ao BM ${bmSelecionado?.bmNumber}.`);
+
       notify.success(`Medição aplicada ao BM ${bmSelecionado?.bmNumber}.`);
       setAplicarOpen(false);
       setBmSelecionado(null);
