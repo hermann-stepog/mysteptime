@@ -834,9 +834,10 @@ function AtividadeRecenteCard({ semanas, embarques, colaboradores, className }: 
     () => semanas
       .filter((s): s is TimesheetSemana & { recebido_em: string } => !!s.recebido_em)
       .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em))
-      .slice(0, 8),
+      .slice(0, 30),
     [semanas],
   );
+
 
   const idsExecutores = useMemo(
     () => Array.from(new Set(recentes.map((s) => s.recebido_por).filter((id): id is string => !!id))),
