@@ -510,7 +510,33 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     [linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct],
   );
 
-  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totals.grandTotal) : null;
+  // ── Medições aplicadas a este BM (Habitat, Locação, Consumíveis, Mob/Desmob) ───────────
+  // Cada aba de medição consolida seus lançamentos e aplica o total ao BM; aqui o cabeçalho
+  // apenas lê os totais já aplicados ao número de BM selecionado.
+  const numeroBmAtual = cab.numeroBm.trim();
+  const { data: medicoes = MEDICOES_ZERO } = useQuery<Record<MedicaoKey, number>>({
+    queryKey: ["bm-medicoes-aplicadas", numeroBmAtual],
+    enabled: !!numeroBmAtual,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bm_medicoes").select("tipo, valor_total")
+        .eq("applied", true).eq("applied_bm_number", numeroBmAtual);
+      if (error) throw error;
+      const acc: Record<MedicaoKey, number> = { ...MEDICOES_ZERO };
+      for (const r of (data ?? []) as { tipo: MedicaoKey; valor_total: number }[]) {
+        if (r.tipo in acc) acc[r.tipo] = round2(acc[r.tipo] + (Number(r.valor_total) || 0));
+      }
+      return acc;
+    },
+  });
+  const totalMedicoes = useMemo(
+    () => round2(Object.values(medicoes).reduce((a, v) => a + v, 0)),
+    [medicoes],
+  );
+  const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes);
+
+  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totalGeralComMedicoes) : null;
+
 
   const bmExportData: BmExportData = useMemo(() => ({
     client: cab.client, vessel: cab.vessel, projectName: cab.bsp,
