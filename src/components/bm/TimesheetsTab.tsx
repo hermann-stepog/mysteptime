@@ -9,11 +9,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
 import { CalendarRange, ChevronRight, RotateCcw, Users } from "lucide-react";
-import { EVENTOS_DIA } from "@/lib/timesheetOffshore";
+import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 
 // Cópia dos dias do Timesheet Offshore dentro do BM. Tudo o que é editado aqui vive só em
@@ -398,8 +397,6 @@ export function TimesheetsTab() {
                           <TableHead className="w-24">HE Entrada</TableHead>
                           <TableHead className="w-24">HE Saída</TableHead>
                           <TableHead className="w-24">Total</TableHead>
-                          <TableHead className="w-16" title="Adicional noturno">Adic. Not.</TableHead>
-                          <TableHead className="w-16" title="Feriado">Feriado</TableHead>
                           <TableHead className="w-10" />
                         </TableRow>
                       </TableHeader>
@@ -454,6 +451,8 @@ function LinhaDia({ row, onSave, onRestore }: {
   const [local, setLocal] = useState(row);
   useEffect(() => setLocal(row), [row]);
 
+  // Mesma regra do módulo Timesheet Offshore: horas normais/extras/total e adicional noturno
+  // são derivados automaticamente dos horários — não há mais marcação manual.
   const hora = (campo: CampoCopia) => (
     <Input
       type="time"
@@ -461,8 +460,24 @@ function LinhaDia({ row, onSave, onRestore }: {
       value={((local as any)[campo] as string | null)?.slice(0, 5) ?? ""}
       onChange={(e) => {
         const valor = e.target.value || null;
-        setLocal({ ...local, [campo]: valor });
-        if (valor !== (((row as any)[campo] as string | null)?.slice(0, 5) ?? null)) onSave({ [campo]: valor });
+        const next = { ...local, [campo]: valor } as BmTimesheetDia;
+        const { normais, extras, total } = computeHorasDia(
+          next.hora_entrada, next.hora_saida, next.hora_entrada_extra, next.hora_saida_extra,
+        );
+        next.horas_normais = normais;
+        next.horas_extras = extras;
+        next.total_horas = total;
+        next.adicional_noturno = suggestAdicionalNoturno(
+          next.hora_entrada, next.hora_saida, next.hora_entrada_extra, next.hora_saida_extra,
+        );
+        setLocal(next);
+        onSave({
+          [campo]: valor,
+          horas_normais: normais,
+          horas_extras: extras,
+          total_horas: total,
+          adicional_noturno: next.adicional_noturno,
+        });
       }}
     />
   );
@@ -481,16 +496,6 @@ function LinhaDia({ row, onSave, onRestore }: {
     />
   );
 
-  const bool = (campo: CampoCopia) => (
-    <Checkbox
-      checked={!!(local as any)[campo]}
-      onCheckedChange={(v) => {
-        const valor = v === true;
-        setLocal({ ...local, [campo]: valor });
-        onSave({ [campo]: valor });
-      }}
-    />
-  );
 
   const diaLabel = `${(local.dia_semana ?? "").split(" / ")[0].slice(0, 3)} - ${fmtData(row.data).slice(0, 6)}${row.data.slice(2, 4)}`;
 
@@ -529,8 +534,6 @@ function LinhaDia({ row, onSave, onRestore }: {
       <TableCell>{hora("hora_entrada_extra")}</TableCell>
       <TableCell>{hora("hora_saida_extra")}</TableCell>
       <TableCell>{num("total_horas")}</TableCell>
-      <TableCell className="text-center">{bool("adicional_noturno")}</TableCell>
-      <TableCell className="text-center">{bool("feriado")}</TableCell>
       <TableCell>
         <Button variant="ghost" size="icon" className="h-8 w-8" title="Restaurar valores do Timesheet Offshore" onClick={onRestore}>
           <RotateCcw className="h-3.5 w-3.5" />
