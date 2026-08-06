@@ -856,7 +856,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             <div className="space-y-1">
               <div className="flex justify-between"><span>Mão de Obra</span><span className="font-medium">{fmtMoney(totals.totalMo)}</span></div>
               <div className="flex justify-between"><span>Logística{markupEnabled ? ` (+${markupPct}%)` : ""}</span><span className="font-medium">{fmtMoney(totals.totalLogisticaComMarkup)}</span></div>
-              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totals.grandTotal)}</span></div>
+              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).filter((k) => medicoes[k] > 0).map((k) => (
+                <div key={k} className="flex justify-between">
+                  <span>{MEDICOES_LABEL[k]}</span><span className="font-medium">{fmtMoney(medicoes[k])}</span>
+                </div>
+              ))}
+              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totalGeralComMedicoes)}</span></div>
+
             </div>
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm">
