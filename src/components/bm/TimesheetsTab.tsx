@@ -171,9 +171,21 @@ export function TimesheetsTab() {
   // linhas já copiadas — o que a Medição ajustou fica intacto.
   const importar = useMutation({
     mutationFn: async (faltantes: any[]) => {
-      const rows = faltantes.map((d) => ({ ...d, original: d }));
+      // Deduplica por source_dia_id e usa upsert com ignoreDuplicates para evitar 409
+      // quando a cópia automática dispara mais de uma vez em paralelo.
+      const vistos = new Set<string>();
+      const rows = faltantes
+        .filter((d) => {
+          const key = String(d.source_dia_id ?? "");
+          if (!key || vistos.has(key)) return false;
+          vistos.add(key);
+          return true;
+        })
+        .map((d) => ({ ...d, original: d }));
       for (let i = 0; i < rows.length; i += 500) {
-        const { error } = await supabase.from("bm_timesheet_dias").insert(rows.slice(i, i + 500));
+        const { error } = await supabase
+          .from("bm_timesheet_dias")
+          .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id", ignoreDuplicates: true });
         if (error) throw error;
       }
       return rows.length;
