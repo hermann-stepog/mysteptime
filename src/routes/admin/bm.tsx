@@ -144,12 +144,14 @@ interface Cabecalho {
   poNumber: string;
   poValue: number | null;
   poBalanceBefore: number | null;
+  numeroBm: string;
 }
 
 const CABECALHO_VAZIO: Cabecalho = {
   client: "", bsp: "", vessel: "", periodStart: "", periodEnd: "",
-  poNumber: "", poValue: null, poBalanceBefore: null,
+  poNumber: "", poValue: null, poBalanceBefore: null, numeroBm: "",
 };
+
 
 function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
   const qc = useQueryClient();
