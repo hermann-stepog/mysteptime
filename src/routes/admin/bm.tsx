@@ -37,7 +37,7 @@ import { DRAKE_DATA_CUTOFF } from "@/lib/histogramaNovo";
 import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { getPoInfo, getBmHistoryForPo, recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
+import { recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
 
@@ -236,21 +236,32 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
   const headerCompleto = !!(cab.client && cab.vessel && cab.periodStart && cab.periodEnd);
 
+  // Busca o PO Value e o saldo direto do nosso próprio histórico de BMs (tabela `bms`) — não
+  // chama o Smartsheet aqui. O PO Value vem do BM mais recente já lançado pra essa PO (o valor
+  // do contrato não muda entre BMs); o saldo já usado soma só os BMs que realmente chegaram a
+  // "sent_client" (mesmo critério que antes valia pro histórico do Smartsheet, que só recebia
+  // um BM depois de aprovado — ver atualizarSmartsheet mais abaixo).
   const onBuscarSmartsheet = async () => {
     if (!cab.poNumber.trim()) return;
     setSmartsheetLoading(true);
     try {
       const poNumber = cab.poNumber.trim();
-      const [info, hist] = await Promise.all([
-        getPoInfo({ data: { poNumber } }),
-        getBmHistoryForPo({ data: { poNumber } }),
-      ]);
-      const poValue = info?.poValue ?? null;
-      const bmsIssued = hist?.totalIssued ?? 0;
+      const { data, error } = await supabase
+        .from("bms")
+        .select("po_value, total_geral, current_status, created_at")
+        .eq("po_number", poNumber)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const registros = (data ?? []) as { po_value: number | null; total_geral: number | null; current_status: string }[];
+      const poValue = registros.find((b) => b.po_value != null)?.po_value ?? null;
+      const bmsIssued = registros
+        .filter((b) => b.current_status === "sent_client")
+        .reduce((acc, b) => acc + (b.total_geral ?? 0), 0);
       setCab((c) => ({ ...c, poValue, poBalanceBefore: poValue != null ? poValue - bmsIssued : null }));
-      notify.success("Dados do Smartsheet carregados.");
+      if (poValue != null) notify.success("PO Value carregado do histórico de BMs.");
+      else notify.error("Nenhum BM anterior encontrado pra essa PO — preencha o PO Value manualmente.");
     } catch (e: any) {
-      notify.error(e.message || "Integração com Smartsheet ainda não disponível — preencha o PO Value manualmente.");
+      notify.error(e.message || "Erro ao buscar o histórico de BMs.");
     } finally {
       setSmartsheetLoading(false);
     }
