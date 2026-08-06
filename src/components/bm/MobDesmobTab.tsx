@@ -205,13 +205,19 @@ export function MobDesmobTab() {
   });
 
   // Agrupamento por BSP — cada BSP vira um cartão com seus custos de transporte e hotel.
+  const custosFiltrados = useMemo(
+    () => custos.filter((c) => (!dataDe || (c.data ?? "") >= dataDe) && (!dataAte || (c.data ?? "") <= dataAte)),
+    [custos, dataDe, dataAte],
+  );
+
   const grupos = useMemo(() => {
     const map = new Map<string, BmMobDesmobCost[]>();
-    for (const c of custos) {
+    for (const c of custosFiltrados) {
       const arr = map.get(c.bsp) ?? [];
       arr.push(c);
       map.set(c.bsp, arr);
     }
+
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([bsp, itens]) => {
