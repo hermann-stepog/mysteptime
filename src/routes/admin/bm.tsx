@@ -40,7 +40,7 @@ import { MedicaoTab } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { getPoInfo, getBmHistoryForPo, recordIssuedBm, listJobOrderPos, getNextBmNumber } from "@/lib/api/smartsheetBm.functions";
+import { getPoInfo, getBmHistoryForPo, recordIssuedBm, listJobOrderPos, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 
 interface JobOrderPoOption {
   poNumber: string;
@@ -50,6 +50,19 @@ interface JobOrderPoOption {
   vessel: string | null;
 }
 const EMPTY_PO_LIST: JobOrderPoOption[] = [];
+
+interface SmartsheetBmOption {
+  rowId: string;
+  bmNumber: string;
+  poNumber: string | null;
+  client: string | null;
+  vessel: string | null;
+  value: number | null;
+  date: string | null;
+}
+const EMPTY_BM_LIST: SmartsheetBmOption[] = [];
+const NOVO_BM = "__novo__";
+
 
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
@@ -203,6 +216,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   const [smartsheetLoading, setSmartsheetLoading] = useState(false);
+  // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
+  const [bmNovoManual, setBmNovoManual] = useState(false);
   // Resultado do último BM gerado/salvo — enquanto preenchido, a tela mostra o BmConsolidatedView
   // (Consolidado + Diárias + Horas) no lugar do wizard, pra "Gerar BM" ter um resultado visível
   // imediato em vez de só um toast e o formulário voltando em branco.
@@ -224,6 +239,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setMarkupEnabled(reopenBm.markup_enabled);
     setMarkupPct(reopenBm.markup_pct);
     setReopenBmId(reopenBm.id);
+    setBmNovoManual(true);
     (async () => {
       const { data, error } = await supabase.from("bm_dias_overrides").select("*").eq("bm_id", reopenBm.id);
       if (error) { notify.error(error.message); return; }
@@ -342,26 +358,48 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     staleTime: 10 * 60 * 1000,
   });
 
-  // Preenche o número do BM com o próximo da sequência (sem sobrescrever edição manual
-  // nem BM reaberto).
-  useEffect(() => {
-    if (proximoBm?.nextBmNumber && !cab.numeroBm && !reopenBmId) {
-      setCab((c) => (c.numeroBm ? c : { ...c, numeroBm: proximoBm.nextBmNumber }));
+  // Controle de Medição (Smartsheet): lista de BMs já existentes — alimenta a lista de
+  // números de BM e a lista de POs; o valor do BM vem da própria linha da planilha.
+  const { data: smartsheetBms = EMPTY_BM_LIST } = useQuery<SmartsheetBmOption[]>({
+    queryKey: ["smartsheet-bm-list"],
+    queryFn: async () => (await listSmartsheetBms()) as SmartsheetBmOption[],
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const bmSelecionado = useMemo(
+    () => smartsheetBms.find((b) => b.bmNumber.trim().toLowerCase() === cab.numeroBm.trim().toLowerCase()) ?? null,
+    [smartsheetBms, cab.numeroBm],
+  );
+
+  // POs disponíveis: as que aparecem no Controle de BM, com o valor somado da Job Order.
+  const poOptions = useMemo(() => {
+    const jobByPo = new Map(jobOrderPos.map((p) => [p.poNumber.trim().toLowerCase(), p]));
+    const out = new Map<string, JobOrderPoOption>();
+    for (const bm of smartsheetBms) {
+      const po = (bm.poNumber ?? "").trim();
+      if (!po) continue;
+      const key = po.toLowerCase();
+      if (out.has(key)) continue;
+      const job = jobByPo.get(key);
+      out.set(key, job ?? { poNumber: po, totalValue: 0, occurrences: 0, client: bm.client, vessel: bm.vessel });
     }
-  }, [proximoBm?.nextBmNumber, cab.numeroBm, reopenBmId]);
+    for (const p of jobOrderPos) if (!out.has(p.poNumber.trim().toLowerCase())) out.set(p.poNumber.trim().toLowerCase(), p);
+    return Array.from(out.values()).sort((a, b) => a.poNumber.localeCompare(b.poNumber, "pt-BR", { numeric: true }));
+  }, [smartsheetBms, jobOrderPos]);
 
   const poSelecionada = useMemo(
     () => jobOrderPos.find((p) => p.poNumber.toLowerCase() === cab.poNumber.trim().toLowerCase()) ?? null,
     [jobOrderPos, cab.poNumber],
   );
 
-  // Recalcula o Valor Total da PO sempre que a PO muda.
+  // Recalcula o Valor Total da PO sempre que a PO muda (soma das linhas da Job Order).
   useEffect(() => {
     setCab((c) => {
       const total = poSelecionada?.totalValue ?? null;
       return c.poValue === total ? c : { ...c, poValue: total };
     });
   }, [poSelecionada]);
+
 
 
   // ── Step 1: Horas do Timesheet (compilado editável, alimenta a Mão de Obra) ─────────────
@@ -728,42 +766,73 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             <div>
               <Label className="text-xs">PO</Label>
               <div className="flex gap-2">
-                <Input
-                  list="job-order-pos"
-                  value={cab.poNumber}
-                  onChange={(e) => setCab({ ...cab, poNumber: e.target.value })}
-                  placeholder="Digite para buscar a PO"
-                />
+                <Select value={cab.poNumber} onValueChange={(v) => setCab({ ...cab, poNumber: v })}>
+                  <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione a PO" /></SelectTrigger>
+                  <SelectContent>
+                    {poOptions.map((p) => (
+                      <SelectItem key={p.poNumber} value={p.poNumber}>
+                        {p.poNumber}{p.totalValue > 0 ? ` — ${fmtMoney(p.totalValue)}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Saldo</Button>
               </div>
-              <datalist id="job-order-pos">
-                {jobOrderPos.map((p) => (
-                  <option key={p.poNumber} value={p.poNumber}>{fmtMoney(p.totalValue)}</option>
-                ))}
-              </datalist>
+              <p className="mt-1 text-[11px] text-muted-foreground">POs do Controle de BM · valor somado da Job Order.</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <Label className="text-xs">Valor Total da PO</Label>
               <Input readOnly className="bg-muted/40" value={cab.poValue != null ? fmtMoney(cab.poValue) : "—"} />
               {poSelecionada && (
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Soma de {poSelecionada.occurrences} lançamento(s) da PO.
+                  Soma de {poSelecionada.occurrences} lançamento(s) da Job Order.
                 </p>
               )}
             </div>
             <div>
               <Label className="text-xs">Número do BM</Label>
-              <Input value={cab.numeroBm} onChange={(e) => setCab({ ...cab, numeroBm: e.target.value })} placeholder="Sequência do Controle de BM" />
+              {bmNovoManual ? (
+                <div className="flex gap-2">
+                  <Input value={cab.numeroBm} onChange={(e) => setCab({ ...cab, numeroBm: e.target.value })} placeholder="Novo número de BM" />
+                  <Button variant="ghost" size="sm" onClick={() => setBmNovoManual(false)}>Lista</Button>
+                </div>
+              ) : (
+                <Select
+                  value={bmSelecionado ? bmSelecionado.bmNumber : ""}
+                  onValueChange={(v) => {
+                    if (v === NOVO_BM) {
+                      setBmNovoManual(true);
+                      setCab((c) => ({ ...c, numeroBm: proximoBm?.nextBmNumber ?? "" }));
+                      return;
+                    }
+                    const row = smartsheetBms.find((b) => b.bmNumber === v);
+                    setCab((c) => ({ ...c, numeroBm: v, poNumber: row?.poNumber?.trim() || c.poNumber }));
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione o BM" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NOVO_BM}>+ Criar novo{proximoBm?.nextBmNumber ? ` (${proximoBm.nextBmNumber})` : ""}</SelectItem>
+                    {smartsheetBms.map((b) => (
+                      <SelectItem key={b.rowId} value={b.bmNumber}>
+                        {b.bmNumber}{b.value != null ? ` — ${fmtMoney(b.value)}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               {proximoBm?.lastBmNumber && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Último BM: {proximoBm.lastBmNumber}
-                  {proximoBm.lastBmValue != null && <> · {fmtMoney(proximoBm.lastBmValue)}</>}
-                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Último BM: {proximoBm.lastBmNumber}</p>
               )}
             </div>
+            <div>
+              <Label className="text-xs">Valor do BM</Label>
+              <Input readOnly className="bg-muted/40" value={bmSelecionado?.value != null ? fmtMoney(bmSelecionado.value) : "—"} />
+              <p className="mt-1 text-[11px] text-muted-foreground">Valor registrado no Controle de Medição.</p>
+            </div>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Período — De</Label><Input type="date" value={cab.periodStart} onChange={(e) => setCab({ ...cab, periodStart: e.target.value })} /></div>
             <div><Label className="text-xs">Período — Até</Label><Input type="date" value={cab.periodEnd} onChange={(e) => setCab({ ...cab, periodEnd: e.target.value })} /></div>
