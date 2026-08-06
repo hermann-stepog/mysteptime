@@ -12,6 +12,7 @@ import process from "node:process";
 const SMARTSHEET_BASE = "https://api.smartsheet.com/2.0";
 const SHEET_NAME_PO = "Onshore / Offshore Service Control";
 const SHEET_NAME_BM = "Controle de Boletins de Medição - BM";
+const SHEET_NAME_JOB_ORDER = "Job Order";
 
 function getToken(): string {
   const token = process.env.SMARTSHEET_API_TOKEN;
@@ -35,7 +36,18 @@ async function smartsheetPost(token: string, path: string, body: unknown) {
   return res.json();
 }
 
+// Preferimos os IDs cadastrados nos secrets (SMARTSHEET_ID_1 = Controle de BM,
+// SMARTSHEET_ID_2 = Job Order); busca por nome fica só como fallback.
+function configuredSheetId(name: string): string | null {
+  if (name === SHEET_NAME_BM) return process.env.SMARTSHEET_ID_1 ?? null;
+  if (name === SHEET_NAME_JOB_ORDER) return process.env.SMARTSHEET_ID_2 ?? null;
+  return null;
+}
+
 async function findSheetIdByName(token: string, name: string): Promise<string> {
+  const configured = configuredSheetId(name);
+  if (configured) return configured;
+
   const data = await smartsheetFetch(token, "/sheets?includeAll=true");
   const sheet = (data.data ?? []).find((s: any) => s.name === name);
   if (!sheet) throw new Error(`Planilha "${name}" não encontrada no Smartsheet.`);
@@ -183,7 +195,6 @@ export async function applyMedicaoToBmRow(params: {
 
 // ─── Job Order: lista de POs consolidada ────────────────────────────────────
 
-const SHEET_NAME_JOB_ORDER = "Job Order";
 
 export interface JobOrderPo {
   poNumber: string;
