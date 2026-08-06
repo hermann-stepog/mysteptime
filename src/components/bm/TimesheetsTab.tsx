@@ -401,14 +401,15 @@ function LinhaDia({ row, onSave, onRestore }: {
   const [local, setLocal] = useState(row);
   useEffect(() => setLocal(row), [row]);
 
-  const txt = (campo: CampoCopia, width = "w-full") => (
+  const hora = (campo: CampoCopia) => (
     <Input
-      className={cn("h-7 px-1.5 text-xs", width)}
-      value={((local as any)[campo] as string | null) ?? ""}
-      onChange={(e) => setLocal({ ...local, [campo]: e.target.value })}
-      onBlur={() => {
-        const valor = (((local as any)[campo] as string) ?? "").trim() || null;
-        if (valor !== ((row as any)[campo] ?? null)) onSave({ [campo]: valor });
+      type="time"
+      className="h-8 text-xs"
+      value={((local as any)[campo] as string | null)?.slice(0, 5) ?? ""}
+      onChange={(e) => {
+        const valor = e.target.value || null;
+        setLocal({ ...local, [campo]: valor });
+        if (valor !== (((row as any)[campo] as string | null)?.slice(0, 5) ?? null)) onSave({ [campo]: valor });
       }}
     />
   );
@@ -417,7 +418,7 @@ function LinhaDia({ row, onSave, onRestore }: {
     <Input
       type="number"
       step="0.5"
-      className="h-7 w-full px-1.5 text-xs"
+      className="h-8 min-w-[4.5rem] text-sm font-medium"
       value={((local as any)[campo] as number | null) ?? ""}
       onChange={(e) => setLocal({ ...local, [campo]: e.target.value as any })}
       onBlur={() => {
@@ -438,13 +439,14 @@ function LinhaDia({ row, onSave, onRestore }: {
     />
   );
 
+  const diaLabel = `${(local.dia_semana ?? "").split(" / ")[0].slice(0, 3)} - ${fmtData(row.data).slice(0, 6)}${row.data.slice(2, 4)}`;
+
   return (
     <TableRow className={cn(alterada(local) && "bg-amber-50/70")}>
-      <TableCell className="whitespace-nowrap font-medium">{fmtData(row.data)}</TableCell>
-      <TableCell>{txt("dia_semana")}</TableCell>
+      <TableCell className="whitespace-nowrap text-xs font-medium">{diaLabel}</TableCell>
       <TableCell>
         <select
-          className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs"
+          className="h-8 w-full rounded-md border border-input bg-background px-1.5 text-xs"
           value={local.evento ?? ""}
           onChange={(e) => {
             const valor = e.target.value || null;
@@ -452,27 +454,36 @@ function LinhaDia({ row, onSave, onRestore }: {
             onSave({ evento: valor });
           }}
         >
-          <option value="">—</option>
+          <option value="">Nenhum</option>
           {EVENTOS_DIA.map((ev) => <option key={ev} value={ev}>{ev}</option>)}
         </select>
       </TableCell>
-      <TableCell>{txt("bsp")}</TableCell>
-      <TableCell>{txt("descricao_tarefa")}</TableCell>
-      <TableCell>{txt("numero_tarefa")}</TableCell>
-      <TableCell>{txt("hora_entrada")}</TableCell>
-      <TableCell>{txt("hora_saida")}</TableCell>
-      <TableCell>{txt("hora_entrada_extra")}</TableCell>
-      <TableCell>{txt("hora_saida_extra")}</TableCell>
+      <TableCell>
+        <Input
+          className="h-8 text-xs"
+          value={local.bsp ?? ""}
+          onChange={(e) => setLocal({ ...local, bsp: e.target.value })}
+          onBlur={() => {
+            const valor = (local.bsp ?? "").trim() || null;
+            if (valor !== (row.bsp ?? null)) onSave({ bsp: valor });
+          }}
+        />
+      </TableCell>
+      <TableCell>{hora("hora_entrada")}</TableCell>
+      <TableCell>{hora("hora_saida")}</TableCell>
       <TableCell>{num("horas_normais")}</TableCell>
       <TableCell>{num("horas_extras")}</TableCell>
+      <TableCell>{hora("hora_entrada_extra")}</TableCell>
+      <TableCell>{hora("hora_saida_extra")}</TableCell>
       <TableCell>{num("total_horas")}</TableCell>
       <TableCell className="text-center">{bool("adicional_noturno")}</TableCell>
       <TableCell className="text-center">{bool("feriado")}</TableCell>
       <TableCell>
-        <Button variant="ghost" size="icon" className="h-7 w-7" title="Restaurar valores do Timesheet Offshore" onClick={onRestore}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Restaurar valores do Timesheet Offshore" onClick={onRestore}>
           <RotateCcw className="h-3.5 w-3.5" />
         </Button>
       </TableCell>
+
     </TableRow>
   );
 }
