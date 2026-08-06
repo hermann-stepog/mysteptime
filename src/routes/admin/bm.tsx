@@ -1211,6 +1211,22 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
     onError: (e: any) => notify.error(e.message || "Erro ao excluir o BM."),
   });
 
+  // "Já foi medido": flag persistida em bms.ja_medido; marcar/desmarcar alterna entre
+  // "Já medido" e "Pendente de medição" e fica salvo no BM.
+  const toggleJaMedido = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase.from("bms").update({ ja_medido: value }).eq("id", id);
+      if (error) throw error;
+      return value;
+    },
+    onSuccess: (value) => {
+      qc.invalidateQueries({ queryKey: ["bm-historico"] });
+      notify.success(value ? "BM marcado como já medido." : "BM voltou para pendente de medição.");
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao atualizar a medição do BM."),
+  });
+
+
   const clientesNaLista = useMemo(() => Array.from(new Set(bms.map((b) => b.client_name))).sort(), [bms]);
   const filtered = bms
     .filter((b) => (filterClient === "all" || b.client_name === filterClient) && (filterStatus === "all" || b.current_status === filterStatus))
@@ -1268,6 +1284,7 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
               <SortableHead label="Período" column="periodo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Total" column="total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead className="w-32">Medição</TableHead>
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
@@ -1280,6 +1297,19 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                 <TableCell>{fmt(b.period_start)} – {fmt(b.period_end)}</TableCell>
                 <TableCell>{fmtMoney(b.total_geral)}</TableCell>
                 <TableCell><StatusBadge tone={STATUS_TONE[b.current_status]}>{STATUS_LABELS[b.current_status]}</StatusBadge></TableCell>
+                <TableCell>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs">
+                    <Checkbox
+                      checked={!!b.ja_medido}
+                      disabled={toggleJaMedido.isPending && toggleJaMedido.variables?.id === b.id}
+                      onCheckedChange={(v) => toggleJaMedido.mutate({ id: b.id, value: v === true })}
+                    />
+                    <span className={b.ja_medido ? "text-foreground" : "text-muted-foreground"}>
+                      {b.ja_medido ? "Já medido" : "Pendente"}
+                    </span>
+                  </label>
+                </TableCell>
+
                 <TableCell>
                   <Button size="sm" variant="ghost" onClick={() => setViewingBm(b)}>Ver</Button>
                   {(b.current_status === "draft" || b.current_status === "rejected") && (

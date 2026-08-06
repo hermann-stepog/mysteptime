@@ -473,6 +473,7 @@ export type Database = {
           created_by: string | null
           current_status: string
           id: string
+          ja_medido: boolean
           markup_enabled: boolean
           markup_pct: number
           numero_bm: string | null
@@ -503,6 +504,7 @@ export type Database = {
           created_by?: string | null
           current_status?: string
           id?: string
+          ja_medido?: boolean
           markup_enabled?: boolean
           markup_pct?: number
           numero_bm?: string | null
@@ -533,6 +535,7 @@ export type Database = {
           created_by?: string | null
           current_status?: string
           id?: string
+          ja_medido?: boolean
           markup_enabled?: boolean
           markup_pct?: number
           numero_bm?: string | null
