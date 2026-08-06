@@ -378,6 +378,31 @@ export function MobDesmobTab() {
           </div>
         </div>
 
+        <div className="mt-4 flex flex-wrap items-end gap-3 border-t pt-4">
+          <div>
+            <Label className="text-xs">De</Label>
+            <Input type="date" className="h-8 w-[150px] text-xs" value={dataDe} onChange={(e) => setDataDe(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Até</Label>
+            <Input type="date" className="h-8 w-[150px] text-xs" value={dataAte} onChange={(e) => setDataAte(e.target.value)} />
+          </div>
+          {(dataDe || dataAte) && (
+            <Button size="sm" variant="ghost" onClick={() => { setDataDe(""); setDataAte(""); }}>Limpar</Button>
+          )}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              Pendente no período: <span className="font-semibold">{fmtMoney(totalPendenteFiltrado)}</span>
+            </span>
+            <Button size="sm" disabled={totalPendenteFiltrado <= 0}
+              onClick={() => { setAplicarBsp(TODOS); setBmSelecionado(null); setBusca(""); }}>
+              <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar tudo ao BM
+            </Button>
+          </div>
+        </div>
+
+
+
         {lancamentoAberto && (
           <div className="mt-4 space-y-3 border-t pt-4">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
