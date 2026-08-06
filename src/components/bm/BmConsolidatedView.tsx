@@ -1,6 +1,8 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
@@ -8,6 +10,10 @@ import { AlertTriangle, Printer } from "lucide-react";
 import { type Bm, type BmLineMo, type BmLineLogistica, computeBmTotals } from "@/lib/bm";
 import { fetchBmDayGrid, computeDayCodes, type DayCode } from "@/lib/bmDayGrid";
 import { generateDateRange, getContrastText } from "@/lib/histogramaNovo";
+import { notify } from "@/lib/notify";
+import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+// bms/bm_lines_* ainda não existem no schema gerado — mesmo cast usado em admin/bm.tsx.
+const supabase: any = supabaseTyped;
 
 function fmt(d: string): string {
   return d.split("-").reverse().join("/");
@@ -38,9 +44,60 @@ interface BmConsolidatedViewProps {
 }
 
 export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidatedViewProps) {
+  const qc = useQueryClient();
   const { data: dayGrid = [] } = useQuery({
     queryKey: ["bm-day-grid", bm.vessel, bm.period_start, bm.period_end],
     queryFn: () => fetchBmDayGrid(bm.vessel, bm.period_start, bm.period_end),
+  });
+
+  // Rate Overtime/Rate Night Shift ficam editáveis aqui na folha de rosto (já com o BM gerado)
+  // — cópia local pra não mexer na prop diretamente; ressincroniza se o BM/linhas mudarem (ex.:
+  // trocou de BM na lista de histórico).
+  const [linesMoLocal, setLinesMoLocal] = useState(linesMo);
+  useEffect(() => setLinesMoLocal(linesMo), [linesMo]);
+  const [bmTotais, setBmTotais] = useState({ total_mo: bm.total_mo, total_geral: bm.total_geral });
+  useEffect(() => setBmTotais({ total_mo: bm.total_mo, total_geral: bm.total_geral }), [bm.total_mo, bm.total_geral]);
+
+  const salvarRate = useMutation({
+    mutationFn: async ({ linha, campo, valor }: { linha: BmLineMo; campo: "rate_hora_extra" | "rate_adicional_noturno"; valor: number | null }) => {
+      const atualizada = { ...linha, [campo]: valor };
+      const novoValorTotal = round2(
+        atualizada.dias_embarque * (atualizada.rate_embarque ?? 0) +
+        atualizada.dias_dobra * (atualizada.rate_dobra ?? 0) +
+        atualizada.dias_hotel * (atualizada.rate_hotel ?? 0) +
+        atualizada.horas_extras * (atualizada.rate_hora_extra ?? 0) +
+        atualizada.horas_adicional_noturno * (atualizada.rate_adicional_noturno ?? 0),
+      );
+      const { error: lineErr } = await supabase.from("bm_lines_mo")
+        .update({ [campo]: valor, valor_total: novoValorTotal }).eq("id", linha.id);
+      if (lineErr) throw lineErr;
+
+      const novoTotalMo = round2(bmTotais.total_mo - linha.valor_total + novoValorTotal);
+      const novoTotalGeral = round2(bmTotais.total_geral - linha.valor_total + novoValorTotal);
+      const { error: bmErr } = await supabase.from("bms")
+        .update({ total_mo: novoTotalMo, total_geral: novoTotalGeral }).eq("id", bm.id);
+      if (bmErr) throw bmErr;
+
+      return { linhaAtualizada: { ...atualizada, valor_total: novoValorTotal }, novoTotalMo, novoTotalGeral };
+    },
+    onSuccess: ({ linhaAtualizada, novoTotalMo, novoTotalGeral }) => {
+      setLinesMoLocal((prev) => prev.map((l) => (l.id === linhaAtualizada.id ? linhaAtualizada : l)));
+      setBmTotais({ total_mo: novoTotalMo, total_geral: novoTotalGeral });
+      qc.invalidateQueries({ queryKey: ["bms"] });
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao salvar o rate."),
+  });
+
+  // Observações internas — só pra quem está gerando/revisando o BM, nunca sai no PDF (seção
+  // marcada print:hidden logo abaixo).
+  const [notasLocal, setNotasLocal] = useState(bm.internal_notes ?? "");
+  useEffect(() => setNotasLocal(bm.internal_notes ?? ""), [bm.internal_notes]);
+  const salvarNotas = useMutation({
+    mutationFn: async (valor: string) => {
+      const { error } = await supabase.from("bms").update({ internal_notes: valor.trim() || null }).eq("id", bm.id);
+      if (error) throw error;
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao salvar a observação."),
   });
 
   const dates = useMemo(() => generateDateRange(bm.period_start, bm.period_end), [bm.period_start, bm.period_end]);
@@ -66,17 +123,22 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
   // nenhum cálculo novo, só exposto separado por card em vez de um único total de Mão de Obra.
   const workingDays = round2(linesMo.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0), 0));
   const overtimeNightShift = round2(linesMo.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
-  const teamMobDesmob = round2(linesMo.reduce((acc, l) => acc + l.dias_hotel * (l.rate_hotel ?? 0), 0));
   const totals = computeBmTotals(linesMo, linesLogistica, [], bm.markup_enabled, bm.markup_pct);
+
+  // Totais do rodapé da tabela de Horas — a partir de linesMoLocal (reflete os rates editados
+  // ali mesmo na folha de rosto, não só o valor original salvo em linesMo).
+  const totalHorasExtras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras, 0));
+  const totalAdicionalNoturno = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_adicional_noturno, 0));
+  const totalValorHoras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
 
   const consolidadoCards: { label: string; value: number }[] = [
     { label: "Working days + Overstay", value: workingDays },
     { label: "Overtime + Night Shift", value: overtimeNightShift },
     { label: "Logistics", value: totals.totalLogisticaComMarkup },
-    { label: "Team Mob/Desmob", value: teamMobDesmob },
+    { label: "Team Mob/Desmob", value: bm.team_mob_desmob },
     { label: "Habitat", value: 0 },
     { label: "Rentals", value: 0 },
-    { label: "Kit Irata Rental", value: 0 },
+    { label: "Pós Processamento", value: bm.pos_processamento },
     { label: "Consumables", value: 0 },
     { label: "Material Mob/Desmob", value: 0 },
   ];
@@ -115,6 +177,18 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
           <p className="font-semibold text-foreground">{bm.client_name} — {bm.vessel}</p>
           <p>{fmt(bm.period_start)} – {fmt(bm.period_end)}{bm.po_number ? ` · PO ${bm.po_number}` : ""}</p>
         </div>
+      </div>
+
+      {/* Observações internas — nunca sai no PDF/impressão, só pra quem está revisando o BM aqui. */}
+      <div className="print:hidden space-y-1">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Observações (não sai no PDF)</p>
+        <Textarea
+          value={notasLocal}
+          onChange={(e) => setNotasLocal(e.target.value)}
+          onBlur={(e) => salvarNotas.mutate(e.target.value)}
+          rows={2}
+          className="text-xs"
+        />
       </div>
 
       {/* ── Bloco A — Consolidado ── */}
@@ -246,13 +320,15 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
                 <TableHead className="sticky left-0 bg-background">Nome</TableHead>
                 <TableHead>Função</TableHead>
                 {dates.map((d) => <TableHead key={d} className="text-center text-[10px]">{d.slice(8, 10)}</TableHead>)}
+                <TableHead>Horas Extras</TableHead>
+                <TableHead>Adicional Noturno</TableHead>
                 <TableHead>Rate Overtime</TableHead>
                 <TableHead>Rate Night Shift</TableHead>
                 <TableHead>Total</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {linesMo.map((l) => {
+              {linesMoLocal.map((l) => {
                 const diasData = diasByColaboradorData.get(l.colaborador_id ?? "");
                 const valorHoras = round2(l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0));
                 return (
@@ -266,12 +342,37 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
                       const texto = [he ? `HE ${he}h` : "", an ? `AN ${an}h` : ""].filter(Boolean).join(" / ");
                       return <TableCell key={d} className="text-center text-[9px]">{texto || ""}</TableCell>;
                     })}
-                    <TableCell className="text-xs">{l.rate_hora_extra != null ? fmtMoney(l.rate_hora_extra) : "—"}</TableCell>
-                    <TableCell className="text-xs">{l.rate_adicional_noturno != null ? fmtMoney(l.rate_adicional_noturno) : "—"}</TableCell>
+                    <TableCell className="text-xs">{l.horas_extras ? `${l.horas_extras}h` : "0h"}</TableCell>
+                    <TableCell className="text-xs">{l.horas_adicional_noturno ? `${l.horas_adicional_noturno}h` : "0h"}</TableCell>
+                    <TableCell className="p-1">
+                      <Input
+                        type="number" step="0.01" className="h-7 w-24 text-xs"
+                        value={l.rate_hora_extra ?? ""}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_hora_extra: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_hora_extra", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                      />
+                    </TableCell>
+                    <TableCell className="p-1">
+                      <Input
+                        type="number" step="0.01" className="h-7 w-24 text-xs"
+                        value={l.rate_adicional_noturno ?? ""}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_adicional_noturno: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_adicional_noturno", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                      />
+                    </TableCell>
                     <TableCell className="text-xs font-semibold">{fmtMoney(valorHoras)}</TableCell>
                   </TableRow>
                 );
               })}
+              <TableRow className="border-t-2 bg-muted/30 font-semibold">
+                <TableCell className="sticky left-0 bg-muted/30">Total</TableCell>
+                <TableCell />
+                {dates.map((d) => <TableCell key={d} />)}
+                <TableCell className="text-xs">{totalHorasExtras}h</TableCell>
+                <TableCell className="text-xs">{totalAdicionalNoturno}h</TableCell>
+                <TableCell colSpan={2} />
+                <TableCell className="text-xs">{fmtMoney(totalValorHoras)}</TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </div>

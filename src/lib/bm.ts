@@ -23,10 +23,16 @@ export interface Bm {
   total_mo: number;
   total_logistica: number;
   total_materiais: number;
+  pos_processamento: number;
+  team_mob_desmob: number;
   total_geral: number;
   current_status: BmStatus;
   rejection_reason: string | null;
+  internal_notes: string | null;
   smartsheet_synced_at: string | null;
+  /** Marcação manual do setor: true = BM já medido, false = pendente de medição. */
+  ja_medido?: boolean;
+
 }
 
 export interface BmStatusHistory {
@@ -91,6 +97,8 @@ export interface BmDiaOverride {
 // Custo de logística de Mob/Desmob, lançado manualmente por enquanto (ver comentário na
 // migration) — independente de um bm_id específico, igual cost_logs: consultado por
 // BSP/período direto na aba, não fica preso a um BM já gerado.
+export type MobDesmobCategoria = "transporte" | "hotel" | "outros";
+
 export interface BmMobDesmobCost {
   id: string;
   created_at: string;
@@ -102,6 +110,13 @@ export interface BmMobDesmobCost {
   markup: number | null;
   total_cost: number;
   notes: string | null;
+  categoria: MobDesmobCategoria;
+  period_start: string | null;
+  period_end: string | null;
+  import_batch: string | null;
+  applied: boolean;
+  applied_bm_number: string | null;
+  applied_at: string | null;
 }
 
 export type MaterialCategoria = "habitat" | "rental" | "consumable";
@@ -196,11 +211,13 @@ export function computeBmTotals(
   linesMateriais: Pick<BmLineMateriais, "valor_total">[],
   markupEnabled: boolean,
   markupPct: number,
+  posProcessamento = 0,
+  teamMobDesmob = 0,
 ): BmTotals {
   const totalMo = round2(linesMo.reduce((acc, l) => acc + l.valor_total, 0));
   const totalLogistica = round2(linesLogistica.reduce((acc, l) => acc + l.amount, 0));
   const totalLogisticaComMarkup = round2(markupEnabled ? totalLogistica * (1 + markupPct / 100) : totalLogistica);
   const totalMateriais = round2(linesMateriais.reduce((acc, l) => acc + l.valor_total, 0));
-  const grandTotal = round2(totalMo + totalLogisticaComMarkup + totalMateriais);
+  const grandTotal = round2(totalMo + totalLogisticaComMarkup + totalMateriais + posProcessamento + teamMobDesmob);
   return { totalMo, totalLogistica, totalLogisticaComMarkup, totalMateriais, grandTotal };
 }

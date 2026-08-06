@@ -24,7 +24,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2 } from "lucide-react";
 import { CLIENTES } from "@/lib/clientes";
 import { UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import {
@@ -36,8 +36,34 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { DRAKE_DATA_CUTOFF } from "@/lib/histogramaNovo";
 import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
+import { MedicaoTab } from "@/components/bm/MedicaoTab";
+
+import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { recordIssuedBm } from "@/lib/api/smartsheetBm.functions";
+import { getPoInfo, getBmHistoryForPo, recordIssuedBm, listJobOrderPos, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
+
+interface JobOrderPoOption {
+  poNumber: string;
+  totalValue: number;
+  occurrences: number;
+  client: string | null;
+  vessel: string | null;
+}
+const EMPTY_PO_LIST: JobOrderPoOption[] = [];
+
+interface SmartsheetBmOption {
+  rowId: string;
+  bmNumber: string;
+  poNumber: string | null;
+  client: string | null;
+  vessel: string | null;
+  value: number | null;
+  date: string | null;
+}
+const EMPTY_BM_LIST: SmartsheetBmOption[] = [];
+const NOVO_BM = "__novo__";
+
+
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
 
@@ -85,21 +111,52 @@ function BmPage() {
         <p className="text-sm text-muted-foreground">Geração automática de BM a partir do Timesheet Offshore e Logística.</p>
       </div>
       <Tabs defaultValue="gerar">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="gerar">Gerar Novo BM</TabsTrigger>
+          <TabsTrigger value="timesheets">Timesheets</TabsTrigger>
           <TabsTrigger value="mob-desmob">Logística Mob/Desmob</TabsTrigger>
+          <TabsTrigger value="habitat">Medição de Habitat</TabsTrigger>
+          <TabsTrigger value="locacao">Medição de Locação</TabsTrigger>
+          <TabsTrigger value="consumiveis">Medição de Consumíveis</TabsTrigger>
+          <TabsTrigger value="mob-materiais">Medição de Mob/Desmob de Materiais</TabsTrigger>
           <TabsTrigger value="historico">Histórico de BMs</TabsTrigger>
         </TabsList>
         <TabsContent value="gerar" className="mt-4">
           <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
         </TabsContent>
+        <TabsContent value="timesheets" className="mt-4">
+          <TimesheetsTab />
+        </TabsContent>
         <TabsContent value="mob-desmob" className="mt-4">
           <MobDesmobTab />
         </TabsContent>
+        <TabsContent value="habitat" className="mt-4">
+          <MedicaoTab tipo="habitat" titulo="Lançar medição de Habitat" smartsheetColumn="Medição Habitat"
+            bmColumn="total_habitat"
+            descricaoLabel="Habitat / Módulo" descricaoPlaceholder="Ex: Habitat 4 pax - Convés principal" />
+        </TabsContent>
+        <TabsContent value="locacao" className="mt-4">
+          <MedicaoTab tipo="locacao" titulo="Lançar medição de Locação" smartsheetColumn="Medição Locação"
+            bmColumn="total_locacao"
+            descricaoLabel="Equipamento locado" descricaoPlaceholder="Ex: Compressor 185 PCM" />
+        </TabsContent>
+        <TabsContent value="consumiveis" className="mt-4">
+          <MedicaoTab tipo="consumiveis" titulo="Lançar medição de Consumíveis" smartsheetColumn="Medição Consumíveis"
+            bmColumn="total_consumiveis"
+            descricaoLabel="Consumível" descricaoPlaceholder="Ex: Eletrodo E7018 3,25mm" />
+        </TabsContent>
+        <TabsContent value="mob-materiais" className="mt-4">
+          <MedicaoTab tipo="mob_desmob_materiais" titulo="Lançar medição de Mob/Desmob de Materiais"
+            smartsheetColumn="Medição Mob/Desmob Materiais"
+            bmColumn="total_mob_desmob_materiais"
+            descricaoLabel="Material" descricaoPlaceholder="Ex: Container 20' - Macaé → Base" />
+        </TabsContent>
+
         <TabsContent value="historico" className="mt-4">
           <HistoricoBmsTab onReopen={setReopenBm} />
         </TabsContent>
       </Tabs>
+
     </div>
   );
 }
@@ -115,12 +172,34 @@ interface Cabecalho {
   poNumber: string;
   poValue: number | null;
   poBalanceBefore: number | null;
+  numeroBm: string;
 }
 
 const CABECALHO_VAZIO: Cabecalho = {
   client: "", bsp: "", vessel: "", periodStart: "", periodEnd: "",
-  poNumber: "", poValue: null, poBalanceBefore: null,
+  poNumber: "", poValue: null, poBalanceBefore: null, numeroBm: "",
 };
+
+type MedicaoKey = "habitat" | "locacao" | "consumiveis" | "mob_desmob_materiais";
+
+const MEDICOES_ZERO: Record<MedicaoKey, number> = {
+  habitat: 0, locacao: 0, consumiveis: 0, mob_desmob_materiais: 0,
+};
+
+const MEDICOES_LABEL: Record<MedicaoKey, string> = {
+  habitat: "Medição de Habitat",
+  locacao: "Medição de Locação",
+  consumiveis: "Medição de Consumíveis",
+  mob_desmob_materiais: "Medição de Mob/Desmob de Materiais",
+};
+
+const MEDICOES_COLUNA: Record<MedicaoKey, string> = {
+  habitat: "total_habitat",
+  locacao: "total_locacao",
+  consumiveis: "total_consumiveis",
+  mob_desmob_materiais: "total_mob_desmob_materiais",
+};
+
 
 function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
   const qc = useQueryClient();
@@ -134,9 +213,17 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [diasOverrides, setDiasOverrides] = useState<Record<string, DiaOverrideEdit>>({});
   const [markupEnabled, setMarkupEnabled] = useState(false);
   const [markupPct, setMarkupPct] = useState(15);
+  // Lançados direto aqui, sem integração com Smartsheet (diferente das abas de Medição) —
+  // substituem os cards "Kit Irata Rental" (nunca teve dado real) e "Team Mob/Desmob" (que
+  // calculava errado, usando dias de hotel) na folha de rosto.
+  const [posProcessamento, setPosProcessamento] = useState(0);
+  const [teamMobDesmob, setTeamMobDesmob] = useState(0);
+  const [internalNotes, setInternalNotes] = useState("");
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   const [smartsheetLoading, setSmartsheetLoading] = useState(false);
+  // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
+  const [bmNovoManual, setBmNovoManual] = useState(false);
   // Resultado do último BM gerado/salvo — enquanto preenchido, a tela mostra o BmConsolidatedView
   // (Consolidado + Diárias + Horas) no lugar do wizard, pra "Gerar BM" ter um resultado visível
   // imediato em vez de só um toast e o formulário voltando em branco.
@@ -152,10 +239,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       client: reopenBm.client_name, bsp: reopenBm.project_name ?? "",
       vessel: reopenBm.vessel, periodStart: reopenBm.period_start, periodEnd: reopenBm.period_end,
       poNumber: reopenBm.po_number ?? "", poValue: reopenBm.po_value, poBalanceBefore: reopenBm.po_balance_before,
+      numeroBm: reopenBm.numero_bm ?? "",
+
     });
     setMarkupEnabled(reopenBm.markup_enabled);
     setMarkupPct(reopenBm.markup_pct);
     setReopenBmId(reopenBm.id);
+    setBmNovoManual(true);
     (async () => {
       const { data, error } = await supabase.from("bm_dias_overrides").select("*").eq("bm_id", reopenBm.id);
       if (error) { notify.error(error.message); return; }
@@ -236,36 +326,87 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
   const headerCompleto = !!(cab.client && cab.vessel && cab.periodStart && cab.periodEnd);
 
-  // Busca o PO Value e o saldo direto do nosso próprio histórico de BMs (tabela `bms`) — não
-  // chama o Smartsheet aqui. O PO Value vem do BM mais recente já lançado pra essa PO (o valor
-  // do contrato não muda entre BMs); o saldo já usado soma só os BMs que realmente chegaram a
-  // "sent_client" (mesmo critério que antes valia pro histórico do Smartsheet, que só recebia
-  // um BM depois de aprovado — ver atualizarSmartsheet mais abaixo).
   const onBuscarSmartsheet = async () => {
     if (!cab.poNumber.trim()) return;
     setSmartsheetLoading(true);
     try {
       const poNumber = cab.poNumber.trim();
-      const { data, error } = await supabase
-        .from("bms")
-        .select("po_value, total_geral, current_status, created_at")
-        .eq("po_number", poNumber)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      const registros = (data ?? []) as { po_value: number | null; total_geral: number | null; current_status: string }[];
-      const poValue = registros.find((b) => b.po_value != null)?.po_value ?? null;
-      const bmsIssued = registros
-        .filter((b) => b.current_status === "sent_client")
-        .reduce((acc, b) => acc + (b.total_geral ?? 0), 0);
+      const [info, hist] = await Promise.all([
+        getPoInfo({ data: { poNumber } }),
+        getBmHistoryForPo({ data: { poNumber } }),
+      ]);
+      // O Valor Total da PO vem da Job Order (soma de todas as ocorrências); o getPoInfo
+      // só é usado como fallback quando a PO não está na Job Order.
+      const poValue = poSelecionada?.totalValue ?? info?.poValue ?? null;
+      const bmsIssued = hist?.totalIssued ?? 0;
       setCab((c) => ({ ...c, poValue, poBalanceBefore: poValue != null ? poValue - bmsIssued : null }));
-      if (poValue != null) notify.success("PO Value carregado do histórico de BMs.");
-      else notify.error("Nenhum BM anterior encontrado pra essa PO — preencha o PO Value manualmente.");
+
+      notify.success("Dados do Smartsheet carregados.");
     } catch (e: any) {
-      notify.error(e.message || "Erro ao buscar o histórico de BMs.");
+      notify.error(e.message || "Integração com Smartsheet ainda não disponível — preencha o PO Value manualmente.");
     } finally {
       setSmartsheetLoading(false);
     }
   };
+
+  // ── Smartsheet: Job Order (lista de POs) e Controle de BM (sequência) ──────────────────
+  // Só leitura: a planilha Job Order alimenta o autocomplete de PO (uma linha por PO, valor
+  // somado de todas as ocorrências) e o Controle de BM dá o próximo número da sequência.
+  const { data: jobOrderPos = EMPTY_PO_LIST } = useQuery<JobOrderPoOption[]>({
+    queryKey: ["smartsheet-job-order-pos"],
+    queryFn: async () => (await listJobOrderPos()) as JobOrderPoOption[],
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: proximoBm } = useQuery({
+    queryKey: ["smartsheet-next-bm"],
+    queryFn: async () => await getNextBmNumber(),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Controle de Medição (Smartsheet): lista de BMs já existentes — alimenta a lista de
+  // números de BM e a lista de POs; o valor do BM vem da própria linha da planilha.
+  const { data: smartsheetBms = EMPTY_BM_LIST } = useQuery<SmartsheetBmOption[]>({
+    queryKey: ["smartsheet-bm-list"],
+    queryFn: async () => (await listSmartsheetBms()) as SmartsheetBmOption[],
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const bmSelecionado = useMemo(
+    () => smartsheetBms.find((b) => b.bmNumber.trim().toLowerCase() === cab.numeroBm.trim().toLowerCase()) ?? null,
+    [smartsheetBms, cab.numeroBm],
+  );
+
+  // POs disponíveis: as que aparecem no Controle de BM, com o valor somado da Job Order.
+  const poOptions = useMemo(() => {
+    const jobByPo = new Map(jobOrderPos.map((p) => [p.poNumber.trim().toLowerCase(), p]));
+    const out = new Map<string, JobOrderPoOption>();
+    for (const bm of smartsheetBms) {
+      const po = (bm.poNumber ?? "").trim();
+      if (!po) continue;
+      const key = po.toLowerCase();
+      if (out.has(key)) continue;
+      const job = jobByPo.get(key);
+      out.set(key, job ?? { poNumber: po, totalValue: 0, occurrences: 0, client: bm.client, vessel: bm.vessel });
+    }
+    for (const p of jobOrderPos) if (!out.has(p.poNumber.trim().toLowerCase())) out.set(p.poNumber.trim().toLowerCase(), p);
+    return Array.from(out.values()).sort((a, b) => a.poNumber.localeCompare(b.poNumber, "pt-BR", { numeric: true }));
+  }, [smartsheetBms, jobOrderPos]);
+
+  const poSelecionada = useMemo(
+    () => jobOrderPos.find((p) => p.poNumber.toLowerCase() === cab.poNumber.trim().toLowerCase()) ?? null,
+    [jobOrderPos, cab.poNumber],
+  );
+
+  // Recalcula o Valor Total da PO sempre que a PO muda (soma das linhas da Job Order).
+  useEffect(() => {
+    setCab((c) => {
+      const total = poSelecionada?.totalValue ?? null;
+      return c.poValue === total ? c : { ...c, poValue: total };
+    });
+  }, [poSelecionada]);
+
+
 
   // ── Step 1: Horas do Timesheet (compilado editável, alimenta a Mão de Obra) ─────────────
   // Busca os dias "crus" do timesheet real pro vessel/período/BSP escolhidos — sem agregar
@@ -291,9 +432,18 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       if (!semanaIds.length) return [];
 
       const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("data, evento, horas_extras, adicional_noturno, total_horas, semana_id, bsp")
+        .from("timesheet_dias").select("id, data, evento, horas_extras, adicional_noturno, total_horas, semana_id, bsp")
         .in("semana_id", semanaIds).gte("data", cab.periodStart).lte("data", cab.periodEnd);
       if (diasErr) throw diasErr;
+
+      // Cópia editável da aba "Timesheets" do BM — quando existe, ela é a fonte da medição
+      // (os ajustes da Medição valem só aqui, nunca voltam pro Timesheet Offshore).
+      const { data: copiasData, error: copiasErr } = await supabase
+        .from("bm_timesheet_dias").select("source_dia_id, evento, horas_extras, adicional_noturno, total_horas, bsp, funcao")
+        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
+      if (copiasErr) throw copiasErr;
+      const copiaBySourceId = new Map<string, any>((copiasData ?? []).filter((c: any) => c.source_dia_id).map((c: any) => [c.source_dia_id, c]));
+
 
       const embarqueBySemanaId = new Map<string, string>((semanasData ?? []).map((s: any) => [s.id, s.embarque_id]));
       const embarqueById = new Map<string, any>((embarquesData ?? []).map((e: any) => [e.id, e]));
@@ -316,13 +466,19 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         .map((d: any) => {
           const embarqueId = embarqueBySemanaId.get(d.semana_id) ?? "";
           const embarque = embarqueById.get(embarqueId);
-          const bspEfetivo = d.bsp ?? embarque?.bsp ?? null;
+          const copia = copiaBySourceId.get(d.id);
+          const bspEfetivo = copia?.bsp ?? d.bsp ?? embarque?.bsp ?? null;
           return {
-            data: d.data, evento: d.evento, horas_extras: d.horas_extras, adicional_noturno: d.adicional_noturno, total_horas: d.total_horas,
+            data: d.data,
+            evento: copia ? copia.evento : d.evento,
+            horas_extras: copia ? copia.horas_extras : d.horas_extras,
+            adicional_noturno: copia ? copia.adicional_noturno : d.adicional_noturno,
+            total_horas: copia ? copia.total_horas : d.total_horas,
             colaborador_id: embarque?.colaborador_id ?? "", colaborador_nome: nomeById.get(embarque?.colaborador_id) ?? "—",
-            funcao_embarque: embarque?.funcao_embarque ?? "—", bsp: bspEfetivo,
+            funcao_embarque: copia?.funcao ?? embarque?.funcao_embarque ?? "—", bsp: bspEfetivo,
           };
         })
+
         .filter((d: TimesheetDiaComColaborador) => d.colaborador_id && (!bspAlvo || normalizarBsp(d.bsp) === bspAlvo));
 
       return diasComColaborador.sort((a, b) => a.colaborador_nome.localeCompare(b.colaborador_nome) || a.data.localeCompare(b.data));
@@ -414,11 +570,61 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   }, [costLogsCalculados]);
 
   const totals = useMemo(
-    () => computeBmTotals(linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct),
-    [linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct],
+    () => computeBmTotals(linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct, posProcessamento, teamMobDesmob),
+    [linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct, posProcessamento, teamMobDesmob],
   );
 
-  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totals.grandTotal) : null;
+  // ── Medições aplicadas a este BM (Habitat, Locação, Consumíveis, Mob/Desmob) ───────────
+  // Cada aba de medição consolida seus lançamentos e aplica o total ao BM; aqui o cabeçalho
+  // apenas lê os totais já aplicados ao número de BM selecionado.
+  const numeroBmAtual = cab.numeroBm.trim();
+  const { data: medicoes = MEDICOES_ZERO } = useQuery<Record<MedicaoKey, number>>({
+    queryKey: ["bm-medicoes-aplicadas", numeroBmAtual],
+    enabled: !!numeroBmAtual,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bm_medicoes").select("tipo, valor_total")
+        .eq("applied", true).eq("applied_bm_number", numeroBmAtual);
+      if (error) throw error;
+      const acc: Record<MedicaoKey, number> = { ...MEDICOES_ZERO };
+      for (const r of (data ?? []) as { tipo: MedicaoKey; valor_total: number }[]) {
+        if (r.tipo in acc) acc[r.tipo] = round2(acc[r.tipo] + (Number(r.valor_total) || 0));
+      }
+      return acc;
+    },
+  });
+  const totalMedicoes = useMemo(
+    () => round2(Object.values(medicoes).reduce((a, v) => a + v, 0)),
+    [medicoes],
+  );
+
+  // ── Logística Mob/Desmob (transporte e hotel) aplicada ao BSP selecionado ───────────────
+  // Os custos importados na aba "Logística Mob/Desmob" são aplicados por BSP; ao selecionar
+  // o BSP aqui, os totais de transporte e hotel já aplicados entram no cálculo do BM.
+  const { data: mobDesmob = { transporte: 0, hotel: 0, outros: 0 } } = useQuery({
+    queryKey: ["bm-mob-desmob-aplicados", cab.bsp, numeroBmAtual],
+    enabled: !!cab.bsp,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number")
+        .eq("applied", true).eq("bsp", cab.bsp);
+      if (error) throw error;
+      const acc = { transporte: 0, hotel: 0, outros: 0 };
+      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+        if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
+        const k = (r.categoria in acc ? r.categoria : "outros") as keyof typeof acc;
+        acc[k] = round2(acc[k] + (Number(r.total_cost) || 0));
+      }
+      return acc;
+    },
+  });
+  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros);
+
+  const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes + totalMobDesmob);
+
+  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totalGeralComMedicoes) : null;
+
+
 
   const bmExportData: BmExportData = useMemo(() => ({
     client: cab.client, vessel: cab.vessel, projectName: cab.bsp,
@@ -430,7 +636,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const salvarBm = useMutation({
     mutationFn: async (targetStatus: "draft" | "pending_pm") => {
       const payload = {
-        numero_bm: null,
+        numero_bm: cab.numeroBm.trim() || null,
         client_id: clientIdAtual,
         client_name: cab.client,
         project_id: null,
@@ -448,7 +654,15 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         total_mo: totals.totalMo,
         total_logistica: totals.totalLogisticaComMarkup,
         total_materiais: totals.totalMateriais,
-        total_geral: totals.grandTotal,
+        pos_processamento: posProcessamento,
+        team_mob_desmob: teamMobDesmob,
+        internal_notes: internalNotes.trim() || null,
+        total_habitat: medicoes.habitat,
+        total_locacao: medicoes.locacao,
+        total_consumiveis: medicoes.consumiveis,
+        total_mob_desmob_materiais: medicoes.mob_desmob_materiais,
+        total_geral: totalGeralComMedicoes,
+
         current_status: targetStatus,
       };
 
@@ -559,23 +773,135 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               </Select>
             </div>
             <div>
-              <Label className="text-xs">PO Number (opcional)</Label>
+              <Label className="text-xs">PO</Label>
               <div className="flex gap-2">
-                <Input value={cab.poNumber} onChange={(e) => setCab({ ...cab, poNumber: e.target.value })} placeholder="Ex: P3231161" />
-                <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Buscar</Button>
+                <Select value={cab.poNumber} onValueChange={(v) => setCab({ ...cab, poNumber: v })}>
+                  <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione a PO" /></SelectTrigger>
+                  <SelectContent>
+                    {poOptions.map((p) => (
+                      <SelectItem key={p.poNumber} value={p.poNumber}>
+                        {p.poNumber}{p.totalValue > 0 ? ` — ${fmtMoney(p.totalValue)}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" size="sm" onClick={onBuscarSmartsheet} loading={smartsheetLoading} disabled={!cab.poNumber.trim()}>Saldo</Button>
               </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">POs do Controle de BM · valor somado da Job Order.</p>
             </div>
           </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Valor Total da PO</Label>
+              <Input readOnly className="bg-muted/40" value={cab.poValue != null ? fmtMoney(cab.poValue) : "—"} />
+              {poSelecionada && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Soma de {poSelecionada.occurrences} lançamento(s) da Job Order.
+                </p>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs">Número do BM</Label>
+              {bmNovoManual ? (
+                <div className="flex gap-2">
+                  <Input value={cab.numeroBm} onChange={(e) => setCab({ ...cab, numeroBm: e.target.value })} placeholder="Novo número de BM" />
+                  <Button variant="ghost" size="sm" onClick={() => setBmNovoManual(false)}>Lista</Button>
+                </div>
+              ) : (
+                <Select
+                  value={bmSelecionado ? bmSelecionado.bmNumber : ""}
+                  onValueChange={(v) => {
+                    if (v === NOVO_BM) {
+                      setBmNovoManual(true);
+                      setCab((c) => ({ ...c, numeroBm: proximoBm?.nextBmNumber ?? "" }));
+                      return;
+                    }
+                    const row = smartsheetBms.find((b) => b.bmNumber === v);
+                    setCab((c) => ({ ...c, numeroBm: v, poNumber: row?.poNumber?.trim() || c.poNumber }));
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione o BM" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NOVO_BM}>+ Criar novo{proximoBm?.nextBmNumber ? ` (${proximoBm.nextBmNumber})` : ""}</SelectItem>
+                    {smartsheetBms.map((b) => (
+                      <SelectItem key={b.rowId} value={b.bmNumber}>
+                        {b.bmNumber}{b.value != null ? ` — ${fmtMoney(b.value)}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {proximoBm?.lastBmNumber && (
+                <p className="mt-1 text-[11px] text-muted-foreground">Último BM: {proximoBm.lastBmNumber}</p>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs">Valor do BM</Label>
+              <Input readOnly className="bg-muted/40" value={bmSelecionado?.value != null ? fmtMoney(bmSelecionado.value) : "—"} />
+              <p className="mt-1 text-[11px] text-muted-foreground">Valor registrado no Controle de Medição.</p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Período — De</Label><Input type="date" value={cab.periodStart} onChange={(e) => setCab({ ...cab, periodStart: e.target.value })} /></div>
             <div><Label className="text-xs">Período — Até</Label><Input type="date" value={cab.periodEnd} onChange={(e) => setCab({ ...cab, periodEnd: e.target.value })} /></div>
           </div>
+
           {cab.poValue != null && (
             <p className="text-xs text-muted-foreground">
               PO Value: <strong>{fmtMoney(cab.poValue)}</strong>
               {cab.poBalanceBefore != null && <> · Saldo antes deste BM: <strong>{fmtMoney(cab.poBalanceBefore)}</strong></>}
             </p>
           )}
+
+          <div className="rounded-md border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold">Medições aplicadas ao cabeçalho</span>
+              <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMedicoes)}</strong></span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).map((k) => (
+                <div key={k}>
+                  <Label className="text-xs">{MEDICOES_LABEL[k]}</Label>
+                  <Input readOnly className="bg-muted/40" value={fmtMoney(medicoes[k])} />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {numeroBmAtual
+                ? `Totais consolidados nas abas de medição e aplicados ao BM ${numeroBmAtual}.`
+                : "Informe o Número do BM para carregar as medições já aplicadas a ele."}
+
+            </p>
+          </div>
+
+          <div className="rounded-md border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold">Logística Mob/Desmob aplicada ao BSP</span>
+              <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <div>
+                <Label className="text-xs">Transporte</Label>
+                <Input readOnly className="bg-muted/40" value={fmtMoney(mobDesmob.transporte)} />
+              </div>
+              <div>
+                <Label className="text-xs">Hotel</Label>
+                <Input readOnly className="bg-muted/40" value={fmtMoney(mobDesmob.hotel)} />
+              </div>
+              <div>
+                <Label className="text-xs">Outros</Label>
+                <Input readOnly className="bg-muted/40" value={fmtMoney(mobDesmob.outros)} />
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {cab.bsp
+                ? `Custos importados e aplicados na aba Logística Mob/Desmob para o BSP ${cab.bsp}.`
+                : "Selecione o BSP para carregar os custos de transporte e hotel já aplicados."}
+            </p>
+          </div>
+
+
         </div>
       )}
 
@@ -659,7 +985,23 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             <div className="space-y-1">
               <div className="flex justify-between"><span>Mão de Obra</span><span className="font-medium">{fmtMoney(totals.totalMo)}</span></div>
               <div className="flex justify-between"><span>Logística{markupEnabled ? ` (+${markupPct}%)` : ""}</span><span className="font-medium">{fmtMoney(totals.totalLogisticaComMarkup)}</span></div>
-              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totals.grandTotal)}</span></div>
+              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).filter((k) => medicoes[k] > 0).map((k) => (
+                <div key={k} className="flex justify-between">
+                  <span>{MEDICOES_LABEL[k]}</span><span className="font-medium">{fmtMoney(medicoes[k])}</span>
+                </div>
+              ))}
+              {mobDesmob.transporte > 0 && (
+                <div className="flex justify-between"><span>Transporte (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.transporte)}</span></div>
+              )}
+              {mobDesmob.hotel > 0 && (
+                <div className="flex justify-between"><span>Hotel (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.hotel)}</span></div>
+              )}
+              {mobDesmob.outros > 0 && (
+                <div className="flex justify-between"><span>Outros (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.outros)}</span></div>
+              )}
+
+              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totalGeralComMedicoes)}</span></div>
+
             </div>
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm">
@@ -684,6 +1026,20 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                   </div>
                 </div>
               )}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div>
+                  <Label className="text-xs">Pós Processamento</Label>
+                  <Input type="number" step="0.01" value={posProcessamento} onChange={(e) => setPosProcessamento(Number(e.target.value) || 0)} />
+                </div>
+                <div>
+                  <Label className="text-xs">Team Mob/Desmob</Label>
+                  <Input type="number" step="0.01" value={teamMobDesmob} onChange={(e) => setTeamMobDesmob(Number(e.target.value) || 0)} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Observações (interno, não sai no PDF)</Label>
+                <Textarea value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} rows={2} />
+              </div>
             </div>
           </div>
 
@@ -1008,6 +1364,22 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
     onError: (e: any) => notify.error(e.message || "Erro ao excluir o BM."),
   });
 
+  // "Já foi medido": flag persistida em bms.ja_medido; marcar/desmarcar alterna entre
+  // "Já medido" e "Pendente de medição" e fica salvo no BM.
+  const toggleJaMedido = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase.from("bms").update({ ja_medido: value }).eq("id", id);
+      if (error) throw error;
+      return value;
+    },
+    onSuccess: (value) => {
+      qc.invalidateQueries({ queryKey: ["bm-historico"] });
+      notify.success(value ? "BM marcado como já medido." : "BM voltou para pendente de medição.");
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao atualizar a medição do BM."),
+  });
+
+
   const clientesNaLista = useMemo(() => Array.from(new Set(bms.map((b) => b.client_name))).sort(), [bms]);
   const filtered = bms
     .filter((b) => (filterClient === "all" || b.client_name === filterClient) && (filterStatus === "all" || b.current_status === filterStatus))
@@ -1065,6 +1437,7 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
               <SortableHead label="Período" column="periodo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Total" column="total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead className="w-32">Medição</TableHead>
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
@@ -1077,6 +1450,17 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                 <TableCell>{fmt(b.period_start)} – {fmt(b.period_end)}</TableCell>
                 <TableCell>{fmtMoney(b.total_geral)}</TableCell>
                 <TableCell><StatusBadge tone={STATUS_TONE[b.current_status]}>{STATUS_LABELS[b.current_status]}</StatusBadge></TableCell>
+                <TableCell>
+                  {b.ja_medido ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
+                      <CheckCircle2 className="h-3 w-3" /> Medido
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+
+
                 <TableCell>
                   <Button size="sm" variant="ghost" onClick={() => setViewingBm(b)}>Ver</Button>
                   {(b.current_status === "draft" || b.current_status === "rejected") && (
@@ -1121,12 +1505,24 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
             já testado e funcionando na visualização inline do wizard). */}
         <DialogContent className="print:hidden max-w-[95vw] max-h-[90vh] overflow-y-auto">
           {viewingBm && (
-            <BmConsolidatedView
-              bm={viewingBm}
-              linesMo={viewingLinhas?.mo ?? []}
-              linesLogistica={viewingLinhas?.logistica ?? []}
-            />
+            <>
+              {/* Marcação de medição vive dentro do BM; a lista só exibe a flag "Medido". */}
+              <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm print:hidden">
+                <Checkbox
+                  checked={!!(bms.find((x) => x.id === viewingBm.id)?.ja_medido ?? viewingBm.ja_medido)}
+                  disabled={toggleJaMedido.isPending}
+                  onCheckedChange={(v) => toggleJaMedido.mutate({ id: viewingBm.id, value: v === true })}
+                />
+                <span>Já foi medido</span>
+              </label>
+              <BmConsolidatedView
+                bm={viewingBm}
+                linesMo={viewingLinhas?.mo ?? []}
+                linesLogistica={viewingLinhas?.logistica ?? []}
+              />
+            </>
           )}
+
         </DialogContent>
       </Dialog>
       {viewingBm && (
