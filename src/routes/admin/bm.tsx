@@ -517,7 +517,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const salvarBm = useMutation({
     mutationFn: async (targetStatus: "draft" | "pending_pm") => {
       const payload = {
-        numero_bm: null,
+        numero_bm: cab.numeroBm.trim() || null,
         client_id: clientIdAtual,
         client_name: cab.client,
         project_id: null,
