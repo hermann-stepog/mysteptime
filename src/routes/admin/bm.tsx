@@ -586,7 +586,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         total_mo: totals.totalMo,
         total_logistica: totals.totalLogisticaComMarkup,
         total_materiais: totals.totalMateriais,
-        total_geral: totals.grandTotal,
+        total_habitat: medicoes.habitat,
+        total_locacao: medicoes.locacao,
+        total_consumiveis: medicoes.consumiveis,
+        total_mob_desmob_materiais: medicoes.mob_desmob_materiais,
+        total_geral: totalGeralComMedicoes,
+
         current_status: targetStatus,
       };
 
