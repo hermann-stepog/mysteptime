@@ -40,7 +40,7 @@ import { MedicaoTab } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { getPoInfo, getBmHistoryForPo, recordIssuedBm, listJobOrderPos, getNextBmNumber } from "@/lib/api/smartsheetBm.functions";
+import { getPoInfo, getBmHistoryForPo, recordIssuedBm, listJobOrderPos, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 
 interface JobOrderPoOption {
   poNumber: string;
@@ -50,6 +50,19 @@ interface JobOrderPoOption {
   vessel: string | null;
 }
 const EMPTY_PO_LIST: JobOrderPoOption[] = [];
+
+interface SmartsheetBmOption {
+  rowId: string;
+  bmNumber: string;
+  poNumber: string | null;
+  client: string | null;
+  vessel: string | null;
+  value: number | null;
+  date: string | null;
+}
+const EMPTY_BM_LIST: SmartsheetBmOption[] = [];
+const NOVO_BM = "__novo__";
+
 
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
