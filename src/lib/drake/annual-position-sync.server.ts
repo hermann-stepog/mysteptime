@@ -7,11 +7,13 @@ import {
 } from "./worker-annual-position-api.server";
 import {
   buildAnnualPositionSnapshot,
+  buildWorkerKey,
   type AnnualPositionWorkerRow,
 } from "@/lib/histograma/drake-snapshot";
-import { synchronizeDrakeAnnualPositionSnapshot } from "@/lib/histograma/drake-snapshot-sync.server";
+import { importAnnualPositionSnapshot } from "@/lib/histograma/import-annual-position.server";
 import { normalizeUnidadeOperacional } from "@/lib/histogramaNovo";
-import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
+import { createTimesheetForNewPeriodIfAbsent } from "@/lib/timesheetAutoGen";
+import { filterWorkersWithEmbarkationHistory } from "./annual-position-eligibility";
 
 export interface AnnualPositionSyncProgress {
   completedWorkers: number;
@@ -23,6 +25,8 @@ export interface AnnualPositionSyncResult {
   updatedWorkers: number;
   synchronizedEvents: number;
   removedStaleEvents: number;
+  preservedExistingEvents: number;
+  skippedExistingDays: number;
   processedWorkers: number;
 }
 
@@ -37,9 +41,20 @@ export async function synchronizeCurrentDrakeAnnualPositions(
   db: SupabaseClient,
   http: DrakeHttpClient,
   year: number,
+  cutoffDate: string,
   hooks: AnnualPositionSyncHooks = {},
 ): Promise<AnnualPositionSyncResult> {
-  const workers = await fetchDrakeWorkers(http);
+  const activeWorkers = await fetchDrakeWorkers(http);
+
+  // Congelado antes de qualquer gravacao desta execucao.
+  // Um E criado agora nunca torna outro colaborador elegivel.
+  const eligibleWorkerKeys = await loadEligibleWorkerKeys(db);
+
+  const workers = filterWorkersWithEmbarkationHistory(
+    activeWorkers,
+    eligibleWorkerKeys,
+  );
+
   await hooks.onWorkersLoaded?.(workers.length);
   const annualPositions = await fetchAnnualPositionsForWorkers(
     http,
@@ -50,47 +65,48 @@ export async function synchronizeCurrentDrakeAnnualPositions(
   );
   await hooks.onPositionsLoaded?.();
 
-  const sourceRows: AnnualPositionWorkerRow[] = annualPositions.map(({ worker, positions, schedules }) => ({
-    drakeWorkerId: worker.id,
-    matricula: worker.registration,
-    nome: worker.name,
-    empresa: worker.companyName,
-    funcao: worker.jobDescription,
-    funcaoOperacao: worker.payrollJobName,
-    positions: positions.map((position) => {
-      const schedule = scheduleForDate(schedules, position.Date);
-      return {
-        date: position.Date,
-        occurrenceAcronym: position.OccurrenceAcronym,
-        occurrenceDescription: position.OccurrenceDescription,
-        occurrenceType: position.OccurrenceType,
-        unidadeOperacional: normalizeUnidadeOperacional(
-          optionalString(position.Details?.Uop) ?? schedule?.DestinationDescription,
-        ),
-        // Contract na ficha anual é o cliente, não o centro de custo. O campo correto vem da
-        // programação logística exibida no mesmo dashboard do colaborador.
-        centroDeCusto: schedule?.CostCenterDescription ?? null,
-      };
+  const sourceRows: AnnualPositionWorkerRow[] = annualPositions.map(
+    ({ worker, positions, schedules }) => ({
+      drakeWorkerId: worker.id,
+      matricula: worker.registration,
+      nome: worker.name,
+      empresa: worker.companyName,
+      funcao: worker.jobDescription,
+      funcaoOperacao: worker.payrollJobName,
+      positions: positions.map((position) => {
+        const schedule = scheduleForDate(schedules, position.Date);
+        return {
+          date: position.Date,
+          occurrenceAcronym: position.OccurrenceAcronym,
+          occurrenceDescription: position.OccurrenceDescription,
+          occurrenceType: position.OccurrenceType,
+          unidadeOperacional: normalizeUnidadeOperacional(
+            optionalString(position.Details?.Uop) ?? schedule?.DestinationDescription,
+          ),
+          // Contract na ficha anual é o cliente, não o centro de custo. O centro de custo
+          // exibido no Histograma vem da programação logística do mesmo colaborador.
+          centroDeCusto: schedule?.CostCenterDescription ?? null,
+        };
+      }),
     }),
-  }));
+  );
   const snapshot = buildAnnualPositionSnapshot(sourceRows);
   await hooks.onBeforeDatabaseSync?.();
-  const result = await synchronizeDrakeAnnualPositionSnapshot(db, snapshot, {
-    startDate: `${year}-01-01`,
+  const result = await importAnnualPositionSnapshot(db, snapshot, {
+    startDate: cutoffDate,
     endDate: `${year}-12-31`,
   });
 
   const workerByKey = new Map(snapshot.workers.map((worker) => [worker.workerKey, worker]));
-  for (const period of snapshot.periods) {
+  for (const period of result.insertedPeriods) {
     if (period.tipo !== "E") continue;
-    const periodoId = result.periodIdByEventKey.get(period.eventKey);
     const worker = workerByKey.get(period.workerKey);
-    if (!periodoId || !worker) {
-      throw new Error("O banco não confirmou todos os embarques da ficha anual do Drake.");
+    if (!worker) {
+      throw new Error("O Drake devolveu um novo embarque sem colaborador correspondente.");
     }
-    await ensureTimesheetParaPeriodo(db, {
-      periodoId,
-      sourceEventKey: period.eventKey,
+    await createTimesheetForNewPeriodIfAbsent(db, {
+      colaboradorId: period.colaboradorId,
+      periodoId: period.id,
       unidadeOperacional: period.unidadeOperacional,
       bsp: period.centroDeCusto,
       funcaoEmbarque: worker.funcao || worker.funcaoOperacao || "—",
@@ -104,6 +120,8 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     updatedWorkers: result.updatedWorkers,
     synchronizedEvents: result.synchronizedEvents,
     removedStaleEvents: result.removedStaleEvents,
+    preservedExistingEvents: result.preservedExistingEvents,
+    skippedExistingDays: result.skippedExistingDays,
     processedWorkers: workers.length,
   };
 }
@@ -125,5 +143,83 @@ function scheduleForDate<T extends { Date: string; Type: string }>(
 }
 
 function normalize(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+async function loadEligibleWorkerKeys(
+  db: SupabaseClient,
+): Promise<Set<string>> {
+  const collaboratorIds = new Set<string>();
+  const pageSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await db
+      .from("hist_novo_periodos")
+      .select("colaborador_id")
+      .eq("tipo", "E")
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+
+    const rows = (data ?? []) as Array<{
+      colaborador_id: string | null;
+    }>;
+
+    for (const row of rows) {
+      if (row.colaborador_id) {
+        collaboratorIds.add(row.colaborador_id);
+      }
+    }
+
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const eligibleWorkerKeys = new Set<string>();
+  const ids = [...collaboratorIds];
+
+  for (const batch of chunkEligibilityIds(ids, 200)) {
+    const { data, error } = await db
+      .from("hist_novo_colaboradores")
+      .select("empresa, matricula")
+      .in("id", batch);
+
+    if (error) throw error;
+
+    const workers = (data ?? []) as Array<{
+      empresa: string | null;
+      matricula: string | null;
+    }>;
+
+    for (const worker of workers) {
+      if (!worker.empresa?.trim() || !worker.matricula?.trim()) {
+        continue;
+      }
+
+      eligibleWorkerKeys.add(
+        buildWorkerKey(worker.empresa, worker.matricula),
+      );
+    }
+  }
+
+  return eligibleWorkerKeys;
+}
+
+function chunkEligibilityIds<T>(
+  values: T[],
+  size: number,
+): T[][] {
+  const batches: T[][] = [];
+
+  for (let index = 0; index < values.length; index += size) {
+    batches.push(values.slice(index, index + size));
+  }
+
+  return batches;
 }

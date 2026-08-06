@@ -157,7 +157,8 @@ export function buildAvailabilitySnapshot(rows: AvailabilitySourceRow[]): DrakeH
 export function buildAnnualPositionSnapshot(
   rows: AnnualPositionWorkerRow[],
 ): DrakeHistogramSnapshot {
-  const workers = rows.map((row) => ({
+  const consolidatedRows = consolidateAnnualPositionRows(rows);
+  const workers = consolidatedRows.map((row) => ({
     workerKey: buildWorkerKey(row.empresa, row.matricula),
     matricula: row.matricula,
     nome: row.nome,
@@ -167,7 +168,7 @@ export function buildAnnualPositionSnapshot(
   }));
   const periods: DrakePeriodSnapshotRow[] = [];
 
-  for (const row of rows) {
+  for (const row of consolidatedRows) {
     const workerKey = buildWorkerKey(row.empresa, row.matricula);
     const days = [...row.positions].sort((left, right) => left.date.localeCompare(right.date));
     let current: DrakePeriodSnapshotRow | null = null;
@@ -220,6 +221,104 @@ export function buildAnnualPositionSnapshot(
     workers: buildWorkers(workers.map((worker) => ({ ...worker, referenceDate: "9999-12-31" }))),
     periods: deduplicatePeriods(periods),
   };
+}
+
+interface AnnualPositionWorkerGroup {
+  workerKey: string;
+  drakeWorkerIds: Set<string>;
+  matricula: string;  nome: string;
+  empresa: string;
+  funcao: string | null;
+  funcaoOperacao: string | null;
+  positionsByDate: Map<string, AnnualPositionDayRow>;
+}
+
+/**
+ * O Worker Dashboard pode devolver mais de um UUID do Drake para a mesma identidade de negócio
+ * (empresa + matrícula). A grade possui um único colaborador para essa identidade, portanto as
+ * fichas idênticas são consolidadas antes de gerar períodos. Divergências no mesmo dia cancelam
+ * a sincronização antes de qualquer escrita no banco.
+ */
+function consolidateAnnualPositionRows(
+  rows: AnnualPositionWorkerRow[],
+): AnnualPositionWorkerRow[] {
+  const groups = new Map<string, AnnualPositionWorkerGroup>();
+  const orderedRows = [...rows].sort((left, right) =>
+    left.drakeWorkerId.localeCompare(right.drakeWorkerId),
+  );
+
+  for (const row of orderedRows) {
+    const workerKey = buildWorkerKey(row.empresa, row.matricula);
+    let group = groups.get(workerKey);
+    if (!group) {
+      group = {
+        workerKey,
+        drakeWorkerIds: new Set<string>(),
+        matricula: row.matricula,        nome: row.nome,
+        empresa: row.empresa,
+        funcao: row.funcao,
+        funcaoOperacao: row.funcaoOperacao,
+        positionsByDate: new Map<string, AnnualPositionDayRow>(),
+      };
+      groups.set(workerKey, group);
+    }
+
+    group.drakeWorkerIds.add(row.drakeWorkerId);
+    const selectedWorkerName = [group.nome, row.nome]
+      .filter((name) => normalizeIdentityPart(name).length > 0)
+      .sort((left, right) => {
+        const normalizedComparison = normalizeIdentityPart(left).localeCompare(
+          normalizeIdentityPart(right),
+        );
+        if (normalizedComparison !== 0) return normalizedComparison;
+        return left.localeCompare(right);
+      })[0];
+
+    if (selectedWorkerName) group.nome = selectedWorkerName;
+    if (!group.funcao && row.funcao) group.funcao = row.funcao;
+    if (!group.funcaoOperacao && row.funcaoOperacao) group.funcaoOperacao = row.funcaoOperacao;
+
+    for (const day of row.positions) {
+      const existing = group.positionsByDate.get(day.date);
+      if (!existing) {
+        group.positionsByDate.set(day.date, { ...day });
+        continue;
+      }
+      if (annualPositionDayFingerprint(existing) !== annualPositionDayFingerprint(day)) {
+        throw new Error(
+          `O Drake devolveu posições conflitantes para ${row.empresa}/${row.matricula} em ${day.date}. O banco não foi alterado.`,
+        );
+      }
+    }
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      drakeWorkerId: [...group.drakeWorkerIds].sort()[0]!,
+      matricula: group.matricula,
+      nome: group.nome,
+      empresa: group.empresa,
+      funcao: group.funcao,
+      funcaoOperacao: group.funcaoOperacao,
+      positions: [...group.positionsByDate.values()].sort((left, right) =>
+        left.date.localeCompare(right.date),
+      ),
+    }))
+    .sort((left, right) =>
+      buildWorkerKey(left.empresa, left.matricula).localeCompare(
+        buildWorkerKey(right.empresa, right.matricula),
+      ),
+    );
+}
+
+function annualPositionDayFingerprint(day: AnnualPositionDayRow): string {
+  return stableKey([
+    day.occurrenceAcronym,
+    day.occurrenceDescription,
+    day.occurrenceType,
+    day.unidadeOperacional,
+    day.centroDeCusto,
+  ]);
 }
 
 export function mapAnnualPositionType(

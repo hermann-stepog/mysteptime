@@ -106,7 +106,7 @@ export const DRAKE_STAGE_MESSAGE: Record<DrakeUpdateStage, string> = {
   "session-confirmed": "Confirmando ambiente STEP...",
   "preparing-processing-channel": "Preparando canal de processamento...",
   "preparing-period": "Preparando período da consulta...",
-  "loading-workers": "Carregando colaboradores ativos do Drake...",
+  "loading-workers": "Carregando colaboradores do Drake...",
   "loading-annual-positions": "Carregando fichas anuais de posição...",
   "validating-annual-position": "Validando as fichas anuais recebidas...",
   "synchronizing-annual-position": "Atualizando o Histograma Offshore...",

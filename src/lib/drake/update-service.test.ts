@@ -71,12 +71,12 @@ describe("Excel validation", () => {
 
   it("aceita assinatura XLSX (PK)", async () => {
     const xlsx = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]);
-    await expect(validateSpreadsheetBuffer(xlsx, ".xlsx", "application/zip")).resolves.toMatchObject(
-      {
-        detectedFormat: "xlsx",
-        signatureMatches: true,
-      },
-    );
+    await expect(
+      validateSpreadsheetBuffer(xlsx, ".xlsx", "application/zip"),
+    ).resolves.toMatchObject({
+      detectedFormat: "xlsx",
+      signatureMatches: true,
+    });
   });
 
   it("aceita assinatura XLS OLE", async () => {
@@ -130,6 +130,8 @@ describe("http-only imports", () => {
     expect(src).not.toMatch(/\bchromium\b/);
     expect(src).not.toMatch(/openDrakeSignalRSession|runSingleApiReport/);
     expect(src).toMatch(/synchronizeCurrentDrakeAnnualPositions/);
+    expect(src).not.toMatch(/\.rpc\(/);
+    expect(src).not.toMatch(/bloqueio.*banco/i);
   });
 
   it("servico nao acessa drake_data_updates", async () => {
@@ -147,7 +149,7 @@ describe("updateDrakeData ficha anual", () => {
 
     const events: Array<{ stage: string; embarkationStatus: string; availabilityStatus: string }> =
       [];
-    const synchronizeAnnual = vi.fn().mockImplementation(async (_db, _http, _year, hooks) => {
+    const synchronizeAnnual = vi.fn().mockImplementation(async (_db, _http, _year, _cutoffDate, hooks) => {
       await hooks.onWorkersLoaded(10);
       await hooks.onWorkerProgress({ completedWorkers: 10, totalWorkers: 10 });
       await hooks.onPositionsLoaded();
@@ -156,7 +158,9 @@ describe("updateDrakeData ficha anual", () => {
         createdWorkers: 1,
         updatedWorkers: 9,
         synchronizedEvents: 30,
-        removedStaleEvents: 4,
+        removedStaleEvents: 0,
+        preservedExistingEvents: 2,
+        skippedExistingDays: 4,
         processedWorkers: 10,
       };
     });
@@ -180,27 +184,28 @@ describe("updateDrakeData ficha anual", () => {
       }),
       isSessionExpiredError: () => false,
     }));
-    vi.doMock("./histogram-sync-lease.server", () => ({
-      acquireDrakeHistogramSyncLease: vi.fn().mockResolvedValue(true),
-      releaseDrakeHistogramSyncLease: vi.fn().mockResolvedValue(undefined),
-    }));
     vi.doMock("./annual-position-sync.server", () => ({
       synchronizeCurrentDrakeAnnualPositions: synchronizeAnnual,
     }));
 
     const { updateDrakeData } = await import("./update-service.server");
-    const result = await updateDrakeData({} as never, async (ev) => {
-      events.push({
-        stage: String(ev.stage),
-        embarkationStatus: ev.embarkationStatus,
-        availabilityStatus: ev.availabilityStatus,
-      });
-    }, { triggeredBy: null, triggeredByLabel: "test" });
+    const result = await updateDrakeData(
+      {} as never,
+      async (ev) => {
+        events.push({
+          stage: String(ev.stage),
+          embarkationStatus: ev.embarkationStatus,
+          availabilityStatus: ev.availabilityStatus,
+        });
+      },
+      { triggeredBy: null, triggeredByLabel: "test" },
+    );
 
     expect(synchronizeAnnual).toHaveBeenCalledTimes(1);
     expect(result.annualPositionWorkers).toBe(10);
     expect(result.annualPositionEvents).toBe(30);
-    expect(result.removedStaleEvents).toBe(4);
+    expect(result.removedStaleEvents).toBe(0);
+    expect(result.skipped).toBe(4);
     expect(events.some((e) => e.stage === "loading-annual-positions")).toBe(true);
     expect(events.some((e) => e.stage === "synchronizing-annual-position")).toBe(true);
     const completed = events.find((e) => e.stage === "annual-position-completed");
@@ -210,7 +215,6 @@ describe("updateDrakeData ficha anual", () => {
     vi.resetModules();
     vi.doUnmock("./auth/environment-credentials-auth.server");
     vi.doUnmock("./api-session.server");
-    vi.doUnmock("./histogram-sync-lease.server");
     vi.doUnmock("./annual-position-sync.server");
   });
 });

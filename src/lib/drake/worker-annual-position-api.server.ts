@@ -78,13 +78,22 @@ export async function fetchDrakeWorkers(
     );
   }
 
-  const validItems = items.filter(
+  // A ficha anual só interessa ao Histograma para colaboradores ativos.
+  // O filtro acontece antes das chamadas individuais de GetPositionsByYear.
+  const activeItems = items.filter((worker) => normalize(worker.status) === "ATIVO");
+  if (activeItems.length === 0) {
+    throw new Error(
+      "O Drake não devolveu nenhum colaborador ativo. O banco não foi alterado.",
+    );
+  }
+
+  const validItems = activeItems.filter(
     (worker) => worker.id && worker.name && worker.registration && worker.companyName,
   );
-  const skippedItems = items.length - validItems.length;
-  if (skippedItems > Math.max(5, Math.ceil(items.length * 0.01))) {
+  const skippedItems = activeItems.length - validItems.length;
+  if (skippedItems > Math.max(5, Math.ceil(activeItems.length * 0.01))) {
     throw new Error(
-      `O Drake devolveu ${skippedItems} colaboradores sem identidade completa. O banco não foi alterado.`,
+      `O Drake devolveu ${skippedItems} colaboradores ativos sem identidade completa. O banco não foi alterado.`,
     );
   }
 
@@ -98,7 +107,9 @@ export async function fetchDrakeWorkers(
 
   const workers = [...unique.values()];
   if (workers.length === 0) {
-    throw new Error("O Drake não devolveu nenhum colaborador válido. O banco não foi alterado.");
+    throw new Error(
+      "O Drake não devolveu nenhum colaborador ativo com identidade válida. O banco não foi alterado.",
+    );
   }
   return workers.sort((left, right) => left.id.localeCompare(right.id));
 }

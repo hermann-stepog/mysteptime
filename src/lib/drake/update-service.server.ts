@@ -23,16 +23,11 @@ import {
 import { getApiPeriodDates } from "./report-parameter-builder";
 import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { sanitizeError } from "./sanitize-error.server";
-import {
-  acquireDrakeHistogramSyncLease,
-  releaseDrakeHistogramSyncLease,
-} from "./histogram-sync-lease.server";
 import { synchronizeCurrentDrakeAnnualPositions } from "./annual-position-sync.server";
 import {
   DRAKE_ANNUAL_POSITION_SYNC_FAILED,
   DRAKE_STAGE_MESSAGE,
   DRAKE_STAGE_PROGRESS,
-  DRAKE_UPDATE_IN_PROGRESS,
   type DrakeProgressCallback,
   type DrakeReportStatus,
   type DrakeUpdateResult,
@@ -72,10 +67,8 @@ async function updateDrakeDataInner(
   startedAtMs: number,
   trigger: DrakeUpdateTrigger,
 ): Promise<DrakeUpdateResult> {
-  const executionId = getDrakeLogContext()?.executionId ?? createExecutionId();
   let apiContext: DrakeHttpClient | null = null;
   let renewedOnce = false;
-  let databaseLeaseHeld = false;
   let currentStage: DrakeUpdateStage = "queued";
   let currentProgress = 0;
   let annualStatus: DrakeReportStatus = "waiting";
@@ -105,8 +98,8 @@ async function updateDrakeDataInner(
       await clearSessionCache();
       renewedOnce = true;
     }
-    const provider = new EnvironmentCredentialsDrakeAuthProvider(
-      async (stage: AuthProgressStage) => emit(stage),
+    const provider = new EnvironmentCredentialsDrakeAuthProvider(async (stage: AuthProgressStage) =>
+      emit(stage),
     );
     const result = await provider.authenticate();
     const context = apiContext as DrakeHttpClient | null;
@@ -137,16 +130,6 @@ async function updateDrakeDataInner(
 
   try {
     await emit("queued");
-    databaseLeaseHeld = await acquireDrakeHistogramSyncLease(db, executionId);
-    if (!databaseLeaseHeld) {
-      throw new DrakeIntegrationError({
-        code: DRAKE_UPDATE_IN_PROGRESS,
-        message: "Já existe uma atualização dos dados do Drake em andamento.",
-        stage: "queued",
-        progress: 0,
-      });
-    }
-
     await authenticate(false);
 
     const period = getApiPeriodDates(env.DRAKE_TIMEZONE);
@@ -157,7 +140,7 @@ async function updateDrakeDataInner(
     const syncStarted = Date.now();
     let lastEmittedWorkerProgress = -1;
     const summary = await withSessionRetry((ctx) =>
-      synchronizeCurrentDrakeAnnualPositions(db, ctx, year, {
+      synchronizeCurrentDrakeAnnualPositions(db, ctx, year, period.apiEndDate, {
         onWorkersLoaded: async (totalWorkers) => {
           await emit("loading-annual-positions", {
             status: "downloading",
@@ -193,7 +176,7 @@ async function updateDrakeDataInner(
       annualPositionWorkers: summary.processedWorkers,
       removedStaleEvents: summary.removedStaleEvents,
       totalDurationMs: Date.now() - startedAtMs,
-      skipped: 0,
+      skipped: summary.skippedExistingDays,
     };
 
     logger.info("drake-update", "Atualizacao da ficha anual Drake concluida", {
@@ -203,6 +186,8 @@ async function updateDrakeDataInner(
       workers: summary.processedWorkers,
       events: summary.synchronizedEvents,
       removedStaleEvents: summary.removedStaleEvents,
+      preservedExistingEvents: summary.preservedExistingEvents,
+      skippedExistingDays: summary.skippedExistingDays,
     });
     await recordDrakeSyncRun(db, {
       startedAtMs,
@@ -212,7 +197,7 @@ async function updateDrakeDataInner(
       embarquesCriados: summary.createdWorkers,
       embarquesAtualizados: summary.updatedWorkers,
       embarquesEventos: summary.synchronizedEvents,
-      skipped: 0,
+      skipped: summary.skippedExistingDays,
     });
     return result;
   } catch (error: unknown) {
@@ -247,18 +232,14 @@ async function updateDrakeDataInner(
       errorMessage: integration.message,
     });
 
-    (integration as DrakeIntegrationError & { embarkationStatus?: DrakeReportStatus }).embarkationStatus = "failed";
-    (integration as DrakeIntegrationError & { availabilityStatus?: DrakeReportStatus }).availabilityStatus = "failed";
+    (
+      integration as DrakeIntegrationError & { embarkationStatus?: DrakeReportStatus }
+    ).embarkationStatus = "failed";
+    (
+      integration as DrakeIntegrationError & { availabilityStatus?: DrakeReportStatus }
+    ).availabilityStatus = "failed";
     throw integration;
   } finally {
-    if (databaseLeaseHeld) {
-      await releaseDrakeHistogramSyncLease(db, executionId).catch((error: unknown) => {
-        logger.warn("drake-update", "Não foi possível liberar imediatamente o bloqueio do banco", {
-          stage: "finalizing",
-          sanitizedMessage: sanitizeError(error).message,
-        });
-      });
-    }
     const context = apiContext as DrakeHttpClient | null;
     apiContext = null;
     if (context) await context.dispose().catch(() => undefined);

@@ -1,4 +1,3 @@
-import "@tanstack/react-start/server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import type { TipoPeriodo } from "@/lib/histogramaNovo";
@@ -43,26 +42,32 @@ export interface DisponibilidadeImportSummary {
   skipped: number;
 }
 
-function isoDate(date: Date): string {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
 }
 
-export function parseDisponibilidadeDate(value: unknown): string | null {
-  if (value == null || value === "") return null;
-  if (value instanceof Date) return isoDate(value);
-  const text = String(value).trim();
-  const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (!match) return parseExcelDate(value);
-  const [, day, month, year] = match;
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+function isoDate(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+export function parseDisponibilidadeDate(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) return isoDate(v);
+  const s = String(v).trim();
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return parseExcelDate(v);
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
 }
 
 export function parseDisponibilidadeWorkbook(
-  buffer: ArrayBuffer | Buffer,
+  buf: ArrayBuffer | Buffer,
 ): ParsedDisponibilidadeRow[] {
-  const workbook = XLSX.read(buffer, { cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+  const wb = XLSX.read(buf, { cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, {
     header: 1,
     defval: "",
     blankrows: false,
@@ -84,22 +89,18 @@ export function parseDisponibilidadeWorkbook(
     .find((i) => i !== -1) ?? -1;
   if ([iMatricula, iEvento, iInicio, iFim].some((i) => i === -1)) {
     throw new Error(
-      "Colunas esperadas não encontradas no relatório de disponibilidade. Empresa, matrícula, nome, evento, início e término são obrigatórios para evitar associações incorretas.",
+      "Colunas esperadas não encontradas (Matrícula do Trabalhador / Descrição do Evento / Data de Início do Evento / Data de Término do Evento).",
     );
   }
 
-  const parsed: ParsedDisponibilidadeRow[] = [];
-  for (const [index, row] of rows.slice(1).entries()) {
-    if (!row.some((cell) => cell !== "")) continue;
-    if (stateIndex !== -1 && normalizeHeader(row[stateIndex]) !== "ativo") continue;
-
-    const empresa = String(row[companyIndex] ?? "").trim();
-    const matricula = String(row[registrationIndex] ?? "").trim();
-    const nome = String(row[nameIndex] ?? "").trim();
-    const evento = String(row[eventIndex] ?? "").trim();
-    const tipo = DISPONIBILIDADE_EVENTO_MAP[normalizeHeader(evento)];
-    const data_inicio = parseDisponibilidadeDate(row[startIndex]);
-    const data_fim = parseDisponibilidadeDate(row[endIndex]);
+  const out: ParsedDisponibilidadeRow[] = [];
+  for (const r of rows.slice(1)) {
+    if (!r.some((c) => c !== "")) continue;
+    if (iSituacao !== -1 && normalizeHeader(r[iSituacao]) !== "ativo") continue;
+    const matricula = String(r[iMatricula] ?? "").trim();
+    if (!matricula) continue;
+    const eventoKey = normalizeHeader(r[iEvento]);
+    const tipo = DISPONIBILIDADE_EVENTO_MAP[eventoKey];
     if (!tipo) continue;
     const data_inicio = parseDisponibilidadeDate(r[iInicio]);
     const data_fim = parseDisponibilidadeDate(r[iFim]);
@@ -107,14 +108,13 @@ export function parseDisponibilidadeWorkbook(
     const empresa = iEmpresa !== -1 ? String(r[iEmpresa] ?? "").trim() || null : null;
     out.push({ matricula, empresa, tipo, data_inicio, data_fim });
   }
-  return parsed;
+  return out;
 }
 
-/** Reconcilia o relatório 14 sem apagar ou atualizar períodos de outras origens. */
+/** Importa relatório de disponibilidade (mesmo fluxo do botão Importar Relatório de Disponibilidade). */
 export async function importDisponibilidade(
-  db: SupabaseClient,
+  supabase: SupabaseClient,
   rows: ParsedDisponibilidadeRow[],
-  window: DrakeSnapshotWindow,
 ): Promise<DisponibilidadeImportSummary> {
   const matriculas = Array.from(new Set(rows.map((r) => r.matricula)));
   const existentes: { id: string; matricula: string; empresa: string | null }[] = [];
@@ -177,13 +177,11 @@ export async function importDisponibilidade(
 }
 
 export async function importDisponibilidadeFromBuffer(
-  db: SupabaseClient,
-  buffer: ArrayBuffer | Buffer,
-  window: DrakeSnapshotWindow,
+  supabase: SupabaseClient,
+  buf: ArrayBuffer | Buffer,
 ): Promise<DisponibilidadeImportSummary> {
-  const rows = parseDisponibilidadeWorkbook(buffer);
-  if (rows.length === 0) {
+  const rows = parseDisponibilidadeWorkbook(buf);
+  if (!rows.length)
     throw new Error("Nenhuma linha válida/mapeável encontrada na planilha de disponibilidade.");
-  }
-  return importDisponibilidade(db, rows, window);
+  return importDisponibilidade(supabase, rows);
 }

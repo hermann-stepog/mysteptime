@@ -47,6 +47,62 @@ describe("ficha anual de posição do Drake", () => {
     });
   });
 
+  it("consolida UUIDs duplicados da mesma empresa e matrícula sem duplicar períodos", () => {
+    const positions = [
+      day("2026-08-06", "E", "EMBARQUE", "RAIA", "BSP A"),
+      day("2026-08-07", "E", "EMBARQUE", "RAIA", "BSP A"),
+    ];
+    const duplicate = { ...worker(positions), drakeWorkerId: "worker-duplicate" };
+
+    const snapshot = buildAnnualPositionSnapshot([worker(positions), duplicate]);
+
+    expect(snapshot.workers).toHaveLength(1);
+    expect(snapshot.periods).toHaveLength(1);
+    expect(snapshot.periods[0]).toMatchObject({
+      dataInicio: "2026-08-06",
+      dataFim: "2026-08-07",
+      tipo: "E",
+    });
+  });
+
+  it("consolida nomes diferentes para a mesma empresa e matricula", () => {
+    const positions = [
+      day("2026-08-06", "E", "EMBARQUE", "RAIA", "BSP A"),
+      day("2026-08-07", "E", "EMBARQUE", "RAIA", "BSP A"),
+    ];
+
+    const duplicateWithAnotherName = {
+      ...worker(positions),
+      drakeWorkerId: "worker-name-conflict",
+      nome: "ADELMO M. LOPES",
+    };
+
+    const snapshot = buildAnnualPositionSnapshot([
+      worker(positions),
+      duplicateWithAnotherName,
+    ]);
+
+    expect(snapshot.workers).toHaveLength(1);
+    expect(snapshot.periods).toHaveLength(1);
+    expect(snapshot.periods[0]).toMatchObject({
+      dataInicio: "2026-08-06",
+      dataFim: "2026-08-07",
+      tipo: "E",
+    });
+  });
+
+  it("interrompe quando UUIDs da mesma identidade divergem no mesmo dia", () => {
+    const first = worker([day("2026-08-06", "E", "EMBARQUE", "RAIA", "BSP A")]);
+    const conflict = {
+      ...worker([day("2026-08-06", "F", "FOLGA", null, null)]),
+      drakeWorkerId: "worker-conflict",
+    };
+
+    expect(() => buildAnnualPositionSnapshot([first, conflict])).toThrow(
+      /posições conflitantes.*2026-08-06/i,
+    );
+  });
+
   it("não mistura períodos quando unidade ou contrato mudam", () => {
     const snapshot = buildAnnualPositionSnapshot([
       worker([
