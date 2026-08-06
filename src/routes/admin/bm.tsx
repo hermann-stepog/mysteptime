@@ -216,6 +216,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   const [smartsheetLoading, setSmartsheetLoading] = useState(false);
+  // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
+  const [bmNovoManual, setBmNovoManual] = useState(false);
   // Resultado do último BM gerado/salvo — enquanto preenchido, a tela mostra o BmConsolidatedView
   // (Consolidado + Diárias + Horas) no lugar do wizard, pra "Gerar BM" ter um resultado visível
   // imediato em vez de só um toast e o formulário voltando em branco.
@@ -354,14 +356,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     queryFn: async () => await getNextBmNumber(),
     staleTime: 10 * 60 * 1000,
   });
-
-  // Preenche o número do BM com o próximo da sequência (sem sobrescrever edição manual
-  // nem BM reaberto).
-  useEffect(() => {
-    if (proximoBm?.nextBmNumber && !cab.numeroBm && !reopenBmId) {
-      setCab((c) => (c.numeroBm ? c : { ...c, numeroBm: proximoBm.nextBmNumber }));
-    }
-  }, [proximoBm?.nextBmNumber, cab.numeroBm, reopenBmId]);
 
   // Controle de Medição (Smartsheet): lista de BMs já existentes — alimenta a lista de
   // números de BM e a lista de POs; o valor do BM vem da própria linha da planilha.
