@@ -27,6 +27,9 @@ export interface Bm {
   current_status: BmStatus;
   rejection_reason: string | null;
   smartsheet_synced_at: string | null;
+  /** Marcação manual do setor: true = BM já medido, false = pendente de medição. */
+  ja_medido?: boolean;
+
 }
 
 export interface BmStatusHistory {
