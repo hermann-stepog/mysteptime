@@ -14,9 +14,10 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/EmptyState";
-import { Plus, Trash2, Truck, Upload, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car } from "lucide-react";
+import { Plus, Trash2, Truck, Upload, Download, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car } from "lucide-react";
 import { type BmMobDesmobCost, type MobDesmobCategoria } from "@/lib/bm";
 import { listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
+import { extractInvoiceNumberLocally } from "@/lib/invoiceNumberExtraction";
 
 interface SmartsheetBm {
   rowId: string;
@@ -173,6 +174,7 @@ const NOVO_CUSTO_VAZIO: NovoCusto = {
 };
 
 const TODOS = "__todos__";
+const NOTAS_BUCKET = "bm-mob-desmob-notas";
 
 export function MobDesmobTab() {
 
@@ -187,6 +189,176 @@ export function MobDesmobTab() {
   // Filtro por período (data do lançamento) — só afeta a visualização/aplicação em lote.
   const [dataDe, setDataDe] = useState("");
   const [dataAte, setDataAte] = useState("");
+
+  const [notaEmUpload, setNotaEmUpload] = useState<string | null>(null);
+  const [notaEmDownload, setNotaEmDownload] = useState<string | null>(null);
+  const [notaSemNumeroId, setNotaSemNumeroId] = useState<string | null>(null);
+  const [numeroNotaManual, setNumeroNotaManual] = useState("");
+
+  async function enviarNota(c: BmMobDesmobCost, file: File) {
+    const tiposPermitidos = new Set([
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+
+    if (!tiposPermitidos.has(file.type)) {
+      notify.error("Formato não permitido. Use PDF, JPG, PNG ou WEBP.");
+      return;
+    }
+
+    if (file.size > 20 * 1024 * 1024) {
+      notify.error("A nota deve ter no máximo 20 MB.");
+      return;
+    }
+
+    const jaExistia = !!c.invoice_storage_path;
+    setNotaEmUpload(c.id);
+
+    try {
+      const storagePath = `${c.id}/nota`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(NOTAS_BUCKET)
+        .upload(storagePath, file, {
+          upsert: true,
+          contentType: file.type,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Primeiro tenta descobrir o número totalmente sem IA.
+      let numeroExtraido: string | null = null;
+
+      try {
+        const resultado = await extractInvoiceNumberLocally(file);
+        numeroExtraido = resultado.number;
+      } catch {
+        numeroExtraido = null;
+      }
+
+      const { error: updateError } = await supabase
+        .from("bm_mob_desmob_costs")
+        .update({
+          invoice_storage_path: storagePath,
+          invoice_original_name: file.name,
+          invoice_uploaded_at: new Date().toISOString(),
+
+          // Importante: ao substituir a nota, não preservamos
+          // acidentalmente o número pertencente ao arquivo anterior.
+          invoice_number: numeroExtraido,
+        })
+        .eq("id", c.id);
+
+      if (updateError) throw updateError;
+
+      await qc.invalidateQueries({
+        queryKey: ["bm-mob-desmob-costs"],
+      });
+
+      if (numeroExtraido) {
+        setNotaSemNumeroId(null);
+        setNumeroNotaManual("");
+
+        notify.success(
+          jaExistia
+            ? `Nota substituída. Número identificado: ${numeroExtraido}.`
+            : `Nota enviada. Número identificado: ${numeroExtraido}.`,
+        );
+      } else {
+        setNumeroNotaManual("");
+        setNotaSemNumeroId(c.id);
+
+        notify.success(
+          jaExistia
+            ? "Nota substituída com sucesso."
+            : "Nota enviada com sucesso.",
+        );
+      }
+    } catch (e: any) {
+      notify.error(e?.message || "Erro ao enviar a nota.");
+    } finally {
+      setNotaEmUpload(null);
+    }
+  }
+
+  async function baixarNota(c: BmMobDesmobCost) {
+    if (!c.invoice_storage_path) return;
+
+    setNotaEmDownload(c.id);
+
+    try {
+      const { data, error } = await supabase.storage
+        .from(NOTAS_BUCKET)
+        .download(c.invoice_storage_path);
+
+      if (error) throw error;
+
+      const url = URL.createObjectURL(data);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = c.invoice_original_name || `nota-${c.id}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e: any) {
+      notify.error(e?.message || "Erro ao baixar a nota.");
+    } finally {
+      setNotaEmDownload(null);
+    }
+  }
+
+  async function salvarNumeroNota(
+    id: string,
+    numero: string,
+  ): Promise<boolean> {
+    const numeroLimpo = numero.trim();
+
+    const { error } = await supabase
+      .from("bm_mob_desmob_costs")
+      .update({
+        invoice_number: numeroLimpo || null,
+      })
+      .eq("id", id);
+
+    if (error) {
+      notify.error(error.message || "Erro ao salvar número da nota.");
+      return false;
+    }
+
+    await qc.invalidateQueries({
+      queryKey: ["bm-mob-desmob-costs"],
+    });
+
+    return true;
+  }
+
+  async function salvarNumeroManualDoModal() {
+    if (!notaSemNumeroId) return;
+
+    const numero = numeroNotaManual.trim();
+
+    if (!numero) {
+      notify.error("Informe o número da nota.");
+      return;
+    }
+
+    const salvo = await salvarNumeroNota(
+      notaSemNumeroId,
+      numero,
+    );
+
+    if (!salvo) return;
+
+    setNotaSemNumeroId(null);
+    setNumeroNotaManual("");
+
+    notify.success("Número da nota salvo.");
+  }
 
 
   const fetchBms = useServerFn(listSmartsheetBms);
@@ -537,6 +709,8 @@ export function MobDesmobTab() {
                         <TableHead className="text-xs">Markup</TableHead>
                         <TableHead className="text-xs">Total</TableHead>
                         <TableHead className="text-xs">Notes</TableHead>
+                        <TableHead className="text-xs">Nº Nota</TableHead>
+                        <TableHead className="text-xs">Nota</TableHead>
                         <TableHead className="text-xs">BM</TableHead>
                         <TableHead className="w-8" />
                       </TableRow>
@@ -553,6 +727,98 @@ export function MobDesmobTab() {
                           <TableCell className="text-xs font-medium">{fmtMoney(c.total_cost)}</TableCell>
                           <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground" title={c.notes ?? ""}>
                             {c.notes || "—"}
+                          </TableCell>
+                          <TableCell className="min-w-[125px]">
+                            <Input
+                              key={`${c.id}-${c.invoice_number ?? ""}`}
+                              defaultValue={c.invoice_number ?? ""}
+                              className="h-7 min-w-[110px] text-xs"
+                              placeholder="Nº da nota"
+                              onBlur={(e) => {
+                                const numero = e.currentTarget.value.trim();
+                                if (numero === (c.invoice_number ?? "")) return;
+                                void salvarNumeroNota(c.id, numero);
+                              }}
+                            />
+                          </TableCell>
+
+                          <TableCell className="min-w-[190px]">
+                            <input
+                              id={`nota-upload-${c.id}`}
+                              type="file"
+                              accept="application/pdf,image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.currentTarget.files?.[0];
+                                e.currentTarget.value = "";
+                                if (file) void enviarNota(c, file);
+                              }}
+                            />
+
+                            <div className="flex flex-col items-start gap-1">
+                              {c.invoice_storage_path ? (
+                                <>
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      loading={notaEmDownload === c.id}
+                                      onClick={() => void baixarNota(c)}
+                                    >
+                                      <Download className="mr-1 h-3 w-3" />
+                                      Download
+                                    </Button>
+
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      loading={notaEmUpload === c.id}
+                                      onClick={() => {
+                                        const confirmou = window.confirm(
+                                          "Já existe uma nota neste lançamento. Deseja substituir o arquivo existente?",
+                                        );
+
+                                        if (!confirmou) return;
+
+                                        document
+                                          .getElementById(`nota-upload-${c.id}`)
+                                          ?.click();
+                                      }}
+                                    >
+                                      <Upload className="mr-1 h-3 w-3" />
+                                      Substituir
+                                    </Button>
+                                  </div>
+
+                                  <span
+                                    className="max-w-[180px] truncate text-[10px] text-muted-foreground"
+                                    title={c.invoice_original_name ?? ""}
+                                  >
+                                    {c.invoice_original_name || "Nota anexada"}
+                                  </span>
+                                </>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  loading={notaEmUpload === c.id}
+                                  onClick={() =>
+                                    document
+                                      .getElementById(`nota-upload-${c.id}`)
+                                      ?.click()
+                                  }
+                                >
+                                  <Upload className="mr-1 h-3 w-3" />
+                                  Upload
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs">{c.applied_bm_number ?? "—"}</TableCell>
                           <TableCell>
@@ -579,6 +845,85 @@ export function MobDesmobTab() {
         })}
       </div>
 
+      <Dialog
+        open={!!notaSemNumeroId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setNotaSemNumeroId(null);
+            setNumeroNotaManual("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Número da nota não identificado
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              O arquivo foi salvo normalmente, mas não foi possível
+              identificar com segurança o número da nota.
+            </p>
+
+            <div className="space-y-2">
+              <Label htmlFor="numero-nota-manual">
+                Informar número manualmente
+              </Label>
+
+              <Input
+                id="numero-nota-manual"
+                autoFocus
+                value={numeroNotaManual}
+                onChange={(e) =>
+                  setNumeroNotaManual(e.target.value)
+                }
+                placeholder="Digite o número da nota"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    void salvarNumeroManualDoModal();
+                  }
+                }}
+              />
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setNotaSemNumeroId(null);
+                  setNumeroNotaManual("");
+                }}
+              >
+                Agora não
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  window.alert(
+                    "A consulta por IA ainda não está ativada. Nenhum crédito foi consumido. Vamos conectar essa opção na próxima etapa.",
+                  );
+                }}
+              >
+                Usar IA
+              </Button>
+
+              <Button
+                type="button"
+                onClick={() =>
+                  void salvarNumeroManualDoModal()
+                }
+              >
+                Salvar número
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!aplicarBsp} onOpenChange={(o) => { if (!o) { setAplicarBsp(null); setBmSelecionado(null); } }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>

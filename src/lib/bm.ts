@@ -114,6 +114,10 @@ export interface BmMobDesmobCost {
   applied: boolean;
   applied_bm_number: string | null;
   applied_at: string | null;
+  invoice_number: string | null;
+  invoice_storage_path: string | null;
+  invoice_original_name: string | null;
+  invoice_uploaded_at: string | null;
 }
 
 export type MaterialCategoria = "habitat" | "rental" | "consumable";
