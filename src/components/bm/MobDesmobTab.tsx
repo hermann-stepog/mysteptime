@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Plus, Trash2, Truck, Upload, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car } from "lucide-react";
@@ -187,6 +188,25 @@ export function MobDesmobTab() {
   // Filtro por período (data do lançamento) — só afeta a visualização/aplicação em lote.
   const [dataDe, setDataDe] = useState("");
   const [dataAte, setDataAte] = useState("");
+  // Seleção individual de lançamentos pendentes (ids) — "Aplicar ao BM" de um BSP aplica só
+  // os marcados aqui; se nada estiver marcado naquele BSP, cai no comportamento antigo
+  // (aplica todos os pendentes do grupo).
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+
+  function toggleSelecionado(id: string) {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelecionadosGrupo(ids: string[], marcar: boolean) {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => { if (marcar) next.add(id); else next.delete(id); });
+      return next;
+    });
+  }
 
 
   const fetchBms = useServerFn(listSmartsheetBms);
@@ -307,6 +327,8 @@ export function MobDesmobTab() {
   }, [bms, busca]);
 
   // "__todos__" = aplicar em lote tudo o que está pendente no período filtrado.
+  // Para um BSP específico: se houver itens marcados naquele BSP, aplica só os marcados;
+  // sem marcação, cai no comportamento antigo (aplica todos os pendentes do grupo).
   const grupoAplicando = useMemo(() => {
     if (aplicarBsp === TODOS) {
       const pendentes = grupos.flatMap((g) => g.pendentes);
@@ -318,10 +340,25 @@ export function MobDesmobTab() {
         transporte: soma((c) => c.categoria === "transporte"),
         hotel: soma((c) => c.categoria === "hotel"),
         totalPendente: round2(pendentes.reduce((a, c) => a + c.total_cost, 0)),
+        usandoSelecao: false,
       };
     }
-    return grupos.find((g) => g.bsp === aplicarBsp) ?? null;
-  }, [grupos, custosFiltrados, aplicarBsp]);
+    const g = grupos.find((g) => g.bsp === aplicarBsp);
+    if (!g) return null;
+    const marcadosDoGrupo = g.pendentes.filter((c) => selecionados.has(c.id));
+    const usandoSelecao = marcadosDoGrupo.length > 0;
+    const pendentes = usandoSelecao ? marcadosDoGrupo : g.pendentes;
+    const soma = (f: (c: BmMobDesmobCost) => boolean) =>
+      round2(pendentes.filter(f).reduce((a, c) => a + c.total_cost, 0));
+    return {
+      bsp: g.bsp,
+      pendentes,
+      transporte: soma((c) => c.categoria === "transporte"),
+      hotel: soma((c) => c.categoria === "hotel"),
+      totalPendente: round2(pendentes.reduce((a, c) => a + c.total_cost, 0)),
+      usandoSelecao,
+    };
+  }, [grupos, custosFiltrados, aplicarBsp, selecionados]);
 
   const aplicar = useMutation({
     mutationFn: async () => {
@@ -338,11 +375,19 @@ export function MobDesmobTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-costs"] });
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
+      const n = grupoAplicando?.pendentes.length ?? 0;
       notify.success(
         aplicarBsp === TODOS
           ? `Custos pendentes aplicados ao BM ${bmSelecionado?.bmNumber}.`
-          : `Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`,
+          : grupoAplicando?.usandoSelecao
+            ? `${n} custo(s) selecionado(s) de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`
+            : `Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`,
       );
+      setSelecionados((prev) => {
+        const next = new Set(prev);
+        grupoAplicando?.pendentes.forEach((c) => next.delete(c.id));
+        return next;
+      });
       setAplicarBsp(null);
       setBmSelecionado(null);
     },
@@ -503,6 +548,11 @@ export function MobDesmobTab() {
                   {g.totalPendente > 0 && (
                     <p className="text-[11px] text-muted-foreground">Pendente: {fmtMoney(g.totalPendente)}</p>
                   )}
+                  {g.pendentes.some((c) => selecionados.has(c.id)) && (
+                    <p className="text-[11px] font-medium text-primary">
+                      {g.pendentes.filter((c) => selecionados.has(c.id)).length} selecionado(s)
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -529,6 +579,21 @@ export function MobDesmobTab() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-8">
+                          {g.pendentes.length > 0 && (
+                            <Checkbox
+                              checked={
+                                g.pendentes.every((c) => selecionados.has(c.id))
+                                  ? true
+                                  : g.pendentes.some((c) => selecionados.has(c.id))
+                                    ? "indeterminate"
+                                    : false
+                              }
+                              onCheckedChange={(v) => toggleSelecionadosGrupo(g.pendentes.map((c) => c.id), !!v)}
+                              title="Selecionar todos os pendentes deste BSP"
+                            />
+                          )}
+                        </TableHead>
                         <TableHead className="text-xs">Nome</TableHead>
                         <TableHead className="text-xs">Cat.</TableHead>
                         <TableHead className="text-xs">Data</TableHead>
@@ -544,6 +609,14 @@ export function MobDesmobTab() {
                     <TableBody>
                       {g.itens.map((c) => (
                         <TableRow key={c.id} className={c.applied ? "opacity-70" : undefined}>
+                          <TableCell>
+                            {!c.applied && (
+                              <Checkbox
+                                checked={selecionados.has(c.id)}
+                                onCheckedChange={() => toggleSelecionado(c.id)}
+                              />
+                            )}
+                          </TableCell>
                           <TableCell className="text-xs font-medium">{c.nome}</TableCell>
                           <TableCell className="text-xs">{CATEGORIA_LABEL[c.categoria] ?? c.categoria}</TableCell>
                           <TableCell className="text-xs">{fmt(c.data)}</TableCell>
@@ -571,7 +644,10 @@ export function MobDesmobTab() {
               <div className="flex justify-end">
                 <Button size="sm" disabled={g.totalPendente <= 0}
                   onClick={() => { setAplicarBsp(g.bsp); setBmSelecionado(null); setBusca(""); }}>
-                  <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar ao BM
+                  <Send className="mr-1.5 h-3.5 w-3.5" />
+                  {g.pendentes.some((c) => selecionados.has(c.id))
+                    ? `Aplicar selecionados (${g.pendentes.filter((c) => selecionados.has(c.id)).length}) ao BM`
+                    : "Aplicar ao BM"}
                 </Button>
               </div>
             </Card>
@@ -583,16 +659,25 @@ export function MobDesmobTab() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {aplicarBsp === TODOS ? "Aplicar todos os custos pendentes do período ao BM" : `Aplicar custos do BSP ${aplicarBsp} ao BM`}
+              {aplicarBsp === TODOS
+                ? "Aplicar todos os custos pendentes do período ao BM"
+                : grupoAplicando?.usandoSelecao
+                  ? `Aplicar itens selecionados do BSP ${aplicarBsp} ao BM`
+                  : `Aplicar custos do BSP ${aplicarBsp} ao BM`}
             </DialogTitle>
 
           </DialogHeader>
           <div className="space-y-3">
+            {grupoAplicando?.usandoSelecao && (
+              <p className="text-xs text-muted-foreground">
+                Só os {grupoAplicando.pendentes.length} item(ns) marcado(s) na lista serão aplicados — os demais custos pendentes deste BSP continuam pendentes.
+              </p>
+            )}
             <div className="rounded-md border p-3 text-xs">
               <p>Transporte: <span className="font-medium">{fmtMoney(grupoAplicando?.transporte ?? 0)}</span></p>
               <p>Hotel: <span className="font-medium">{fmtMoney(grupoAplicando?.hotel ?? 0)}</span></p>
               <p className="mt-1 border-t pt-1">
-                Total pendente a aplicar: <span className="font-semibold">{fmtMoney(grupoAplicando?.totalPendente ?? 0)}</span>
+                Total {grupoAplicando?.usandoSelecao ? "selecionado" : "pendente"} a aplicar: <span className="font-semibold">{fmtMoney(grupoAplicando?.totalPendente ?? 0)}</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
