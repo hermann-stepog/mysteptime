@@ -361,6 +361,10 @@ export type Database = {
           data: string
           id: string
           import_batch: string | null
+          invoice_number: string | null
+          invoice_original_name: string | null
+          invoice_storage_path: string | null
+          invoice_uploaded_at: string | null
           markup: number | null
           nome: string
           notes: string | null
@@ -382,6 +386,10 @@ export type Database = {
           data: string
           id?: string
           import_batch?: string | null
+          invoice_number?: string | null
+          invoice_original_name?: string | null
+          invoice_storage_path?: string | null
+          invoice_uploaded_at?: string | null
           markup?: number | null
           nome: string
           notes?: string | null
@@ -403,6 +411,10 @@ export type Database = {
           data?: string
           id?: string
           import_batch?: string | null
+          invoice_number?: string | null
+          invoice_original_name?: string | null
+          invoice_storage_path?: string | null
+          invoice_uploaded_at?: string | null
           markup?: number | null
           nome?: string
           notes?: string | null
@@ -539,6 +551,7 @@ export type Database = {
           created_by: string | null
           current_status: string
           id: string
+          internal_notes: string | null
           ja_medido: boolean
           markup_enabled: boolean
           markup_pct: number
@@ -548,10 +561,12 @@ export type Database = {
           po_balance_before: number | null
           po_number: string | null
           po_value: number | null
+          pos_processamento: number
           project_id: string | null
           project_name: string | null
           rejection_reason: string | null
           smartsheet_synced_at: string | null
+          team_mob_desmob: number
           total_consumiveis: number
           total_geral: number
           total_habitat: number
@@ -570,6 +585,7 @@ export type Database = {
           created_by?: string | null
           current_status?: string
           id?: string
+          internal_notes?: string | null
           ja_medido?: boolean
           markup_enabled?: boolean
           markup_pct?: number
@@ -579,10 +595,12 @@ export type Database = {
           po_balance_before?: number | null
           po_number?: string | null
           po_value?: number | null
+          pos_processamento?: number
           project_id?: string | null
           project_name?: string | null
           rejection_reason?: string | null
           smartsheet_synced_at?: string | null
+          team_mob_desmob?: number
           total_consumiveis?: number
           total_geral?: number
           total_habitat?: number
@@ -601,6 +619,7 @@ export type Database = {
           created_by?: string | null
           current_status?: string
           id?: string
+          internal_notes?: string | null
           ja_medido?: boolean
           markup_enabled?: boolean
           markup_pct?: number
@@ -610,10 +629,12 @@ export type Database = {
           po_balance_before?: number | null
           po_number?: string | null
           po_value?: number | null
+          pos_processamento?: number
           project_id?: string | null
           project_name?: string | null
           rejection_reason?: string | null
           smartsheet_synced_at?: string | null
+          team_mob_desmob?: number
           total_consumiveis?: number
           total_geral?: number
           total_habitat?: number
