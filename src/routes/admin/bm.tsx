@@ -40,6 +40,7 @@ import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@
 import { getPoInfo, getBmHistoryForPo, recordIssuedBm, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 import { listBmFlowRows } from "@/lib/api/bmFlow.functions";
 import { getJobOrderPoTotal } from "@/lib/api/jobOrderPoTotal.functions";
+import { normalizeUnidadeOperacional } from "@/lib/histogramaNovo";
 
 interface BmFlowRowOption {
   client: string;
@@ -624,9 +625,47 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     queryKey: ["bm-dias", cab.vessel, cab.periodStart, cab.periodEnd, cab.bsp],
     enabled: headerCompleto,
     queryFn: async () => {
+    console.warn("[BM TS DEBUG] consulta iniciou", {
+      vessel: cab.vessel,
+      bsp: cab.bsp,
+      periodStart: cab.periodStart,
+      periodEnd: cab.periodEnd,
+      headerCompleto,
+    });
+      const unidadeTimesheet =
+        normalizeUnidadeOperacional(cab.vessel) ?? cab.vessel;
+
       const { data: embarquesData, error: embErr } = await supabase
-        .from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, bsp").eq("unidade_operacional", cab.vessel);
+        .from("timesheet_embarques")
+        .select("id, colaborador_id, funcao_embarque, bsp")
+        .eq("unidade_operacional", unidadeTimesheet);
       if (embErr) throw embErr;
+    console.warn("[BM TS DEBUG] embarques encontrados:", embarquesData?.length ?? 0, embarquesData);
+
+    if (!(embarquesData?.length)) {
+      const { data: unidadesDebug, error: unidadesDebugErr } = await supabase
+        .from("timesheet_embarques")
+        .select("unidade_operacional")
+        .limit(500);
+
+      if (unidadesDebugErr) throw unidadesDebugErr;
+
+      console.warn(
+        "[BM VESSEL DEBUG] valor procurado:",
+        cab.vessel,
+      );
+
+      console.warn(
+        "[BM VESSEL DEBUG] unidades existentes:",
+        Array.from(
+          new Set(
+            (unidadesDebug ?? [])
+              .map((x: any) => x.unidade_operacional)
+              .filter(Boolean),
+          ),
+        ),
+      );
+    }
       const embarqueIds = (embarquesData ?? []).map((e: any) => e.id);
       if (!embarqueIds.length) return [];
 
@@ -635,6 +674,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         .in("embarque_id", embarqueIds)
         .lte("data_inicio_semana", cab.periodEnd).gte("data_fim_semana", cab.periodStart);
       if (semErr) throw semErr;
+    console.warn("[BM TS DEBUG] semanas encontradas:", semanasData?.length ?? 0, semanasData);
       const semanaIds = (semanasData ?? []).map((s: any) => s.id);
       if (!semanaIds.length) return [];
 
@@ -642,6 +682,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         .from("timesheet_dias").select("id, data, evento, horas_extras, adicional_noturno, total_horas, semana_id, bsp")
         .in("semana_id", semanaIds).gte("data", cab.periodStart).lte("data", cab.periodEnd);
       if (diasErr) throw diasErr;
+    console.warn("[BM TS DEBUG] dias encontrados:", diasData?.length ?? 0, diasData);
 
       // Cópia editável da aba "Timesheets" do BM — quando existe, ela é a fonte da medição
       // (os ajustes da Medição valem só aqui, nunca voltam pro Timesheet Offshore).
@@ -668,6 +709,34 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       // ficava contado inteiro no BSP do embarque, e nunca aparecia na medição do BSP certo.
       const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^bsp[\s-]*/i, "").trim().toLowerCase();
       const bspAlvo = normalizarBsp(cab.bsp);
+
+  console.log("[BM BSP DEBUG] BSP escolhida:", {
+    raw: cab.bsp,
+    normalizada: bspAlvo,
+  });
+
+  console.log(
+    "[BM BSP DEBUG] BSPs encontradas:",
+    Array.from(
+      new Set(
+        (diasData ?? []).map((d: any) => {
+          const embarqueId =
+            embarqueBySemanaId.get(d.semana_id) ?? "";
+
+          const embarque = embarqueById.get(embarqueId);
+          const copia = copiaBySourceId.get(d.id);
+
+          const raw =
+            copia?.bsp ??
+            d.bsp ??
+            embarque?.bsp ??
+            null;
+
+          return `${String(raw)} => ${normalizarBsp(raw)}`;
+        }),
+      ),
+    ),
+  );
 
       const diasComColaborador: TimesheetDiaComColaborador[] = (diasData ?? [])
         .map((d: any) => {

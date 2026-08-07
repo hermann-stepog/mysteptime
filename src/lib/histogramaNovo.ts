@@ -135,6 +135,7 @@ export function bspDoPeriodo(p: HistNovoPeriodo): string | null {
 const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
   "SAQUAREMA": "FPSA - CIDADE DE SAQUAREMA",
   "ANCHIETA": "CDAN - CIDADE ANCHIETA",
+  "ANCHIETA - CDA": "CDAN - CIDADE ANCHIETA",
   "GUSMAO": "ALEXANDRE GUSMÃO",
   "GUSMÃO": "ALEXANDRE GUSMÃO",
   "ILHA BELA": "CDI - CIDADE ILHA BELA",
