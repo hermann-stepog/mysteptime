@@ -23,9 +23,12 @@ export interface Bm {
   total_mo: number;
   total_logistica: number;
   total_materiais: number;
+  pos_processamento: number;
+  team_mob_desmob: number;
   total_geral: number;
   current_status: BmStatus;
   rejection_reason: string | null;
+  internal_notes: string | null;
   smartsheet_synced_at: string | null;
   /** Marcação manual do setor: true = BM já medido, false = pendente de medição. */
   ja_medido?: boolean;
@@ -212,11 +215,13 @@ export function computeBmTotals(
   linesMateriais: Pick<BmLineMateriais, "valor_total">[],
   markupEnabled: boolean,
   markupPct: number,
+  posProcessamento = 0,
+  teamMobDesmob = 0,
 ): BmTotals {
   const totalMo = round2(linesMo.reduce((acc, l) => acc + l.valor_total, 0));
   const totalLogistica = round2(linesLogistica.reduce((acc, l) => acc + l.amount, 0));
   const totalLogisticaComMarkup = round2(markupEnabled ? totalLogistica * (1 + markupPct / 100) : totalLogistica);
   const totalMateriais = round2(linesMateriais.reduce((acc, l) => acc + l.valor_total, 0));
-  const grandTotal = round2(totalMo + totalLogisticaComMarkup + totalMateriais);
+  const grandTotal = round2(totalMo + totalLogisticaComMarkup + totalMateriais + posProcessamento + teamMobDesmob);
   return { totalMo, totalLogistica, totalLogisticaComMarkup, totalMateriais, grandTotal };
 }
