@@ -237,6 +237,11 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [diasOverrides, setDiasOverrides] = useState<Record<string, DiaOverrideEdit>>({});
   const [markupEnabled, setMarkupEnabled] = useState(false);
   const [markupPct, setMarkupPct] = useState(15);
+  // Campos simples, lançados direto no formulário (sem integração com Smartsheet) — ver
+  // migration 20260805200000_bm_pos_processamento_team_mob_notes.sql.
+  const [posProcessamento, setPosProcessamento] = useState(0);
+  const [teamMobDesmob, setTeamMobDesmob] = useState(0);
+  const [internalNotes, setInternalNotes] = useState("");
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   const [smartsheetLoading, setSmartsheetLoading] = useState(false);
@@ -265,6 +270,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     });
     setMarkupEnabled(reopenBm.markup_enabled);
     setMarkupPct(reopenBm.markup_pct);
+    setPosProcessamento(reopenBm.pos_processamento ?? 0);
+    setTeamMobDesmob(reopenBm.team_mob_desmob ?? 0);
+    setInternalNotes(reopenBm.internal_notes ?? "");
     setReopenBmId(reopenBm.id);
     setBmNovoManual(true);
     setSelectedBmNumbers([]);
@@ -287,6 +295,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setStep(0); setCab(CABECALHO_VAZIO); setLinesMo([]); setLinesLogistica([]); setLinesMateriais([]);
     setDiasOverrides({});
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
+    setPosProcessamento(0); setTeamMobDesmob(0); setInternalNotes("");
     setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
     setSelectedBmNumbers([]);
     setBmNovoManual(false);
@@ -768,8 +777,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   }, [costLogsCalculados]);
 
   const totals = useMemo(
-    () => computeBmTotals(linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct),
-    [linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct],
+    () => computeBmTotals(linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct, posProcessamento, teamMobDesmob),
+    [linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct, posProcessamento, teamMobDesmob],
   );
 
   // ── Medições aplicadas a este BM (Habitat, Locação, Consumíveis, Mob/Desmob) ───────────
@@ -856,6 +865,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         total_locacao: medicoes.locacao,
         total_consumiveis: medicoes.consumiveis,
         total_mob_desmob_materiais: medicoes.mob_desmob_materiais,
+        pos_processamento: posProcessamento,
+        team_mob_desmob: teamMobDesmob,
+        internal_notes: internalNotes.trim() || null,
         total_geral: totalGeralComMedicoes,
 
         current_status: targetStatus,
@@ -1480,6 +1492,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               {mobDesmob.outros > 0 && (
                 <div className="flex justify-between"><span>Outros (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.outros)}</span></div>
               )}
+              {posProcessamento > 0 && (
+                <div className="flex justify-between"><span>Pós Processamento</span><span className="font-medium">{fmtMoney(posProcessamento)}</span></div>
+              )}
+              {teamMobDesmob > 0 && (
+                <div className="flex justify-between"><span>Team Mob/Desmob</span><span className="font-medium">{fmtMoney(teamMobDesmob)}</span></div>
+              )}
 
               <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totalGeralComMedicoes)}</span></div>
 
@@ -1507,6 +1525,23 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                   </div>
                 </div>
               )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Pós Processamento</Label>
+                  <Input type="number" step="0.01" value={posProcessamento}
+                    onChange={(e) => setPosProcessamento(Number(e.target.value) || 0)} />
+                </div>
+                <div>
+                  <Label className="text-xs">Team Mob/Desmob</Label>
+                  <Input type="number" step="0.01" value={teamMobDesmob}
+                    onChange={(e) => setTeamMobDesmob(Number(e.target.value) || 0)} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Observações (não sai no PDF)</Label>
+                <Textarea rows={2} className="text-xs" value={internalNotes}
+                  onChange={(e) => setInternalNotes(e.target.value)} />
+              </div>
             </div>
           </div>
 

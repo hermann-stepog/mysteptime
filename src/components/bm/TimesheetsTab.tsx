@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
-import { CalendarRange, ChevronRight, RotateCcw, Users } from "lucide-react";
+import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +53,8 @@ type CampoCopia = (typeof CAMPOS_COPIA)[number];
 function fmtData(d: string): string {
   return d.split("-").reverse().join("/");
 }
+
+const EMPTY_JA_MEDIDOS = new Set<string>();
 
 function primeiroDiaDoMes(): string {
   const now = new Date();
@@ -164,6 +166,25 @@ export function TimesheetsTab() {
         .order("colaborador_nome").order("data");
       if (error) throw error;
       return (data ?? []) as BmTimesheetDia[];
+    },
+  });
+
+  // Quem já apareceu em Mão de Obra de algum BM (qualquer status) com período sobrepondo o
+  // filtro De/Até selecionado aqui — mesmo critério já usado no assistente "Gerar Novo BM"
+  // (ver colaboradoresJaMedidos em admin/bm.tsx), só que sem travar por embarcação, já que
+  // essa aba mistura vários BSPs de uma vez.
+  const { data: colaboradoresJaMedidos = EMPTY_JA_MEDIDOS } = useQuery({
+    queryKey: ["bm-ts-ja-medidos", de, ate],
+    enabled: periodoValido,
+    queryFn: async () => {
+      const { data: bmsData, error: bmsErr } = await supabase
+        .from("bms").select("id").lte("period_start", ate).gte("period_end", de);
+      if (bmsErr) throw bmsErr;
+      const bmIds = (bmsData ?? []).map((b: any) => b.id);
+      if (!bmIds.length) return new Set<string>();
+      const { data: linesData, error: linesErr } = await supabase.from("bm_lines_mo").select("colaborador_id").in("bm_id", bmIds);
+      if (linesErr) throw linesErr;
+      return new Set<string>((linesData ?? []).map((l: any) => l.colaborador_id).filter(Boolean));
     },
   });
 
@@ -352,6 +373,7 @@ export function TimesheetsTab() {
                 );
                 const primeiro = g.dias[0];
                 const ultimo = g.dias[g.dias.length - 1];
+                const jaMedido = !!primeiro?.colaborador_id && colaboradoresJaMedidos.has(primeiro.colaborador_id);
                 return (
                 <Card key={chave} className="overflow-hidden">
                   <div className="flex w-full items-start gap-2 border-b px-4 py-3 text-left">
@@ -386,6 +408,14 @@ export function TimesheetsTab() {
                             salvarFuncao.mutate({ ids: g.dias.map((d) => d.id), funcao: valor });
                           }}
                         />
+                        {jaMedido && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success animate-pulse"
+                            title="Este colaborador já foi medido em pelo menos um BM nesse período"
+                          >
+                            <CheckCircle2 className="h-3 w-3" />Já medido
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         <strong>Período:</strong> {primeiro ? fmtData(primeiro.data) : "—"} a {ultimo ? fmtData(ultimo.data) : "—"} · {g.dias.length} dia(s)
