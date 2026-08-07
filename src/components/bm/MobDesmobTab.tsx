@@ -214,6 +214,8 @@ export function MobDesmobTab() {
   const [notaEmDownload, setNotaEmDownload] = useState<string | null>(null);
   const [notaSemNumeroId, setNotaSemNumeroId] = useState<string | null>(null);
   const [numeroNotaManual, setNumeroNotaManual] = useState("");
+  const [notaOcrText, setNotaOcrText] = useState<string | null>(null);
+  const [notaEmIa, setNotaEmIa] = useState(false);
 
   async function enviarNota(c: BmMobDesmobCost, file: File) {
     const tiposPermitidos = new Set([
@@ -235,6 +237,7 @@ export function MobDesmobTab() {
 
     const jaExistia = !!c.invoice_storage_path;
     setNotaEmUpload(c.id);
+    setNotaOcrText(null);
 
     try {
       const storagePath = `${c.id}/nota`;
@@ -250,10 +253,12 @@ export function MobDesmobTab() {
 
       // Primeiro tenta descobrir o número totalmente sem IA.
       let numeroExtraido: string | null = null;
+      let textoOcr: string | null = null;
 
       try {
         const resultado = await extractInvoiceNumberLocally(file);
         numeroExtraido = resultado.number;
+        textoOcr = resultado.rawText;
       } catch {
         numeroExtraido = null;
       }
@@ -280,6 +285,7 @@ export function MobDesmobTab() {
       if (numeroExtraido) {
         setNotaSemNumeroId(null);
         setNumeroNotaManual("");
+        setNotaOcrText(null);
 
         notify.success(
           jaExistia
@@ -288,6 +294,7 @@ export function MobDesmobTab() {
         );
       } else {
         setNumeroNotaManual("");
+        setNotaOcrText(textoOcr);
         setNotaSemNumeroId(c.id);
 
         notify.success(
@@ -380,6 +387,57 @@ export function MobDesmobTab() {
     notify.success("Número da nota salvo.");
   }
 
+
+  async function usarIaParaNota() {
+    if (!notaSemNumeroId) return;
+
+    const texto = notaOcrText?.trim();
+
+    if (!texto) {
+      notify.error("Não há texto OCR disponível para consultar a IA.");
+      return;
+    }
+
+    setNotaEmIa(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "extract-invoice-number-ai",
+        {
+          body: { ocrText: texto },
+        },
+      );
+
+      if (error) throw error;
+
+      const numero =
+        typeof data?.number === "string"
+          ? data.number.trim()
+          : "";
+
+      if (!numero) {
+        notify.error("A IA também não conseguiu identificar o número da nota.");
+        return;
+      }
+
+      const salvo = await salvarNumeroNota(
+        notaSemNumeroId,
+        numero,
+      );
+
+      if (!salvo) return;
+
+      setNotaSemNumeroId(null);
+      setNumeroNotaManual("");
+      setNotaOcrText(null);
+
+      notify.success(`Número da nota identificado pela IA: ${numero}.`);
+    } catch (e: any) {
+      notify.error(e?.message || "Erro ao consultar a IA.");
+    } finally {
+      setNotaEmIa(false);
+    }
+  }
 
   const fetchBms = useServerFn(listSmartsheetBms);
 
@@ -979,13 +1037,10 @@ export function MobDesmobTab() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  window.alert(
-                    "A consulta por IA ainda não está ativada. Nenhum crédito foi consumido. Vamos conectar essa opção na próxima etapa.",
-                  );
-                }}
+                onClick={() => void usarIaParaNota()}
+                disabled={notaEmIa || !notaOcrText?.trim()}
               >
-                Usar IA
+                {notaEmIa ? "Consultando IA..." : "Usar IA"}
               </Button>
 
               <Button

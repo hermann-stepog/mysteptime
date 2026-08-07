@@ -3,6 +3,7 @@ export type InvoiceExtractionMethod = "pdf-text" | "ocr";
 export interface InvoiceNumberExtractionResult {
   number: string | null;
   method: InvoiceExtractionMethod | null;
+  rawText: string | null;
 }
 
 function normalizeText(text: string): string {
@@ -227,31 +228,36 @@ export async function extractInvoiceNumberLocally(
     file.name.toLowerCase().endsWith(".pdf");
 
   if (isPdf) {
+    let pdfText: string | null = null;
+
     try {
-      const text = await extractPdfText(file);
-      const number = findInvoiceNumber(text);
+      pdfText = await extractPdfText(file);
+      const number = findInvoiceNumber(pdfText);
 
       if (number) {
         return {
           number,
           method: "pdf-text",
+          rawText: pdfText,
         };
       }
     } catch {
-      // Continua para OCR.
+      pdfText = null;
     }
 
     try {
-      const text = await extractScannedPdfWithOcr(file);
+      const ocrText = await extractScannedPdfWithOcr(file);
 
       return {
-        number: findInvoiceNumber(text),
+        number: findInvoiceNumber(ocrText),
         method: "ocr",
+        rawText: ocrText,
       };
     } catch {
       return {
         number: null,
         method: null,
+        rawText: pdfText,
       };
     }
   }
@@ -262,11 +268,13 @@ export async function extractInvoiceNumberLocally(
     return {
       number: findInvoiceNumber(text),
       method: "ocr",
+      rawText: text,
     };
   } catch {
     return {
       number: null,
       method: null,
+      rawText: null,
     };
   }
 }
