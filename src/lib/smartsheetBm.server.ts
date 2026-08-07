@@ -10,6 +10,7 @@ import process from "node:process";
 // do módulo — em runtimes tipo Cloudflare Workers, env só resolve por request).
 
 const SMARTSHEET_BASE = "https://api.smartsheet.com/2.0";
+const SHEET_NAME_PO = "Onshore / Offshore Service Control";
 const SHEET_NAME_BM = "Controle de Boletins de Medição - BM";
 const SHEET_NAME_JOB_ORDER = "Job Order";
 
@@ -38,8 +39,26 @@ async function smartsheetPost(token: string, path: string, body: unknown) {
 // Preferimos os IDs cadastrados nos secrets (SMARTSHEET_ID_1 = Controle de BM,
 // SMARTSHEET_ID_2 = Job Order); busca por nome fica só como fallback.
 function configuredSheetId(name: string): string | null {
-  if (name === SHEET_NAME_BM) return process.env.SMARTSHEET_ID_1 ?? null;
-  if (name === SHEET_NAME_JOB_ORDER) return process.env.SMARTSHEET_ID_2 ?? null;
+  if (name === SHEET_NAME_PO) {
+    return process.env.SMARTSHEET_BM_FLOW_SHEET_ID ?? null;
+  }
+
+  if (name === SHEET_NAME_BM) {
+    return (
+      process.env.SMARTSHEET_BM_FLOW_SHEET_ID ??
+      process.env.SMARTSHEET_ID_1 ??
+      null
+    );
+  }
+
+  if (name === SHEET_NAME_JOB_ORDER) {
+    return (
+      process.env.SMARTSHEET_JOB_ORDER_SHEET_ID ??
+      process.env.SMARTSHEET_ID_2 ??
+      null
+    );
+  }
+
   return null;
 }
 
@@ -63,28 +82,20 @@ function cellMap(sheet: any, row: any): Record<string, any> {
   return out;
 }
 
-// Nomes reais confirmados direto na API do Smartsheet (planilha "JOB_ORDER-StepBr(NEW)":
-// PO_Numero/Valor_PO/Cliente/Local/Navio/BSP_Referencia/BSP_Fatura; "Controle de Boletins de
-// Medição - BM": "PO de Faturamento"/"PO ref" pra PO e "VALOR BM" pro valor do BM, sempre em
-// maiúsculas) — mantemos os nomes genéricos antigos como fallback só por segurança, mas são
-// esses que realmente batem com a planilha de verdade.
 export async function fetchPoInfo(poNumber: string) {
   const token = getToken();
-  const sheetId = await findSheetIdByName(token, SHEET_NAME_JOB_ORDER);
+  const sheetId = await findSheetIdByName(token, SHEET_NAME_PO);
   const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
-  // A mesma PO pode ter mais de uma linha na Job Order (itens/linhas diferentes do mesmo
-  // pedido) — soma o Valor_PO de todas, mesmo critério já usado na soma por PO do módulo de BM.
-  const linhas = (sheet.rows ?? []).map((r: any) => cellMap(sheet, r)).filter((r: any) =>
-    String(r["PO_Numero"] ?? r["PO Number"] ?? r["PO"] ?? "").trim() === poNumber.trim(),
+  const row = (sheet.rows ?? []).map((r: any) => cellMap(sheet, r)).find((r: any) =>
+    String(r["PO Number"] ?? r["PO"] ?? "").trim() === poNumber.trim(),
   );
-  if (!linhas.length) return { found: false, poValue: null as number | null, client: null as string | null, vessel: null as string | null, bsp: null as string | null };
-  const poValue = Math.round(linhas.reduce((acc: number, r: any) => acc + (Number(r["Valor_PO"] ?? r["PO Value"] ?? r["Valor da PO"]) || 0), 0) * 100) / 100;
+  if (!row) return { found: false, poValue: null as number | null, client: null as string | null, vessel: null as string | null, bsp: null as string | null };
   return {
     found: true,
-    poValue: poValue || null,
-    client: linhas[0]["Cliente"] ?? linhas[0]["Client"] ?? null,
-    vessel: linhas[0]["Local/Navio"] ?? linhas[0]["Vessel"] ?? linhas[0]["Embarcação"] ?? null,
-    bsp: linhas[0]["BSP_Referencia"] ?? linhas[0]["BSP_Fatura"] ?? linhas[0]["BSP"] ?? null,
+    poValue: Number(row["PO Value"] ?? row["Valor da PO"] ?? 0) || null,
+    client: row["Client"] ?? row["Cliente"] ?? null,
+    vessel: row["Vessel"] ?? row["Embarcação"] ?? null,
+    bsp: row["BSP"] ?? null,
   };
 }
 
@@ -92,31 +103,81 @@ export async function fetchBmHistory(poNumber: string) {
   const token = getToken();
   const sheetId = await findSheetIdByName(token, SHEET_NAME_BM);
   const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
-  const rows = (sheet.rows ?? []).map((r: any) => cellMap(sheet, r)).filter((r: any) =>
-    String(r["PO de Faturamento"] ?? r["PO ref"] ?? r["PO Number"] ?? r["PO"] ?? "").trim() === poNumber.trim(),
+
+  const selectedPo = poNumber.trim().toLocaleLowerCase("pt-BR");
+
+  const rows = (sheet.rows ?? [])
+    .map((row: any) => cellMap(sheet, row))
+    .filter(
+      (row: any) =>
+        String(
+          row["PO de Faturamento"] ??
+            row["PO Number"] ??
+            row["PO"] ??
+            "",
+        )
+          .trim()
+          .toLocaleLowerCase("pt-BR") === selectedPo,
+    );
+
+  const totalIssued = rows.reduce(
+    (total: number, row: any) =>
+      total +
+      (parseSmartsheetNumber(
+        row["VALOR BM"] ??
+          row["Valor BM"] ??
+          row["Valor"] ??
+          row["Value"],
+      ) ?? 0),
+    0,
   );
-  const totalIssued = rows.reduce((acc: number, r: any) => acc + (Number(r["VALOR BM"] ?? r["Valor"] ?? r["Value"]) || 0), 0);
-  return { totalIssued, count: rows.length };
+
+  return {
+    totalIssued:
+      Math.round((totalIssued + Number.EPSILON) * 100) / 100,
+    count: rows.length,
+  };
 }
 
-export async function insertIssuedBm(params: { poNumber: string; bmNumber: string; client: string; vessel: string; value: number }) {
+export async function insertIssuedBm(params: {
+  poNumber: string;
+  bmNumber: string;
+  client: string;
+  vessel: string;
+  value: number;
+}) {
   const token = getToken();
   const sheetId = await findSheetIdByName(token, SHEET_NAME_BM);
   const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
-  const colIdByTitle = new Map<string, number>(sheet.columns.map((c: any) => [c.title, c.id]));
-  const cellFor = (title: string, value: any) => {
+
+  const colIdByTitle = new Map<string, number>(
+    sheet.columns.map(
+      (column: any) => [String(column.title).trim(), Number(column.id)],
+    ),
+  );
+
+  const cellFor = (title: string, value: unknown) => {
     const columnId = colIdByTitle.get(title);
-    return columnId ? [{ columnId, value }] : [];
+
+    return columnId
+      ? [{ columnId, value }]
+      : [];
   };
+
   const cells = [
-    ...cellFor("PO Number", params.poNumber),
+    ...cellFor("PO de Faturamento", params.poNumber),
     ...cellFor("BM", params.bmNumber),
-    ...cellFor("Cliente", params.client),
-    ...cellFor("Embarcação", params.vessel),
-    ...cellFor("Valor", params.value),
-    ...cellFor("Data", new Date().toISOString().slice(0, 10)),
+    ...cellFor("CLIENTE", params.client),
+    ...cellFor("UNIDADE", params.vessel),
+    ...cellFor("VALOR BM", params.value),
   ].flat();
-  const result = await smartsheetPost(token, `/sheets/${sheetId}/rows`, [{ toBottom: true, cells }]);
+
+  const result = await smartsheetPost(
+    token,
+    `/sheets/${sheetId}/rows`,
+    [{ toBottom: true, cells }],
+  );
+
   return { inserted: true, result };
 }
 
@@ -137,22 +198,122 @@ function pick(row: Record<string, any>, titles: string[]): any {
   return null;
 }
 
+function parseSmartsheetNumber(raw: unknown): number | null {
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? raw : null;
+  }
+
+  const original = String(raw ?? "").trim();
+
+  if (!original) return null;
+
+  const negative =
+    original.includes("-") ||
+    /^\(.*\)$/.test(original);
+
+  const cleaned = original.replace(/[^\d.,]/g, "");
+
+  if (!cleaned) return null;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  let normalized = cleaned;
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    const decimalPosition = Math.max(lastComma, lastDot);
+
+    const integerPart = cleaned
+      .slice(0, decimalPosition)
+      .replace(/[.,]/g, "");
+
+    const decimalPart = cleaned
+      .slice(decimalPosition + 1)
+      .replace(/[.,]/g, "");
+
+    normalized = `${integerPart || "0"}.${decimalPart}`;
+  } else if (lastComma >= 0) {
+    const parts = cleaned.split(",");
+
+    normalized =
+      parts.length === 2 && parts[1].length <= 2
+        ? `${parts[0].replace(/\./g, "")}.${parts[1]}`
+        : cleaned.replace(/,/g, "");
+  } else if (lastDot >= 0) {
+    const parts = cleaned.split(".");
+
+    normalized =
+      parts.length === 2 && parts[1].length <= 2
+        ? cleaned
+        : cleaned.replace(/\./g, "");
+  }
+
+  const parsed = Number(normalized);
+
+  if (!Number.isFinite(parsed)) return null;
+
+  return negative ? -Math.abs(parsed) : parsed;
+}
+
 export async function fetchBmList(): Promise<SmartsheetBmRow[]> {
   const token = getToken();
   const sheetId = await findSheetIdByName(token, SHEET_NAME_BM);
   const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
-  return (sheet.rows ?? []).map((r: any) => {
-    const c = cellMap(sheet, r);
-    return {
-      rowId: String(r.id),
-      bmNumber: String(pick(c, ["BM", "BM Number", "Número BM", "Numero BM"]) ?? ""),
-      poNumber: pick(c, ["PO Number", "PO"]) as string | null,
-      client: pick(c, ["Cliente", "Client"]) as string | null,
-      vessel: pick(c, ["Embarcação", "Vessel", "Embarcacao"]) as string | null,
-      value: Number(pick(c, ["Valor", "Value"]) ?? 0) || null,
-      date: pick(c, ["Data", "Date"]) as string | null,
-    } satisfies SmartsheetBmRow;
-  }).filter((r: SmartsheetBmRow) => r.bmNumber.trim() !== "");
+
+  return (sheet.rows ?? [])
+    .map((row: any) => {
+      const cells = cellMap(sheet, row);
+
+      return {
+        rowId: String(row.id),
+
+        bmNumber: String(
+          pick(cells, [
+            "BM",
+            "BM Number",
+            "Número BM",
+            "Numero BM",
+          ]) ?? "",
+        ).trim(),
+
+        poNumber: pick(cells, [
+          "PO de Faturamento",
+          "PO Number",
+          "PO",
+        ]) as string | null,
+
+        client: pick(cells, [
+          "CLIENTE",
+          "Cliente",
+          "Client",
+        ]) as string | null,
+
+        vessel: pick(cells, [
+          "UNIDADE",
+          "Embarcação",
+          "Vessel",
+          "Embarcacao",
+        ]) as string | null,
+
+        value: parseSmartsheetNumber(
+          pick(cells, [
+            "VALOR BM",
+            "Valor BM",
+            "Valor",
+            "Value",
+          ]),
+        ),
+
+        date: pick(cells, [
+          "Data",
+          "Date",
+          "Data de envio do BM para o PM",
+        ]) as string | null,
+      } satisfies SmartsheetBmRow;
+    })
+    .filter(
+      (row: SmartsheetBmRow) =>
+        row.bmNumber.trim() !== "",
+    );
 }
 
 async function smartsheetPut(token: string, path: string, body: unknown) {
@@ -200,6 +361,92 @@ export async function applyMedicaoToBmRow(params: {
   return { applied: true };
 }
 
+export interface BmFlowRow {
+  client: string;
+  vessel: string;
+  bsp: string;
+  poNumber: string;
+}
+
+// Fonte única da cascata do cabeçalho do BM.
+//
+// CLIENTE 2 é deliberadamente ignorada. Cada item preserva a relação existente
+// na mesma linha da planilha:
+// CLIENTE -> UNIDADE -> BSP/B3D/BPP -> PO de Faturamento.
+export async function fetchBmFlowRows(): Promise<BmFlowRow[]> {
+  const token = getToken();
+  const sheetId = await findSheetIdByName(token, SHEET_NAME_PO);
+  const sheet = await smartsheetFetch(token, `/sheets/${sheetId}`);
+
+  const requiredTitles = [
+    "CLIENTE",
+    "UNIDADE",
+    "BSP/B3D/BPP",
+    "PO de Faturamento",
+  ] as const;
+
+  const columnIdByTitle = new Map<string, number>(
+    (sheet.columns ?? []).map(
+      (column: any) =>
+        [String(column.title ?? "").trim(), Number(column.id)] as const,
+    ),
+  );
+
+  const missing = requiredTitles.filter(
+    (title) => !columnIdByTitle.has(title),
+  );
+
+  if (missing.length > 0) {
+    throw new Error(
+      "Colunas obrigatórias não encontradas na planilha do fluxo de BM: " +
+        missing.join(", "),
+    );
+  }
+
+  function readText(row: any, title: (typeof requiredTitles)[number]): string {
+    const columnId = columnIdByTitle.get(title);
+    const cell = (row.cells ?? []).find(
+      (candidate: any) => Number(candidate.columnId) === columnId,
+    );
+
+    return String(cell?.displayValue ?? cell?.value ?? "").trim();
+  }
+
+  const distinctRows = new Map<string, BmFlowRow>();
+
+  for (const row of sheet.rows ?? []) {
+    const item: BmFlowRow = {
+      client: readText(row, "CLIENTE"),
+      vessel: readText(row, "UNIDADE"),
+      bsp: readText(row, "BSP/B3D/BPP"),
+      poNumber: readText(row, "PO de Faturamento"),
+    };
+
+    // CLIENTE é a raiz da cascata. As demais colunas podem estar vazias em
+    // alguma linha, mas só aparecerão no dropdown da etapa correspondente
+    // quando tiverem valor.
+    if (!item.client) continue;
+
+    const key = JSON.stringify(
+      [item.client, item.vessel, item.bsp, item.poNumber].map((value) =>
+        value.toLocaleLowerCase("pt-BR"),
+      ),
+    );
+
+    if (!distinctRows.has(key)) {
+      distinctRows.set(key, item);
+    }
+  }
+
+  return Array.from(distinctRows.values()).sort(
+    (a, b) =>
+      a.client.localeCompare(b.client, "pt-BR", { numeric: true }) ||
+      a.vessel.localeCompare(b.vessel, "pt-BR", { numeric: true }) ||
+      a.bsp.localeCompare(b.bsp, "pt-BR", { numeric: true }) ||
+      a.poNumber.localeCompare(b.poNumber, "pt-BR", { numeric: true }),
+  );
+}
+
 // ─── Job Order: lista de POs consolidada ────────────────────────────────────
 
 
@@ -220,23 +467,23 @@ export async function fetchJobOrderPos(): Promise<JobOrderPo[]> {
   const byPo = new Map<string, JobOrderPo>();
   for (const r of sheet.rows ?? []) {
     const c = cellMap(sheet, r);
-    const po = String(pick(c, ["PO_Numero", "PO Number", "PO", "PO #", "Nº PO", "No PO", "Numero PO", "Número PO", "Purchase Order"]) ?? "").trim();
+    const po = String(pick(c, ["PO Number", "PO", "PO #", "Nº PO", "No PO", "Numero PO", "Número PO", "Purchase Order"]) ?? "").trim();
     if (!po) continue;
-    const raw = pick(c, ["Valor_PO", "Valor", "Value", "Valor Total", "Total Value", "Total", "Amount", "PO Value", "Valor da PO"]);
+    const raw = pick(c, ["Valor", "Value", "Valor Total", "Total Value", "Total", "Amount", "PO Value", "Valor da PO"]);
     const value = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[^\d,.-]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")) || 0;
     const prev = byPo.get(po);
     if (prev) {
       prev.totalValue += value;
       prev.occurrences += 1;
       prev.client ??= (pick(c, ["Cliente", "Client"]) as string | null) ?? null;
-      prev.vessel ??= (pick(c, ["Local/Navio", "Embarcação", "Vessel", "Embarcacao"]) as string | null) ?? null;
+      prev.vessel ??= (pick(c, ["Embarcação", "Vessel", "Embarcacao"]) as string | null) ?? null;
     } else {
       byPo.set(po, {
         poNumber: po,
         totalValue: value,
         occurrences: 1,
         client: (pick(c, ["Cliente", "Client"]) as string | null) ?? null,
-        vessel: (pick(c, ["Local/Navio", "Embarcação", "Vessel", "Embarcacao"]) as string | null) ?? null,
+        vessel: (pick(c, ["Embarcação", "Vessel", "Embarcacao"]) as string | null) ?? null,
       });
     }
   }
