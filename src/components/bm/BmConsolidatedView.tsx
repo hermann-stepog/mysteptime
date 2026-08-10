@@ -45,9 +45,10 @@ interface BmConsolidatedViewProps {
 
 export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidatedViewProps) {
   const qc = useQueryClient();
+  // "project_name" guarda o BSP (ver comentário em admin/bm.tsx) — não a embarcação.
   const { data: dayGrid = [] } = useQuery({
-    queryKey: ["bm-day-grid", bm.vessel, bm.period_start, bm.period_end],
-    queryFn: () => fetchBmDayGrid(bm.vessel, bm.period_start, bm.period_end),
+    queryKey: ["bm-day-grid", bm.project_name, bm.period_start, bm.period_end],
+    queryFn: () => fetchBmDayGrid(bm.project_name ?? "", bm.period_start, bm.period_end),
   });
 
   // Rate Overtime/Rate Night Shift ficam editáveis aqui na folha de rosto (já com o BM gerado)

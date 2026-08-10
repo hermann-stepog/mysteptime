@@ -56,56 +56,38 @@ export function computeDayCodes(dias: DiaEvento[]): Map<string, DayCode | null> 
   return codes;
 }
 
-// Mesmo join embarque->semana->dia->colaborador já usado no Step 1 (Mão de Obra) do wizard —
-// busca todos os colaboradores com embarque na unidade/período informados, com a lista bruta
-// de dias (data + evento) de cada um, pra montar o calendário colorido da view do BM.
-export async function fetchBmDayGrid(vessel: string, periodStart: string, periodEnd: string): Promise<ColaboradorDayGrid[]> {
-  const { data: embarquesData, error: embErr } = await supabase
-    .from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, bsp").eq("unidade_operacional", vessel);
-  if (embErr) throw embErr;
-  const embarqueIds = (embarquesData ?? []).map((e: any) => e.id);
-  if (!embarqueIds.length) return [];
+// Fonte única: a cópia em bm_timesheet_dias (aba "Timesheets" do módulo de BM), filtrada por
+// BSP — mesma correção já aplicada em admin/bm.tsx (Step 1) e bmRateEngine.ts. O BSP do
+// Cabeçalho vem do Smartsheet ("SAQUAREMA - CDS") e nunca bate exato com o nome canônico de
+// timesheet_embarques.unidade_operacional, então filtrar por embarcação aqui sempre voltava
+// vazio e o calendário da folha de rosto ficava sem nenhum dia colorido.
+export async function fetchBmDayGrid(bsp: string, periodStart: string, periodEnd: string): Promise<ColaboradorDayGrid[]> {
+  const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^[a-z]+[\s-]*/i, "").trim().toLowerCase();
+  const bspAlvo = normalizarBsp(bsp);
+  if (!bspAlvo) return [];
 
-  const { data: semanasData, error: semErr } = await supabase
-    .from("timesheet_semanas").select("id, embarque_id")
-    .in("embarque_id", embarqueIds)
-    .lte("data_inicio_semana", periodEnd).gte("data_fim_semana", periodStart);
-  if (semErr) throw semErr;
-  const semanaIds = (semanasData ?? []).map((s: any) => s.id);
-  if (!semanaIds.length) return [];
-
-  const { data: diasData, error: diasErr } = await supabase
-    .from("timesheet_dias").select("data, evento, horas_extras, adicional_noturno, total_horas, semana_id")
-    .in("semana_id", semanaIds).gte("data", periodStart).lte("data", periodEnd);
-  if (diasErr) throw diasErr;
-
-  const embarqueBySemanaId = new Map<string, string>((semanasData ?? []).map((s: any) => [s.id, s.embarque_id]));
-  const embarqueById = new Map<string, any>((embarquesData ?? []).map((e: any) => [e.id, e]));
-
-  const colaboradorIds = Array.from(new Set((embarquesData ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
-  const { data: colaboradoresData, error: colabErr } = colaboradorIds.length
-    ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colaboradorIds)
-    : { data: [], error: null };
-  if (colabErr) throw colabErr;
-  const nomeById = new Map<string, string>((colaboradoresData ?? []).map((c: any) => [c.id, c.nome]));
+  const { data: copiasData, error: copiasErr } = await supabase
+    .from("bm_timesheet_dias")
+    .select("colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
+    .gte("data", periodStart).lte("data", periodEnd);
+  if (copiasErr) throw copiasErr;
 
   const porColaborador = new Map<string, ColaboradorDayGrid>();
-  (diasData ?? []).forEach((d: any) => {
-    const embarqueId = embarqueBySemanaId.get(d.semana_id);
-    const embarque = embarqueId ? embarqueById.get(embarqueId) : null;
-    if (!embarque?.colaborador_id) return;
-    const colaboradorId = embarque.colaborador_id;
-    if (!porColaborador.has(colaboradorId)) {
-      porColaborador.set(colaboradorId, {
-        colaboradorId, colaboradorNome: nomeById.get(colaboradorId) ?? "—",
-        funcao: embarque.funcao_embarque ?? "—", bsp: embarque.bsp ?? null, dias: [],
+  (copiasData ?? [])
+    .filter((d: any) => d.colaborador_id && normalizarBsp(d.bsp) === bspAlvo)
+    .forEach((d: any) => {
+      const colaboradorId = d.colaborador_id;
+      if (!porColaborador.has(colaboradorId)) {
+        porColaborador.set(colaboradorId, {
+          colaboradorId, colaboradorNome: d.colaborador_nome ?? "—",
+          funcao: d.funcao ?? "—", bsp: d.bsp ?? null, dias: [],
+        });
+      }
+      porColaborador.get(colaboradorId)!.dias.push({
+        data: d.data, evento: d.evento,
+        horas_extras: d.horas_extras, adicional_noturno: d.adicional_noturno, total_horas: d.total_horas,
       });
-    }
-    porColaborador.get(colaboradorId)!.dias.push({
-      data: d.data, evento: d.evento,
-      horas_extras: d.horas_extras, adicional_noturno: d.adicional_noturno, total_horas: d.total_horas,
     });
-  });
 
   return Array.from(porColaborador.values()).sort((a, b) => a.colaboradorNome.localeCompare(b.colaboradorNome));
 }
