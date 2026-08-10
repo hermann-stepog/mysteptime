@@ -37,7 +37,7 @@ import { MedicaoTab } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { getBmHistoryForPo, recordIssuedBm, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
+import { getBmHistoryForPo, recordIssuedBm, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 import { listBmFlowRows } from "@/lib/api/bmFlow.functions";
 import { getJobOrderPoTotal } from "@/lib/api/jobOrderPoTotal.functions";
 
@@ -457,12 +457,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       current.poBalanceBefore === novoSaldo ? current : { ...current, poBalanceBefore: novoSaldo },
     );
   }, [cab.poNumber, cab.poValue, bmHistoryForPo]);
-
-  const { data: proximoBm } = useQuery({
-    queryKey: ["smartsheet-next-bm"],
-    queryFn: async () => await getNextBmNumber(),
-    staleTime: 10 * 60 * 1000,
-  });
 
   // Controle de Medição (Smartsheet): lista de BMs já existentes — alimenta a lista de
   // números de BM e a lista de POs; o valor do BM vem da própria linha da planilha.
@@ -1345,11 +1339,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                   : "Selecione a PO de Faturamento para carregar as BMs."}
               </p>
 
-              {proximoBm?.lastBmNumber && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Último BM: {proximoBm.lastBmNumber}
-                </p>
-              )}
             </div>
 
             <div>
