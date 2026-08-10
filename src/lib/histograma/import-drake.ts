@@ -358,12 +358,76 @@ export async function importDrakeEmbarkation(
     });
   }
 
+  // Rede de segurança: garante que TODO período "E" confirmado (qualquer origem, exceto
+  // "programado" — esse ainda não foi promovido a embarque real, ver ORIGEM_PROGRAMADO) tenha
+  // um timesheet_embarque cobrindo sua janela, não só os recém-inseridos neste import. Corrida
+  // entre sincronizações sobrepostas (mesmo problema descrito no comentário de
+  // limparPeriodosDrakeEmbarqueSuperados acima) pode fazer o embarque de um período mais antigo
+  // ser encolhido por ensureTimesheetParaPeriodo (linha 134) sem que o período seguinte, agora
+  // descoberto, seja detectado como "faltando" nesta mesma rodada — a pessoa fica sem onde
+  // lançar horas pra aquele período, silenciosamente, até alguém notar e reimportar.
+  await garantirEmbarquesParaPeriodosSemCobertura(supabase);
+
   return {
     created: toInsert.length,
     updated: toUpdate.length,
     insertedEvents: periodosToInsert.length,
     skipped: rows.length - periodosToInsert.length,
   };
+}
+
+async function garantirEmbarquesParaPeriodosSemCobertura(supabase: SupabaseClient): Promise<void> {
+  const periodosE = await selectAllPages<{
+    id: string; colaborador_id: string; unidade_operacional: string | null; centro_de_custo: string | null;
+    data_inicio: string; data_fim: string; origem: string | null;
+  }>((from, to) =>
+    supabase.from("hist_novo_periodos")
+      .select("id, colaborador_id, unidade_operacional, centro_de_custo, data_inicio, data_fim, origem")
+      .eq("tipo", "E")
+      .order("id").range(from, to),
+  );
+  const confirmados = periodosE.filter((p) => p.origem !== ORIGEM_PROGRAMADO);
+  if (!confirmados.length) return;
+
+  const colaboradorIds = Array.from(new Set(confirmados.map((p) => p.colaborador_id)));
+  const embarques = await selectAllPages<{ colaborador_id: string; data_inicio_embarque: string; data_fim_embarque: string }>((from, to) =>
+    supabase.from("timesheet_embarques")
+      .select("colaborador_id, data_inicio_embarque, data_fim_embarque")
+      .in("colaborador_id", colaboradorIds)
+      .order("colaborador_id").range(from, to),
+  );
+  const embarquesPorColaborador = new Map<string, typeof embarques>();
+  embarques.forEach((e) => {
+    if (!embarquesPorColaborador.has(e.colaborador_id)) embarquesPorColaborador.set(e.colaborador_id, []);
+    embarquesPorColaborador.get(e.colaborador_id)!.push(e);
+  });
+
+  const { data: colabsData, error: colabsErr } = await supabase
+    .from("hist_novo_colaboradores").select("id, funcao, funcao_operacao").in("id", colaboradorIds);
+  if (colabsErr) throw colabsErr;
+  const colabById = new Map((colabsData ?? []).map((c: any) => [c.id, c]));
+
+  for (const p of confirmados) {
+    const cobertos = embarquesPorColaborador.get(p.colaborador_id) ?? [];
+    const jaCoberto = cobertos.some((e) => e.data_inicio_embarque <= p.data_fim && e.data_fim_embarque >= p.data_inicio);
+    if (jaCoberto) continue;
+
+    const colaborador = colabById.get(p.colaborador_id);
+    const funcaoEmbarque = colaborador?.funcao || colaborador?.funcao_operacao || "—";
+    await ensureTimesheetParaPeriodo(supabase, {
+      colaboradorId: p.colaborador_id,
+      periodoId: null,
+      unidadeOperacional: p.unidade_operacional,
+      bsp: p.centro_de_custo,
+      funcaoEmbarque,
+      dataInicio: p.data_inicio,
+      dataFim: p.data_fim,
+    });
+    // Atualiza a lista local pra que outro período do mesmo colaborador, mais adiante neste
+    // mesmo lote, já enxergue o embarque recém-criado (evita criar dois pro mesmo colaborador).
+    cobertos.push({ colaborador_id: p.colaborador_id, data_inicio_embarque: p.data_inicio, data_fim_embarque: p.data_fim });
+    embarquesPorColaborador.set(p.colaborador_id, cobertos);
+  }
 }
 
 // Entre todos os períodos "E" origem=drake do MESMO colaborador que se sobrepõem em data,
