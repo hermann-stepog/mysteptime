@@ -242,6 +242,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [posProcessamento, setPosProcessamento] = useState(0);
   const [teamMobDesmob, setTeamMobDesmob] = useState(0);
   const [internalNotes, setInternalNotes] = useState("");
+  // Valor manual de Logística Mob/Desmob — some junto com Transporte/Hotel/Outros já
+  // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
+  // na aba Logística Mob/Desmob.
+  const [logisticaManual, setLogisticaManual] = useState(0);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
@@ -272,6 +276,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setPosProcessamento(reopenBm.pos_processamento ?? 0);
     setTeamMobDesmob(reopenBm.team_mob_desmob ?? 0);
     setInternalNotes(reopenBm.internal_notes ?? "");
+    setLogisticaManual(reopenBm.logistica_manual ?? 0);
     setReopenBmId(reopenBm.id);
     setBmNovoManual(true);
     setSelectedBmNumbers([]);
@@ -294,7 +299,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setStep(0); setCab(CABECALHO_VAZIO); setLinesMo([]); setLinesLogistica([]); setLinesMateriais([]);
     setDiasOverrides({});
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
-    setPosProcessamento(0); setTeamMobDesmob(0); setInternalNotes("");
+    setPosProcessamento(0); setTeamMobDesmob(0); setInternalNotes(""); setLogisticaManual(0);
     setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
     setSelectedBmNumbers([]);
     setBmNovoManual(false);
@@ -780,7 +785,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       return acc;
     },
   });
-  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros);
+  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros + logisticaManual);
 
   const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes + totalMobDesmob);
 
@@ -822,6 +827,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         total_mob_desmob_materiais: medicoes.mob_desmob_materiais,
         pos_processamento: posProcessamento,
         team_mob_desmob: teamMobDesmob,
+        logistica_manual: logisticaManual,
         internal_notes: internalNotes.trim() || null,
         total_geral: totalGeralComMedicoes,
 
@@ -1343,6 +1349,16 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 ? `Custos importados e aplicados na aba Logística Mob/Desmob para o BSP ${cab.bsp}.`
                 : "Selecione o BSP para carregar os custos de transporte e hotel já aplicados."}
             </p>
+            <div className="mt-3 border-t pt-3">
+              <Label className="text-xs">Valor manual de Logística</Label>
+              <Input
+                type="number" step="0.01" value={logisticaManual}
+                onChange={(e) => setLogisticaManual(Number(e.target.value) || 0)}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Lançamento manual, somado ao total acima e enviado pra folha de rosto do BM gerado.
+              </p>
+            </div>
           </div>
 
 
