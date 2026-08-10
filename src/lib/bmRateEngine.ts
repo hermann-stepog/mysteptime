@@ -39,12 +39,20 @@ function normalizar(s: string): string {
 }
 
 // O Cabeçalho do BM seleciona a Embarcação a partir do texto livre da cascata do Smartsheet
-// ("SAQUAREMA - CDS", "ANCHIETA - CDA"...), enquanto o rate é cadastrado com o nome curto
-// canônico ("SAQUAREMA", "ANCHIETA", ver aba Rates) — sem isso elas nunca batem exato e todo
-// rate cai como "não cadastrado" mesmo quando existe. O padrão observado é sempre
-// "NOME CURTO - CÓDIGO", então basta comparar só a parte antes do primeiro " - ".
+// ("SAQUAREMA - CDS", "ANCHIETA - CDA", "ATLANTA"...), enquanto o rate é cadastrado com o nome
+// curto (ver aba Rates), às vezes com prefixo "FPSO"/"CIDADE (DE)" na frente ("FPSO Atlanta",
+// "CIDADE DE SEPETIBA") — sem normalizar os dois lados igual, elas nunca batem exato e todo
+// rate cai como "não cadastrado" mesmo quando existe. Confirmado auditando as 53 combinações
+// Cliente/Embarcação reais do Smartsheet contra a tabela de rates: tirar o sufixo " - CÓDIGO",
+// o prefixo FPSO/CIDADE (DE) e a palavra "DE" solta resolve os casos de nomenclatura sem
+// colidir dois navios diferentes do mesmo cliente entre si.
 function normalizarVessel(s: string): string {
-  return normalizar(s).split(/\s*-\s*/)[0].trim();
+  return normalizar(s)
+    .split(/\s*-\s*/)[0]
+    .replace(/^(fpso|cidade de|cidade)\s+/, "")
+    .replace(/\bde\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Sufixo de nível/numeral no fim da função ("SOLDADOR I", "SUPERVISOR OFFSHORE III",
