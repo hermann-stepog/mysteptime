@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Printer } from "lucide-react";
-import { type Bm, type BmLineMo, type BmLineLogistica, computeBmTotals } from "@/lib/bm";
+import { type Bm, type BmLineMo } from "@/lib/bm";
 import { fetchBmDayGrid, computeDayCodes, type DayCode } from "@/lib/bmDayGrid";
 import { generateDateRange, getContrastText } from "@/lib/histogramaNovo";
 import { notify } from "@/lib/notify";
@@ -37,13 +37,13 @@ const DAY_LABEL: Record<DayCode, string> = {
 };
 const LEGEND_ORDER: DayCode[] = ["HO", "EC", "MEC", "P", "E", "D", "DO"];
 
-interface BmConsolidatedViewProps {
+interface BmTimesheetCoverViewProps {
   bm: Bm;
   linesMo: BmLineMo[];
-  linesLogistica: BmLineLogistica[];
 }
 
-export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidatedViewProps) {
+/** Folha de rosto exclusiva da medicao de horas dos colaboradores offshore. */
+export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps) {
   const qc = useQueryClient();
   // "project_name" guarda o BSP (ver comentário em admin/bm.tsx) — não a embarcação.
   const { data: dayGrid = [] } = useQuery({
@@ -131,31 +131,21 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
   // ── Bloco A: Consolidado ──────────────────────────────────────────────────
   // Cada card é um recorte do mesmo valor já somado em bm_lines_mo (rate×quantidade) —
   // nenhum cálculo novo, só exposto separado por card em vez de um único total de Mão de Obra.
-  const workingDays = round2(linesMo.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0), 0));
-  const overtimeNightShift = round2(linesMo.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
-  const totals = computeBmTotals(linesMo, linesLogistica, [], bm.markup_enabled, bm.markup_pct);
-
+  const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0), 0));
+  const overtimeNightShift = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
   // Totais do rodapé da tabela de Horas — a partir de linesMoLocal (reflete os rates editados
   // ali mesmo na folha de rosto, não só o valor original salvo em linesMo).
   const totalHorasExtras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras, 0));
   const totalAdicionalNoturno = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_adicional_noturno, 0));
   const totalValorHoras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
 
-  const consolidadoCards: { label: string; value: number }[] = [
+  const timesheetCards: { label: string; value: number }[] = [
     { label: "Working days + Overstay", value: workingDays },
     { label: "Overtime + Night Shift", value: overtimeNightShift },
-    { label: "Logistics", value: round2(totals.totalLogisticaComMarkup + bm.logistica_manual) },
-    { label: "Team Mob/Desmob", value: bm.team_mob_desmob },
-    { label: "Habitat", value: 0 },
-    { label: "Rentals", value: 0 },
-    { label: "Pós Processamento", value: bm.pos_processamento },
-    { label: "Consumables", value: 0 },
-    { label: "Material Mob/Desmob", value: 0 },
   ];
-  const totalGeral = round2(consolidadoCards.reduce((acc, c) => acc + c.value, 0));
-  // "Current BM" e Balance usam o override manual (Valor do BM, preenchido ao criar um BM
-  // novo no assistente) quando ele existir — senão caem no total calculado normalmente.
-  const currentBm = bm.valor_bm_manual ?? totalGeral;
+  // Esta folha é independente das demais medições. Logística, materiais, habitat,
+  // locações e o override do valor global continuam no gerador, mas não compõem esta capa.
+  const currentBm = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
 
   const bmIssued = bm.po_value != null && bm.po_balance_before != null ? round2(bm.po_value - bm.po_balance_before) : null;
   const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : null;
@@ -186,6 +176,10 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
     <div className="bm-print-scale-inner space-y-6">
       <div className="flex items-center justify-between border-b pb-3">
         <BrandLogo className="h-10 w-auto" />
+        <div className="text-center">
+          <h1 className="text-base font-semibold uppercase tracking-wide">Medição de Timesheet Offshore</h1>
+          <p className="text-[11px] text-muted-foreground">Horas trabalhadas dos colaboradores offshore</p>
+        </div>
         <div className="text-right text-xs text-muted-foreground">
           <p className="font-semibold text-foreground">{bm.client_name} — {bm.vessel}</p>
           <p>{fmt(bm.period_start)} – {fmt(bm.period_end)}{bm.po_number ? ` · PO ${bm.po_number}` : ""}</p>
@@ -206,17 +200,17 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
 
       {/* ── Bloco A — Consolidado ── */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Consolidado</h2>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-          {consolidadoCards.map((c) => (
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Resumo da medição offshore</h2>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {timesheetCards.map((c) => (
             <Card key={c.label} className="border p-3 shadow-sm">
               <p className="text-[11px] text-muted-foreground">{c.label}</p>
               <p className="text-sm font-semibold">{fmtMoney(c.value)}</p>
             </Card>
           ))}
           <Card className="border bg-muted/30 p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Total</p>
-            <p className="text-sm font-bold">{fmtMoney(totalGeral)}</p>
+            <p className="text-[11px] text-muted-foreground">Total Timesheet</p>
+            <p className="text-sm font-bold">{fmtMoney(currentBm)}</p>
           </Card>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -229,11 +223,8 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
             <p className="text-sm font-semibold">{bmIssued != null ? fmtMoney(bmIssued) : "—"}</p>
           </Card>
           <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Current BM</p>
+            <p className="text-[11px] text-muted-foreground">Current BM · Timesheet</p>
             <p className="text-sm font-semibold">{fmtMoney(currentBm)}</p>
-            {bm.valor_bm_manual != null && bm.valor_bm_manual !== totalGeral && (
-              <p className="text-[10px] text-muted-foreground print:hidden">Total calculado: {fmtMoney(totalGeral)}</p>
-            )}
           </Card>
           <Card className="border p-3 shadow-sm">
             <p className="text-[11px] text-muted-foreground">Balance</p>

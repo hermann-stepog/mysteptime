@@ -31,7 +31,7 @@ import {
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
-import { BmConsolidatedView } from "@/components/bm/BmConsolidatedView";
+import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
 import { MedicaoTab } from "@/components/bm/MedicaoTab";
 
@@ -257,7 +257,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [selectedBmNumbers, setSelectedBmNumbers] =
     useState<string[]>([]);
   const previousPoNumberRef = useRef("");
-  // Resultado do último BM gerado/salvo — enquanto preenchido, a tela mostra o BmConsolidatedView
+  // Resultado do último BM gerado/salvo — enquanto preenchido, a tela mostra a folha de timesheet
   // (Consolidado + Diárias + Horas) no lugar do wizard, pra "Gerar BM" ter um resultado visível
   // imediato em vez de só um toast e o formulário voltando em branco.
   const [savedBm, setSavedBm] = useState<Bm | null>(null);
@@ -974,7 +974,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           </p>
           <Button size="sm" variant="outline" onClick={resetWizard}>Gerar novo BM</Button>
         </div>
-        <BmConsolidatedView bm={savedBm} linesMo={savedLinesMo} linesLogistica={savedLinesLogistica} />
+        <BmTimesheetCoverView bm={savedBm} linesMo={savedLinesMo} />
       </Card>
     );
   }
@@ -2066,10 +2066,9 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                 />
                 <span>Já foi medido</span>
               </label>
-              <BmConsolidatedView
+              <BmTimesheetCoverView
                 bm={viewingBm}
                 linesMo={viewingLinhas?.mo ?? []}
-                linesLogistica={viewingLinhas?.logistica ?? []}
               />
             </>
           )}
@@ -2078,10 +2077,9 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
       </Dialog>
       {viewingBm && (
         <div className="hidden print:block">
-          <BmConsolidatedView
+          <BmTimesheetCoverView
             bm={viewingBm}
             linesMo={viewingLinhas?.mo ?? []}
-            linesLogistica={viewingLinhas?.logistica ?? []}
           />
         </div>
       )}
