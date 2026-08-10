@@ -134,7 +134,7 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
   const consolidadoCards: { label: string; value: number }[] = [
     { label: "Working days + Overstay", value: workingDays },
     { label: "Overtime + Night Shift", value: overtimeNightShift },
-    { label: "Logistics", value: totals.totalLogisticaComMarkup },
+    { label: "Logistics", value: round2(totals.totalLogisticaComMarkup + bm.logistica_manual) },
     { label: "Team Mob/Desmob", value: bm.team_mob_desmob },
     { label: "Habitat", value: 0 },
     { label: "Rentals", value: 0 },

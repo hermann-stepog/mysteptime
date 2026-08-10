@@ -37,7 +37,7 @@ import { MedicaoTab } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
-import { getPoInfo, getBmHistoryForPo, recordIssuedBm, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
+import { getBmHistoryForPo, recordIssuedBm, getNextBmNumber, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 import { listBmFlowRows } from "@/lib/api/bmFlow.functions";
 import { getJobOrderPoTotal } from "@/lib/api/jobOrderPoTotal.functions";
 
@@ -242,9 +242,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [posProcessamento, setPosProcessamento] = useState(0);
   const [teamMobDesmob, setTeamMobDesmob] = useState(0);
   const [internalNotes, setInternalNotes] = useState("");
+  // Valor manual de Logística Mob/Desmob — some junto com Transporte/Hotel/Outros já
+  // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
+  // na aba Logística Mob/Desmob.
+  const [logisticaManual, setLogisticaManual] = useState(0);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
-  const [smartsheetLoading, setSmartsheetLoading] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
   const [bmNovoManual, setBmNovoManual] = useState(false);
   const [selectedBmNumbers, setSelectedBmNumbers] =
@@ -273,6 +276,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setPosProcessamento(reopenBm.pos_processamento ?? 0);
     setTeamMobDesmob(reopenBm.team_mob_desmob ?? 0);
     setInternalNotes(reopenBm.internal_notes ?? "");
+    setLogisticaManual(reopenBm.logistica_manual ?? 0);
     setReopenBmId(reopenBm.id);
     setBmNovoManual(true);
     setSelectedBmNumbers([]);
@@ -295,7 +299,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setStep(0); setCab(CABECALHO_VAZIO); setLinesMo([]); setLinesLogistica([]); setLinesMateriais([]);
     setDiasOverrides({});
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
-    setPosProcessamento(0); setTeamMobDesmob(0); setInternalNotes("");
+    setPosProcessamento(0); setTeamMobDesmob(0); setInternalNotes(""); setLogisticaManual(0);
     setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
     setSelectedBmNumbers([]);
     setBmNovoManual(false);
@@ -379,32 +383,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
   const headerCompleto = !!(cab.client && cab.vessel && cab.periodStart && cab.periodEnd);
 
-  const onBuscarSmartsheet = async () => {
-    if (!cab.poNumber.trim()) return;
-    setSmartsheetLoading(true);
-    try {
-      const poNumber = cab.poNumber.trim();
-      const [info, hist] = await Promise.all([
-        getPoInfo({ data: { poNumber } }),
-        getBmHistoryForPo({ data: { poNumber } }),
-      ]);
-      // O Valor Total da PO vem da Job Order (soma de todas as ocorrências); o getPoInfo
-      // só é usado como fallback quando a PO não está na Job Order.
-      const poValue =
-        jobOrderPoTotal?.totalValue ??
-        info?.poValue ??
-        null;
-      const bmsIssued = hist?.totalIssued ?? 0;
-      setCab((c) => ({ ...c, poValue, poBalanceBefore: poValue != null ? poValue - bmsIssued : null }));
-
-      notify.success("Dados do Smartsheet carregados.");
-    } catch (e: any) {
-      notify.error(e.message || "Integração com Smartsheet ainda não disponível — preencha o PO Value manualmente.");
-    } finally {
-      setSmartsheetLoading(false);
-    }
-  };
-
   // ── Smartsheet: Job Order (lista de POs) e Controle de BM (sequência) ──────────────────
   // Só leitura: a planilha Job Order alimenta o autocomplete de PO (uma linha por PO, valor
   // somado de todas as ocorrências) e o Controle de BM dá o próximo número da sequência.
@@ -455,6 +433,24 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           },
     );
   }, [cab.poNumber, jobOrderPoTotal]);
+
+  // Total já emitido pra essa PO (Controle de Boletins de Medição) — junto com o Valor Total
+  // da PO acima, dá o Saldo antes deste BM (BM Issued / Balance no card do Cabeçalho).
+  const { data: bmHistoryForPo } = useQuery({
+    queryKey: ["smartsheet-bm-history", cab.poNumber.trim()],
+    enabled: !!cab.poNumber.trim(),
+    queryFn: async () => await getBmHistoryForPo({ data: { poNumber: cab.poNumber.trim() } }),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    if (!cab.poNumber.trim() || cab.poValue == null) return;
+    const bmsIssued = bmHistoryForPo?.totalIssued ?? 0;
+    const novoSaldo = round2(cab.poValue - bmsIssued);
+    setCab((current) =>
+      current.poBalanceBefore === novoSaldo ? current : { ...current, poBalanceBefore: novoSaldo },
+    );
+  }, [cab.poNumber, cab.poValue, bmHistoryForPo]);
 
   const { data: proximoBm } = useQuery({
     queryKey: ["smartsheet-next-bm"],
@@ -789,7 +785,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       return acc;
     },
   });
-  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros);
+  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros + logisticaManual);
 
   const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes + totalMobDesmob);
 
@@ -831,6 +827,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         total_mob_desmob_materiais: medicoes.mob_desmob_materiais,
         pos_processamento: posProcessamento,
         team_mob_desmob: teamMobDesmob,
+        logistica_manual: logisticaManual,
         internal_notes: internalNotes.trim() || null,
         total_geral: totalGeralComMedicoes,
 
@@ -1182,8 +1179,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
                         setCab((current) => ({
                           ...current,
-                          numeroBm:
-                            proximoBm?.nextBmNumber ?? "",
+                          numeroBm: "",
                         }));
 
                         event.currentTarget
@@ -1193,9 +1189,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                     >
                       <Plus className="mr-2 h-4 w-4" />
                       Criar nova BM
-                      {proximoBm?.nextBmNumber
-                        ? ` (${proximoBm.nextBmNumber})`
-                        : ""}
                     </button>
 
                     <div className="my-1 border-t" />
@@ -1356,6 +1349,16 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 ? `Custos importados e aplicados na aba Logística Mob/Desmob para o BSP ${cab.bsp}.`
                 : "Selecione o BSP para carregar os custos de transporte e hotel já aplicados."}
             </p>
+            <div className="mt-3 border-t pt-3">
+              <Label className="text-xs">Valor manual de Logística</Label>
+              <Input
+                type="number" step="0.01" value={logisticaManual}
+                onChange={(e) => setLogisticaManual(Number(e.target.value) || 0)}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Lançamento manual, somado ao total acima e enviado pra folha de rosto do BM gerado.
+              </p>
+            </div>
           </div>
 
 
