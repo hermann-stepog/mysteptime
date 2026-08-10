@@ -26,6 +26,11 @@ export interface Bm {
   pos_processamento: number;
   team_mob_desmob: number;
   logistica_manual: number;
+  // Override manual do valor deste BM quando ele é novo (ainda não existe no Smartsheet) —
+  // pré-preenchido com total_geral no momento em que "Criar nova BM" é clicado no assistente.
+  // Quando preenchido, prevalece sobre total_geral no card "Current BM"/Balance da folha de
+  // rosto e no valor enviado ao Smartsheet ao emitir o BM.
+  valor_bm_manual: number | null;
   total_geral: number;
   current_status: BmStatus;
   rejection_reason: string | null;
