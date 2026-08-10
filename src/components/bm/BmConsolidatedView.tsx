@@ -177,7 +177,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
       <div className="flex items-center justify-between border-b pb-3">
         <BrandLogo className="h-10 w-auto" />
         <div className="text-center">
-          <h1 className="text-base font-semibold uppercase tracking-wide">Medição de Timesheet Offshore</h1>
+          <h1 className="text-base font-semibold uppercase tracking-wide">Medição de Mão de Obra Offshore</h1>
           <p className="text-[11px] text-muted-foreground">Horas trabalhadas dos colaboradores offshore</p>
         </div>
         <div className="text-right text-xs text-muted-foreground">
