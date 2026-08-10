@@ -58,9 +58,13 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
   const [bmTotais, setBmTotais] = useState({ total_mo: bm.total_mo, total_geral: bm.total_geral });
   useEffect(() => setBmTotais({ total_mo: bm.total_mo, total_geral: bm.total_geral }), [bm.total_mo, bm.total_geral]);
 
+  type CampoRate = "rate_hora_extra" | "rate_adicional_noturno" | "rate_embarque" | "rate_dobra" | "rate_hotel";
   const salvarRate = useMutation({
-    mutationFn: async ({ linha, campo, valor }: { linha: BmLineMo; campo: "rate_hora_extra" | "rate_adicional_noturno"; valor: number | null }) => {
+    mutationFn: async ({ linha, campo, valor }: { linha: BmLineMo; campo: CampoRate; valor: number | null }) => {
       const atualizada = { ...linha, [campo]: valor };
+      // Lançamento manual de um rate que faltava (ver badge "Rate não cadastrado") — assim que
+      // a pessoa preenche qualquer um dos rates aqui, considera resolvido: some o aviso.
+      if (linha.rate_missing) atualizada.rate_missing = false;
       const novoValorTotal = round2(
         atualizada.dias_embarque * (atualizada.rate_embarque ?? 0) +
         atualizada.dias_dobra * (atualizada.rate_dobra ?? 0) +
@@ -69,7 +73,7 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
         atualizada.horas_adicional_noturno * (atualizada.rate_adicional_noturno ?? 0),
       );
       const { error: lineErr } = await supabase.from("bm_lines_mo")
-        .update({ [campo]: valor, valor_total: novoValorTotal }).eq("id", linha.id);
+        .update({ [campo]: valor, rate_missing: atualizada.rate_missing, valor_total: novoValorTotal }).eq("id", linha.id);
       if (lineErr) throw lineErr;
 
       const novoTotalMo = round2(bmTotais.total_mo - linha.valor_total + novoValorTotal);
@@ -87,6 +91,11 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
     },
     onError: (e: any) => notify.error(e.message || "Erro ao salvar o rate."),
   });
+
+  // Linhas que chegaram sem rate cadastrado — capturado uma vez a partir do valor original
+  // (não de linesMoLocal), pra continuar mostrando os 3 campos editáveis mesmo depois que
+  // preencher o primeiro já limpa o aviso "Rate não cadastrado" daquela linha.
+  const idsComRateFaltando = useMemo(() => new Set(linesMo.filter((l) => l.rate_missing).map((l) => l.id)), [linesMo]);
 
   // Observações internas — só pra quem está gerando/revisando o BM, nunca sai no PDF (seção
   // marcada print:hidden logo abaixo).
@@ -257,15 +266,30 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
               </TableRow>
             </TableHeader>
             <TableBody>
-              {linesMo.map((l) => {
+              {linesMoLocal.map((l) => {
                 const codes = codesByColaborador.get(l.colaborador_id ?? "");
+                const rateInput = (campo: "rate_embarque" | "rate_dobra" | "rate_hotel") => (
+                  <>
+                    <span className="hidden print:inline">{l[campo] != null ? fmtMoney(l[campo]!) : "—"}</span>
+                    <Input
+                      type="number" step="0.01" placeholder="Inserir rate"
+                      className="h-7 w-24 text-xs print:hidden"
+                      defaultValue={l[campo] ?? ""}
+                      onBlur={(e) => {
+                        const valor = e.target.value.trim() === "" ? null : Number(e.target.value);
+                        if (valor === l[campo]) return;
+                        salvarRate.mutate({ linha: l, campo, valor });
+                      }}
+                    />
+                  </>
+                );
                 return (
                   <TableRow key={l.id}>
                     <TableCell className="sticky left-0 bg-background font-medium">
                       {l.colaborador_nome}
                       {l.rate_missing && (
-                        <span className="ml-1.5 inline-flex items-center gap-1 rounded bg-warning/15 px-1 py-0.5 text-[10px] text-warning-foreground">
-                          <AlertTriangle className="h-3 w-3" />Rate não cadastrado
+                        <span className="ml-1.5 inline-flex items-center gap-1 rounded bg-warning/15 px-1 py-0.5 text-[10px] text-warning-foreground print:hidden">
+                          <AlertTriangle className="h-3 w-3" />Rate não cadastrado — preencha ao lado
                         </span>
                       )}
                     </TableCell>
@@ -283,11 +307,17 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
                         </TableCell>
                       );
                     })}
-                    <TableCell className="text-xs">{l.rate_embarque != null ? fmtMoney(l.rate_embarque) : "—"}</TableCell>
+                    <TableCell className="text-xs">
+                      {idsComRateFaltando.has(l.id) ? rateInput("rate_embarque") : l.rate_embarque != null ? fmtMoney(l.rate_embarque) : "—"}
+                    </TableCell>
                     <TableCell className="text-xs">{l.dias_embarque}</TableCell>
-                    <TableCell className="text-xs">{l.rate_dobra != null ? fmtMoney(l.rate_dobra) : "—"}</TableCell>
+                    <TableCell className="text-xs">
+                      {idsComRateFaltando.has(l.id) ? rateInput("rate_dobra") : l.rate_dobra != null ? fmtMoney(l.rate_dobra) : "—"}
+                    </TableCell>
                     <TableCell className="text-xs">{l.dias_dobra}</TableCell>
-                    <TableCell className="text-xs">{l.rate_hotel != null ? fmtMoney(l.rate_hotel) : "—"}</TableCell>
+                    <TableCell className="text-xs">
+                      {idsComRateFaltando.has(l.id) ? rateInput("rate_hotel") : l.rate_hotel != null ? fmtMoney(l.rate_hotel) : "—"}
+                    </TableCell>
                     <TableCell className="text-xs">{l.dias_hotel}</TableCell>
                     <TableCell className="text-xs font-semibold">{fmtMoney(l.valor_total)}</TableCell>
                   </TableRow>
