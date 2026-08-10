@@ -616,77 +616,41 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
 
   // ── Step 1: Horas do Timesheet (compilado editável, alimenta a Mão de Obra) ─────────────
-  // Busca os dias "crus" do timesheet real pro vessel/período/BSP escolhidos — sem agregar
-  // ainda. A aba "Horas do Timesheet" deixa corrigir um dia específico (ver diasOverrides);
-  // o resultado com as correções aplicadas é que alimenta a agregação de Mão de Obra abaixo,
-  // nunca o timesheet_dias em si.
+  // Fonte única: a cópia em bm_timesheet_dias (aba "Timesheets" do próprio módulo de BM),
+  // filtrada por BSP — nunca mais por unidade_operacional. O Cabeçalho hoje seleciona
+  // Cliente/Embarcação/BSP a partir do Smartsheet (cascata da planilha "Controle de
+  // Boletins de Medição"), cujo texto de UNIDADE é digitado livremente por quem lançou o BM
+  // e quase nunca bate com o nome canônico salvo em timesheet_embarques.unidade_operacional
+  // (ex.: "ANCHIETA - CDA" no Smartsheet vs. "CDAN - CIDADE ANCHIETA" no Timesheet Offshore)
+  // — filtrar por vessel ali zerava embarqueIds e nunca trazia hora nenhuma. BSP também varia
+  // de prefixo (BSP/BPP/B3D/BPS + espaço/traço opcional) entre as duas fontes, daí a
+  // normalização abaixo stripar qualquer prefixo alfabético, não só "BSP".
   const { data: diasBase = EMPTY_DIAS_BM, isFetching: carregandoDias } = useQuery({
-    queryKey: ["bm-dias", cab.vessel, cab.periodStart, cab.periodEnd, cab.bsp],
-    enabled: headerCompleto,
+    queryKey: ["bm-dias", cab.bsp, cab.periodStart, cab.periodEnd],
+    enabled: headerCompleto && !!cab.bsp,
     queryFn: async () => {
-      const { data: embarquesData, error: embErr } = await supabase
-        .from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, bsp").eq("unidade_operacional", cab.vessel);
-      if (embErr) throw embErr;
-      const embarqueIds = (embarquesData ?? []).map((e: any) => e.id);
-      if (!embarqueIds.length) return [];
-
-      const { data: semanasData, error: semErr } = await supabase
-        .from("timesheet_semanas").select("id, embarque_id")
-        .in("embarque_id", embarqueIds)
-        .lte("data_inicio_semana", cab.periodEnd).gte("data_fim_semana", cab.periodStart);
-      if (semErr) throw semErr;
-      const semanaIds = (semanasData ?? []).map((s: any) => s.id);
-      if (!semanaIds.length) return [];
-
-      const { data: diasData, error: diasErr } = await supabase
-        .from("timesheet_dias").select("id, data, evento, horas_extras, adicional_noturno, total_horas, semana_id, bsp")
-        .in("semana_id", semanaIds).gte("data", cab.periodStart).lte("data", cab.periodEnd);
-      if (diasErr) throw diasErr;
-
-      // Cópia editável da aba "Timesheets" do BM — quando existe, ela é a fonte da medição
-      // (os ajustes da Medição valem só aqui, nunca voltam pro Timesheet Offshore).
       const { data: copiasData, error: copiasErr } = await supabase
-        .from("bm_timesheet_dias").select("source_dia_id, evento, horas_extras, adicional_noturno, total_horas, bsp, funcao")
+        .from("bm_timesheet_dias")
+        .select("colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
         .gte("data", cab.periodStart).lte("data", cab.periodEnd);
       if (copiasErr) throw copiasErr;
-      const copiaBySourceId = new Map<string, any>((copiasData ?? []).filter((c: any) => c.source_dia_id).map((c: any) => [c.source_dia_id, c]));
 
-
-      const embarqueBySemanaId = new Map<string, string>((semanasData ?? []).map((s: any) => [s.id, s.embarque_id]));
-      const embarqueById = new Map<string, any>((embarquesData ?? []).map((e: any) => [e.id, e]));
-
-      const colaboradorIds = Array.from(new Set((embarquesData ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
-      const { data: colaboradoresData, error: colabErr } = colaboradorIds.length
-        ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colaboradorIds)
-        : { data: [], error: null };
-      if (colabErr) throw colabErr;
-      const nomeById = new Map<string, string>((colaboradoresData ?? []).map((c: any) => [c.id, c.nome]));
-
-      // BSP efetivo do dia: o que foi lançado manualmente naquele dia específico (quando o
-      // colaborador foi realocado temporariamente pra outro BSP na mesma embarcação) tem
-      // prioridade sobre o BSP padrão do embarque — sem isso, um dia "quebrado" pra outro BSP
-      // ficava contado inteiro no BSP do embarque, e nunca aparecia na medição do BSP certo.
-      const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^bsp[\s-]*/i, "").trim().toLowerCase();
+      const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^[a-z]+[\s-]*/i, "").trim().toLowerCase();
       const bspAlvo = normalizarBsp(cab.bsp);
 
-      const diasComColaborador: TimesheetDiaComColaborador[] = (diasData ?? [])
-        .map((d: any) => {
-          const embarqueId = embarqueBySemanaId.get(d.semana_id) ?? "";
-          const embarque = embarqueById.get(embarqueId);
-          const copia = copiaBySourceId.get(d.id);
-          const bspEfetivo = copia?.bsp ?? d.bsp ?? embarque?.bsp ?? null;
-          return {
-            data: d.data,
-            evento: copia ? copia.evento : d.evento,
-            horas_extras: copia ? copia.horas_extras : d.horas_extras,
-            adicional_noturno: copia ? copia.adicional_noturno : d.adicional_noturno,
-            total_horas: copia ? copia.total_horas : d.total_horas,
-            colaborador_id: embarque?.colaborador_id ?? "", colaborador_nome: nomeById.get(embarque?.colaborador_id) ?? "—",
-            funcao_embarque: copia?.funcao ?? embarque?.funcao_embarque ?? "—", bsp: bspEfetivo,
-          };
-        })
-
-        .filter((d: TimesheetDiaComColaborador) => d.colaborador_id && (!bspAlvo || normalizarBsp(d.bsp) === bspAlvo));
+      const diasComColaborador: TimesheetDiaComColaborador[] = (copiasData ?? [])
+        .filter((d: any) => d.colaborador_id && normalizarBsp(d.bsp) === bspAlvo)
+        .map((d: any): TimesheetDiaComColaborador => ({
+          data: d.data,
+          evento: d.evento,
+          horas_extras: d.horas_extras,
+          adicional_noturno: !!d.adicional_noturno,
+          total_horas: d.total_horas,
+          colaborador_id: d.colaborador_id,
+          colaborador_nome: d.colaborador_nome ?? "—",
+          funcao_embarque: d.funcao ?? "—",
+          bsp: d.bsp,
+        }));
 
       return diasComColaborador.sort((a, b) => a.colaborador_nome.localeCompare(b.colaborador_nome) || a.data.localeCompare(b.data));
     },
