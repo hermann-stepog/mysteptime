@@ -152,9 +152,12 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
     { label: "Material Mob/Desmob", value: 0 },
   ];
   const totalGeral = round2(consolidadoCards.reduce((acc, c) => acc + c.value, 0));
+  // "Current BM" e Balance usam o override manual (Valor do BM, preenchido ao criar um BM
+  // novo no assistente) quando ele existir — senão caem no total calculado normalmente.
+  const currentBm = bm.valor_bm_manual ?? totalGeral;
 
   const bmIssued = bm.po_value != null && bm.po_balance_before != null ? round2(bm.po_value - bm.po_balance_before) : null;
-  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - totalGeral) : null;
+  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : null;
 
   // ── Bloco B: rodapé Mobilização/Demobilização (contagem de cabeças por dia, não é valor) ──
   const mobilizacaoPorData = useMemo(() => {
@@ -226,7 +229,10 @@ export function BmConsolidatedView({ bm, linesMo, linesLogistica }: BmConsolidat
           </Card>
           <Card className="border p-3 shadow-sm">
             <p className="text-[11px] text-muted-foreground">Current BM</p>
-            <p className="text-sm font-semibold">{fmtMoney(totalGeral)}</p>
+            <p className="text-sm font-semibold">{fmtMoney(currentBm)}</p>
+            {bm.valor_bm_manual != null && bm.valor_bm_manual !== totalGeral && (
+              <p className="text-[10px] text-muted-foreground print:hidden">Total calculado: {fmtMoney(totalGeral)}</p>
+            )}
           </Card>
           <Card className="border p-3 shadow-sm">
             <p className="text-[11px] text-muted-foreground">Balance</p>
