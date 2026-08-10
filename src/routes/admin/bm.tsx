@@ -1182,8 +1182,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
                         setCab((current) => ({
                           ...current,
-                          numeroBm:
-                            proximoBm?.nextBmNumber ?? "",
+                          numeroBm: "",
                         }));
 
                         event.currentTarget
@@ -1193,9 +1192,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                     >
                       <Plus className="mr-2 h-4 w-4" />
                       Criar nova BM
-                      {proximoBm?.nextBmNumber
-                        ? ` (${proximoBm.nextBmNumber})`
-                        : ""}
                     </button>
 
                     <div className="my-1 border-t" />
