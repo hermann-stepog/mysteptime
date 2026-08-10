@@ -250,6 +250,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
   const [bmNovoManual, setBmNovoManual] = useState(false);
+  // Valor do BM quando ele é novo (ainda não existe no Smartsheet, então não há "VALOR BM"
+  // pra somar) — editável, pré-preenchido com o total atual calculado no momento em que
+  // "Criar nova BM" é clicado. Se ficar null, a folha de rosto usa o total calculado normal.
+  const [valorBmManual, setValorBmManual] = useState<number | null>(null);
   const [selectedBmNumbers, setSelectedBmNumbers] =
     useState<string[]>([]);
   const previousPoNumberRef = useRef("");
@@ -277,6 +281,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setTeamMobDesmob(reopenBm.team_mob_desmob ?? 0);
     setInternalNotes(reopenBm.internal_notes ?? "");
     setLogisticaManual(reopenBm.logistica_manual ?? 0);
+    setValorBmManual(reopenBm.valor_bm_manual ?? null);
     setReopenBmId(reopenBm.id);
     setBmNovoManual(true);
     setSelectedBmNumbers([]);
@@ -303,6 +308,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
     setSelectedBmNumbers([]);
     setBmNovoManual(false);
+    setValorBmManual(null);
     previousPoNumberRef.current = "";
   };
 
@@ -541,6 +547,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     ) {
       setSelectedBmNumbers([]);
       setBmNovoManual(false);
+      setValorBmManual(null);
     }
 
     previousPoNumberRef.current = currentPo;
@@ -586,6 +593,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     checked: boolean,
   ) {
     setBmNovoManual(false);
+    setValorBmManual(null);
 
     setSelectedBmNumbers((current) => {
       const selectedKey = bmFlowKey(bmNumber);
@@ -900,6 +908,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         pos_processamento: posProcessamento,
         team_mob_desmob: teamMobDesmob,
         logistica_manual: logisticaManual,
+        valor_bm_manual: valorBmManual,
         internal_notes: internalNotes.trim() || null,
         total_geral: totalGeralComMedicoes,
 
@@ -1209,6 +1218,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                     onClick={() => {
                       setBmNovoManual(false);
                       setSelectedBmNumbers([]);
+                      setValorBmManual(null);
                     }}
                   >
                     Lista
@@ -1248,6 +1258,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                       onClick={(event) => {
                         setSelectedBmNumbers([]);
                         setBmNovoManual(true);
+                        setValorBmManual(totalGeralComMedicoes);
 
                         setCab((current) => ({
                           ...current,
@@ -1346,20 +1357,30 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 Valor do BM
               </Label>
 
-              <Input
-                readOnly
-                className="bg-muted/40"
-                value={
-                  bmsSelecionados.length > 0
-                    ? fmtMoney(valorTotalBms)
-                    : "—"
-                }
-              />
+              {bmNovoManual ? (
+                <Input
+                  type="number" step="0.01"
+                  value={valorBmManual ?? ""}
+                  onChange={(e) => setValorBmManual(e.target.value === "" ? null : Number(e.target.value))}
+                />
+              ) : (
+                <Input
+                  readOnly
+                  className="bg-muted/40"
+                  value={
+                    bmsSelecionados.length > 0
+                      ? fmtMoney(valorTotalBms)
+                      : "—"
+                  }
+                />
+              )}
 
               <p className="mt-1 text-[11px] text-muted-foreground">
-                {bmsSelecionados.length > 0
-                  ? `Soma de ${bmsSelecionados.length} BM(s) selecionada(s) na coluna VALOR BM.`
-                  : "Selecione uma ou mais BMs para calcular o total."}
+                {bmNovoManual
+                  ? "Pré-preenchido com o total já medido — some no Current BM/Balance da folha de rosto e no valor enviado ao Smartsheet ao emitir o BM."
+                  : bmsSelecionados.length > 0
+                    ? `Soma de ${bmsSelecionados.length} BM(s) selecionada(s) na coluna VALOR BM.`
+                    : "Selecione uma ou mais BMs para calcular o total."}
               </p>
             </div>
           </div>
@@ -1879,7 +1900,7 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
   const atualizarSmartsheet = useMutation({
     mutationFn: async (bm: Bm) => {
       await recordIssuedBm({
-        data: { poNumber: bm.po_number ?? "", bmNumber: bm.numero_bm ?? "", client: bm.client_name, vessel: bm.vessel, value: bm.total_geral },
+        data: { poNumber: bm.po_number ?? "", bmNumber: bm.numero_bm ?? "", client: bm.client_name, vessel: bm.vessel, value: bm.valor_bm_manual ?? bm.total_geral },
       });
       const { error } = await supabase.from("bms").update({ current_status: "sent_client", smartsheet_synced_at: new Date().toISOString() }).eq("id", bm.id);
       if (error) throw error;
