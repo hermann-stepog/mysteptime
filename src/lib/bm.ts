@@ -25,6 +25,7 @@ export interface Bm {
   total_materiais: number;
   pos_processamento: number;
   team_mob_desmob: number;
+  logistica_manual: number;
   total_geral: number;
   current_status: BmStatus;
   rejection_reason: string | null;

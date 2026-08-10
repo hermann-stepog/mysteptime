@@ -35,7 +35,16 @@ function round2(n: number): number {
 }
 
 function normalizar(s: string): string {
-  return s.trim().toLowerCase();
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+}
+
+// O Cabeçalho do BM seleciona a Embarcação a partir do texto livre da cascata do Smartsheet
+// ("SAQUAREMA - CDS", "ANCHIETA - CDA"...), enquanto o rate é cadastrado com o nome curto
+// canônico ("SAQUAREMA", "ANCHIETA", ver aba Rates) — sem isso elas nunca batem exato e todo
+// rate cai como "não cadastrado" mesmo quando existe. O padrão observado é sempre
+// "NOME CURTO - CÓDIGO", então basta comparar só a parte antes do primeiro " - ".
+function normalizarVessel(s: string): string {
+  return normalizar(s).split(/\s*-\s*/)[0].trim();
 }
 
 // Sufixo de nível/numeral no fim da função ("SOLDADOR I", "SUPERVISOR OFFSHORE III",
@@ -52,7 +61,7 @@ function stripNivel(s: string): string {
 // STEP_Rates_e_BM_Automatico, aba "_Lookup") — o rate não varia por BSP, então um BSP novo
 // aberto no mesmo navio já funciona sem recadastro. BSP fica só informativo em `Rate.bsp`.
 function findRate(rates: Rate[], client: string, vessel: string, funcao: string): Rate | undefined {
-  const doClienteVessel = (r: Rate) => r.active && normalizar(r.client) === normalizar(client) && normalizar(r.vessel) === normalizar(vessel);
+  const doClienteVessel = (r: Rate) => r.active && normalizar(r.client) === normalizar(client) && normalizarVessel(r.vessel) === normalizarVessel(vessel);
   const exato = rates.find((r) => doClienteVessel(r) && normalizar(r.funcao) === normalizar(funcao));
   if (exato) return exato;
   const funcaoBase = stripNivel(funcao);
