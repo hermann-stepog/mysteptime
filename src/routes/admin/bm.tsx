@@ -40,6 +40,11 @@ import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@
 import { getBmHistoryForPo, recordIssuedBm, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 import { listBmFlowRows } from "@/lib/api/bmFlow.functions";
 import { getJobOrderPoTotal } from "@/lib/api/jobOrderPoTotal.functions";
+import {
+  normalizeBmBspKey,
+  resolveBmRateClientNames,
+  selectBmRateGroup,
+} from "@/lib/bmUnitResolver";
 
 interface BmFlowRowOption {
   client: string;
@@ -627,8 +632,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     queryKey: ["bm-dias", cab.bsp, cab.periodStart, cab.periodEnd],
     enabled: headerCompleto && !!cab.bsp,
     queryFn: async () => {
-      const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^[a-z]+[\s-]*/i, "").trim().toLowerCase();
-      const bspAlvo = normalizarBsp(cab.bsp);
+      const bspAlvo = normalizeBmBspKey(cab.bsp);
 
       const { data: copiasData, error: copiasErr } = await supabase
         .from("bm_timesheet_dias")
@@ -693,7 +697,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           })
           // Só importa dias do BSP que realmente interessa aqui — o resto continua faltando
           // até alguém abrir a aba Timesheets (ou gerar um BM) pro BSP correspondente.
-          .filter((d: any) => normalizarBsp(d.bsp) === bspAlvo);
+          .filter((d: any) => normalizeBmBspKey(d.bsp) === bspAlvo);
 
         if (novasCopias.length) {
           const rows = novasCopias.map((d) => ({ ...d, original: d }));
@@ -709,7 +713,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       const todasAsCopias = [...(copiasData ?? []), ...novasCopias];
 
       const diasComColaborador: TimesheetDiaComColaborador[] = todasAsCopias
-        .filter((d: any) => d.colaborador_id && normalizarBsp(d.bsp) === bspAlvo)
+        .filter((d: any) => d.colaborador_id && normalizeBmBspKey(d.bsp) === bspAlvo)
         .map((d: any): TimesheetDiaComColaborador => ({
           data: d.data,
           evento: d.evento,
@@ -726,8 +730,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     },
   });
 
-  // Aplica as correções pontuais (diasOverrides) por cima dos dias reais — só pra efeito de
-  // cálculo/exibição no BM, sem tocar no dado original em diasBase.
   const diasComOverrides = useMemo<TimesheetDiaComColaborador[]>(() => diasBase.map((d) => {
     const ov = diasOverrides[chaveDiaOverride(d.colaborador_id, d.data)];
     if (!ov) return d;
@@ -757,25 +759,55 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // Rate é buscado por Cliente+Embarcação+Função (bate com a planilha mestre de rates da
   // usuária) — não varia por BSP, então filtra só por cliente/embarcação aqui e deixa o
   // cruzamento de função (com fallback de nível) por conta de findRate (bmRateEngine.ts).
-  const { data: rates = EMPTY_RATES_BM } = useQuery({
+  const { data: rates = EMPTY_RATES_BM, isFetching: carregandoRates } = useQuery({
     queryKey: ["bm-rates", cab.client, cab.vessel],
     enabled: headerCompleto,
     queryFn: async () => {
-      const { data, error } = await supabase.from("rates").select("*").eq("client", cab.client).eq("vessel", cab.vessel).eq("active", true);
+      const rateClientNames =
+        resolveBmRateClientNames(cab.client);
+
+      if (!rateClientNames.length) return [];
+
+      const { data, error } = await supabase
+        .from("rates")
+        .select("*")
+        .in("client", rateClientNames)
+        .eq("active", true);
+
       if (error) throw error;
-      return (data ?? []) as Rate[];
+
+      const ratesDaEmbarcacao =
+        selectBmRateGroup(
+          (data ?? []) as Rate[],
+          cab.vessel,
+        );
+
+      return ratesDaEmbarcacao.map(
+        (rate) => ({
+          ...rate,
+          client: cab.client,
+          vessel: cab.vessel,
+        }),
+      );
     },
   });
 
-  const carregandoMo = carregandoDias;
+  const carregandoMo = carregandoDias || carregandoRates;
 
   const maoDeObraCalculada = useMemo(
     () => (headerCompleto ? aggregateMaoDeObra(diasComOverrides, rates, cab.client, cab.vessel) : []),
     [diasComOverrides, rates, cab.client, cab.vessel, headerCompleto],
   );
 
+  
+
   useEffect(() => {
-    setLinesMo(maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => rest));
+    setLinesMo(
+      maoDeObraCalculada.map(
+        ({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) =>
+          rest,
+      ),
+    );
   }, [maoDeObraCalculada]);
 
   const hasRateMissing = linesMo.some((l) => l.rate_missing);
@@ -1333,11 +1365,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 </details>
               )}
 
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {cab.poNumber
-                  ? `${bmsDaPo.length} BM(s) encontrada(s) para a PO selecionada.`
-                  : "Selecione a PO de Faturamento para carregar as BMs."}
-              </p>
+             
 
             </div>
 
