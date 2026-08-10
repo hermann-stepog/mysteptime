@@ -625,16 +625,88 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     queryKey: ["bm-dias", cab.bsp, cab.periodStart, cab.periodEnd],
     enabled: headerCompleto && !!cab.bsp,
     queryFn: async () => {
-      const { data: copiasData, error: copiasErr } = await supabase
-        .from("bm_timesheet_dias")
-        .select("colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
-        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
-      if (copiasErr) throw copiasErr;
-
       const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^[a-z]+[\s-]*/i, "").trim().toLowerCase();
       const bspAlvo = normalizarBsp(cab.bsp);
 
-      const diasComColaborador: TimesheetDiaComColaborador[] = (copiasData ?? [])
+      const { data: copiasData, error: copiasErr } = await supabase
+        .from("bm_timesheet_dias")
+        .select("source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
+        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
+      if (copiasErr) throw copiasErr;
+
+      // A cópia (bm_timesheet_dias) só existe pros períodos que alguém já abriu na aba
+      // "Timesheets" — sem isso, gerar um BM pra um período nunca visitado lá vinha vazio.
+      // Replica aqui o mesmo import automático que a aba faz (TimesheetsTab.tsx), mas já
+      // filtrado por este BSP, pra sempre garantir a cópia antes de agregar Mão de Obra.
+      const existentes = new Set((copiasData ?? []).map((c: any) => c.source_dia_id).filter(Boolean));
+
+      const { data: diasOrigem, error: diasErr } = await supabase
+        .from("timesheet_dias")
+        .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
+        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
+      if (diasErr) throw diasErr;
+
+      let novasCopias: any[] = [];
+      if (diasOrigem?.length) {
+        const semanaIds = Array.from(new Set(diasOrigem.map((d: any) => d.semana_id)));
+        const { data: semanas, error: semErr } = await supabase
+          .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);
+        if (semErr) throw semErr;
+
+        const embarqueIds = Array.from(new Set((semanas ?? []).map((s: any) => s.embarque_id)));
+        const { data: embarques, error: embErr } = embarqueIds.length
+          ? await supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", embarqueIds)
+          : { data: [], error: null };
+        if (embErr) throw embErr;
+
+        const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
+        const { data: colaboradores, error: colErr } = colabIds.length
+          ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colabIds)
+          : { data: [], error: null };
+        if (colErr) throw colErr;
+
+        const semanaById = new Map<string, any>((semanas ?? []).map((s: any) => [s.id, s]));
+        const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
+        const nomeById = new Map<string, string>((colaboradores ?? []).map((c: any) => [c.id, c.nome]));
+
+        novasCopias = diasOrigem
+          .filter((d: any) => !existentes.has(d.id))
+          .map((d: any) => {
+            const semana = semanaById.get(d.semana_id);
+            const embarque = semana ? embarqueById.get(semana.embarque_id) : null;
+            return {
+              source_dia_id: d.id,
+              colaborador_id: embarque?.colaborador_id ?? null,
+              colaborador_nome: nomeById.get(embarque?.colaborador_id) ?? "—",
+              funcao: semana?.funcao_override ?? embarque?.funcao_embarque ?? null,
+              unidade_operacional: embarque?.unidade_operacional ?? null,
+              bsp: d.bsp ?? embarque?.bsp ?? null,
+              data: d.data, dia_semana: d.dia_semana, evento: d.evento,
+              descricao_tarefa: d.descricao_tarefa, numero_tarefa: d.numero_tarefa,
+              hora_entrada: d.hora_entrada, hora_saida: d.hora_saida,
+              hora_entrada_extra: d.hora_entrada_extra, hora_saida_extra: d.hora_saida_extra,
+              horas_normais: d.horas_normais, horas_extras: d.horas_extras, total_horas: d.total_horas,
+              adicional_noturno: !!d.adicional_noturno, feriado: !!d.feriado,
+            };
+          })
+          // Só importa dias do BSP que realmente interessa aqui — o resto continua faltando
+          // até alguém abrir a aba Timesheets (ou gerar um BM) pro BSP correspondente.
+          .filter((d: any) => normalizarBsp(d.bsp) === bspAlvo);
+
+        if (novasCopias.length) {
+          const rows = novasCopias.map((d) => ({ ...d, original: d }));
+          for (let i = 0; i < rows.length; i += 500) {
+            const { error: upsertErr } = await supabase
+              .from("bm_timesheet_dias")
+              .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id", ignoreDuplicates: true });
+            if (upsertErr) throw upsertErr;
+          }
+        }
+      }
+
+      const todasAsCopias = [...(copiasData ?? []), ...novasCopias];
+
+      const diasComColaborador: TimesheetDiaComColaborador[] = todasAsCopias
         .filter((d: any) => d.colaborador_id && normalizarBsp(d.bsp) === bspAlvo)
         .map((d: any): TimesheetDiaComColaborador => ({
           data: d.data,
