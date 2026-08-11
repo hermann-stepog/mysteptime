@@ -20,7 +20,7 @@ import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
 import { parseExcelDate } from "@/lib/histograma/import-drake";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
-  computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr,
+  computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr, ORIGEM_PROGRAMADO,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,7 @@ interface BaseImportResult {
   ignorados: { nome: string; motivo: string }[];
   naoEncontrados: string[];
   ambiguos: string[];
+  semEmbarque: string[];
 }
 
 function normalizeNome(s: string): string {
@@ -226,7 +227,10 @@ export function DrakeUpdateCard() {
   // Importa o relatório de "quem vem trabalhar na base" (planilha externa, fora do Drake) e
   // cruza por nome com quem está de Folga ou Standby agora — só esses dois casos viram "Na
   // Base" (ver isOcupadoBucket em histogramaNovo.ts); quem já está Embarcado, de Férias,
-  // Atestado etc. é ignorado, porque essas informações são mais autoritativas. Cada
+  // Atestado etc. é ignorado, porque essas informações são mais autoritativas. Só entram
+  // colaboradores que embarcam de fato (têm ao menos um período tipo="E" confirmado, não só
+  // "Programado") — o relatório da portaria lista todo mundo que passa pela base, incluindo
+  // gente de escritório/onshore sem ciclo de embarque, que não deve virar "Na Base". Cada
   // importação SUBSTITUI por completo o lote anterior (apaga todo tipo="BASE" e insere de
   // novo a partir da planilha atual). A planilha do dia normalmente só informa "hoje" (sem
   // data fim própria) — nesse caso o "Na Base" continua valendo nos dias seguintes com os
@@ -310,11 +314,21 @@ export function DrakeUpdateCard() {
         if (!periodosPorColab.has(p.colaborador_id)) periodosPorColab.set(p.colaborador_id, []);
         periodosPorColab.get(p.colaborador_id)!.push(p);
       });
+      // O relatório de acesso da base lista todo mundo que passou pela portaria, incluindo
+      // gente de escritório/onshore que nunca embarca. "Na Base" só faz sentido pra quem tem
+      // histórico de embarque (tipo="E" confirmado, não só "Programado") — do contrário essas
+      // pessoas nunca aparecem em Folga/Standby (não têm ciclo de embarque) e o cruzamento por
+      // status simplesmente não se aplica a elas.
+      const colaboradoresQueEmbarcam = new Set<string>();
+      periodos.forEach((p) => {
+        if (p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO) colaboradoresQueEmbarcam.add(p.colaborador_id);
+      });
 
       const inseridos: string[] = [];
       const ignorados: { nome: string; motivo: string }[] = [];
       const naoEncontrados: string[] = [];
       const ambiguos: string[] = [];
+      const semEmbarque: string[] = [];
       const registros: any[] = [];
 
       for (const linha of linhas) {
@@ -322,6 +336,7 @@ export function DrakeUpdateCard() {
         if (candidatos.length === 0) { naoEncontrados.push(linha.nome); continue; }
         if (candidatos.length > 1) { ambiguos.push(linha.nome); continue; }
         const colaborador = candidatos[0];
+        if (!colaboradoresQueEmbarcam.has(colaborador.id)) { semEmbarque.push(colaborador.nome); continue; }
         const ps = periodosPorColab.get(colaborador.id) ?? [];
         const result = computeDayStatus(ps, linha.dataInicio);
         const bucket = toOldBucket(result.status);
@@ -346,7 +361,7 @@ export function DrakeUpdateCard() {
       }
 
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
-      setBaseResult({ inseridos, ignorados, naoEncontrados, ambiguos });
+      setBaseResult({ inseridos, ignorados, naoEncontrados, ambiguos, semEmbarque });
       const { error: logErr } = await (supabase as any).from("drake_sync_runs").insert({
         started_at: startedAt,
         finished_at: new Date().toISOString(),
@@ -356,7 +371,7 @@ export function DrakeUpdateCard() {
         triggered_by: user?.id ?? null,
         triggered_by_label: profile?.full_name || profile?.email || user?.email || null,
         base_inserted: inseridos.length,
-        base_ignored: ignorados.length + ambiguos.length,
+        base_ignored: ignorados.length + ambiguos.length + semEmbarque.length,
         base_not_found: naoEncontrados.length,
       });
       if (logErr) console.warn("Falha ao registrar importacao da planilha da base:", logErr.message);
@@ -449,6 +464,12 @@ export function DrakeUpdateCard() {
             <p className="text-muted-foreground">
               {baseResult.ignorados.length} ignorado(s) (já tinham status mais autoritativo): {" "}
               {baseResult.ignorados.map((i) => `${i.nome} (${i.motivo})`).join(", ")}
+            </p>
+          )}
+          {baseResult.semEmbarque.length > 0 && (
+            <p className="text-muted-foreground">
+              {baseResult.semEmbarque.length} ignorado(s) (sem histórico de embarque): {" "}
+              {baseResult.semEmbarque.join(", ")}
             </p>
           )}
           {baseResult.naoEncontrados.length > 0 && (
