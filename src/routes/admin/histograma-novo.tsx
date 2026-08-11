@@ -666,7 +666,7 @@ export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: str
 
 // ─── Lançamentos tab ─────────────────────────────────────────────────────────
 
-type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
+type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias" | "inicioFolga" | "fimFolga";
 
 // Valor sentinela do filtro de Evento pra "Desembarque" — não é um TipoPeriodo de verdade (nunca
 // é lançado, sempre calculado a partir do fim de um período "E", igual ao Histograma computa DES),
@@ -1011,6 +1011,28 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             (b.dias ?? 0)
           );
 
+        case "inicioFolga":
+          return (
+            ultimaFolgaPorColaborador.get(
+              a.colaborador_id,
+            )?.data_inicio ?? ""
+          ).localeCompare(
+            ultimaFolgaPorColaborador.get(
+              b.colaborador_id,
+            )?.data_inicio ?? "",
+          );
+
+        case "fimFolga":
+          return (
+            ultimaFolgaPorColaborador.get(
+              a.colaborador_id,
+            )?.data_fim ?? ""
+          ).localeCompare(
+            ultimaFolgaPorColaborador.get(
+              b.colaborador_id,
+            )?.data_fim ?? "",
+          );
+
         default:
           return 0;
       }
@@ -1053,7 +1075,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         )
       );
     });
-  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortRules]);
+  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, ultimaFolgaPorColaborador, sortRules]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
   // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
@@ -1228,8 +1250,18 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <MultiSortableHead label="Início" column="inicio" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Fim" column="fim" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Dias" column="dias" sortRules={sortRules} onSort={toggleSort} />
-              <TableHead>Início Folga</TableHead>
-              <TableHead>Fim Folga</TableHead>
+              <MultiSortableHead
+                label={"In\u00edcio Folga"}
+                column="inicioFolga"
+                sortRules={sortRules}
+                onSort={toggleSort}
+              />
+              <MultiSortableHead
+                label="Fim Folga"
+                column="fimFolga"
+                sortRules={sortRules}
+                onSort={toggleSort}
+              />
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
