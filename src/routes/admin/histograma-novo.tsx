@@ -754,6 +754,24 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     setFilterDe(deInput);
     setFilterAte(ateInput);
   };
+
+  const limparFiltros = () => {
+    setColaboradorInput([]);
+    setTipoInput([]);
+    setUnidadeInput([]);
+    setBspInput([]);
+    setFuncaoInput([]);
+    setDeInput("");
+    setAteInput("");
+
+    setFilterColaborador([]);
+    setFilterTipo([]);
+    setFilterUnidade([]);
+    setFilterBsp([]);
+    setFilterFuncao([]);
+    setFilterDe("");
+    setFilterAte("");
+  };
   const [editing, setEditing] = useState<HistNovoPeriodo | null>(null);
   // Ordenação clicável no cabeçalho — aplicada só nos períodos já filtrados na tela; sem
   // coluna escolhida, mantém a ordem padrão (data de início, mais antiga primeiro).
@@ -1178,6 +1196,16 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
           <Button size="sm" className="h-8" onClick={aplicarFiltro}>
             <Search className="mr-1.5 h-3.5 w-3.5" />Buscar
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8"
+            onClick={limparFiltros}
+          >
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            Limpar filtros
           </Button>
           <Button size="sm" variant="outline" className="h-8" onClick={exportarLancamentos}>
             <Download className="mr-1.5 h-3.5 w-3.5" />Exportar
