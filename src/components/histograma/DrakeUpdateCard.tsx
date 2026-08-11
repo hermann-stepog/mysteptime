@@ -17,7 +17,7 @@ import {
 } from "@/lib/drake/update-types";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
-import { parseExcelDate } from "@/lib/histograma/drake-spreadsheet-parser";
+import { parseExcelDate } from "@/lib/histograma/import-drake";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
   computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr,
@@ -79,7 +79,7 @@ function messageFromErrorPayload(event: DrakeProgressEvent): string {
 }
 
 export function DrakeUpdateCard() {
-  const { role } = useAuth();
+  const { role, user, profile } = useAuth();
   const qc = useQueryClient();
   const canUpdate = role === "logistics_operator";
 
@@ -88,6 +88,7 @@ export function DrakeUpdateCard() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [embarkationStatus, setEmbarkationStatus] = useState<DrakeReportStatus>("waiting");
+  const [availabilityStatus, setAvailabilityStatus] = useState<DrakeReportStatus>("waiting");
   const [result, setResult] = useState<DrakeUpdateResult | null>(null);
   const [buttonLabel, setButtonLabel] = useState<"idle" | "running" | "done">("idle");
   const [showProgress, setShowProgress] = useState(false);
@@ -126,6 +127,7 @@ export function DrakeUpdateCard() {
       setProgress(event.progress);
     }
     setEmbarkationStatus(event.embarkationStatus);
+    setAvailabilityStatus(event.availabilityStatus);
 
     if (event.type === "error") {
       setIsRunning(false);
@@ -133,6 +135,7 @@ export function DrakeUpdateCard() {
       setError(messageFromErrorPayload(event));
       setMessage(null);
       notify.error(messageFromErrorPayload(event));
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       return;
     }
 
@@ -144,9 +147,11 @@ export function DrakeUpdateCard() {
       setProgress(100);
       setMessage("Dados atualizados com sucesso.");
       setEmbarkationStatus("completed");
+      setAvailabilityStatus("completed");
       setResult(event.result ?? null);
       setButtonLabel("done");
       notify.success("Dados atualizados com sucesso.");
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       void qc.invalidateQueries({ queryKey: ["hist-novo-colaboradores"] });
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       if (doneTimer.current) clearTimeout(doneTimer.current);
@@ -166,6 +171,7 @@ export function DrakeUpdateCard() {
     setProgress(0);
     setMessage("Preparando atualização...");
     setEmbarkationStatus("waiting");
+    setAvailabilityStatus("waiting");
     setButtonLabel("running");
 
     try {
@@ -227,6 +233,7 @@ export function DrakeUpdateCard() {
   // dados de ontem até ela importar uma planilha nova, em vez de sumir no dia seguinte por
   // falta de reimportação.
   const handleImportBase = async (file: File) => {
+    const startedAt = new Date().toISOString();
     setImportandoBase(true);
     setBaseResult(null);
     try {
@@ -340,8 +347,34 @@ export function DrakeUpdateCard() {
 
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       setBaseResult({ inseridos, ignorados, naoEncontrados, ambiguos });
+      const { error: logErr } = await (supabase as any).from("drake_sync_runs").insert({
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        status: "success",
+        source_type: "base",
+        source_file_name: file.name,
+        triggered_by: user?.id ?? null,
+        triggered_by_label: profile?.full_name || profile?.email || user?.email || null,
+        base_inserted: inseridos.length,
+        base_ignored: ignorados.length + ambiguos.length,
+        base_not_found: naoEncontrados.length,
+      });
+      if (logErr) console.warn("Falha ao registrar importacao da planilha da base:", logErr.message);
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       notify.success(`${inseridos.length} colaborador(es) marcado(s) como "Na Base".`);
     } catch (e: any) {
+      const { error: logErr } = await (supabase as any).from("drake_sync_runs").insert({
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        status: "error",
+        source_type: "base",
+        source_file_name: file.name,
+        triggered_by: user?.id ?? null,
+        triggered_by_label: profile?.full_name || profile?.email || user?.email || null,
+        error_message: String(e?.message || "Erro ao importar o relatorio da base.").slice(0, 2000),
+      });
+      if (logErr) console.warn("Falha ao registrar erro da planilha da base:", logErr.message);
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       notify.error(e.message || "Erro ao importar o relatório da base.");
     } finally {
       setImportandoBase(false);
@@ -353,8 +386,8 @@ export function DrakeUpdateCard() {
     <Card className="self-start p-4 space-y-3">
       <h3 className="text-sm font-semibold">Atualizar dados do Drake</h3>
       <p className="text-xs text-muted-foreground">
-        Busca a ficha anual de posição de cada colaborador diretamente no Drake e atualiza o
-        Histograma Offshore.
+        Busca os relatórios atualizados diretamente no Drake e atualiza automaticamente os
+        colaboradores, embarques e períodos de disponibilidade.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -445,10 +478,19 @@ export function DrakeUpdateCard() {
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
                 <ReportStatusIcon status={embarkationStatus} />
-                Fichas anuais de posição
+                Relatório de embarque
               </span>
               <span className="text-muted-foreground">
                 {DRAKE_REPORT_STATUS_LABEL[embarkationStatus]}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <ReportStatusIcon status={availabilityStatus} />
+                Relatório de disponibilidade
+              </span>
+              <span className="text-muted-foreground">
+                {DRAKE_REPORT_STATUS_LABEL[availabilityStatus]}
               </span>
             </div>
           </div>
@@ -467,12 +509,6 @@ export function DrakeUpdateCard() {
               )}
               {result.availabilityEvents != null && (
                 <p>{result.availabilityEvents} períodos de disponibilidade lançados</p>
-              )}
-              {result.annualPositionWorkers != null && (
-                <p>{result.annualPositionWorkers} colaboradores consultados no Drake</p>
-              )}
-              {result.annualPositionEvents != null && (
-                <p>{result.annualPositionEvents} períodos da ficha anual sincronizados</p>
               )}
             </div>
           )}
