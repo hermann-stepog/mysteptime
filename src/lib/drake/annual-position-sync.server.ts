@@ -11,9 +11,10 @@ import {
   type AnnualPositionWorkerRow,
 } from "@/lib/histograma/drake-snapshot";
 import { importAnnualPositionSnapshot } from "@/lib/histograma/import-annual-position.server";
-import { normalizeUnidadeOperacional } from "@/lib/histogramaNovo";
+import { normalizeUnidadeOperacional, ORIGEM_PROGRAMADO } from "@/lib/histogramaNovo";
 import { createTimesheetForNewPeriodIfAbsent } from "@/lib/timesheetAutoGen";
 import { filterWorkersWithEmbarkationHistory } from "./annual-position-eligibility";
+import { selectAllPages } from "@/lib/supabasePaginate";
 
 export interface AnnualPositionSyncProgress {
   completedWorkers: number;
@@ -120,6 +121,15 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     });
   }
 
+  // Rede de segurança: o loop acima só cria timesheet pros períodos INSERIDOS nesta mesma
+  // rodada (result.insertedPeriods) — um período "E" que já existia de uma sincronização
+  // anterior e nunca ganhou um timesheet_embarque (ex.: a sincronização caiu no meio, ou uma
+  // corrida entre duas rodadas sobrepostas) nunca é revisitado, porque
+  // importAnnualPositionSnapshot é append-only e não reinsere o que já está lá. Sem isso, o
+  // colaborador fica sem onde lançar horas pra aquele período pra sempre, mesmo clicando em
+  // "Atualizar dados do Drake" repetidas vezes.
+  await garantirEmbarquesParaPeriodosSemCobertura(db);
+
   return {
     createdWorkers: result.createdWorkers,
     updatedWorkers: result.updatedWorkers,
@@ -129,6 +139,65 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     skippedExistingDays: result.skippedExistingDays,
     processedWorkers: workers.length,
   };
+}
+
+// Garante que TODO período "E" confirmado (qualquer origem, exceto "programado" — esse ainda
+// não foi promovido a embarque real) tenha um timesheet_embarque cobrindo sua janela — não só
+// os inseridos na rodada atual. createTimesheetForNewPeriodIfAbsent nunca corrige/encolhe um
+// embarque existente (é append-only de propósito), então isso só preenche janelas
+// genuinamente descobertas, nunca sobrepõe dado já lançado.
+async function garantirEmbarquesParaPeriodosSemCobertura(db: SupabaseClient): Promise<void> {
+  const periodosE = await selectAllPages<{
+    id: string; colaborador_id: string; unidade_operacional: string | null; centro_de_custo: string | null;
+    data_inicio: string; data_fim: string; origem: string | null;
+  }>((from, to) =>
+    db.from("hist_novo_periodos")
+      .select("id, colaborador_id, unidade_operacional, centro_de_custo, data_inicio, data_fim, origem")
+      .eq("tipo", "E")
+      .order("id").range(from, to),
+  );
+  const confirmados = periodosE.filter((p) => p.origem !== ORIGEM_PROGRAMADO);
+  if (!confirmados.length) return;
+
+  const colaboradorIds = Array.from(new Set(confirmados.map((p) => p.colaborador_id)));
+  const embarques = await selectAllPages<{ colaborador_id: string; data_inicio_embarque: string; data_fim_embarque: string }>((from, to) =>
+    db.from("timesheet_embarques")
+      .select("colaborador_id, data_inicio_embarque, data_fim_embarque")
+      .in("colaborador_id", colaboradorIds)
+      .order("colaborador_id").range(from, to),
+  );
+  const embarquesPorColaborador = new Map<string, typeof embarques>();
+  embarques.forEach((e) => {
+    if (!embarquesPorColaborador.has(e.colaborador_id)) embarquesPorColaborador.set(e.colaborador_id, []);
+    embarquesPorColaborador.get(e.colaborador_id)!.push(e);
+  });
+
+  const { data: colabsData, error: colabsErr } = await db
+    .from("hist_novo_colaboradores").select("id, funcao, funcao_operacao").in("id", colaboradorIds);
+  if (colabsErr) throw colabsErr;
+  const colabById = new Map((colabsData ?? []).map((c: any) => [c.id, c]));
+
+  for (const p of confirmados) {
+    const cobertos = embarquesPorColaborador.get(p.colaborador_id) ?? [];
+    const jaCoberto = cobertos.some((e) => e.data_inicio_embarque <= p.data_fim && e.data_fim_embarque >= p.data_inicio);
+    if (jaCoberto) continue;
+
+    const colaborador = colabById.get(p.colaborador_id);
+    const funcaoEmbarque = colaborador?.funcao || colaborador?.funcao_operacao || "—";
+    await createTimesheetForNewPeriodIfAbsent(db, {
+      colaboradorId: p.colaborador_id,
+      periodoId: p.id,
+      unidadeOperacional: p.unidade_operacional,
+      bsp: p.centro_de_custo,
+      funcaoEmbarque,
+      dataInicio: p.data_inicio,
+      dataFim: p.data_fim,
+    });
+    // Atualiza a lista local pra que outro período do mesmo colaborador, mais adiante neste
+    // mesmo lote, já enxergue o embarque recém-criado (evita criar dois pro mesmo colaborador).
+    cobertos.push({ colaborador_id: p.colaborador_id, data_inicio_embarque: p.data_inicio, data_fim_embarque: p.data_fim });
+    embarquesPorColaborador.set(p.colaborador_id, cobertos);
+  }
 }
 
 async function synchronizeDrakeWorkerActiveFlags(
