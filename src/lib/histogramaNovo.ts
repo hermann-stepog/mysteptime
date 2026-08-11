@@ -258,6 +258,7 @@ export function groupDatesByMonth(dates: string[]): { key: string; label: string
 
 export interface HistNovoColaborador {
   id: string;
+  ativo?: boolean;
   matricula: string;
   nome: string;
   empresa: string | null;

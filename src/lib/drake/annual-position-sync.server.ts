@@ -46,6 +46,11 @@ export async function synchronizeCurrentDrakeAnnualPositions(
 ): Promise<AnnualPositionSyncResult> {
   const activeWorkers = await fetchDrakeWorkers(http);
 
+  await synchronizeDrakeWorkerActiveFlags(
+    db,
+    activeWorkers,
+  );
+
   // Congelado antes de qualquer gravacao desta execucao.
   // Um E criado agora nunca torna outro colaborador elegivel.
   const eligibleWorkerKeys = await loadEligibleWorkerKeys(db);
@@ -124,6 +129,113 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     skippedExistingDays: result.skippedExistingDays,
     processedWorkers: workers.length,
   };
+}
+
+async function synchronizeDrakeWorkerActiveFlags(
+  db: SupabaseClient,
+  activeWorkers: Awaited<
+    ReturnType<typeof fetchDrakeWorkers>
+  >,
+): Promise<void> {
+  const activeKeys = new Set(
+    activeWorkers.map((worker) =>
+      buildWorkerKey(
+        worker.companyName,
+        worker.registration,
+      ),
+    ),
+  );
+
+  const workers: Array<{
+    id: string;
+    empresa: string | null;
+    matricula: string;
+    ativo: boolean;
+  }> = [];
+
+  const pageSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await db
+      .from("hist_novo_colaboradores")
+      .select("id, empresa, matricula, ativo")
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+
+    const rows = (data ?? []) as Array<{
+      id: string;
+      empresa: string | null;
+      matricula: string;
+      ativo: boolean;
+    }>;
+
+    workers.push(...rows);
+
+    if (rows.length < pageSize) break;
+
+    from += pageSize;
+  }
+
+  const activateIds: string[] = [];
+  const deactivateIds: string[] = [];
+
+  for (const worker of workers) {
+    if (
+      !worker.empresa?.trim() ||
+      !worker.matricula?.trim()
+    ) {
+      continue;
+    }
+
+    const shouldBeActive =
+      activeKeys.has(
+        buildWorkerKey(
+          worker.empresa,
+          worker.matricula,
+        ),
+      );
+
+    if (worker.ativo === shouldBeActive) {
+      continue;
+    }
+
+    if (shouldBeActive) {
+      activateIds.push(worker.id);
+    } else {
+      deactivateIds.push(worker.id);
+    }
+  }
+
+  for (
+    const batch of chunkEligibilityIds(
+      activateIds,
+      200,
+    )
+  ) {
+    const { error } = await db
+      .from("hist_novo_colaboradores")
+      .update({ ativo: true })
+      .in("id", batch);
+
+    if (error) throw error;
+  }
+
+  for (
+    const batch of chunkEligibilityIds(
+      deactivateIds,
+      200,
+    )
+  ) {
+    const { error } = await db
+      .from("hist_novo_colaboradores")
+      .update({ ativo: false })
+      .in("id", batch);
+
+    if (error) throw error;
+  }
 }
 
 function optionalString(value: unknown): string | null {

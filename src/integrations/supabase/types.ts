@@ -1165,6 +1165,7 @@ export type Database = {
       }
       hist_novo_colaboradores: {
         Row: {
+          ativo: boolean
           created_at: string
           empresa: string | null
           funcao: string | null
@@ -1174,6 +1175,7 @@ export type Database = {
           nome: string
         }
         Insert: {
+          ativo?: boolean
           created_at?: string
           empresa?: string | null
           funcao?: string | null
@@ -1183,6 +1185,7 @@ export type Database = {
           nome: string
         }
         Update: {
+          ativo?: boolean
           created_at?: string
           empresa?: string | null
           funcao?: string | null
