@@ -18,6 +18,7 @@ import {
   AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeInView, FadeInRow } from "@/components/FadeInView";
@@ -2010,12 +2011,23 @@ function DashboardTab({ colaboradores, periodos }: {
     return { total, embarcados, programados, disponiveis, naoDisp, folga, naBase, utilizacao };
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
 
+  const colaboradoresNaBase = useMemo(() => activeColaboradores
+    .filter((c) => {
+      const status = computeStatusParaDashboard(
+        periodosByColaborador.get(c.id) ?? [],
+        pobReferenceDate,
+      ).status;
+      return toOldBucket(status) === "BASE";
+    })
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+  [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+
   const kpiCards = [
     { label: "Headcount Total", value: kpis.total, icon: Users },
     { label: "Embarcados", value: kpis.embarcados, icon: Ship },
     { label: "Programados", value: kpis.programados, icon: CalendarDays },
     { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
-    { label: "Na Base", value: kpis.naBase, icon: Building2 },
+    { label: "Na Base", value: kpis.naBase, icon: Building2, hoverNames: colaboradoresNaBase.map((c) => c.nome) },
     { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
@@ -2271,19 +2283,39 @@ function DashboardTab({ colaboradores, periodos }: {
 
       {/* ── KPIs ── */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        {kpiCards.map((k, i) => (
-          <FadeInView key={k.label} delay={i * 0.05}>
-          <Card className="bg-gradient-to-br from-white to-slate-50 p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
-              <k.icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="mt-2 bg-gradient-to-br from-slate-800 to-slate-500 bg-clip-text text-3xl font-semibold text-transparent">
-              {k.value}
-            </div>
-          </Card>
-          </FadeInView>
-        ))}
+        {kpiCards.map((k, i) => {
+          const card = (
+            <Card className={cn("bg-gradient-to-br from-white to-slate-50 p-4", k.hoverNames && "cursor-default")}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
+                <k.icon className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="mt-2 bg-gradient-to-br from-slate-800 to-slate-500 bg-clip-text text-3xl font-semibold text-transparent">
+                {k.value}
+              </div>
+            </Card>
+          );
+
+          return (
+            <FadeInView key={k.label} delay={i * 0.05}>
+              {k.hoverNames ? (
+                <HoverCard openDelay={150} closeDelay={100}>
+                  <HoverCardTrigger asChild>{card}</HoverCardTrigger>
+                  <HoverCardContent className="w-72 p-3" align="center" side="bottom">
+                    <p className="text-xs font-semibold">Colaboradores na base ({k.hoverNames.length})</p>
+                    {k.hoverNames.length > 0 ? (
+                      <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/85">
+                        {k.hoverNames.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-muted-foreground">Nenhum colaborador na base.</p>
+                    )}
+                  </HoverCardContent>
+                </HoverCard>
+              ) : card}
+            </FadeInView>
+          );
+        })}
       </div>
 
       {/* ── Ocupação ── */}

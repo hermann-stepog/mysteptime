@@ -79,7 +79,7 @@ function messageFromErrorPayload(event: DrakeProgressEvent): string {
 }
 
 export function DrakeUpdateCard() {
-  const { role } = useAuth();
+  const { role, user, profile } = useAuth();
   const qc = useQueryClient();
   const canUpdate = role === "logistics_operator";
 
@@ -135,6 +135,7 @@ export function DrakeUpdateCard() {
       setError(messageFromErrorPayload(event));
       setMessage(null);
       notify.error(messageFromErrorPayload(event));
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       return;
     }
 
@@ -150,6 +151,7 @@ export function DrakeUpdateCard() {
       setResult(event.result ?? null);
       setButtonLabel("done");
       notify.success("Dados atualizados com sucesso.");
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       void qc.invalidateQueries({ queryKey: ["hist-novo-colaboradores"] });
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       if (doneTimer.current) clearTimeout(doneTimer.current);
@@ -231,6 +233,7 @@ export function DrakeUpdateCard() {
   // dados de ontem até ela importar uma planilha nova, em vez de sumir no dia seguinte por
   // falta de reimportação.
   const handleImportBase = async (file: File) => {
+    const startedAt = new Date().toISOString();
     setImportandoBase(true);
     setBaseResult(null);
     try {
@@ -344,8 +347,34 @@ export function DrakeUpdateCard() {
 
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       setBaseResult({ inseridos, ignorados, naoEncontrados, ambiguos });
+      const { error: logErr } = await (supabase as any).from("drake_sync_runs").insert({
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        status: "success",
+        source_type: "base",
+        source_file_name: file.name,
+        triggered_by: user?.id ?? null,
+        triggered_by_label: profile?.full_name || profile?.email || user?.email || null,
+        base_inserted: inseridos.length,
+        base_ignored: ignorados.length + ambiguos.length,
+        base_not_found: naoEncontrados.length,
+      });
+      if (logErr) console.warn("Falha ao registrar importacao da planilha da base:", logErr.message);
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       notify.success(`${inseridos.length} colaborador(es) marcado(s) como "Na Base".`);
     } catch (e: any) {
+      const { error: logErr } = await (supabase as any).from("drake_sync_runs").insert({
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        status: "error",
+        source_type: "base",
+        source_file_name: file.name,
+        triggered_by: user?.id ?? null,
+        triggered_by_label: profile?.full_name || profile?.email || user?.email || null,
+        error_message: String(e?.message || "Erro ao importar o relatorio da base.").slice(0, 2000),
+      });
+      if (logErr) console.warn("Falha ao registrar erro da planilha da base:", logErr.message);
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       notify.error(e.message || "Erro ao importar o relatório da base.");
     } finally {
       setImportandoBase(false);

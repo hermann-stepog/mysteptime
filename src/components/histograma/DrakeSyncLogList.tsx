@@ -14,6 +14,9 @@ interface DrakeSyncRun {
   status: DrakeSyncStatus;
   triggered_by: string | null;
   triggered_by_label: string | null;
+  source_type: "drake" | "base";
+  source_file_name: string | null;
+  base_inserted: number | null;
 }
 
 const STATUS_DOT: Record<DrakeSyncStatus, string> = {
@@ -30,7 +33,7 @@ const STATUS_LABEL: Record<DrakeSyncStatus, string> = {
 
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", {
-    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }
 
@@ -86,8 +89,15 @@ export function DrakeSyncLogList() {
             <div key={run.id} className="flex items-start gap-2 rounded-md border border-border/60 p-2">
               <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", STATUS_DOT[run.status])} title={STATUS_LABEL[run.status]} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium">{executorLabel(run)}</p>
-                <p className="text-[11px] text-muted-foreground">{fmtDateTime(run.finished_at)} · {STATUS_LABEL[run.status]}</p>
+                <p className="text-xs font-semibold">{run.source_type === "base" ? "Planilha da base" : "Drake"}</p>
+                <p className="truncate text-[11px] text-foreground/80">Atualizado por {executorLabel(run)}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {fmtDateTime(run.finished_at)} · {STATUS_LABEL[run.status]}
+                  {run.source_type === "base" && run.base_inserted != null ? ` · ${run.base_inserted} na base` : ""}
+                </p>
+                {run.source_type === "base" && run.source_file_name && (
+                  <p className="truncate text-[10px] text-muted-foreground" title={run.source_file_name}>{run.source_file_name}</p>
+                )}
               </div>
             </div>
           ))}
