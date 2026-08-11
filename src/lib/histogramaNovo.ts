@@ -135,7 +135,6 @@ export function bspDoPeriodo(p: HistNovoPeriodo): string | null {
 const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
   "SAQUAREMA": "FPSA - CIDADE DE SAQUAREMA",
   "ANCHIETA": "CDAN - CIDADE ANCHIETA",
-  "ANCHIETA - CDA": "CDAN - CIDADE ANCHIETA",
   "GUSMAO": "ALEXANDRE GUSMÃO",
   "GUSMÃO": "ALEXANDRE GUSMÃO",
   "ILHA BELA": "CDI - CIDADE ILHA BELA",
@@ -145,8 +144,25 @@ const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
 
 export function normalizeUnidadeOperacional(raw: string | null | undefined): string | null {
   if (!raw) return null;
+
   const trimmed = raw.trim();
-  return UNIDADE_OPERACIONAL_ALIASES[trimmed.toUpperCase()] ?? trimmed;
+
+  // Exact canonical/alias match first.
+  const direct = UNIDADE_OPERACIONAL_ALIASES[trimmed.toUpperCase()];
+  if (direct) return direct;
+
+  // Smartsheet may send "NAME - CODE", while Timesheet/Rates use
+  // the operational canonical name. Reuse the short-name alias.
+  const nomeCurto = trimmed.split(/\s+-\s+/)[0]?.trim();
+
+  if (nomeCurto && nomeCurto !== trimmed) {
+    const aliasNomeCurto =
+      UNIDADE_OPERACIONAL_ALIASES[nomeCurto.toUpperCase()];
+
+    if (aliasNomeCurto) return aliasNomeCurto;
+  }
+
+  return trimmed;
 }
 
 // BSPs já vistos nos períodos do Histograma, restritos à(s) unidade(s) escolhida(s) (ou
