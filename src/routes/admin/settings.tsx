@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { notify } from "@/lib/notify";
 import { Plus, Trash2, Pencil, KeyRound, UserPlus } from "lucide-react";
 import { useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { adminCreateUser, adminResetPassword } from "@/lib/api/adminUserManagement.functions";
 
@@ -32,7 +34,7 @@ export const Route = createFileRoute("/admin/settings")({ head: () => pageTitle(
 
 function SettingsPage() {
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div><h1 className="text-2xl font-semibold">Configurações</h1><p className="text-sm text-muted-foreground">Cadastros mestres do sistema.</p></div>
       <Tabs defaultValue="approvers">
         <TabsList>
@@ -54,10 +56,25 @@ function SettingsPage() {
 
 function Approvers() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["approvers"], queryFn: async () => (await supabase.from("approvers").select("*").order("full_name")).data ?? [] });
+  const { data, isLoading } = useQuery({ queryKey: ["approvers"], queryFn: async () => (await supabase.from("approvers").select("*").order("full_name")).data ?? [] });
   const [f, setF] = useState({ full_name: "", role_title: "", email: "", department: "" });
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <Card className="p-5 space-y-4">
+        <Skeleton className="h-5 w-40" />
+        <div className="grid gap-3 md:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+        </div>
+        <Table>
+          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Cargo</TableHead><TableHead>E-mail</TableHead><TableHead>Depto</TableHead><TableHead>Ativo</TableHead><TableHead></TableHead></TableRow></TableHeader>
+          <TableSkeleton rows={5} cols={6} />
+        </Table>
+      </Card>
+    );
+  }
   const add = async () => {
     if (!f.full_name || !f.role_title || !f.email) { notify.error("Preencha os campos obrigatórios"); return; }
     setAdding(true);
@@ -74,7 +91,7 @@ function Approvers() {
   };
 
   return (
-    <Card className="p-5">
+    <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
       <h3 className="font-semibold">Adicionar aprovador</h3>
       <div className="mt-3 grid gap-3 md:grid-cols-5">
         <div><Label>Nome</Label><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></div>
@@ -101,9 +118,23 @@ function Approvers() {
 
 function Vendors() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["vendors-all"], queryFn: async () => (await supabase.from("vendors").select("*").order("name")).data ?? [] });
+  const { data, isLoading } = useQuery({ queryKey: ["vendors-all"], queryFn: async () => (await supabase.from("vendors").select("*").order("name")).data ?? [] });
   const [f, setF] = useState({ name: "", vendor_type: "", contact: "", email: "" });
   const [adding, setAdding] = useState(false);
+
+  if (isLoading) {
+    return (
+      <Card className="p-5 space-y-4">
+        <div className="grid gap-3 md:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+        </div>
+        <Table>
+          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Tipo</TableHead><TableHead>Contato</TableHead><TableHead>Ativo</TableHead></TableRow></TableHeader>
+          <TableSkeleton rows={5} cols={4} />
+        </Table>
+      </Card>
+    );
+  }
   const add = async () => {
     if (!f.name) { notify.error("Nome obrigatório"); return; }
     setAdding(true);
@@ -114,7 +145,7 @@ function Vendors() {
   const toggle = async (id: string, active: boolean) => { await supabase.from("vendors").update({ active }).eq("id", id); qc.invalidateQueries({ queryKey: ["vendors-all"] }); };
 
   return (
-    <Card className="p-5">
+    <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
       <div className="grid gap-3 md:grid-cols-5">
         <div><Label>Nome</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
         <div><Label>Tipo</Label><Input value={f.vendor_type} onChange={(e) => setF({ ...f, vendor_type: e.target.value })} /></div>
@@ -137,7 +168,7 @@ function Vendors() {
 
 function Clients() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["clients-all"], queryFn: async () => (await supabase.from("clients").select("*").order("name")).data ?? [] });
+  const { data, isLoading } = useQuery({ queryKey: ["clients-all"], queryFn: async () => (await supabase.from("clients").select("*").order("name")).data ?? [] });
   const [name, setName] = useState("");
   const [adding, setAdding] = useState(false);
   const add = async () => {
@@ -147,8 +178,21 @@ function Clients() {
     setAdding(false);
     if (error) notify.error(error.message); else { setName(""); qc.invalidateQueries({ queryKey: ["clients-all"] }); }
   };
+
+  if (isLoading) {
+    return (
+      <Card className="p-5 space-y-4">
+        <Skeleton className="h-9 w-full" />
+        <Table>
+          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Ativo</TableHead></TableRow></TableHeader>
+          <TableSkeleton rows={5} cols={2} />
+        </Table>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="p-5">
+    <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
       <div className="flex gap-2"><Input placeholder="Novo cliente" value={name} onChange={(e) => setName(e.target.value)} /><Button onClick={add} loading={adding}><Plus className="mr-2 h-4 w-4" />Adicionar</Button></div>
       <Table className="mt-6">
         <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Ativo</TableHead></TableRow></TableHeader>
@@ -160,8 +204,8 @@ function Clients() {
 
 function Projects() {
   const qc = useQueryClient();
-  const { data: projects } = useQuery({ queryKey: ["projects-all"], queryFn: async () => (await supabase.from("projects").select("*, clients(name)").order("name")).data ?? [] });
-  const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: async () => (await supabase.from("clients").select("*").eq("active", true)).data ?? [] });
+  const { data: projects, isLoading: l1 } = useQuery({ queryKey: ["projects-all"], queryFn: async () => (await supabase.from("projects").select("*, clients(name)").order("name")).data ?? [] });
+  const { data: clients, isLoading: l2 } = useQuery({ queryKey: ["clients"], queryFn: async () => (await supabase.from("clients").select("*").eq("active", true)).data ?? [] });
   const [f, setF] = useState({ client_id: "", code: "", name: "", email: "" });
   const [editing, setEditing] = useState<any>(null);
   const [adding, setAdding] = useState(false);
@@ -192,8 +236,23 @@ function Projects() {
     else { setEditing(null); qc.invalidateQueries({ queryKey: ["projects-all"] }); notify.success("Atualizado"); }
   };
 
+  if (l1 || l2) {
+    return (
+      <Card className="p-5 space-y-4">
+        <Skeleton className="h-4 w-96" />
+        <div className="grid gap-3 md:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+        </div>
+        <Table>
+          <TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>Código</TableHead><TableHead>PM / Responsável</TableHead><TableHead>E-mail</TableHead><TableHead>Ativo</TableHead><TableHead className="w-16"></TableHead></TableRow></TableHeader>
+          <TableSkeleton rows={5} cols={6} />
+        </Table>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="p-5">
+    <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
       <p className="mb-3 text-sm text-muted-foreground">
         Este cadastro também alimenta o campo "PM solicitante" no formulário de Nomeações e o e-mail usado para avisar o PM sobre a fase da solicitação.
       </p>
@@ -331,7 +390,7 @@ function Users() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [resetTarget, setResetTarget] = useState<{ id: string; label: string } | null>(null);
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["users-with-roles"],
     queryFn: async () => {
       const [{ data: profiles }, { data: roles }] = await Promise.all([
@@ -347,8 +406,24 @@ function Users() {
     qc.invalidateQueries({ queryKey: ["users-with-roles"] });
     notify.success("Papel atualizado");
   };
+
+  if (isLoading) {
+    return (
+      <Card className="p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-8 w-36" />
+        </div>
+        <Table>
+          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+          <TableSkeleton rows={6} cols={4} />
+        </Table>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="p-5">
+    <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold">Usuários &amp; papéis</h3>
         <Button size="sm" onClick={() => setShowCreate(true)}><UserPlus className="mr-2 h-4 w-4" />Criar usuário</Button>

@@ -185,7 +185,7 @@ function ReportsPage() {
   const [dataFim, setDataFim] = useState(defaultEnd());
 
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div><h1 className="text-2xl font-semibold">Relatórios &amp; Análises</h1></div>
       <DateRangeFilter dataInicio={dataInicio} dataFim={dataFim} onChange={(i, f) => { setDataInicio(i); setDataFim(f); }} />
       <ReportCards dataInicio={dataInicio} dataFim={dataFim} />
