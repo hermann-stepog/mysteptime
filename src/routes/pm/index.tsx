@@ -189,6 +189,19 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
             {nom.notes && <div className="col-span-2 text-muted-foreground italic">{nom.notes}</div>}
           </div>
 
+          {nom.requires_quality_validation
+            && ALL_STATUSES.indexOf(nom.current_status) > ALL_STATUSES.indexOf("aprovacao_tecnica") && (
+            <div
+              className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                nom.quality_validated
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-amber-200 bg-amber-50 text-amber-900"
+              }`}
+            >
+              Qualidade: {nom.quality_validated ? "Aprovada" : "Pendente"}
+            </div>
+          )}
+
           {nom.current_status === "aprovacao_pm" && (
             <AprovacaoPmChecklist nomination={nom} onDone={onClose} />
           )}

@@ -940,6 +940,19 @@ function ManageDialog({
 
           {/* ── Etapa atual ── */}
           <TabsContent value="etapa" className="space-y-4 pt-2">
+            {nomination.requires_quality_validation
+              && ALL_STATUSES.indexOf(nomination.current_status) > ALL_STATUSES.indexOf("aprovacao_tecnica") && (
+              <div
+                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                  nomination.quality_validated
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                    : "border-amber-200 bg-amber-50 text-amber-900"
+                }`}
+              >
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Qualidade: {nomination.quality_validated ? "Aprovada" : "Pendente"}
+              </div>
+            )}
             {nomination.current_status === "simulacao" && (
               <EfetivoDisponivelSection
                 nomination={nomination}
