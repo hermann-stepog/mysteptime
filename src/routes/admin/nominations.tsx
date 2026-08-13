@@ -1,18 +1,24 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
-// Tabelas nominations/weld_type_config/nomination_status_history/colaborador_funcoes_historico
-// ainda não estão nos tipos gerados; cast local para não bloquear o build.
+// Tabelas nominations/nomination_nominees/weld_type_config/weld_material_config/
+// nomination_status_history/colaborador_funcoes_historico ainda não estão nos tipos gerados;
+// cast local para não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import {
-  type Nomination, type NominationStatusHistory, type WeldTypeConfig, type NominationStatus,
-  STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS,
-  columnIdForStatus, canMoveToColumn, fmtDate, fmtDatetime, isSoldador,
+  type Nomination, type NominationNominee, type NominationStatusHistory,
+  type WeldTypeConfig, type WeldMaterialConfig, type NominationStatus, type PmDecision,
+  STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE, QUALIDADE_ROLE,
+  columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador,
 } from "@/lib/nominations";
+import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation } from "@/lib/nominationEmails";
 import { matchesNameSearch } from "@/lib/utils";
+import { SearchableSelect } from "@/components/SearchableSelect";
+import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -30,8 +36,9 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
-  Trash2,
+  Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -40,8 +47,11 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { pageTitle } from "@/lib/pageTitle";
 import {
   generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
-  displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, type ComputedStatus, type HistNovoPeriodo,
+  displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, bspOptionsForUnidade,
+  getColaboradoresComEmbarque,
+  type ComputedStatus, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
+import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
 export const Route = createFileRoute("/admin/nominations")({ head: () => pageTitle("Nomeações"), component: NominationsPage });
@@ -79,18 +89,513 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
   );
 }
 
+// Papel logado pode agir na etapa atual da solicitação? `logistics_operator` sempre pode
+// (Logística de Pessoal continua com acesso total, fallback/admin); os 4 papéis novos só na
+// própria etapa (ver STAGE_ROLE em lib/nominations.ts); Qualidade age dentro de Aprovação
+// Técnica (é o gate, não dono da coluna).
+function useCanActOnStage(status: NominationStatus): boolean {
+  const { role } = useAuth();
+  if (role === "logistics_operator") return true;
+  if (status === "aprovacao_tecnica" && role === QUALIDADE_ROLE) return true;
+  return STAGE_ROLE[status] === role;
+}
+
+// Grava a troca de etapa + histórico + dispara e-mail (fire-and-forget, nunca bloqueia nem
+// desfaz a troca — ver notifyStageAdvance). Usado tanto pelo drag-and-drop do kanban quanto
+// pelos botões de avanço específicos de cada etapa, pra não duplicar essa lógica.
+function useAdvanceStage() {
+  const qc = useQueryClient();
+  const { profile } = useAuth();
+  return useMutation({
+    mutationFn: async ({
+      nomination, target, extraPatch, note,
+    }: {
+      nomination: Nomination;
+      target: NominationStatus;
+      extraPatch?: Record<string, unknown>;
+      note?: string;
+    }) => {
+      // Retrocesso (drag-and-drop pra trás ou o botão "Retroceder etapa") desfaz o que já foi
+      // marcado nas etapas puladas — senão o card volta mas continua com tudo preenchido como
+      // se nada tivesse mudado (colaboradores da Simulação, seleção da Aprovação Técnica,
+      // decisão do PM etc.).
+      const clearing = computeRevertClearing(nomination.current_status, target);
+      const patch: Record<string, unknown> = { current_status: target, ...clearing?.nominationPatch, ...extraPatch };
+      const { error } = await supabase.from("nominations").update(patch).eq("id", nomination.id);
+      if (error) throw error;
+      if (clearing?.deleteNominees) {
+        const { error: delErr } = await supabase.from("nomination_nominees").delete().eq("nomination_id", nomination.id);
+        if (delErr) throw delErr;
+      } else if (clearing?.nomineePatch) {
+        const { error: nomErr } = await supabase.from("nomination_nominees").update(clearing.nomineePatch).eq("nomination_id", nomination.id);
+        if (nomErr) throw nomErr;
+      }
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id,
+        status: target,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Sistema",
+        notes: note ?? null,
+      });
+      await notifyStageAdvance({ ...nomination, current_status: target }, target);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "history"] });
+      qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "nominees"] });
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao mover nomeação."),
+  });
+}
+
+function useNominees(nominationId: string | undefined) {
+  return useQuery<NominationNominee[]>({
+    queryKey: ["nominations", nominationId, "nominees"],
+    enabled: !!nominationId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("nomination_nominees")
+        .select("*")
+        .eq("nomination_id", nominationId)
+        .order("created_at");
+      if (error) throw error;
+      return (data ?? []) as NominationNominee[];
+    },
+  });
+}
+
 // ── Manage dialog ─────────────────────────────────────────────────────────────
 
+// A seleção de candidatos em si acontece na aba Simulação (grade completa, com filtros) —
+// aqui é só um resumo de quem já foi adicionado + o atalho que leva pra lá em "modo
+// recrutamento" pra essa solicitação específica (ver SimulacaoTab/focusNomination).
+function EfetivoDisponivelSection({
+  nomination, nominees, onGoToSimulacao,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+  onGoToSimulacao: () => void;
+}) {
+  const qc = useQueryClient();
+  const canAct = useCanActOnStage(nomination.current_status);
+
+  const removeNominee = useMutation({
+    mutationFn: async (nomineeId: string) => {
+      const { error } = await supabase.from("nomination_nominees").delete().eq("id", nomineeId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+  });
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Efetivo Disponível — {nomination.funcao}</p>
+      {canAct && (
+        <Button size="sm" onClick={onGoToSimulacao}>
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Ir para Simulação e selecionar candidatos
+        </Button>
+      )}
+      {nominees.filter((n) => n.is_active).length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Já no efetivo desta solicitação:</p>
+          {nominees.filter((n) => n.is_active).map((n) => (
+            <div key={n.id} className="flex items-center justify-between rounded bg-blue-50 px-2 py-1 text-sm text-blue-900">
+              <span>{n.colaborador_nome}</span>
+              {canAct && !n.technical_selected_at && (
+                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-blue-700" onClick={() => removeNominee.mutate(n.id)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+  const canAct = useCanActOnStage(nomination.current_status);
+  const advance = useAdvanceStage();
+  const ativos = nominees.filter((n) => n.is_active);
+  const selecionados = ativos.filter((n) => n.technical_selected_at);
+
+  const toggleSelect = useMutation({
+    mutationFn: async ({ nominee, selected }: { nominee: NominationNominee; selected: boolean }) => {
+      const { error } = await supabase.from("nomination_nominees").update({
+        technical_selected_at: selected ? new Date().toISOString() : null,
+        technical_selected_by: selected ? (profile?.full_name ?? profile?.email ?? null) : null,
+      }).eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+  });
+
+  const confirmar = () => {
+    if (selecionados.length === 0) {
+      notify.error("Selecione ao menos um candidato antes de avançar.");
+      return;
+    }
+    const gate = canMoveToColumn(nomination, "nomeados", nominees);
+    if (!gate.ok) { notify.error(gate.reason ?? "Não é possível avançar."); return; }
+    advance.mutate({ nomination, target: "nomeados", note: `${selecionados.length} nomeado(s) selecionado(s)` });
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Selecionar nomeados — {nomination.funcao}</p>
+      <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
+        {ativos.length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">Nenhum candidato no efetivo desta solicitação ainda.</p>}
+        {ativos.map((n) => (
+          <label key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer">
+            <span>{n.colaborador_nome}</span>
+            <Checkbox
+              checked={!!n.technical_selected_at}
+              disabled={!canAct}
+              onCheckedChange={(v) => toggleSelect.mutate({ nominee: n, selected: !!v })}
+            />
+          </label>
+        ))}
+      </div>
+      {canAct && nomination.current_status === "aprovacao_tecnica" && (
+        <Button size="sm" onClick={confirmar} loading={advance.isPending}>
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar seleção e avançar para Nomeados
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function NomeadosSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+  const { role } = useAuth();
+  const canAct = role === "logistics_operator";
+  const advance = useAdvanceStage();
+  const selecionados = nominees.filter((n) => n.is_active && n.technical_selected_at);
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Nomeados ({selecionados.length})</p>
+      <ul className="space-y-1 text-sm">
+        {selecionados.map((n) => <li key={n.id} className="rounded bg-purple-50 px-2 py-1 text-purple-900">{n.colaborador_nome}</li>)}
+      </ul>
+      {canAct && nomination.current_status === "nomeados" && (
+        <Button
+          size="sm"
+          onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })}
+          loading={advance.isPending}
+        >
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação PM
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+  const { profile, role } = useAuth();
+  const qc = useQueryClient();
+  const canOperate = role === "logistics_operator";
+  const ativos = nominees.filter((n) => n.is_active);
+  const label: Record<PmDecision, { text: string; cls: string }> = {
+    pendente: { text: "Pendente", cls: "bg-slate-100 text-slate-600" },
+    aprovado: { text: "Aprovado", cls: "bg-emerald-100 text-emerald-700" },
+    reprovado: { text: "Reprovado", cls: "bg-red-100 text-red-700" },
+  };
+
+  // Normalmente é o Solicitante quem decide pelo portal dele (/pm) — mas a Logística também
+  // pode decidir aqui direto, sem depender de outra pessoa entrar no sistema (mesma filosofia
+  // do "Avançar etapa (sem aguardar os demais)": operador sempre pode agir no lugar de quem
+  // for o dono da etapa).
+  const [draft, setDraft] = useState<Record<string, PmDecision>>({});
+  const decisionFor = (n: NominationNominee): PmDecision => draft[n.id] ?? n.pm_decision;
+  const todosDecididos = ativos.length > 0 && ativos.every((n) => decisionFor(n) !== "pendente");
+
+  const confirmar = useMutation({
+    mutationFn: async () => {
+      await Promise.all(
+        ativos.map(async (n) => {
+          const decision = decisionFor(n);
+          if (decision === n.pm_decision) return;
+          const { error } = await supabase.from("nomination_nominees").update({
+            pm_decision: decision,
+            pm_decided_at: new Date().toISOString(),
+            pm_decided_by: profile?.full_name ?? profile?.email ?? null,
+          }).eq("id", n.id);
+          if (error) throw error;
+        }),
+      );
+      const merged = ativos.map((n) => ({ ...n, pm_decision: decisionFor(n) }));
+      const gate = canMoveToColumn(nomination, "aptidao", merged);
+      if (!gate.ok) throw new Error(gate.reason ?? "Não é possível avançar ainda.");
+
+      const { error } = await supabase.from("nominations").update({ current_status: "aptidao" }).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id, status: "aptidao",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística", notes: "Decisões de Aprovação PM confirmadas pela Logística",
+      });
+      await notifyStageAdvance({ ...nomination, current_status: "aptidao" }, "aptidao");
+    },
+    onSuccess: () => {
+      notify.success("Decisões enviadas.");
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+      setDraft({});
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao confirmar decisões."),
+  });
+
+  if (!canOperate) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Decisão do Solicitante</p>
+        <p className="text-xs text-muted-foreground">O solicitante decide pelo portal dele (/pm) — aqui é só leitura.</p>
+        <ul className="space-y-1 text-sm">
+          {ativos.map((n) => (
+            <li key={n.id} className="flex items-center justify-between rounded border px-2 py-1">
+              <span>{n.colaborador_nome}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${label[n.pm_decision].cls}`}>{label[n.pm_decision].text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  if (ativos.length === 0) {
+    return <p className="text-xs text-muted-foreground">Nenhum nomeado nesta solicitação ainda.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Decisão do Solicitante</p>
+      <p className="text-xs text-muted-foreground">Normalmente o solicitante decide pelo portal dele (/pm) — a Logística também pode decidir por aqui.</p>
+      <div className="space-y-1.5">
+        {ativos.map((n) => {
+          const d = decisionFor(n);
+          return (
+            <div key={n.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+              <span>{n.colaborador_nome}</span>
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm" variant={d === "aprovado" ? "default" : "outline"} className="h-7 w-7 p-0"
+                  onClick={() => setDraft((p) => ({ ...p, [n.id]: "aprovado" }))}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm" variant={d === "reprovado" ? "destructive" : "outline"} className="h-7 w-7 p-0"
+                  onClick={() => setDraft((p) => ({ ...p, [n.id]: "reprovado" }))}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Button size="sm" disabled={!todosDecididos} loading={confirmar.isPending} onClick={() => confirmar.mutate()}>
+        <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar decisões e avançar para Aptidão
+      </Button>
+    </div>
+  );
+}
+
+function AptidaoSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+  const canAct = useCanActOnStage(nomination.current_status);
+  const advance = useAdvanceStage();
+  const aprovados = nominees.filter((n) => n.is_active && n.pm_decision === "aprovado");
+
+  const toggleCheck = useMutation({
+    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
+      const { error } = await supabase.from("nomination_nominees").update({
+        aptidao_checked: val,
+        aptidao_checked_at: val ? new Date().toISOString() : null,
+        aptidao_checked_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
+      }).eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+  });
+
+  const todosChecados = aprovados.length > 0 && aprovados.every((n) => n.aptidao_checked);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Aptidão</p>
+      <div className="space-y-1 rounded-md border p-2">
+        {aprovados.map((n) => (
+          <label key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer">
+            <span>{n.colaborador_nome}</span>
+            <Checkbox checked={n.aptidao_checked} disabled={!canAct} onCheckedChange={(v) => toggleCheck.mutate({ nominee: n, val: !!v })} />
+          </label>
+        ))}
+      </div>
+      {canAct && (
+        <Button size="sm" disabled={!todosChecados} onClick={() => advance.mutate({ nomination, target: "validacao_rh" })} loading={advance.isPending}>
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Validação RH
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+  const canAct = useCanActOnStage(nomination.current_status);
+  const advance = useAdvanceStage();
+  const aprovados = nominees.filter((n) => n.is_active && n.pm_decision === "aprovado");
+  const [divergenceDraft, setDivergenceDraft] = useState<Record<string, string>>({});
+
+  const validate = useMutation({
+    mutationFn: async (nominee: NominationNominee) => {
+      const { error } = await supabase.from("nomination_nominees").update({
+        rh_validated: true, rh_validated_at: new Date().toISOString(), rh_validated_by: profile?.full_name ?? profile?.email ?? null,
+      }).eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+  });
+
+  const flagDivergence = useMutation({
+    mutationFn: async (nominee: NominationNominee) => {
+      const text = divergenceDraft[nominee.id]?.trim();
+      if (!text) throw new Error("Descreva a divergência.");
+      const { error } = await supabase.from("nomination_nominees").update({
+        aptidao_divergence: true, aptidao_divergence_text: text, aptidao_divergence_flagged_at: new Date().toISOString(), rh_validated: false,
+      }).eq("id", nominee.id);
+      if (error) throw error;
+      await notifyAptitudeDivergence(nomination, nominee.colaborador_nome, text, false);
+    },
+    onSuccess: (_d, nominee) => {
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+      setDivergenceDraft((prev) => ({ ...prev, [nominee.id]: "" }));
+    },
+    onError: (err: Error) => notify.error(err.message),
+  });
+
+  const resolveDivergence = useMutation({
+    mutationFn: async (nominee: NominationNominee) => {
+      const { error } = await supabase.from("nomination_nominees").update({
+        aptidao_divergence: false, aptidao_divergence_text: null, aptidao_divergence_flagged_at: null,
+      }).eq("id", nominee.id);
+      if (error) throw error;
+      await notifyAptitudeDivergence(nomination, nominee.colaborador_nome, "", true);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+  });
+
+  const podeAvancar = aprovados.length > 0 && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Validação RH</p>
+      <div className="space-y-2">
+        {aprovados.map((n) => (
+          <div key={n.id} className="rounded-md border p-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{n.colaborador_nome}</span>
+              {n.rh_validated ? (
+                <Badge variant="secondary" className="text-emerald-700">Validado</Badge>
+              ) : n.aptidao_divergence ? (
+                <Badge variant="destructive">Divergência</Badge>
+              ) : (
+                <Badge variant="secondary">Pendente</Badge>
+              )}
+            </div>
+            {n.aptidao_divergence ? (
+              <div className="mt-1.5 space-y-1.5 rounded-md border border-red-200 bg-red-50 p-2">
+                <p className="flex items-start gap-1.5 text-xs text-red-800">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /> {n.aptidao_divergence_text}
+                </p>
+                {canAct && (
+                  <Button size="sm" variant="outline" className="h-6 text-xs" loading={resolveDivergence.isPending} onClick={() => resolveDivergence.mutate(n)}>
+                    Marcar como corrigido
+                  </Button>
+                )}
+              </div>
+            ) : !n.rh_validated && canAct ? (
+              <div className="mt-1.5 space-y-1.5">
+                <Button size="sm" className="h-6 text-xs" loading={validate.isPending} onClick={() => validate.mutate(n)}>
+                  Validar aptidão
+                </Button>
+                <div className="flex gap-1.5">
+                  <Input
+                    className="h-6 text-xs" placeholder="Descrever divergência..."
+                    value={divergenceDraft[n.id] ?? ""}
+                    onChange={(e) => setDivergenceDraft((p) => ({ ...p, [n.id]: e.target.value }))}
+                  />
+                  <Button size="sm" variant="destructive" className="h-6 shrink-0 text-xs" loading={flagDivergence.isPending} onClick={() => flagDivergence.mutate(n)}>
+                    Sinalizar
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {canAct && (
+        <Button size="sm" disabled={!podeAvancar} onClick={() => advance.mutate({ nomination, target: "briefing_sms" })} loading={advance.isPending}>
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Briefing
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function BriefingSection({ nomination }: { nomination: Nomination }) {
+  const { profile } = useAuth();
+  const canAct = useCanActOnStage(nomination.current_status);
+  const advance = useAdvanceStage();
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center justify-between gap-2 rounded-md bg-teal-50 border border-teal-200 px-3 py-2 text-sm text-teal-900 cursor-pointer">
+        <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0" /> Briefing realizado</span>
+        <Checkbox
+          checked={nomination.briefing_sms_realizado}
+          disabled={!canAct}
+          onCheckedChange={(v) => {
+            if (!v) return;
+            advance.mutate({
+              nomination, target: "equipe_formada",
+              extraPatch: {
+                briefing_sms_realizado: true,
+                briefing_sms_realizado_at: new Date().toISOString(),
+                briefing_sms_realizado_by: profile?.full_name ?? profile?.email ?? null,
+                outcome: "concluida",
+              },
+            });
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
 function ManageDialog({
-  nomination,
+  nomination: initialNomination,
   onClose,
+  onGoToSimulacao,
 }: {
   nomination: Nomination;
   onClose: () => void;
+  onGoToSimulacao: (nomination: Nomination) => void;
 }) {
-  const { profile } = useAuth();
+  const { profile, role } = useAuth();
   const qc = useQueryClient();
   const [tab, setTab] = useState("detalhes");
+  const advance = useAdvanceStage();
+  // Nunca usar initialNomination além do fallback/id — ela é só o retrato de quando o card
+  // foi clicado. Reler da mesma query cacheada garante que o dialog acompanha em tempo real
+  // qualquer avanço de etapa feito por ele mesmo (senão os botões ficavam presos na etapa
+  // antiga até fechar e reabrir o card).
+  const { data: allNominations } = useAllNominations();
+  const nomination = allNominations?.find((n) => n.id === initialNomination.id) ?? initialNomination;
+  const { data: nominees = [] } = useNominees(nomination.id);
+  const canOperate = role === "logistics_operator";
 
   const { data: history = [] } = useQuery<NominationStatusHistory[]>({
     queryKey: ["nominations", nomination.id, "history"],
@@ -106,7 +611,11 @@ function ManageDialog({
 
   const toggleQualityValidated = useMutation({
     mutationFn: async (val: boolean) => {
-      const { error } = await supabase.from("nominations").update({ quality_validated: val }).eq("id", nomination.id);
+      const { error } = await supabase.from("nominations").update({
+        quality_validated: val,
+        quality_validated_at: val ? new Date().toISOString() : null,
+        quality_validated_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
+      }).eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
         nomination_id: nomination.id,
@@ -122,26 +631,68 @@ function ManageDialog({
     onError: () => notify.error("Erro ao atualizar."),
   });
 
-  const toggleBriefing = useMutation({
-    mutationFn: async (val: boolean) => {
-      const { error } = await supabase
-        .from("nominations")
-        .update({ briefing_sms_realizado: val, current_status: val ? "apto" : "briefing_sms" })
-        .eq("id", nomination.id);
+  const marcarRecebido = () => {
+    advance.mutate({
+      nomination, target: "recebido_logistica",
+      extraPatch: { logistics_received_at: new Date().toISOString(), logistics_received_by: profile?.full_name ?? profile?.email ?? null },
+    });
+  };
+
+  const [showRevert, setShowRevert] = useState(false);
+  const [revertTarget, setRevertTarget] = useState<NominationStatus | "">("");
+  const currentIdx = ALL_STATUSES.indexOf(nomination.current_status);
+  const earlierStages = ALL_STATUSES.slice(0, currentIdx);
+  const laterStages = ALL_STATUSES.slice(currentIdx + 1);
+
+  const [showForceAdvance, setShowForceAdvance] = useState(false);
+  const [forceAdvanceTarget, setForceAdvanceTarget] = useState<NominationStatus | "">("");
+  // Bypass total: a Logística pode empurrar o card pra qualquer etapa futura sem esperar
+  // Qualidade/Solicitante/RH/SMS agirem — ignora de propósito os gates de canMoveToColumn e
+  // as seleções/validações de cada Section (technical_selected/pm_decision/aptidao/rh_validated),
+  // já que quem está confirmando a etapa aqui é a própria Logística, por fora do fluxo normal.
+  const forceAdvance = () => {
+    if (!forceAdvanceTarget) return;
+    const extraPatch: Record<string, unknown> =
+      forceAdvanceTarget === "equipe_formada" && !nomination.outcome
+        ? {
+            outcome: "concluida",
+            briefing_sms_realizado: true,
+            briefing_sms_realizado_at: new Date().toISOString(),
+            briefing_sms_realizado_by: profile?.full_name ?? profile?.email ?? null,
+          }
+        : {};
+    advance.mutate(
+      { nomination, target: forceAdvanceTarget, extraPatch, note: `Avançada manualmente pela Logística para ${STATUS_LABELS[forceAdvanceTarget]}` },
+      { onSuccess: () => { setShowForceAdvance(false); setForceAdvanceTarget(""); } },
+    );
+  };
+
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const cancel = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("nominations").update({
+        current_status: "equipe_formada",
+        outcome: "cancelada",
+        cancel_reason: cancelReason.trim() || null,
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: profile?.full_name ?? profile?.email ?? null,
+      }).eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id,
-        status: val ? "apto" : "briefing_sms",
+        nomination_id: nomination.id, status: "equipe_formada",
         changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-        notes: val ? "Briefing SMS realizado" : "Briefing SMS desmarcado",
+        notes: cancelReason.trim() ? `Cancelada: ${cancelReason.trim()}` : "Cancelada",
       });
+      await notifyCancellation(nomination, cancelReason.trim() || null);
     },
     onSuccess: () => {
+      notify.success("Solicitação cancelada.");
       qc.invalidateQueries({ queryKey: ["nominations"] });
-      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "history"] });
-      notify.success("Atualizado.");
+      setShowCancel(false);
+      onClose();
     },
-    onError: () => notify.error("Erro ao atualizar."),
+    onError: (err: Error) => notify.error(err.message || "Erro ao cancelar."),
   });
 
   const remove = useMutation({
@@ -157,33 +708,60 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir nomeação."),
   });
 
+  const qualidadeGateOk = !nomination.requires_quality_validation || nomination.quality_validated;
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start justify-between gap-2 pr-6">
-            <DialogTitle className="text-base">
-              {nomination.colaborador_nome} — <span className="text-muted-foreground">{nomination.funcao}</span>
-            </DialogTitle>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-              onClick={() => {
-                if (confirm("Excluir definitivamente esta nomeação? Esta ação não pode ser desfeita.")) {
-                  remove.mutate();
-                }
-              }}
-              loading={remove.isPending}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <DialogTitle className="text-base">{nomination.funcao}</DialogTitle>
+            {canOperate && (
+              <div className="flex items-center gap-0.5 shrink-0">
+                {(earlierStages.length > 0 || laterStages.length > 0) && (
+                  // Atalhos de teste/apresentação (mover etapa livremente, pra qualquer lado,
+                  // sem esperar validação de ninguém) — de propósito escondidos atrás desse
+                  // menu, não expostos como botões na tela, pra não aparecer numa demonstração.
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {earlierStages.length > 0 && (
+                        <DropdownMenuItem onClick={() => setShowRevert(true)}>Retroceder etapa</DropdownMenuItem>
+                      )}
+                      {laterStages.length > 0 && (
+                        <DropdownMenuItem onClick={() => setShowForceAdvance(true)}>Avançar etapa (sem aguardar os demais)</DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    if (confirm("Excluir definitivamente esta nomeação? Esta ação não pode ser desfeita.")) {
+                      remove.mutate();
+                    }
+                  }}
+                  loading={remove.isPending}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 pt-1">
             <StatusBadge status={nomination.current_status} />
-            {nomination.current_status === "apto" && (
-              <span className="text-xs text-green-700 font-medium">Apto — processo concluído</span>
+            {nomination.current_status === "equipe_formada" && (
+              <span className={`text-xs font-medium ${nomination.outcome === "cancelada" ? "text-red-700" : "text-green-700"}`}>
+                {nomination.sequence_number != null && `#${String(nomination.sequence_number).padStart(3, "0")} — `}
+                {nomination.outcome === "cancelada" ? "Cancelada" : "Equipe formada — processo concluído"}
+              </span>
             )}
           </div>
         </DialogHeader>
@@ -191,19 +769,28 @@ function ManageDialog({
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
+            <TabsTrigger value="etapa">Etapa atual</TabsTrigger>
             <TabsTrigger value="historico">Histórico</TabsTrigger>
           </TabsList>
 
           {/* ── Detalhes ── */}
           <TabsContent value="detalhes" className="space-y-4 pt-2">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-muted-foreground">Colaborador:</span> <span className="font-medium">{nomination.colaborador_nome}</span></div>
               <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
               {nomination.pm_name && (
-                <div><span className="text-muted-foreground">PM:</span> <span className="font-medium">{nomination.pm_name}</span></div>
+                <div><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{nomination.pm_name}</span></div>
+              )}
+              {nomination.unidade && (
+                <div><span className="text-muted-foreground">Unidade:</span> <span className="font-medium">{nomination.unidade}</span></div>
+              )}
+              {nomination.bsp && (
+                <div><span className="text-muted-foreground">BSP:</span> <span className="font-medium">{nomination.bsp}</span></div>
               )}
               {nomination.weld_type && (
                 <div><span className="text-muted-foreground">Tipo de solda:</span> <span className="font-medium">{nomination.weld_type}</span></div>
+              )}
+              {nomination.weld_material && (
+                <div><span className="text-muted-foreground">Material:</span> <span className="font-medium">{nomination.weld_material}</span></div>
               )}
               {nomination.period_start && nomination.period_end && (
                 <div><span className="text-muted-foreground">Período:</span> <span className="font-medium">{fmtDate(nomination.period_start)} – {fmtDate(nomination.period_end)}</span></div>
@@ -217,11 +804,40 @@ function ManageDialog({
               {nomination.notes && (
                 <div className="col-span-2"><span className="text-muted-foreground">Notas:</span> {nomination.notes}</div>
               )}
+              {nomination.outcome === "cancelada" && nomination.cancel_reason && (
+                <div className="col-span-2"><span className="text-muted-foreground">Motivo do cancelamento:</span> {nomination.cancel_reason}</div>
+              )}
             </div>
 
             <Separator />
 
             <div className="space-y-3">
+              {nomination.current_status === "solicitacao" && canOperate && (
+                <Button size="sm" onClick={marcarRecebido} loading={advance.isPending}>
+                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Marcar recebido pela Logística
+                </Button>
+              )}
+              {nomination.current_status === "recebido_logistica" && canOperate && (
+                <Button
+                  size="sm"
+                  onClick={() => advance.mutate(
+                    { nomination, target: "simulacao" },
+                    { onSuccess: () => { onGoToSimulacao(nomination); onClose(); } },
+                  )}
+                  loading={advance.isPending}
+                >
+                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Iniciar Simulação
+                </Button>
+              )}
+              {nomination.current_status === "simulacao" && canOperate && (
+                <Button
+                  size="sm"
+                  onClick={() => advance.mutate({ nomination, target: "aprovacao_tecnica" })}
+                  loading={advance.isPending}
+                >
+                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação Técnica
+                </Button>
+              )}
               {nomination.requires_quality_validation && (
                 <label className="flex items-center justify-between gap-2 rounded-md bg-purple-50 border border-purple-200 px-3 py-2 text-sm text-purple-900 cursor-pointer">
                   <span className="flex items-center gap-2">
@@ -230,21 +846,117 @@ function ManageDialog({
                   </span>
                   <Checkbox
                     checked={nomination.quality_validated}
+                    disabled={!(canOperate || role === QUALIDADE_ROLE)}
                     onCheckedChange={(val) => toggleQualityValidated.mutate(!!val)}
                   />
                 </label>
               )}
-              <label className="flex items-center justify-between gap-2 rounded-md bg-teal-50 border border-teal-200 px-3 py-2 text-sm text-teal-900 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  Briefing SMS realizado
-                </span>
-                <Checkbox
-                  checked={nomination.briefing_sms_realizado}
-                  onCheckedChange={(val) => toggleBriefing.mutate(!!val)}
-                />
-              </label>
+              {!qualidadeGateOk && (
+                <p className="text-xs text-amber-700">Aguardando validação de Qualidade antes de avançar de Aprovação Técnica.</p>
+              )}
+              {canOperate && showRevert && earlierStages.length > 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-2 rounded-md border p-3">
+                    <Label className="text-xs">Voltar para qual etapa?</Label>
+                    <Select value={revertTarget} onValueChange={(v) => setRevertTarget(v as NominationStatus)}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecione a etapa" /></SelectTrigger>
+                      <SelectContent>
+                        {earlierStages.map((s) => (
+                          <SelectItem key={s} value={s} className="text-xs">{STATUS_LABELS[s]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!revertTarget}
+                        loading={advance.isPending}
+                        onClick={() => {
+                          if (!revertTarget) return;
+                          advance.mutate(
+                            { nomination, target: revertTarget, note: `Retrocedida para ${STATUS_LABELS[revertTarget]}` },
+                            { onSuccess: () => { setShowRevert(false); setRevertTarget(""); } },
+                          );
+                        }}
+                      >
+                        Confirmar retrocesso
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setShowRevert(false); setRevertTarget(""); }}>Voltar</Button>
+                    </div>
+                  </div>
+                </>
+              )}
+              {canOperate && showForceAdvance && laterStages.length > 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-2 rounded-md border p-3">
+                    <Label className="text-xs">Avançar direto para qual etapa?</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Pula a validação/seleção da etapa atual (Qualidade, Solicitante, RH, SMS etc.) — use quando a
+                      Logística já confirmou tudo por fora do sistema.
+                    </p>
+                    <Select value={forceAdvanceTarget} onValueChange={(v) => setForceAdvanceTarget(v as NominationStatus)}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecione a etapa" /></SelectTrigger>
+                      <SelectContent>
+                        {laterStages.map((s) => (
+                          <SelectItem key={s} value={s} className="text-xs">{STATUS_LABELS[s]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={!forceAdvanceTarget} loading={advance.isPending} onClick={forceAdvance}>
+                        Confirmar avanço
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setShowForceAdvance(false); setForceAdvanceTarget(""); }}>Voltar</Button>
+                    </div>
+                  </div>
+                </>
+              )}
+              {canOperate && nomination.current_status !== "equipe_formada" && (
+                <>
+                  <Separator />
+                  {!showCancel ? (
+                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setShowCancel(true)}>
+                      Cancelar solicitação
+                    </Button>
+                  ) : (
+                    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                      <Label className="text-xs">Motivo do cancelamento (opcional)</Label>
+                      <Textarea rows={2} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="destructive" loading={cancel.isPending} onClick={() => cancel.mutate()}>
+                          Confirmar cancelamento
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setShowCancel(false)}>Voltar</Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
+          </TabsContent>
+
+          {/* ── Etapa atual ── */}
+          <TabsContent value="etapa" className="space-y-4 pt-2">
+            {nomination.current_status === "simulacao" && (
+              <EfetivoDisponivelSection
+                nomination={nomination}
+                nominees={nominees}
+                onGoToSimulacao={() => { onGoToSimulacao(nomination); onClose(); }}
+              />
+            )}
+            {nomination.current_status === "aprovacao_tecnica" && <AprovacaoTecnicaSection nomination={nomination} nominees={nominees} />}
+            {nomination.current_status === "nomeados" && <NomeadosSection nomination={nomination} nominees={nominees} />}
+            {nomination.current_status === "aprovacao_pm" && <AprovacaoPmSection nomination={nomination} nominees={nominees} />}
+            {nomination.current_status === "aptidao" && <AptidaoSection nomination={nomination} nominees={nominees} />}
+            {nomination.current_status === "validacao_rh" && <ValidacaoRhSection nomination={nomination} nominees={nominees} />}
+            {nomination.current_status === "briefing_sms" && <BriefingSection nomination={nomination} />}
+            {nomination.current_status === "equipe_formada" && <NomeadosSection nomination={nomination} nominees={nominees} />}
+            {(nomination.current_status === "solicitacao" || nomination.current_status === "recebido_logistica") && (
+              <p className="text-xs text-muted-foreground">Nada a fazer nesta aba ainda — use os botões em Detalhes para avançar.</p>
+            )}
           </TabsContent>
 
           {/* ── Histórico ── */}
@@ -256,255 +968,6 @@ function ManageDialog({
             )}
           </TabsContent>
         </Tabs>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── Create dialog ─────────────────────────────────────────────────────────────
-
-interface CreateColaborador {
-  id: string;
-  nome: string;
-  funcao: string | null;
-  funcao_operacao: string | null;
-}
-
-function CreateDialog({
-  onClose,
-  weldConfig,
-}: {
-  onClose: () => void;
-  weldConfig: WeldTypeConfig[];
-}) {
-  const { profile } = useAuth();
-  const qc = useQueryClient();
-
-  const { data: pmOptions = [] } = useQuery({
-    queryKey: ["projects-pm-list"],
-    queryFn: async () =>
-      (await supabase.from("projects").select("*, clients(name)").eq("active", true).order("name")).data ?? [],
-  });
-
-  const { data: colaboradores = [] } = useQuery<CreateColaborador[]>({
-    queryKey: ["create-nomination-colaboradores"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("hist_novo_colaboradores")
-        .select("id, nome, funcao, funcao_operacao")
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as CreateColaborador[];
-    },
-  });
-
-  // Mesma fonte usada no droplist de função da aba Simulação — histórico real por embarque
-  // (importado do Access), mais completo que o valor único hoje em timesheet_embarques.
-  const { data: funcoesHistorico = [] } = useQuery<{ colaborador_id: string; funcao: string }[]>({
-    queryKey: ["create-nomination-funcoes-historico"],
-    queryFn: () =>
-      selectAllPages((from, to) =>
-        supabase
-          .from("colaborador_funcoes_historico")
-          .select("colaborador_id, funcao")
-          .order("data_inicio", { ascending: false })
-          .range(from, to),
-      ),
-  });
-
-  const [colaboradorId, setColaboradorId] = useState("");
-  const [funcao, setFuncao]         = useState("");
-  const [weldType, setWeldType]     = useState("");
-  const [pmName, setPmName]         = useState("");
-  const [start, setStart]           = useState("");
-  const [end, setEnd]               = useState("");
-  const [project, setProject]       = useState("");
-  const [client, setClient]         = useState("");
-  const [notes, setNotes]           = useState("");
-
-  const colaborador = colaboradores.find((c) => c.id === colaboradorId);
-
-  const funcaoOptions = useMemo(() => {
-    if (!colaboradorId) return [];
-    const doColaborador: string[] = [];
-    funcoesHistorico.forEach((f) => {
-      if (f.colaborador_id === colaboradorId && f.funcao && !doColaborador.includes(f.funcao)) {
-        doColaborador.push(f.funcao);
-      }
-    });
-    if (doColaborador.length > 0) return doColaborador;
-    const fallback = colaborador?.funcao_operacao || colaborador?.funcao;
-    return fallback ? [fallback] : [];
-  }, [colaboradorId, funcoesHistorico, colaborador]);
-
-  const handleSelectColaborador = (id: string) => {
-    setColaboradorId(id);
-    const c = colaboradores.find((x) => x.id === id);
-    const doColaborador = funcoesHistorico.find((f) => f.colaborador_id === id)?.funcao;
-    setFuncao(doColaborador || c?.funcao_operacao || c?.funcao || "");
-    setWeldType("");
-  };
-
-  const showWeld = isSoldador(funcao);
-  const requiresQuality = showWeld
-    ? weldConfig.find((w) => w.weld_type_name === weldType)?.requires_quality_validation ?? false
-    : false;
-
-  const create = useMutation({
-    mutationFn: async () => {
-      if (!colaborador) throw new Error("Selecione o colaborador.");
-      if (!funcao.trim()) throw new Error("Selecione a função.");
-
-      const { data, error } = await supabase
-        .from("nominations")
-        .insert({
-          colaborador_id:              colaborador.id,
-          colaborador_nome:            colaborador.nome,
-          funcao:                      funcao.trim(),
-          pm_name:                     pmName.trim() || null,
-          weld_type:                   showWeld ? weldType || null : null,
-          period_start:                start || null,
-          period_end:                  end || null,
-          project:                     project.trim() || null,
-          client:                      client.trim() || null,
-          notes:                       notes.trim() || null,
-          requires_quality_validation: requiresQuality,
-          current_status:              "solicitacao",
-        })
-        .select()
-        .single();
-      if (error) throw error;
-
-      await supabase.from("nomination_status_history").insert({
-        nomination_id:   data.id,
-        status:          "solicitacao",
-        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-        notes:           "Nomeação criada",
-      });
-    },
-    onSuccess: () => {
-      notify.success("Nomeação criada.");
-      qc.invalidateQueries({ queryKey: ["nominations"] });
-      onClose();
-    },
-    onError: (err: Error) => notify.error(err.message || "Erro ao criar."),
-  });
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Nova Nomeação</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label>Colaborador *</Label>
-            <Select value={colaboradorId} onValueChange={handleSelectColaborador}>
-              <SelectTrigger><SelectValue placeholder="Selecione o colaborador" /></SelectTrigger>
-              <SelectContent>
-                {colaboradores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {colaboradorId && (
-            <div className="space-y-1">
-              <Label>Função *</Label>
-              {funcaoOptions.length > 1 ? (
-                <Select value={funcao} onValueChange={(v) => { setFuncao(v); setWeldType(""); }}>
-                  <SelectTrigger><SelectValue placeholder="Selecione a função" /></SelectTrigger>
-                  <SelectContent>
-                    {funcaoOptions.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              ) : funcaoOptions.length === 1 ? (
-                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium">{funcaoOptions[0]}</div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Nenhuma função no histórico deste colaborador.</p>
-              )}
-            </div>
-          )}
-
-          {showWeld && (
-            <div className="space-y-1">
-              <Label className="text-xs">Tipo de solda</Label>
-              {weldConfig.length > 0 ? (
-                <Select value={weldType} onValueChange={setWeldType}>
-                  <SelectTrigger><SelectValue placeholder="Selecione o tipo de solda" /></SelectTrigger>
-                  <SelectContent>
-                    {weldConfig.map((w) => (
-                      <SelectItem key={w.id} value={w.weld_type_name}>
-                        {w.weld_type_name}
-                        {w.requires_quality_validation && " (requer qualidade)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  placeholder="Tipo de solda (nenhum configurado ainda)"
-                  value={weldType}
-                  onChange={(e) => setWeldType(e.target.value)}
-                />
-              )}
-              {requiresQuality && (
-                <p className="text-xs text-amber-700 font-medium">
-                  Este tipo de solda exige validação da qualidade (aparece como etapa em Aprovação Técnica).
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="space-y-1">
-            <Label>PM solicitante</Label>
-            {pmOptions.length > 0 ? (
-              <Select value={pmName} onValueChange={setPmName}>
-                <SelectTrigger><SelectValue placeholder="Selecione o PM/Responsável" /></SelectTrigger>
-                <SelectContent>
-                  {pmOptions.map((p: any) => (
-                    <SelectItem key={p.id} value={p.name}>
-                      {p.name}{p.clients?.name ? ` — ${p.clients.name}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input placeholder="Nome do PM" value={pmName} onChange={(e) => setPmName(e.target.value)} />
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Período — início</Label>
-              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Período — fim</Label>
-              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Projeto</Label>
-              <Input placeholder="Ex.: Proj. X" value={project} onChange={(e) => setProject(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Cliente</Label>
-              <Input placeholder="Ex.: SBM" value={client} onChange={(e) => setClient(e.target.value)} />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label>Observações</Label>
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => create.mutate()} loading={create.isPending}>
-            Criar nomeação
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -612,24 +1075,85 @@ function WeldConfigPanel() {
   );
 }
 
+function WeldMaterialConfigPanel() {
+  const qc = useQueryClient();
+  const [newName, setNewName] = useState("");
+
+  const { data: config = [] } = useQuery<WeldMaterialConfig[]>({
+    queryKey: ["weld-material-config"],
+    queryFn: async () => {
+      const { data } = await supabase.from("weld_material_config").select("*").order("material_name");
+      return (data ?? []) as WeldMaterialConfig[];
+    },
+  });
+
+  const add = useMutation({
+    mutationFn: async () => {
+      if (!newName.trim()) throw new Error("Informe o nome do material.");
+      const { error } = await supabase.from("weld_material_config").insert({ material_name: newName.trim() });
+      if (error) throw error;
+    },
+    onSuccess: () => { setNewName(""); qc.invalidateQueries({ queryKey: ["weld-material-config"] }); },
+    onError: (err: Error) => notify.error(err.message),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("weld_material_config").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-material-config"] }),
+    onError: () => notify.error("Erro ao remover."),
+  });
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">Configure os materiais disponíveis para seleção quando a função é Soldador.</p>
+      <div className="flex gap-2">
+        <Input
+          placeholder="Nome do material" value={newName} onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add.mutate()} className="max-w-xs"
+        />
+        <Button onClick={() => add.mutate()} loading={add.isPending}><Plus className="h-4 w-4 mr-1" /> Adicionar</Button>
+      </div>
+      {config.length === 0 ? (
+        <EmptyState icon={Settings} title="Nenhum material configurado" />
+      ) : (
+        <div className="divide-y rounded-md border">
+          {config.map((m) => (
+            <div key={m.id} className="flex items-center justify-between px-4 py-3">
+              <span className="text-sm font-medium">{m.material_name}</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => remove.mutate(m.id)} loading={remove.isPending && remove.variables === m.id}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Kanban de Nomeações ────────────────────────────────────────────────────────
-// 6 colunas fixas (ver KANBAN_COLUMNS em src/lib/nominations.ts). Card arrastável via
-// dnd-kit; o único bloqueio de avanço é sair de "Aprovação Técnica" sem a Validação de
-// Qualidade marcada, quando o tipo de solda exige (ver canMoveToColumn). "Apto" não tem
-// coluna própria — fica dentro de "Briefing SMS", com um selo de concluído.
+// 10 colunas fixas (ver KANBAN_COLUMNS em src/lib/nominations.ts). Card arrastável via
+// dnd-kit; os bloqueios de avanço (Qualidade, Aprovação PM completa, divergência de Aptidão
+// pendente) vêm de canMoveToColumn, que agora também recebe os nomeados da solicitação.
 
 function NominationCard({
   nomination,
   highlighted,
   onOpen,
+  onJumpToAptidao,
 }: {
   nomination: Nomination;
   highlighted: boolean;
   onOpen: () => void;
+  onJumpToAptidao?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: nomination.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
-  const isApto = nomination.current_status === "apto";
+  const isTerminal = nomination.current_status === "equipe_formada";
+  const isAptidao = nomination.current_status === "aptidao";
 
   return (
     <div
@@ -638,16 +1162,26 @@ function NominationCard({
       style={style}
       {...listeners}
       {...attributes}
-      onClick={onOpen}
-      className={`cursor-grab rounded-lg border bg-background p-3 shadow-sm transition-shadow active:cursor-grabbing hover:shadow-md ${
+      onClick={isAptidao && onJumpToAptidao ? onJumpToAptidao : onOpen}
+      title={isAptidao ? "Ir para a aba Aptidão" : undefined}
+      className={`cursor-grab animate-in fade-in zoom-in-95 rounded-lg border bg-background p-3.5 shadow-sm duration-300 transition-shadow active:cursor-grabbing hover:shadow-md ${
         isDragging ? "opacity-40" : ""
       } ${highlighted ? "ring-2 ring-primary" : ""}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold leading-tight">{nomination.colaborador_nome}</p>
-        {isApto && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
+        <p className="text-sm font-semibold leading-tight">
+          {nomination.funcao}
+          {nomination.quantidade > 1 && <span className="ml-1.5 font-normal text-muted-foreground">×{nomination.quantidade}</span>}
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          {isAptidao && <Stethoscope className="h-4 w-4 shrink-0 text-red-700" />}
+          {isTerminal && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
+        </div>
       </div>
-      <p className="mt-0.5 text-xs text-muted-foreground">{nomination.funcao}</p>
+      {nomination.bsp && <p className="mt-0.5 text-xs text-muted-foreground">{nomination.unidade} — {nomination.bsp}</p>}
+      {nomination.period_start && nomination.period_end && (
+        <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(nomination.period_start)} – {fmtDate(nomination.period_end)}</p>
+      )}
       {nomination.requires_quality_validation && (
         <span
           className={`mt-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
@@ -663,6 +1197,55 @@ function NominationCard({
   );
 }
 
+// Lista acumulativa (não um kanban comum) — cada solicitação que chega em "equipe_formada"
+// (concluída pelo fluxo normal ou cancelada a qualquer momento) entra aqui e fica pra sempre,
+// numerada sequencialmente (sequence_number, atribuído por trigger no banco), mais recente no
+// topo — é o histórico/arquivo de tudo que já foi processado, não um estágio de trabalho ativo.
+function EquipeFormadaColumn({
+  nominations, onOpen, index = 0,
+}: {
+  nominations: Nomination[];
+  onOpen: (n: Nomination) => void;
+  index?: number;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: "equipe_formada" });
+  const ordenadas = [...nominations].sort((a, b) => (b.sequence_number ?? 0) - (a.sequence_number ?? 0));
+  return (
+    <div
+      className="flex min-w-[300px] flex-1 shrink-0 animate-in fade-in slide-in-from-bottom-2 flex-col rounded-lg border bg-muted/20 fill-mode-backwards duration-500 lg:min-w-[320px]"
+      style={{ animationDelay: `${index * 50}ms` }}
+    >
+      <div className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ backgroundColor: "#DCFCE7", color: "#166534" }}>
+        Equipe Formada <span className="font-normal opacity-70">({ordenadas.length})</span>
+      </div>
+      <div ref={setNodeRef} className={`flex-1 space-y-1.5 overflow-y-auto p-2 h-[calc(100vh-240px)] min-h-[540px] transition-colors ${isOver ? "bg-primary/5" : ""}`}>
+        {ordenadas.map((n) => (
+          <div
+            key={n.id}
+            onClick={() => onOpen(n)}
+            className="cursor-pointer animate-in fade-in zoom-in-95 rounded-md border bg-background p-2.5 text-xs shadow-sm duration-300 hover:shadow-md"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono font-semibold">
+                {String(n.sequence_number ?? 0).padStart(3, "0")}-{n.bsp || "—"}
+              </span>
+              <span
+                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                  n.outcome === "cancelada" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
+                }`}
+              >
+                {n.outcome === "cancelada" ? "Cancelada" : "Concluída"}
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-muted-foreground">{n.funcao} · {n.unidade}</p>
+          </div>
+        ))}
+        {ordenadas.length === 0 && <p className="py-4 text-center text-[11px] text-muted-foreground/60">Nenhuma solicitação processada ainda</p>}
+      </div>
+    </div>
+  );
+}
+
 function KanbanColumn({
   columnId,
   label,
@@ -671,6 +1254,8 @@ function KanbanColumn({
   nominations,
   highlightedId,
   onOpen,
+  onJumpToAptidao,
+  index = 0,
 }: {
   columnId: NominationStatus;
   label: string;
@@ -679,10 +1264,15 @@ function KanbanColumn({
   nominations: Nomination[];
   highlightedId: string | null;
   onOpen: (n: Nomination) => void;
+  onJumpToAptidao: (id: string) => void;
+  index?: number;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId });
   return (
-    <div className="flex w-64 shrink-0 flex-col rounded-lg border bg-muted/20">
+    <div
+      className="flex min-w-[300px] flex-1 shrink-0 animate-in fade-in slide-in-from-bottom-2 flex-col rounded-lg border bg-muted/20 fill-mode-backwards duration-500 lg:min-w-[320px]"
+      style={{ animationDelay: `${index * 50}ms` }}
+    >
       <div
         className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide"
         style={{ backgroundColor: bg, color: text }}
@@ -691,7 +1281,7 @@ function KanbanColumn({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex-1 space-y-2 p-2 min-h-[120px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
+        className={`flex-1 space-y-2.5 overflow-y-auto p-2.5 h-[calc(100vh-240px)] min-h-[540px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
       >
         {nominations.map((n) => (
           <NominationCard
@@ -699,6 +1289,7 @@ function KanbanColumn({
             nomination={n}
             highlighted={highlightedId === n.id}
             onOpen={() => onOpen(n)}
+            onJumpToAptidao={() => onJumpToAptidao(n.id)}
           />
         ))}
         {nominations.length === 0 && (
@@ -711,33 +1302,20 @@ function KanbanColumn({
 
 function KanbanBoard({
   nominations,
+  nomineesByNomination,
   highlightedId,
   onOpen,
+  onJumpToAptidao,
 }: {
   nominations: Nomination[];
+  nomineesByNomination: Map<string, NominationNominee[]>;
   highlightedId: string | null;
   onOpen: (n: Nomination) => void;
+  onJumpToAptidao: (id: string) => void;
 }) {
-  const qc = useQueryClient();
-  const { profile } = useAuth();
+  const { role } = useAuth();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
-  const move = useMutation({
-    mutationFn: async ({ nomination, target }: { nomination: Nomination; target: NominationStatus }) => {
-      const patch: Partial<Nomination> = { current_status: target };
-      if (target !== "briefing_sms" && target !== "apto") patch.briefing_sms_realizado = false;
-      const { error } = await supabase.from("nominations").update(patch).eq("id", nomination.id);
-      if (error) throw error;
-      await supabase.from("nomination_status_history").insert({
-        nomination_id:   nomination.id,
-        status:          target,
-        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-        notes:           null,
-      });
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations"] }),
-    onError: (err: Error) => notify.error(err.message || "Erro ao mover nomeação."),
-  });
+  const advance = useAdvanceStage();
 
   const byColumn = useMemo(() => {
     const m = new Map<NominationStatus, Nomination[]>();
@@ -756,29 +1334,40 @@ function KanbanBoard({
     const target = over.id as NominationStatus;
     if (!nomination || nomination.current_status === target) return;
 
-    const gate = canMoveToColumn(nomination, target);
+    if (role !== "logistics_operator" && STAGE_ROLE[nomination.current_status] !== role) {
+      notify.error("Você não tem permissão para mover este card.");
+      return;
+    }
+
+    const gate = canMoveToColumn(nomination, target, nomineesByNomination.get(nomination.id) ?? []);
     if (!gate.ok) {
       notify.error(gate.reason ?? "Não é possível mover este card.");
       return;
     }
-    move.mutate({ nomination, target });
+    advance.mutate({ nomination, target });
   };
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {KANBAN_COLUMNS.map((c) => (
-          <KanbanColumn
-            key={c.id}
-            columnId={c.id}
-            label={c.label}
-            bg={c.bg}
-            text={c.text}
-            nominations={byColumn.get(c.id) ?? []}
-            highlightedId={highlightedId}
-            onOpen={onOpen}
-          />
-        ))}
+      <div className="flex gap-3 pb-2">
+        {KANBAN_COLUMNS.map((c, i) =>
+          c.id === "equipe_formada" ? (
+            <EquipeFormadaColumn key={c.id} nominations={byColumn.get(c.id) ?? []} onOpen={onOpen} index={i} />
+          ) : (
+            <KanbanColumn
+              key={c.id}
+              columnId={c.id}
+              label={c.label}
+              bg={c.bg}
+              text={c.text}
+              nominations={byColumn.get(c.id) ?? []}
+              highlightedId={highlightedId}
+              onOpen={onOpen}
+              onJumpToAptidao={onJumpToAptidao}
+              index={i}
+            />
+          ),
+        )}
       </div>
     </DndContext>
   );
@@ -824,7 +1413,12 @@ function defaultSimEnd(start: string): string {
   return addDays(start, 6);
 }
 
-function SimulacaoTab() {
+function SimulacaoTab({
+  focusNomination, onExitFocus,
+}: {
+  focusNomination: Nomination | null;
+  onExitFocus: () => void;
+}) {
   const hoje = todayStr();
   const [periodoDe, setPeriodoDe] = useState(hoje);
   const [periodoAte, setPeriodoAte] = useState(() => defaultSimEnd(hoje));
@@ -833,6 +1427,40 @@ function SimulacaoTab() {
   const [searchNome, setSearchNome] = useState("");
   // Só pra visualização/simulação nessa tela — nunca grava em nenhuma tabela.
   const [funcaoOverride, setFuncaoOverride] = useState<Record<string, string>>({});
+
+  const qc = useQueryClient();
+  const { data: focusNominees = [] } = useNominees(focusNomination?.id);
+  const focusNomineeIds = useMemo(
+    () => new Set(focusNominees.filter((n) => n.is_active).map((n) => n.colaborador_id)),
+    [focusNominees],
+  );
+
+  // Entrando em "modo recrutamento": pré-filtra pela função e período da solicitação, pra
+  // já cair direto na lista certa de candidatos.
+  useEffect(() => {
+    if (!focusNomination) return;
+    setFilterFuncao(focusNomination.funcao);
+    if (focusNomination.period_start && focusNomination.period_end) {
+      setPeriodoDe(focusNomination.period_start);
+      setPeriodoAte(focusNomination.period_end);
+    }
+  }, [focusNomination?.id]);
+
+  const addNominee = useMutation({
+    mutationFn: async (c: { id: string; nome: string }) => {
+      if (!focusNomination) return;
+      const { error } = await supabase.from("nomination_nominees").insert({
+        nomination_id: focusNomination.id,
+        colaborador_id: c.id,
+        colaborador_nome: c.nome,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nominations", focusNomination?.id, "nominees"] });
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao adicionar candidato."),
+  });
 
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
     queryKey: ["sim-colaboradores"],
@@ -892,6 +1520,11 @@ function SimulacaoTab() {
     return m;
   }, [periodosTodos]);
 
+  // Nomeações é só pra quem embarca (offshore) — mesmo critério já usado pra filtrar o
+  // import "Na Base" (tipo="E" confirmado, não só "Programado"), não o "tem qualquer período"
+  // do Dashboard (que deixaria passar onshore com férias/atestado lançado).
+  const colaboradoresOffshore = useMemo(() => getColaboradoresComEmbarque(periodosTodos), [periodosTodos]);
+
   // Já vem ordenado por data_inicio desc (mais recente primeiro) pela query.
   const funcoesAnoPorColaborador = useMemo(() => {
     const m = new Map<string, string[]>();
@@ -916,6 +1549,7 @@ function SimulacaoTab() {
 
   const linhasBase = useMemo(() => {
     return colaboradores
+      .filter((c) => colaboradoresOffshore.has(c.id))
       .map((c) => {
         const periodos = periodosPorColaborador.get(c.id) ?? [];
         const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
@@ -932,7 +1566,7 @@ function SimulacaoTab() {
       .filter((l) => filterFuncao === "all" || l.funcao === filterFuncao)
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, funcaoOverride, filterFuncao, searchNome]);
+  }, [colaboradores, colaboradoresOffshore, periodosPorColaborador, funcoesAnoPorColaborador, dates, funcaoOverride, filterFuncao, searchNome]);
 
   // Grid principal ainda respeita o filtro de Status; os cartões por função abaixo, não —
   // eles precisam mostrar a disponibilidade de TODO mundo daquela função, senão filtrar por
@@ -975,6 +1609,19 @@ function SimulacaoTab() {
 
   return (
     <div className="space-y-4">
+      {focusNomination && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <span>
+            <UserPlus className="mr-1.5 inline h-3.5 w-3.5" />
+            Selecionando candidatos para: <span className="font-semibold">{focusNomination.funcao}</span>
+            {focusNomination.unidade && ` — ${focusNomination.unidade}`}
+            {focusNomination.bsp && ` ${focusNomination.bsp}`}
+          </span>
+          <Button size="sm" variant="outline" className="h-7 bg-white" onClick={onExitFocus}>
+            <X className="mr-1.5 h-3.5 w-3.5" /> Concluir seleção
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-0.5">
           <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
@@ -1076,6 +1723,23 @@ function SimulacaoTab() {
                   ) : (
                     <p className="text-[10px] text-muted-foreground">{l.funcao}</p>
                   )}
+                  {focusNomination && (
+                    focusNomineeIds.has(l.colaborador.id) ? (
+                      <span className="mt-1 flex items-center gap-1 text-[10px] font-medium text-green-700">
+                        <Check className="h-3 w-3" /> Adicionado
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-1 h-6 px-2 text-[10px]"
+                        loading={addNominee.isPending && addNominee.variables?.id === l.colaborador.id}
+                        onClick={() => addNominee.mutate({ id: l.colaborador.id, nome: l.colaborador.nome })}
+                      >
+                        <UserPlus className="mr-1 h-3 w-3" /> Adicionar
+                      </Button>
+                    )
+                  )}
                 </TableCell>
                 {l.statusPorDia.map((r, i) => {
                   const bg = getComputedColor(r);
@@ -1119,34 +1783,101 @@ function SimulacaoTab() {
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Aptidão ─────────────────────────────────────────────────────────────────────
+// Lista SEMPRE todas as solicitações na etapa "aptidao" (nunca filtra, senão a aba fica
+// "presa" mostrando só a última acessada pelo atalho, mesmo depois de navegar por ela
+// normalmente) — o botão de atalho no card do kanban só rola até e destaca a solicitação
+// específica por alguns segundos, mesmo padrão já usado pro scroll+highlight do kanban.
 
-function NominationsPage() {
-  const [selected, setSelected]       = useState<Nomination | null>(null);
-  const [showCreate, setShowCreate]   = useState(false);
-  const [filterStatus, setFilterStatus] = useState<string>("todos");
-  const [search, setSearch]           = useState("");
-  const [highlightedId, setHighlightedId] = useState<string | null>(null);
-
-  const { data: nominations = [], isLoading } = useQuery<Nomination[]>({
+// Mesma chave/queryFn reaproveitada em vários componentes (AptidaoTab, NominationsPage,
+// ManageDialog) — React Query dedup por chave, então isso não gera requisição extra; o ponto
+// principal é o ManageDialog conseguir ler a versão SEMPRE atualizada da nomeação aberta (ao
+// contrário de receber só um retrato estático via prop, que ficava desatualizado assim que
+// qualquer mutação dentro do próprio dialog avançava a etapa).
+function useAllNominations() {
+  return useQuery<Nomination[]>({
     queryKey: ["nominations"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("nominations")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("nominations").select("*").order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Nomination[];
     },
   });
+}
 
-  const { data: weldConfig = [] } = useQuery<WeldTypeConfig[]>({
-    queryKey: ["weld-type-config"],
-    queryFn: async () => {
-      const { data } = await supabase.from("weld_type_config").select("*").order("weld_type_name");
-      return (data ?? []) as WeldTypeConfig[];
-    },
+function AptidaoTab({ focusId }: { focusId: string | null }) {
+  const { data: nominations = [] } = useAllNominations();
+
+  const pendentes = useMemo(() => nominations.filter((n) => n.current_status === "aptidao"), [nominations]);
+
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const lastFocusId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusId || focusId === lastFocusId.current) return;
+    lastFocusId.current = focusId;
+    setHighlighted(focusId);
+    document.getElementById(`aptidao-card-${focusId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = window.setTimeout(() => setHighlighted((cur) => (cur === focusId ? null : cur)), 2500);
+    return () => window.clearTimeout(t);
+  }, [focusId]);
+
+  return (
+    <div className="space-y-4">
+      {pendentes.length === 0 ? (
+        <EmptyState icon={Stethoscope} title="Nenhuma solicitação aguardando aptidão" />
+      ) : (
+        pendentes.map((n) => <AptidaoCard key={n.id} nomination={n} highlighted={highlighted === n.id} />)
+      )}
+    </div>
+  );
+}
+
+function AptidaoCard({ nomination, highlighted }: { nomination: Nomination; highlighted: boolean }) {
+  const { data: nominees = [] } = useNominees(nomination.id);
+  return (
+    <Card id={`aptidao-card-${nomination.id}`} className={`p-4 transition-shadow ${highlighted ? "ring-2 ring-primary" : ""}`}>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm font-semibold">{nomination.funcao} — {nomination.unidade} {nomination.bsp}</p>
+        <StatusBadge status={nomination.current_status} />
+      </div>
+      <AptidaoSection nomination={nomination} nominees={nominees} />
+    </Card>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+function NominationsPage() {
+  const [selected, setSelected]       = useState<Nomination | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string>("todos");
+  const [search, setSearch]           = useState("");
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [aptidaoFocusId, setAptidaoFocusId] = useState<string | null>(null);
+  const [simulacaoFocus, setSimulacaoFocus] = useState<Nomination | null>(null);
+  const [tab, setTab] = useState("simulacao");
+
+  const goToSimulacao = (nomination: Nomination) => {
+    setSimulacaoFocus(nomination);
+    setTab("simulacao");
+  };
+
+  const { data: nominations = [], isLoading } = useAllNominations();
+
+  const { data: allNominees = [] } = useQuery<NominationNominee[]>({
+    queryKey: ["nomination-nominees-all"],
+    queryFn: () =>
+      selectAllPages<NominationNominee>((from, to) =>
+        supabase.from("nomination_nominees").select("*").range(from, to),
+      ),
   });
+  const nomineesByNomination = useMemo(() => {
+    const m = new Map<string, NominationNominee[]>();
+    allNominees.forEach((n) => {
+      if (!m.has(n.nomination_id)) m.set(n.nomination_id, []);
+      m.get(n.nomination_id)!.push(n);
+    });
+    return m;
+  }, [allNominees]);
 
   const filtered = useMemo(() => {
     let list = nominations;
@@ -1155,28 +1886,52 @@ function NominationsPage() {
       const q = search.toLowerCase();
       list = list.filter(
         (n) =>
-          matchesNameSearch(n.colaborador_nome, search) ||
           n.funcao.toLowerCase().includes(q) ||
           (n.pm_name ?? "").toLowerCase().includes(q) ||
           (n.project ?? "").toLowerCase().includes(q) ||
-          (n.client ?? "").toLowerCase().includes(q),
+          (n.client ?? "").toLowerCase().includes(q) ||
+          (n.bsp ?? "").toLowerCase().includes(q),
       );
     }
     return list;
   }, [nominations, filterStatus, search]);
 
-  const pendingCount = nominations.filter((n) => n.current_status !== "apto").length;
+  const pendingCount = nominations.filter((n) => n.current_status !== "equipe_formada").length;
 
-  const handleListClick = (nom: Nomination) => {
-    setHighlightedId(nom.id);
-    document
-      .getElementById(`kanban-card-${nom.id}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-    window.setTimeout(() => setHighlightedId((cur) => (cur === nom.id ? null : cur)), 2000);
-  };
+  // Esqueleto no formato final da página (cabeçalho + abas + colunas do kanban) — carrega
+  // junto com a página em vez de aparecer tudo de uma vez só quando os dados chegam.
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-1.5">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-20" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-8 w-36" />
+        </div>
+        <div className="flex gap-3 overflow-hidden">
+          {KANBAN_COLUMNS.map((c) => (
+            <div key={c.id} className="min-w-[220px] flex-1 space-y-2 rounded-lg border p-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Nomeações</h1>
@@ -1184,15 +1939,15 @@ function NominationsPage() {
             {pendingCount > 0 ? `${pendingCount} em andamento` : "Nenhuma nomeação em andamento"}
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="mr-2 h-4 w-4" /> Nova Nomeação
-        </Button>
       </div>
 
-      <Tabs defaultValue="simulacao">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="simulacao">Simulação</TabsTrigger>
           <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+          <TabsTrigger value="aptidao">
+            <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
+          </TabsTrigger>
           <TabsTrigger value="config">
             <Settings className="mr-1.5 h-3.5 w-3.5" /> Configurações
           </TabsTrigger>
@@ -1200,14 +1955,14 @@ function NominationsPage() {
 
         {/* ── Simulação de disponibilidade ── */}
         <TabsContent value="simulacao" className="pt-4">
-          <SimulacaoTab />
+          <SimulacaoTab focusNomination={simulacaoFocus} onExitFocus={() => setSimulacaoFocus(null)} />
         </TabsContent>
 
         {/* ── Lista + Kanban lado a lado ── */}
         <TabsContent value="nomeacoes" className="space-y-4 pt-4">
           <div className="flex flex-wrap gap-2">
             <Input
-              placeholder="Buscar colaborador, função, PM..."
+              placeholder="Buscar função, solicitante, BSP..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="max-w-xs h-8 text-sm"
@@ -1229,54 +1984,45 @@ function NominationsPage() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="flex gap-4 items-start">
-              {/* Lista */}
-              <div className="w-80 shrink-0 space-y-1.5 max-h-[75vh] overflow-y-auto pr-1">
-                {nominations.length === 0 ? (
-                  <p className="p-4 text-center text-xs text-muted-foreground">Nenhuma nomeação encontrada. Crie uma nova nomeação acima.</p>
-                ) : filtered.length === 0 ? (
-                  <p className="p-4 text-center text-xs text-muted-foreground">Nenhuma nomeação com esse filtro.</p>
-                ) : (
-                  filtered.map((nom) => (
-                    <Card
-                      key={nom.id}
-                      className={`p-3 cursor-pointer transition-shadow hover:shadow-md ${
-                        highlightedId === nom.id ? "ring-2 ring-primary" : ""
-                      }`}
-                      onClick={() => handleListClick(nom)}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{nom.colaborador_nome}</p>
-                          <p className="truncate text-xs text-muted-foreground">{nom.funcao}</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      </div>
-                      <div className="mt-1.5">
-                        <StatusBadge status={nom.current_status} />
-                      </div>
-                    </Card>
-                  ))
-                )}
-              </div>
-
-              {/* Kanban — colunas sempre visíveis, mesmo sem nenhum card */}
-              <div className="min-w-0 flex-1 overflow-x-auto">
-                <KanbanBoard
-                  nominations={filtered}
-                  highlightedId={highlightedId}
-                  onOpen={setSelected}
-                />
-              </div>
+            /* Kanban em tela cheia, como uma timeline horizontal — colunas sempre visíveis,
+               mesmo sem nenhum card (a lista lateral foi removida, era redundante). */
+            <div className="min-w-0 overflow-x-auto">
+              <KanbanBoard
+                nominations={filtered}
+                nomineesByNomination={nomineesByNomination}
+                highlightedId={highlightedId}
+                onOpen={setSelected}
+                onJumpToAptidao={(id) => { setAptidaoFocusId(id); setTab("aptidao"); }}
+              />
             </div>
           )}
         </TabsContent>
 
+        {/* ── Aptidão ── */}
+        <TabsContent value="aptidao" className="pt-4">
+          <Tabs defaultValue="pendentes">
+            <TabsList>
+              <TabsTrigger value="pendentes">Pendentes de Nomeação</TabsTrigger>
+              <TabsTrigger value="matriz">Matriz de Qualificação</TabsTrigger>
+            </TabsList>
+            <TabsContent value="pendentes" className="pt-4">
+              <AptidaoTab focusId={aptidaoFocusId} />
+            </TabsContent>
+            <TabsContent value="matriz" className="pt-4">
+              <QualificationEligibilityTab />
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+
         {/* ── Configurações ── */}
-        <TabsContent value="config" className="pt-4">
+        <TabsContent value="config" className="space-y-4 pt-4">
           <Card className="p-5">
             <h2 className="mb-4 text-sm font-semibold">Tipos de Solda</h2>
             <WeldConfigPanel />
+          </Card>
+          <Card className="p-5">
+            <h2 className="mb-4 text-sm font-semibold">Materiais de Solda</h2>
+            <WeldMaterialConfigPanel />
           </Card>
         </TabsContent>
       </Tabs>
@@ -1285,13 +2031,7 @@ function NominationsPage() {
         <ManageDialog
           nomination={selected}
           onClose={() => setSelected(null)}
-        />
-      )}
-
-      {showCreate && (
-        <CreateDialog
-          weldConfig={weldConfig}
-          onClose={() => setShowCreate(false)}
+          onGoToSimulacao={goToSimulacao}
         />
       )}
     </div>

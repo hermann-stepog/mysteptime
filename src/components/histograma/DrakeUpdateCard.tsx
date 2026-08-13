@@ -20,7 +20,7 @@ import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
 import { parseExcelDate } from "@/lib/histograma/import-drake";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
-  computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr, ORIGEM_PROGRAMADO,
+  computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr, getColaboradoresComEmbarque,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { cn } from "@/lib/utils";
@@ -319,10 +319,7 @@ export function DrakeUpdateCard() {
       // histórico de embarque (tipo="E" confirmado, não só "Programado") — do contrário essas
       // pessoas nunca aparecem em Folga/Standby (não têm ciclo de embarque) e o cruzamento por
       // status simplesmente não se aplica a elas.
-      const colaboradoresQueEmbarcam = new Set<string>();
-      periodos.forEach((p) => {
-        if (p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO) colaboradoresQueEmbarcam.add(p.colaborador_id);
-      });
+      const colaboradoresQueEmbarcam = getColaboradoresComEmbarque(periodos);
 
       const inseridos: string[] = [];
       const ignorados: { nome: string; motivo: string }[] = [];

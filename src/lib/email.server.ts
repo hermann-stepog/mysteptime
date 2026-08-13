@@ -5,7 +5,9 @@ import nodemailer from "nodemailer";
 // SMTP credentials out of the client bundle. Credentials come from plain
 // process.env (no VITE_ prefix — never expose SMTP secrets to the browser),
 // loaded from .env by scripts/dev.mjs in local dev.
-export async function sendEmail({ to, subject, text }: { to: string; subject: string; text: string }) {
+export async function sendEmail(
+  { to, cc, subject, text }: { to: string; cc?: string; subject: string; text: string },
+) {
   const host = process.env.SMTP_HOST;
   const port = process.env.SMTP_PORT;
   const user = process.env.SMTP_USER;
@@ -23,5 +25,5 @@ export async function sendEmail({ to, subject, text }: { to: string; subject: st
     auth: { user, pass },
   });
 
-  await transporter.sendMail({ from, to, subject, text });
+  await transporter.sendMail({ from, to, cc: cc || undefined, subject, text });
 }

@@ -75,7 +75,7 @@ function PmBmsPage() {
       if (e1) throw e1;
       const { error: e2 } = await supabase.from("bm_status_history").insert({
         bm_id: selected.id, status: nextStatus,
-        changed_by_name: profile?.full_name ?? profile?.email ?? "PM",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante",
         notes: comment.trim() || null,
       });
       if (e2) throw e2;
