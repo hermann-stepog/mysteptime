@@ -11,9 +11,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { notify } from "@/lib/notify";
-import { Plus, Trash2, Pencil } from "lucide-react";
+import { Plus, Trash2, Pencil, KeyRound, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { pageTitle } from "@/lib/pageTitle";
+import { adminCreateUser, adminResetPassword } from "@/lib/api/adminUserManagement.functions";
+
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "pending", label: "Pendente" },
+  { value: "collaborator", label: "Colaborador" },
+  { value: "logistics_operator", label: "Operador Logístico" },
+  { value: "pm", label: "Solicitante" },
+  { value: "visitante", label: "Visitante" },
+  { value: "aprovacao_tecnica", label: "Nomeações — Aprovação Técnica" },
+  { value: "qualidade", label: "Nomeações — Qualidade" },
+  { value: "rh", label: "Nomeações — RH" },
+  { value: "sms", label: "Nomeações — SMS" },
+];
 
 export const Route = createFileRoute("/admin/settings")({ head: () => pageTitle("Configurações"), component: SettingsPage });
 
@@ -235,8 +248,89 @@ function Projects() {
   );
 }
 
+function CreateUserDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [role, setRole] = useState("pending");
+
+  const create = useMutation({
+    mutationFn: async () => {
+      if (!email.trim()) throw new Error("Informe o e-mail.");
+      if (!fullName.trim()) throw new Error("Informe o nome.");
+      if (password.length < 8) throw new Error("A senha precisa ter pelo menos 8 caracteres.");
+      await adminCreateUser({ data: { email: email.trim(), password, fullName: fullName.trim(), role: role as any } });
+    },
+    onSuccess: () => {
+      notify.success("Usuário criado.");
+      qc.invalidateQueries({ queryKey: ["users-with-roles"] });
+      onClose();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao criar usuário."),
+  });
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Criar usuário</DialogTitle></DialogHeader>
+        <div className="grid gap-3">
+          <div><Label>Nome</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
+          <div><Label>E-mail</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <div><Label>Senha inicial</Label><Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 8 caracteres" /></div>
+          <div>
+            <Label>Papel</Label>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => create.mutate()} loading={create.isPending}>Criar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResetPasswordDialog({ userId, userLabel, onClose }: { userId: string; userLabel: string; onClose: () => void }) {
+  const [password, setPassword] = useState("");
+  const reset = useMutation({
+    mutationFn: async () => {
+      if (password.length < 8) throw new Error("A senha precisa ter pelo menos 8 caracteres.");
+      await adminResetPassword({ data: { userId, newPassword: password } });
+    },
+    onSuccess: () => {
+      notify.success("Senha redefinida.");
+      onClose();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao redefinir senha."),
+  });
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Redefinir senha — {userLabel}</DialogTitle></DialogHeader>
+        <div className="grid gap-3">
+          <div><Label>Nova senha</Label><Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 8 caracteres" /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => reset.mutate()} loading={reset.isPending}>Redefinir</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Users() {
   const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [resetTarget, setResetTarget] = useState<{ id: string; label: string } | null>(null);
   const { data } = useQuery({
     queryKey: ["users-with-roles"],
     queryFn: async () => {
@@ -255,9 +349,12 @@ function Users() {
   };
   return (
     <Card className="p-5">
-      <h3 className="font-semibold">Usuários &amp; papéis</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">Usuários &amp; papéis</h3>
+        <Button size="sm" onClick={() => setShowCreate(true)}><UserPlus className="mr-2 h-4 w-4" />Criar usuário</Button>
+      </div>
       <Table className="mt-4">
-        <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
         <TableBody>
           {(data ?? []).map((u: any) => (
             <TableRow key={u.id}>
@@ -266,17 +363,26 @@ function Users() {
                 <Select value={u.role} onValueChange={(v) => setRole(u.id, v, u.roleId)}>
                   <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pending">Pendente</SelectItem>
-                    <SelectItem value="collaborator">Colaborador</SelectItem>
-                    <SelectItem value="logistics_operator">Operador Logístico</SelectItem>
-                    <SelectItem value="visitante">Visitante</SelectItem>
+                    {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </TableCell>
+              <TableCell className="text-right">
+                <Button
+                  variant="ghost" size="sm"
+                  onClick={() => setResetTarget({ id: u.id, label: u.full_name ?? u.email })}
+                >
+                  <KeyRound className="mr-1.5 h-3.5 w-3.5" />Redefinir senha
+                </Button>
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+      {showCreate && <CreateUserDialog onClose={() => setShowCreate(false)} />}
+      {resetTarget && (
+        <ResetPasswordDialog userId={resetTarget.id} userLabel={resetTarget.label} onClose={() => setResetTarget(null)} />
+      )}
     </Card>
   );
 }
