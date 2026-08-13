@@ -29,9 +29,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, CalendarDays, ChevronRight, Loader2, Check, X } from "lucide-react";
+import { Plus, CalendarDays, ChevronRight, Check, X } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { EmptyState } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 
 export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Solicitações"), component: PmHome });
@@ -193,12 +194,17 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
             && ALL_STATUSES.indexOf(nom.current_status) > ALL_STATUSES.indexOf("aprovacao_tecnica") && (
             <div
               className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                nom.quality_validated
+                nom.quality_status === "aprovado"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                  : "border-amber-200 bg-amber-50 text-amber-900"
+                  : nom.quality_status === "reprovado"
+                    ? "border-red-200 bg-red-50 text-red-900"
+                    : "border-amber-200 bg-amber-50 text-amber-900"
               }`}
             >
-              Qualidade: {nom.quality_validated ? "Aprovada" : "Pendente"}
+              Qualidade: {nom.quality_status === "aprovado" ? "Aprovada" : nom.quality_status === "reprovado" ? "Reprovada" : "Pendente"}
+              {nom.quality_status === "reprovado" && nom.quality_rejection_reason && (
+                <span className="text-xs font-normal opacity-80"> — {nom.quality_rejection_reason}</span>
+              )}
             </div>
           )}
 
@@ -475,8 +481,31 @@ function PmHome() {
     ? nominations
     : nominations.filter((n) => n.current_status === filterStatus);
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-52" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <Skeleton className="h-9 w-44" />
+        </div>
+        <Skeleton className="h-8 w-48" />
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="p-4 space-y-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-56" />
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Minhas Solicitações</h1>
@@ -502,11 +531,7 @@ function PmHome() {
         </select>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : visible.length === 0 ? (
+      {visible.length === 0 ? (
         <Card className="p-4">
           {nominations.length === 0 ? (
             <EmptyState icon={CalendarDays} title="Você ainda não tem solicitações" action={{ label: "Nova solicitação", onClick: () => setShowCreate(true) }} />

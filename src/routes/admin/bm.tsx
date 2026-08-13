@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -24,7 +25,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
 import { EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import {
   type Bm, type BmStatus, type BmLineMo, type BmLineLogistica, type BmLineMateriais, type BmDiaOverride, type MaterialCategoria,
@@ -33,7 +34,7 @@ import {
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
-import { MedicaoTab } from "@/components/bm/MedicaoTab";
+import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
 import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@/lib/bmExcel";
@@ -128,56 +129,147 @@ interface DiaOverrideEdit {
 
 function BmPage() {
   const [reopenBm, setReopenBm] = useState<Bm | null>(null);
+  // Controlados (em vez de defaultValue) só pra "Reabrir" no Histórico conseguir pular direto
+  // pra sub-aba "Gerar BM" dentro de Mão de Obra Offshore — ver handleReopen abaixo.
+  const [activeTab, setActiveTab] = useState("timesheets");
+  const [moSubTab, setMoSubTab] = useState("timesheets-lancamentos");
+  const handleReopen = (bm: Bm) => {
+    setReopenBm(bm);
+    setActiveTab("timesheets");
+    setMoSubTab("timesheets-gerar");
+  };
+  // Mesma queryKey usada pelo Histórico de BMs e pela cascata por unidade — carrega junto
+  // com a página (compartilha o cache, não dispara uma segunda consulta quando o usuário
+  // abre a aba Histórico) e serve de sinal de "o módulo carregou" pro skeleton abaixo.
+  const { isLoading: carregandoModulo } = useQuery({
+    queryKey: ["bm-historico"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("bms").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Bm[];
+    },
+  });
+
+  if (carregandoModulo) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-7 w-56" />
+        <div className="flex flex-wrap gap-1.5">
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-8 w-32" />)}
+        </div>
+        <Card className="p-4 space-y-3">
+          <Skeleton className="h-4 w-1/3" />
+          <div className="grid grid-cols-3 gap-3">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <Skeleton className="h-40 w-full" />
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Boletim de Medição</h1>
-        <p className="text-sm text-muted-foreground">Geração automática de BM a partir do Timesheet Offshore e Logística.</p>
       </div>
-      <Tabs defaultValue="gerar">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="gerar">Gerar Novo BM</TabsTrigger>
-          <TabsTrigger value="timesheets">Timesheets</TabsTrigger>
-          <TabsTrigger value="mob-desmob">Logística Mob/Desmob</TabsTrigger>
-          <TabsTrigger value="habitat">Medição de Habitat</TabsTrigger>
-          <TabsTrigger value="locacao">Medição de Locação</TabsTrigger>
-          <TabsTrigger value="consumiveis">Medição de Consumíveis</TabsTrigger>
-          <TabsTrigger value="mob-materiais">Medição de Mob/Desmob de Materiais</TabsTrigger>
+          <TabsTrigger value="timesheets">Mão de Obra Offshore</TabsTrigger>
+          <TabsTrigger value="habitat">Habitat</TabsTrigger>
+          <TabsTrigger value="locacao">Locação</TabsTrigger>
+          <TabsTrigger value="consumiveis">Consumíveis</TabsTrigger>
+          <TabsTrigger value="mob-materiais">Mob/Desmob de Materiais</TabsTrigger>
           <TabsTrigger value="historico">Histórico de BMs</TabsTrigger>
         </TabsList>
-        <TabsContent value="gerar" className="mt-4">
-          <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
-        </TabsContent>
         <TabsContent value="timesheets" className="mt-4">
-          <TimesheetsTab />
-        </TabsContent>
-        <TabsContent value="mob-desmob" className="mt-4">
-          <MobDesmobTab />
+          <Tabs value={moSubTab} onValueChange={setMoSubTab}>
+            <TabsList>
+              <TabsTrigger value="timesheets-lancamentos">Timesheets</TabsTrigger>
+              <TabsTrigger value="timesheets-mob-desmob">Logística Mob/Desmob</TabsTrigger>
+              <TabsTrigger value="timesheets-gerar">Gerar BM</TabsTrigger>
+            </TabsList>
+            <TabsContent value="timesheets-lancamentos" className="mt-4">
+              <TimesheetsTab />
+            </TabsContent>
+            <TabsContent value="timesheets-mob-desmob" className="mt-4">
+              <MobDesmobTab />
+            </TabsContent>
+            <TabsContent value="timesheets-gerar" className="mt-4">
+              <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
         <TabsContent value="habitat" className="mt-4">
-          <MedicaoTab tipo="habitat" titulo="Lançar medição de Habitat" smartsheetColumn="Medição Habitat"
-            bmColumn="total_habitat"
-            descricaoLabel="Habitat / Módulo" descricaoPlaceholder="Ex: Habitat 4 pax - Convés principal" />
+          <Tabs defaultValue="habitat-lancamentos">
+            <TabsList>
+              <TabsTrigger value="habitat-lancamentos">Lançamentos</TabsTrigger>
+              <TabsTrigger value="habitat-gerar">Gerar BM</TabsTrigger>
+            </TabsList>
+            <TabsContent value="habitat-lancamentos" className="mt-4">
+              <MedicaoTab tipo="habitat" titulo="Lançar medição de Habitat" smartsheetColumn="Medição Habitat"
+                bmColumn="total_habitat"
+                descricaoLabel="Habitat / Módulo" descricaoPlaceholder="Ex: Habitat 4 pax - Convés principal" />
+            </TabsContent>
+            <TabsContent value="habitat-gerar" className="mt-4">
+              <MaterialBmWizard tipo="habitat" />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
         <TabsContent value="locacao" className="mt-4">
-          <MedicaoTab tipo="locacao" titulo="Lançar medição de Locação" smartsheetColumn="Medição Locação"
-            bmColumn="total_locacao"
-            descricaoLabel="Equipamento locado" descricaoPlaceholder="Ex: Compressor 185 PCM" />
+          <Tabs defaultValue="locacao-lancamentos">
+            <TabsList>
+              <TabsTrigger value="locacao-lancamentos">Lançamentos</TabsTrigger>
+              <TabsTrigger value="locacao-gerar">Gerar BM</TabsTrigger>
+            </TabsList>
+            <TabsContent value="locacao-lancamentos" className="mt-4">
+              <MedicaoTab tipo="locacao" titulo="Lançar medição de Locação" smartsheetColumn="Medição Locação"
+                bmColumn="total_locacao"
+                descricaoLabel="Equipamento locado" descricaoPlaceholder="Ex: Compressor 185 PCM" />
+            </TabsContent>
+            <TabsContent value="locacao-gerar" className="mt-4">
+              <MaterialBmWizard tipo="locacao" />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
         <TabsContent value="consumiveis" className="mt-4">
-          <MedicaoTab tipo="consumiveis" titulo="Lançar medição de Consumíveis" smartsheetColumn="Medição Consumíveis"
-            bmColumn="total_consumiveis"
-            descricaoLabel="Consumível" descricaoPlaceholder="Ex: Eletrodo E7018 3,25mm" />
+          <Tabs defaultValue="consumiveis-lancamentos">
+            <TabsList>
+              <TabsTrigger value="consumiveis-lancamentos">Lançamentos</TabsTrigger>
+              <TabsTrigger value="consumiveis-gerar">Gerar BM</TabsTrigger>
+            </TabsList>
+            <TabsContent value="consumiveis-lancamentos" className="mt-4">
+              <MedicaoTab tipo="consumiveis" titulo="Lançar medição de Consumíveis" smartsheetColumn="Medição Consumíveis"
+                bmColumn="total_consumiveis"
+                descricaoLabel="Consumível" descricaoPlaceholder="Ex: Eletrodo E7018 3,25mm" />
+            </TabsContent>
+            <TabsContent value="consumiveis-gerar" className="mt-4">
+              <MaterialBmWizard tipo="consumiveis" />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
         <TabsContent value="mob-materiais" className="mt-4">
-          <MedicaoTab tipo="mob_desmob_materiais" titulo="Lançar medição de Mob/Desmob de Materiais"
-            smartsheetColumn="Medição Mob/Desmob Materiais"
-            bmColumn="total_mob_desmob_materiais"
-            descricaoLabel="Material" descricaoPlaceholder="Ex: Container 20' - Macaé → Base" />
+          <Tabs defaultValue="mob-materiais-lancamentos">
+            <TabsList>
+              <TabsTrigger value="mob-materiais-lancamentos">Lançamentos</TabsTrigger>
+              <TabsTrigger value="mob-materiais-gerar">Gerar BM</TabsTrigger>
+            </TabsList>
+            <TabsContent value="mob-materiais-lancamentos" className="mt-4">
+              <MedicaoTab tipo="mob_desmob_materiais" titulo="Lançar medição de Mob/Desmob de Materiais"
+                smartsheetColumn="Medição Mob/Desmob Materiais"
+                bmColumn="total_mob_desmob_materiais"
+                descricaoLabel="Material" descricaoPlaceholder="Ex: Container 20' - Macaé → Base" />
+            </TabsContent>
+            <TabsContent value="mob-materiais-gerar" className="mt-4">
+              <MaterialBmWizard tipo="mob_desmob_materiais" />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="historico" className="mt-4">
-          <HistoricoBmsTab onReopen={setReopenBm} />
+          <HistoricoBmsTab onReopen={handleReopen} />
         </TabsContent>
       </Tabs>
 
@@ -206,24 +298,37 @@ const CABECALHO_VAZIO: Cabecalho = {
 
 type MedicaoKey = "habitat" | "locacao" | "consumiveis" | "mob_desmob_materiais";
 
-const MEDICOES_ZERO: Record<MedicaoKey, number> = {
-  habitat: 0, locacao: 0, consumiveis: 0, mob_desmob_materiais: 0,
+// "mao_de_obra" segue o assistente de 5 passos de sempre; os outros 4 tipos são medidos
+// separadamente — cada um vira o próprio BM, puxando os lançamentos já pendentes na aba
+// correspondente (ver MaterialBmWizard) em vez de reaproveitar o cálculo de Mão de Obra.
+type TipoBm = "mao_de_obra" | MedicaoKey;
+
+const TIPO_BM_LABEL: Record<TipoBm, string> = {
+  mao_de_obra: "Mão de Obra Offshore",
+  habitat: "Habitat",
+  locacao: "Locação",
+  consumiveis: "Consumíveis",
+  mob_desmob_materiais: "Mob/Desmob de Materiais",
 };
 
-const MEDICOES_LABEL: Record<MedicaoKey, string> = {
-  habitat: "Medição de Habitat",
-  locacao: "Medição de Locação",
-  consumiveis: "Medição de Consumíveis",
-  mob_desmob_materiais: "Medição de Mob/Desmob de Materiais",
-};
+// bm.client_name de um BM gerado pelo MaterialBmWizard é sempre um desses 4 rótulos (nunca um
+// cliente real) — dá pra usar como discriminador seguro pra saber, num BM já salvo, se a folha
+// de rosto é de Mão de Obra (BmTimesheetCoverView) ou de material (MaterialBmCoverView).
+const MATERIAL_BM_CLIENT_NAMES = new Set(
+  (Object.keys(TIPO_BM_LABEL) as TipoBm[]).filter((t) => t !== "mao_de_obra").map((t) => TIPO_BM_LABEL[t]),
+);
+function isMaterialBm(bm: Bm): boolean {
+  return MATERIAL_BM_CLIENT_NAMES.has(bm.client_name);
+}
 
-const MEDICOES_COLUNA: Record<MedicaoKey, string> = {
-  habitat: "total_habitat",
-  locacao: "total_locacao",
-  consumiveis: "total_consumiveis",
-  mob_desmob_materiais: "total_mob_desmob_materiais",
+// Categoria gravada em bm_lines_materiais pra cada tipo — "locacao"/"consumiveis" mantêm os
+// nomes legados da coluna (rental/consumable) já usados pelo restante do módulo.
+const CATEGORIA_POR_TIPO: Record<MedicaoKey, MaterialCategoria> = {
+  habitat: "habitat",
+  locacao: "rental",
+  consumiveis: "consumable",
+  mob_desmob_materiais: "mob_desmob_materiais",
 };
-
 
 function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
   const qc = useQueryClient();
@@ -815,29 +920,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     [linesMo, linesLogistica, linesMateriais, markupEnabled, markupPct, posProcessamento, teamMobDesmob],
   );
 
-  // ── Medições aplicadas a este BM (Habitat, Locação, Consumíveis, Mob/Desmob) ───────────
-  // Cada aba de medição consolida seus lançamentos e aplica o total ao BM; aqui o cabeçalho
-  // apenas lê os totais já aplicados ao número de BM selecionado.
+  // Habitat/Locação/Consumíveis/Mob-Desmob de Materiais viraram BMs próprios (ver
+  // MaterialBmWizard) — não entram mais no cabeçalho/total do BM de Mão de Obra.
   const numeroBmAtual = cab.numeroBm.trim();
-  const { data: medicoes = MEDICOES_ZERO } = useQuery<Record<MedicaoKey, number>>({
-    queryKey: ["bm-medicoes-aplicadas", numeroBmAtual],
-    enabled: !!numeroBmAtual,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bm_medicoes").select("tipo, valor_total")
-        .eq("applied", true).eq("applied_bm_number", numeroBmAtual);
-      if (error) throw error;
-      const acc: Record<MedicaoKey, number> = { ...MEDICOES_ZERO };
-      for (const r of (data ?? []) as { tipo: MedicaoKey; valor_total: number }[]) {
-        if (r.tipo in acc) acc[r.tipo] = round2(acc[r.tipo] + (Number(r.valor_total) || 0));
-      }
-      return acc;
-    },
-  });
-  const totalMedicoes = useMemo(
-    () => round2(Object.values(medicoes).reduce((a, v) => a + v, 0)),
-    [medicoes],
-  );
 
   // ── Logística Mob/Desmob (transporte e hotel) aplicada ao BSP selecionado ───────────────
   // Os custos importados na aba "Logística Mob/Desmob" são aplicados por BSP; ao selecionar
@@ -861,9 +946,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   });
   const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros + logisticaManual);
 
-  const totalGeralComMedicoes = round2(totals.grandTotal + totalMedicoes + totalMobDesmob);
+  const totalGeral = round2(totals.grandTotal + totalMobDesmob);
 
-  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totalGeralComMedicoes) : null;
+  const poBalanceDepois = cab.poBalanceBefore != null ? round2(cab.poBalanceBefore - totalGeral) : null;
 
 
 
@@ -895,16 +980,19 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         total_mo: totals.totalMo,
         total_logistica: totals.totalLogisticaComMarkup,
         total_materiais: totals.totalMateriais,
-        total_habitat: medicoes.habitat,
-        total_locacao: medicoes.locacao,
-        total_consumiveis: medicoes.consumiveis,
-        total_mob_desmob_materiais: medicoes.mob_desmob_materiais,
+        // Habitat/Locação/Consumíveis/Mob-Desmob de Materiais agora são BMs próprios (ver
+        // MaterialBmWizard) — zerados aqui pra não deixar valor de uma medição antiga
+        // "grudado" num BM de Mão de Obra reaberto.
+        total_habitat: 0,
+        total_locacao: 0,
+        total_consumiveis: 0,
+        total_mob_desmob_materiais: 0,
         pos_processamento: posProcessamento,
         team_mob_desmob: teamMobDesmob,
         logistica_manual: logisticaManual,
         valor_bm_manual: valorBmManual,
         internal_notes: internalNotes.trim() || null,
-        total_geral: totalGeralComMedicoes,
+        total_geral: totalGeral,
 
         current_status: targetStatus,
       };
@@ -1252,7 +1340,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                       onClick={(event) => {
                         setSelectedBmNumbers([]);
                         setBmNovoManual(true);
-                        setValorBmManual(totalGeralComMedicoes);
+                        setValorBmManual(totalGeral);
 
                         setCab((current) => ({
                           ...current,
@@ -1388,27 +1476,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
           <div className="rounded-md border p-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold">Medições aplicadas ao cabeçalho</span>
-              <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMedicoes)}</strong></span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).map((k) => (
-                <div key={k}>
-                  <Label className="text-xs">{MEDICOES_LABEL[k]}</Label>
-                  <Input readOnly className="bg-muted/40" value={fmtMoney(medicoes[k])} />
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              {numeroBmAtual
-                ? `Totais consolidados nas abas de medição e aplicados ao BM ${numeroBmAtual}.`
-                : "Informe o Número do BM para carregar as medições já aplicadas a ele."}
-
-            </p>
-          </div>
-
-          <div className="rounded-md border p-3">
-            <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold">Logística Mob/Desmob aplicada ao BSP</span>
               <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
             </div>
@@ -1527,11 +1594,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             <div className="space-y-1">
               <div className="flex justify-between"><span>Mão de Obra</span><span className="font-medium">{fmtMoney(totals.totalMo)}</span></div>
               <div className="flex justify-between"><span>Logística{markupEnabled ? ` (+${markupPct}%)` : ""}</span><span className="font-medium">{fmtMoney(totals.totalLogisticaComMarkup)}</span></div>
-              {(Object.keys(MEDICOES_LABEL) as MedicaoKey[]).filter((k) => medicoes[k] > 0).map((k) => (
-                <div key={k} className="flex justify-between">
-                  <span>{MEDICOES_LABEL[k]}</span><span className="font-medium">{fmtMoney(medicoes[k])}</span>
-                </div>
-              ))}
               {mobDesmob.transporte > 0 && (
                 <div className="flex justify-between"><span>Transporte (Mob/Desmob)</span><span className="font-medium">{fmtMoney(mobDesmob.transporte)}</span></div>
               )}
@@ -1548,7 +1610,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 <div className="flex justify-between"><span>Team Mob/Desmob</span><span className="font-medium">{fmtMoney(teamMobDesmob)}</span></div>
               )}
 
-              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totalGeralComMedicoes)}</span></div>
+              <div className="flex justify-between border-t pt-1 text-base font-semibold"><span>Total geral</span><span>{fmtMoney(totalGeral)}</span></div>
 
             </div>
             <div className="space-y-2">
@@ -1641,6 +1703,303 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ─── Gerar Novo BM: Habitat/Locação/Consumíveis/Mob-Desmob de Materiais ─────
+// Medidos separadamente da Mão de Obra: cabeçalho simples (BSP + Período + Número do BM) e
+// puxa os lançamentos já pendentes na aba correspondente (bm_medicoes) em vez de recalcular
+// horas/rates — cada geração vira seu próprio BM, com folha de rosto própria no Histórico.
+// Folha de rosto de um BM de Habitat/Locação/Consumíveis/Mob-Desmob de Materiais — mais
+// simples que BmTimesheetCoverView (sem tabela de horas/diárias, que não existe pra esse
+// tipo de BM), listando as linhas de bm_lines_materiais e o total geral.
+function MaterialBmCoverView({ bm, linhas }: { bm: Bm; linhas: BmLineMateriais[] }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between border-b pb-3">
+        <div>
+          <p className="text-lg font-semibold">{bm.client_name}</p>
+          <p className="text-sm text-muted-foreground">
+            {bm.vessel} · {fmt(bm.period_start)} - {fmt(bm.period_end)} · BM {bm.numero_bm ?? "—"}
+          </p>
+        </div>
+        <StatusBadge tone={STATUS_TONE[bm.current_status]}>{STATUS_LABELS[bm.current_status]}</StatusBadge>
+      </div>
+      {bm.current_status === "rejected" && bm.rejection_reason && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+          Motivo da rejeição: {bm.rejection_reason}
+        </p>
+      )}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Descrição</TableHead>
+            <TableHead>TAG</TableHead>
+            <TableHead>BSP</TableHead>
+            <TableHead>Período</TableHead>
+            <TableHead className="text-right">Qtd</TableHead>
+            <TableHead className="text-right">Valor unit.</TableHead>
+            <TableHead className="text-right">Total</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {linhas.length === 0 && <EmptyStateRow colSpan={7} icon={Coins} title="Nenhum item registrado" />}
+          {linhas.map((l) => (
+            <TableRow key={l.id}>
+              <TableCell>{l.descricao}</TableCell>
+              <TableCell>{l.tag ?? "—"}</TableCell>
+              <TableCell>{l.bsp ?? "—"}</TableCell>
+              <TableCell>{l.period_start ? `${fmt(l.period_start)} - ${fmt(l.period_end || l.period_start)}` : "—"}</TableCell>
+              <TableCell className="text-right">{l.qtd}</TableCell>
+              <TableCell className="text-right">{fmtMoney(l.valor_diario ?? 0)}</TableCell>
+              <TableCell className="text-right font-medium">{fmtMoney(l.valor_total)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <div className="flex justify-end border-t pt-3">
+        <div className="text-right">
+          <p className="text-xs text-muted-foreground">Total geral</p>
+          <p className="text-lg font-semibold">{fmtMoney(bm.total_geral)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaterialBmWizard({ tipo }: { tipo: MedicaoKey }) {
+  const qc = useQueryClient();
+  const [bsp, setBsp] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [numeroBm, setNumeroBm] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [savedBm, setSavedBm] = useState<Bm | null>(null);
+
+  const { data: registros = [], isFetching } = useQuery<MedicaoRow[]>({
+    queryKey: ["bm-medicoes", tipo],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bm_medicoes").select("*").eq("tipo", tipo).order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as MedicaoRow[];
+    },
+  });
+
+  const pendentes = useMemo(() => registros.filter((r) => !r.applied), [registros]);
+  const bspOptions = useMemo(
+    () => Array.from(new Set(pendentes.map((r) => r.bsp).filter((b): b is string => !!b))).sort(),
+    [pendentes],
+  );
+  const pendentesFiltrados = useMemo(
+    () => (bsp ? pendentes.filter((r) => r.bsp === bsp) : pendentes),
+    [pendentes, bsp],
+  );
+
+  // Ao trocar de BSP, a seleção acompanha a lista filtrada (marca tudo que ficou visível).
+  useEffect(() => {
+    setSelectedIds(new Set(pendentesFiltrados.map((r) => r.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bsp]);
+
+  const toggleSelecionado = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  const selecionados = useMemo(() => pendentesFiltrados.filter((r) => selectedIds.has(r.id)), [pendentesFiltrados, selectedIds]);
+  const totalSelecionado = useMemo(() => round2(selecionados.reduce((acc, r) => acc + (r.valor_total || 0), 0)), [selecionados]);
+
+  const headerCompleto = !!bsp && !!periodStart && !!periodEnd && !!numeroBm.trim();
+
+  const resetLocal = () => {
+    setBsp(""); setPeriodStart(""); setPeriodEnd(""); setNumeroBm("");
+    setSelectedIds(new Set()); setSavedBm(null);
+  };
+
+  const gerar = useMutation({
+    mutationFn: async (targetStatus: "draft" | "pending_pm") => {
+      if (!headerCompleto) throw new Error("Preencha BSP, período e número do BM.");
+      if (selecionados.length === 0) throw new Error("Selecione ao menos um lançamento pendente.");
+
+      const payload = {
+        numero_bm: numeroBm.trim(),
+        client_id: null,
+        client_name: TIPO_BM_LABEL[tipo],
+        project_id: null,
+        project_name: bsp,
+        vessel: bsp,
+        period_start: periodStart,
+        period_end: periodEnd,
+        po_number: null,
+        po_value: null,
+        po_balance_before: null,
+        markup_enabled: false,
+        markup_pct: 0,
+        total_mo: 0,
+        total_logistica: 0,
+        total_materiais: totalSelecionado,
+        total_habitat: tipo === "habitat" ? totalSelecionado : 0,
+        total_locacao: tipo === "locacao" ? totalSelecionado : 0,
+        total_consumiveis: tipo === "consumiveis" ? totalSelecionado : 0,
+        total_mob_desmob_materiais: tipo === "mob_desmob_materiais" ? totalSelecionado : 0,
+        pos_processamento: 0,
+        team_mob_desmob: 0,
+        logistica_manual: 0,
+        valor_bm_manual: null,
+        internal_notes: null,
+        total_geral: totalSelecionado,
+        current_status: targetStatus,
+      };
+
+      const { data: bmRow, error } = await supabase.from("bms").insert(payload).select("*").single();
+      if (error) throw error;
+
+      const categoria = CATEGORIA_POR_TIPO[tipo];
+      const linhas = selecionados.map((r) => ({
+        bm_id: bmRow.id,
+        categoria,
+        descricao: r.descricao,
+        tag: r.tag,
+        bsp: r.bsp,
+        period_start: r.period_start,
+        period_end: r.period_end,
+        valor_diario: r.valor_unitario,
+        qtd: r.qtd,
+        valor_total: r.valor_total,
+      }));
+      const { error: errLinhas } = await supabase.from("bm_lines_materiais").insert(linhas);
+      if (errLinhas) throw errLinhas;
+
+      const { error: errMed } = await supabase.from("bm_medicoes").update({
+        applied: true, applied_bm_number: numeroBm.trim(), applied_bm_row_id: null, applied_at: new Date().toISOString(),
+      }).in("id", selecionados.map((r) => r.id));
+      if (errMed) throw errMed;
+
+      if (targetStatus === "pending_pm") {
+        const { error: errHist } = await supabase.from("bm_status_history").insert({ bm_id: bmRow.id, status: "pending_pm", changed_by_name: "Operador", notes: null });
+        if (errHist) throw errHist;
+      }
+
+      return bmRow as Bm;
+    },
+    onSuccess: (bm, targetStatus) => {
+      qc.invalidateQueries({ queryKey: ["bm-medicoes", tipo] });
+      qc.invalidateQueries({ queryKey: ["bm-historico"] });
+      notify.success(targetStatus === "pending_pm" ? "BM enviado para aprovação do PM." : "Rascunho salvo.");
+      setSavedBm(bm);
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao gerar o BM."),
+  });
+
+  const { data: linhasGeradas = [] } = useQuery<BmLineMateriais[]>({
+    queryKey: ["bm-linhas-materiais", savedBm?.id],
+    enabled: !!savedBm,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("bm_lines_materiais").select("*").eq("bm_id", savedBm!.id);
+      if (error) throw error;
+      return (data ?? []) as BmLineMateriais[];
+    },
+  });
+
+  if (savedBm) {
+    return (
+      <Card className="p-4 space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <p className="text-sm font-medium">
+            BM de {TIPO_BM_LABEL[tipo]} {savedBm.current_status === "pending_pm" ? "enviado para aprovação" : "salvo como rascunho"}.
+          </p>
+          <Button size="sm" variant="outline" onClick={resetLocal}>Gerar novo BM</Button>
+        </div>
+        <MaterialBmCoverView bm={savedBm} linhas={linhasGeradas} />
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-4 space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs">BSP</Label>
+          <Select value={bsp} onValueChange={setBsp}>
+            <SelectTrigger>
+              <SelectValue placeholder={bspOptions.length ? "Selecione" : "Nenhum pendente lançado"} />
+            </SelectTrigger>
+            <SelectContent>
+              {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Período de</Label>
+          <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-xs">Período até</Label>
+          <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs">Número do BM</Label>
+        <Input value={numeroBm} onChange={(e) => setNumeroBm(e.target.value)} placeholder="Número do BM" />
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <Label className="text-xs">Lançamentos pendentes de {TIPO_BM_LABEL[tipo]}</Label>
+          <span className="text-xs text-muted-foreground">{fmtMoney(totalSelecionado)} selecionado</span>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10"></TableHead>
+              <TableHead>Descrição</TableHead>
+              <TableHead>BSP</TableHead>
+              <TableHead>Período</TableHead>
+              <TableHead className="text-right">Qtd</TableHead>
+              <TableHead className="text-right">Valor Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isFetching && <EmptyStateRow colSpan={6} icon={Coins} title="Carregando..." />}
+            {!isFetching && pendentesFiltrados.length === 0 && (
+              <EmptyStateRow colSpan={6} icon={Coins} title={`Nenhum lançamento pendente nesta aba${bsp ? ` para o BSP ${bsp}` : ""}.`} />
+            )}
+            {pendentesFiltrados.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell><Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelecionado(r.id)} /></TableCell>
+                <TableCell>{r.descricao}</TableCell>
+                <TableCell>{r.bsp ?? "—"}</TableCell>
+                <TableCell>{r.period_start ? `${fmt(r.period_start)} - ${fmt(r.period_end || r.period_start)}` : "—"}</TableCell>
+                <TableCell className="text-right">{r.qtd}</TableCell>
+                <TableCell className="text-right">{fmtMoney(r.valor_total)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="flex justify-end gap-2 border-t pt-3">
+        <Button
+          size="sm" variant="outline"
+          disabled={!headerCompleto || selecionados.length === 0}
+          loading={gerar.isPending && gerar.variables === "draft"}
+          onClick={() => gerar.mutate("draft")}
+        >
+          Gerar BM
+        </Button>
+        <Button
+          size="sm"
+          disabled={!headerCompleto || selecionados.length === 0}
+          loading={gerar.isPending && gerar.variables === "pending_pm"}
+          onClick={() => gerar.mutate("pending_pm")}
+        >
+          Enviar para Aprovação do PM
+        </Button>
+      </div>
+    </Card>
+  );
 }
 
 // ─── Step 1: Horas do Timesheet ─────────────────────────────────────────────
@@ -1854,6 +2213,84 @@ type BmListSortColumn = "numero" | "cliente" | "embarcacao" | "periodo" | "total
 // — ordena pela ordem lógica do fluxo, não alfabeticamente.
 const BM_STATUS_ORDER: Record<BmStatus, number> = { draft: 0, pending_pm: 1, approved: 2, rejected: 3, sent_client: 4 };
 
+// Barra de progresso que anima de 0% até o valor real logo após montar — dá o efeito de
+// "cascata" preenchendo quando a aba abre, em vez de já nascer no valor final.
+function CascataBar({ pct, tone = "primary" }: { pct: number; tone?: "primary" | "muted" }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 50);
+    return () => clearTimeout(t);
+  }, []);
+  const clamped = Math.min(100, Math.max(0, pct));
+  return (
+    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+      <div
+        className={cn("h-full rounded-full transition-all duration-700 ease-out", tone === "primary" ? "bg-primary" : "bg-muted-foreground/40")}
+        style={{ width: mounted ? `${clamped}%` : "0%" }}
+      />
+    </div>
+  );
+}
+
+function CascataUnidadeCard({ index, vessel, bmsComPo, poValue, saldoRestante, expanded, onToggle }: {
+  index: number; vessel: string; bmsComPo: Bm[]; poValue: number | null; saldoRestante: number | null;
+  expanded: boolean; onToggle: () => void;
+}) {
+  const pctUsado = poValue && poValue > 0 && saldoRestante != null ? round2(((poValue - saldoRestante) / poValue) * 100) : 0;
+  return (
+    <div
+      className="rounded-md border animate-in fade-in slide-in-from-bottom-2 duration-500"
+      style={{ animationDelay: `${index * 60}ms`, animationFillMode: "backwards" }}
+    >
+      <button type="button" onClick={onToggle} className="w-full flex items-center justify-between gap-3 p-2.5 text-left hover:bg-muted/40 rounded-md">
+        <div className="flex items-center gap-2 min-w-0">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+          <span className="text-sm font-medium truncate">{vessel}</span>
+          <span className="text-[11px] text-muted-foreground shrink-0">{bmsComPo.length} BM{bmsComPo.length === 1 ? "" : "s"}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="w-32 hidden sm:block"><CascataBar pct={pctUsado} /></div>
+          <span className="text-xs font-medium">
+            {saldoRestante != null ? fmtMoney(saldoRestante) : "—"} <span className="text-[11px] font-normal text-muted-foreground">restante</span>
+          </span>
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-2.5 pb-2.5 space-y-2 border-t pt-2.5">
+          {poValue != null && (
+            <p className="text-[11px] text-muted-foreground">
+              Valor total da PO: <strong className="text-foreground">{fmtMoney(poValue)}</strong> · Já medido: <strong className="text-foreground">{fmtMoney(round2(poValue - (saldoRestante ?? 0)))}</strong> ({pctUsado.toFixed(0)}%)
+            </p>
+          )}
+          {bmsComPo.map((b, i) => {
+            const saldoDepois = round2((b.po_balance_before ?? 0) - b.total_geral);
+            const pctBm = poValue && poValue > 0 ? round2(((b.po_balance_before ?? 0) - saldoDepois) / poValue * 100) : 0;
+            return (
+              <div
+                key={b.id}
+                className="text-xs animate-in fade-in slide-in-from-bottom-1 duration-500"
+                style={{ animationDelay: `${i * 70}ms`, animationFillMode: "backwards" }}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="font-medium">BM {b.numero_bm ?? "—"}</span>
+                  <span className="text-muted-foreground">
+                    {fmtMoney(b.po_balance_before ?? 0)} → {fmtMoney(saldoDepois)} <span className="text-[10px]">(−{fmtMoney(b.total_geral)})</span>
+                  </span>
+                </div>
+                <CascataBar pct={pctBm} tone="muted" />
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between gap-2 pt-1 border-t">
+            <span className="text-xs font-semibold">Saldo restante</span>
+            <span className="text-xs font-semibold">{saldoRestante != null ? fmtMoney(saldoRestante) : "—"}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
   const qc = useQueryClient();
   const [filterClient, setFilterClient] = useState("all");
@@ -1865,13 +2302,19 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
     queryKey: ["bm-linhas", viewingBm?.id],
     enabled: !!viewingBm,
     queryFn: async () => {
-      const [mo, logistica] = await Promise.all([
+      const [mo, logistica, materiais] = await Promise.all([
         supabase.from("bm_lines_mo").select("*").eq("bm_id", viewingBm!.id),
         supabase.from("bm_lines_logistica").select("*").eq("bm_id", viewingBm!.id),
+        supabase.from("bm_lines_materiais").select("*").eq("bm_id", viewingBm!.id),
       ]);
       if (mo.error) throw mo.error;
       if (logistica.error) throw logistica.error;
-      return { mo: (mo.data ?? []) as BmLineMo[], logistica: (logistica.data ?? []) as BmLineLogistica[] };
+      if (materiais.error) throw materiais.error;
+      return {
+        mo: (mo.data ?? []) as BmLineMo[],
+        logistica: (logistica.data ?? []) as BmLineLogistica[],
+        materiais: (materiais.data ?? []) as BmLineMateriais[],
+      };
     },
   });
 
@@ -1931,6 +2374,37 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
   });
 
 
+  // Cascata por unidade: agrupa os BMs já gerados por "vessel" (embarcação, ou BSP nos BMs
+  // simplificados de material) e mostra, do mais antigo pro mais recente, o saldo da PO indo
+  // sendo consumido — cada bm.po_balance_before já vem calculado (via getBmHistoryForPo) na
+  // hora em que aquele BM foi salvo, então "saldo depois" = po_balance_before - total_geral
+  // desse mesmo BM, sem precisar recalcular nada aqui. Só entram na cascata BMs vinculados a
+  // uma PO (po_balance_before != null) — os BMs simplificados de material não têm PO.
+  const cascatas = useMemo(() => {
+    const porUnidade = new Map<string, Bm[]>();
+    bms.forEach((b) => {
+      const key = b.vessel || "—";
+      if (!porUnidade.has(key)) porUnidade.set(key, []);
+      porUnidade.get(key)!.push(b);
+    });
+    return Array.from(porUnidade.entries())
+      .map(([vessel, list]) => {
+        const comPo = [...list]
+          .filter((b) => b.po_balance_before != null)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at));
+        const ultimo = comPo[comPo.length - 1];
+        return {
+          vessel,
+          bms: comPo,
+          poValue: ultimo?.po_value ?? null,
+          saldoRestante: ultimo ? round2((ultimo.po_balance_before ?? 0) - ultimo.total_geral) : null,
+        };
+      })
+      .filter((c) => c.bms.length > 0)
+      .sort((a, b) => a.vessel.localeCompare(b.vessel));
+  }, [bms]);
+  const [expandedVessel, setExpandedVessel] = useState<string | null>(null);
+
   const clientesNaLista = useMemo(() => Array.from(new Set(bms.map((b) => b.client_name))).sort(), [bms]);
   const filtered = bms
     .filter((b) => (filterClient === "all" || b.client_name === filterClient) && (filterStatus === "all" || b.current_status === filterStatus))
@@ -1957,6 +2431,25 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
 
   return (
     <div className="space-y-3">
+      {cascatas.length > 0 && (
+        <Card className="p-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Saldo da PO por unidade — quanto ainda falta medir</p>
+          <div className="space-y-2">
+            {cascatas.map((c, i) => (
+              <CascataUnidadeCard
+                key={c.vessel}
+                index={i}
+                vessel={c.vessel}
+                bmsComPo={c.bms}
+                poValue={c.poValue}
+                saldoRestante={c.saldoRestante}
+                expanded={expandedVessel === c.vessel}
+                onToggle={() => setExpandedVessel((v) => (v === c.vessel ? null : c.vessel))}
+              />
+            ))}
+          </div>
+        </Card>
+      )}
       <Card className="p-3">
         <div className="flex flex-wrap gap-2">
           <div className="w-48">
@@ -2014,7 +2507,7 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
 
                 <TableCell>
                   <Button size="sm" variant="ghost" onClick={() => setViewingBm(b)}>Ver</Button>
-                  {(b.current_status === "draft" || b.current_status === "rejected") && (
+                  {(b.current_status === "draft" || b.current_status === "rejected") && !isMaterialBm(b) && (
                     <Button size="sm" variant="ghost" onClick={() => onReopen(b)}>Reabrir</Button>
                   )}
                   {b.current_status === "approved" && (
@@ -2066,10 +2559,11 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
                 />
                 <span>Já foi medido</span>
               </label>
-              <BmTimesheetCoverView
-                bm={viewingBm}
-                linesMo={viewingLinhas?.mo ?? []}
-              />
+              {isMaterialBm(viewingBm) ? (
+                <MaterialBmCoverView bm={viewingBm} linhas={viewingLinhas?.materiais ?? []} />
+              ) : (
+                <BmTimesheetCoverView bm={viewingBm} linesMo={viewingLinhas?.mo ?? []} />
+              )}
             </>
           )}
 
@@ -2077,10 +2571,11 @@ function HistoricoBmsTab({ onReopen }: { onReopen: (bm: Bm) => void }) {
       </Dialog>
       {viewingBm && (
         <div className="hidden print:block">
-          <BmTimesheetCoverView
-            bm={viewingBm}
-            linesMo={viewingLinhas?.mo ?? []}
-          />
+          {isMaterialBm(viewingBm) ? (
+            <MaterialBmCoverView bm={viewingBm} linhas={viewingLinhas?.materiais ?? []} />
+          ) : (
+            <BmTimesheetCoverView bm={viewingBm} linesMo={viewingLinhas?.mo ?? []} />
+          )}
         </div>
       )}
     </div>
