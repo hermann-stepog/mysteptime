@@ -14,6 +14,8 @@ import { notify } from "@/lib/notify";
 import { Plus, FileText } from "lucide-react";
 import { useState } from "react";
 import { EmptyStateRow } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 
 export const Route = createFileRoute("/admin/payroll")({ head: () => pageTitle("Folha de Pagamento"), component: PayrollPage });
@@ -44,7 +46,7 @@ const STATUS = [
 function PayrollPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const { data: rows } = useQuery({
+  const { data: rows, isLoading } = useQuery({
     queryKey: ["payroll"],
     queryFn: async () => (await supabase.from("payroll_summaries").select("*, profiles!collaborator_id(full_name, email)").order("cycle_end", { ascending: false })).data ?? [],
   });
@@ -61,8 +63,27 @@ function PayrollPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll"] }),
   });
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-9 w-36" />
+        </div>
+        <Card>
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead>Colaborador</TableHead><TableHead>Ciclo</TableHead><TableHead>Dias</TableHead><TableHead>Horas</TableHead><TableHead>Extra</TableHead><TableHead>Sobreaviso</TableHead><TableHead>Status</TableHead>
+            </TableRow></TableHeader>
+            <TableSkeleton rows={8} cols={7} />
+          </Table>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-semibold">Comunicação à folha</h1></div>
         <div className="flex gap-2">

@@ -175,7 +175,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaborado
   const isVisitante = role === "visitante";
 
   return (
-    <div className="space-y-4">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
         {!isVisitante && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}

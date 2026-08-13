@@ -14,6 +14,8 @@ import { Plus, DollarSign } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { EmptyStateRow } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 
 export const Route = createFileRoute("/admin/costs")({ head: () => pageTitle("Custos"), component: CostsPage });
@@ -63,13 +65,36 @@ function CostsPage() {
       return (await q).data ?? [];
     },
   });
-  const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: async () => (await supabase.from("clients").select("*").eq("active", true)).data ?? [] });
-  const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: async () => (await supabase.from("projects").select("*").eq("active", true)).data ?? [] });
-  const { data: vendors } = useQuery({ queryKey: ["vendors"], queryFn: async () => (await supabase.from("vendors").select("*").eq("active", true)).data ?? [] });
-  const { data: collaborators } = useQuery({ queryKey: ["all-profiles"], queryFn: async () => (await supabase.from("profiles").select("id, full_name, email")).data ?? [] });
+  const { data: clients, isLoading: l1 } = useQuery({ queryKey: ["clients"], queryFn: async () => (await supabase.from("clients").select("*").eq("active", true)).data ?? [] });
+  const { data: projects, isLoading: l2 } = useQuery({ queryKey: ["projects"], queryFn: async () => (await supabase.from("projects").select("*").eq("active", true)).data ?? [] });
+  const { data: vendors, isLoading: l3 } = useQuery({ queryKey: ["vendors"], queryFn: async () => (await supabase.from("vendors").select("*").eq("active", true)).data ?? [] });
+  const { data: collaborators, isLoading: l4 } = useQuery({ queryKey: ["all-profiles"], queryFn: async () => (await supabase.from("profiles").select("id, full_name, email")).data ?? [] });
+
+  if (l1 || l2 || l3 || l4) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-9 w-40" />
+        </div>
+        <Card className="p-4 flex flex-wrap gap-3">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-8 w-48" />
+        </Card>
+        <Card>
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead>Colaborador</TableHead><TableHead>Cliente</TableHead><TableHead>Tipo</TableHead><TableHead>Fornecedor</TableHead><TableHead>Período</TableHead><TableHead>Cobrança</TableHead><TableHead className="text-right">Valor</TableHead>
+            </TableRow></TableHeader>
+            <TableSkeleton rows={8} cols={7} />
+          </Table>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h1 className="text-2xl font-semibold">Custos (Lançamentos)</h1></div>
         <div className="flex gap-2">

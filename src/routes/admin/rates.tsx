@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyStateRow } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/TableSkeleton";
 import { Plus, Pencil, Trash2, Upload, Coins } from "lucide-react";
 import { CLIENTES } from "@/lib/clientes";
 import { pageTitle } from "@/lib/pageTitle";
@@ -116,7 +118,7 @@ function RatesPage() {
   const [editing, setEditing] = useState<RateForm | null>(null);
   const [importPreview, setImportPreview] = useState<ParsedRateRow[] | null>(null);
 
-  const { data: rows = [] } = useQuery({
+  const { data: rows = [], isLoading } = useQuery({
     queryKey: ["rates-all"],
     queryFn: async () => {
       const { data, error } = await supabase.from("rates").select("*").order("client").order("vessel").order("funcao");
@@ -202,8 +204,46 @@ function RatesPage() {
 
   const clientesNaTabela = useMemo(() => Array.from(new Set(rows.map((r) => r.client))).sort(), [rows]);
 
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-24" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-40" />
+            <Skeleton className="h-9 w-32" />
+          </div>
+        </div>
+        <Card className="p-3"><Skeleton className="h-8 w-56" /></Card>
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>BSP</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Embarcação</TableHead>
+                <TableHead>Função</TableHead>
+                <TableHead>Embarque</TableHead>
+                <TableHead>Dobra</TableHead>
+                <TableHead>Hotel</TableHead>
+                <TableHead>Hora Extra</TableHead>
+                <TableHead>Adic. Noturno</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-24"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableSkeleton rows={8} cols={11} />
+          </Table>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Rates</h1>
