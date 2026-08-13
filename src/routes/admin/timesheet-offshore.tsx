@@ -25,11 +25,11 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload, History } from "lucide-react";
 import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
   STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas, type StatusEntrega,
-  mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma,
+  mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma, embarqueOrfaoDoHistograma,
   UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno, horasNoturnas, parseHHMM, daysBetweenStr,
   type TimesheetEmbarque, type TimesheetSemana, type TimesheetDia,
 } from "@/lib/timesheetOffshore";
@@ -1077,6 +1077,16 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     });
     return m;
   }, [periodosE]);
+  // Só períodos "E" já confirmados pelo Drake (não "programado", que é só planejamento futuro
+  // ainda não efetivado) contam como cobertura real pra saber se um embarque ficou órfão.
+  const periodosEConfirmadosByColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodosE.filter((p) => p.origem !== ORIGEM_PROGRAMADO).forEach((p) => {
+      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
+      m.get(p.colaborador_id)!.push(p);
+    });
+    return m;
+  }, [periodosE]);
   // Dias que o colaborador de fato já teve horas salvas (via "Salvar semana") — usado pra
   // cruzar com o Histograma e saber o que realmente falta lançar (não basta ter criado o
   // embarque, precisa ter salvo as horas do dia).
@@ -1109,9 +1119,10 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       periodosEByColaborador.get(embarque.colaborador_id) ?? [],
       diasSalvosPorColaborador.get(embarque.colaborador_id) ?? new Set(),
     );
+    const orfao = embarqueOrfaoDoHistograma(embarque, periodosEConfirmadosByColaborador.get(embarque.colaborador_id) ?? []);
     const funcaoEfetiva = funcaoEfetivaDoEmbarque(embarque, semanasByEmbarqueIdRows.get(embarque.id) ?? []);
-    return { embarque, colaborador, diasFaltando, funcaoEfetiva };
-  }), [embarques, colabById, periodosEByColaborador, diasSalvosPorColaborador, semanasByEmbarqueIdRows]);
+    return { embarque, colaborador, diasFaltando, orfao, funcaoEfetiva };
+  }), [embarques, colabById, periodosEByColaborador, periodosEConfirmadosByColaborador, diasSalvosPorColaborador, semanasByEmbarqueIdRows]);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
 
@@ -1241,7 +1252,16 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           <TableBody>
             {filtered.map((r) => (
               <TableRow key={r.embarque.id}>
-                <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-1.5">
+                    {r.colaborador?.nome ?? "—"}
+                    {r.orfao && (
+                      <span title="Este período não tem mais nenhum embarque confirmado correspondente no Histograma Offshore atual — pode ter sido corrigido/alterado no Drake depois de criado aqui. Confira antes de lançar ou fechar essas horas.">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">
@@ -1313,6 +1333,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
               periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
               periodos={periodos}
               diasFaltando={rows.find((r) => r.embarque.id === lancandoEmbarque.id)?.diasFaltando ?? []}
+              orfao={rows.find((r) => r.embarque.id === lancandoEmbarque.id)?.orfao ?? false}
               readOnly={readOnly}
             />
           )}
@@ -1521,6 +1542,16 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
     });
     return m;
   }, [semanas]);
+  // Mesmo critério da aba de Lançamento (ver embarqueOrfaoDoHistograma) — só períodos "E" já
+  // confirmados pelo Drake contam como cobertura real.
+  const periodosEConfirmadosByColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodos.filter((p) => p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO).forEach((p) => {
+      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
+      m.get(p.colaborador_id)!.push(p);
+    });
+    return m;
+  }, [periodos]);
 
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
@@ -1550,7 +1581,8 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       // mostrar "1/1" quando na real tem 2 semanas, uma delas ainda não recebida.
       const total = Math.max(totalSemanasEsperadas(e.data_inicio_embarque, e.data_fim_embarque), semanasDoEmbarque.length);
       const funcaoEfetiva = funcaoEfetivaDoEmbarque(e, semanasDoEmbarque);
-      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva };
+      const orfao = embarqueOrfaoDoHistograma(e, periodosEConfirmadosByColaborador.get(e.colaborador_id) ?? []);
+      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva, orfao };
     })
     .filter((r) =>
       (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
@@ -1586,7 +1618,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
           return 0;
       }
     }),
-  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
+  [embarques, semanasByEmbarqueId, colabById, periodosEConfirmadosByColaborador, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
 
   return (
     <div className="space-y-4">
@@ -1647,7 +1679,16 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
               <EmptyStateRow colSpan={8} icon={CheckCircle2} title="Nenhum timesheet físico pendente" description="Todos os embarques já tiveram o físico recebido por completo." />
             ) : pendencias.map((r) => (
               <TableRow key={r.embarque.id}>
-                <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-1.5">
+                    {r.colaborador?.nome ?? "—"}
+                    {r.orfao && (
+                      <span title="Este período não tem mais nenhum embarque confirmado correspondente no Histograma Offshore atual — pode ter sido corrigido/alterado no Drake depois de criado aqui. Confira antes de lançar ou fechar essas horas.">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}</TableCell>
@@ -1683,6 +1724,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
               periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
               periodos={periodos}
               diasFaltando={[]}
+              orfao={pendencias.find((r) => r.embarque.id === lancandoEmbarque.id)?.orfao ?? false}
               readOnly={readOnly}
             />
           )}
@@ -1694,8 +1736,8 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
 
 // Painel de lançamento semanal de horas de um embarque específico — aberto via o ícone
 // "Lançar horas" na linha do embarque (não existe mais como aba separada).
-function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, diasFaltando, readOnly = false }: {
-  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; diasFaltando: string[]; readOnly?: boolean;
+function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, diasFaltando, orfao = false, readOnly = false }: {
+  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; diasFaltando: string[]; orfao?: boolean; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const [selectedSemanaId, setSelectedSemanaId] = useState("");
@@ -1878,6 +1920,15 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
           {semanas.length === 0 && <p className="text-xs text-muted-foreground py-2">Nenhuma semana lançada ainda.</p>}
         </div>
       </Card>
+
+      {orfao && (
+        <div className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-900">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          Este período não tem mais nenhum embarque confirmado correspondente no Histograma Offshore atual — pode ter
+          sido corrigido/alterado no Drake depois que este lançamento foi criado. Confira antes de lançar ou fechar
+          essas horas.
+        </div>
+      )}
 
       {diasFaltando.length > 0 && (
         <div
