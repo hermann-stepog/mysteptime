@@ -41,6 +41,10 @@ export interface Nomination {
   notes: string | null;
   current_status: NominationStatus;
   requires_quality_validation: boolean;
+  quality_status: QualityStatus;
+  quality_rejection_reason: string | null;
+  // Histórico de quando/quem mexeu por último na Qualidade (aprovar ou reprovar) — quality_status
+  // é quem manda pro fluxo, esses campos são só o registro de data/autor da última decisão.
   quality_validated: boolean;
   quality_validated_at: string | null;
   quality_validated_by: string | null;
@@ -58,6 +62,8 @@ export interface Nomination {
   cancelled_at: string | null;
   cancelled_by: string | null;
 }
+
+export type QualityStatus = "pendente" | "aprovado" | "reprovado";
 
 export type PmDecision = "pendente" | "aprovado" | "reprovado";
 
@@ -159,8 +165,13 @@ export function canMoveToColumn(
 
   const aprovacaoTecnicaIdx = COLUMN_ORDER.indexOf("aprovacao_tecnica");
   const saiDeAprovacaoTecnica = currentIdx <= aprovacaoTecnicaIdx && targetIdx > aprovacaoTecnicaIdx;
-  if (saiDeAprovacaoTecnica && nom.requires_quality_validation && !nom.quality_validated) {
-    return { ok: false, reason: "Marque a Validação de Qualidade antes de avançar de Aprovação Técnica." };
+  if (saiDeAprovacaoTecnica && nom.requires_quality_validation && nom.quality_status !== "aprovado") {
+    return {
+      ok: false,
+      reason: nom.quality_status === "reprovado"
+        ? "A Qualidade reprovou esta solicitação — não é possível avançar de Aprovação Técnica."
+        : "Aguardando aprovação da Qualidade antes de avançar de Aprovação Técnica.",
+    };
   }
 
   const aprovacaoPmIdx = COLUMN_ORDER.indexOf("aprovacao_pm");
@@ -197,7 +208,10 @@ export function canMoveToColumn(
 function nominationFieldsMarkedAt(stage: NominationStatus): Record<string, unknown> | null {
   switch (stage) {
     case "aprovacao_tecnica":
-      return { quality_validated: false, quality_validated_at: null, quality_validated_by: null };
+      return {
+        quality_status: "pendente", quality_rejection_reason: null,
+        quality_validated: false, quality_validated_at: null, quality_validated_by: null,
+      };
     case "briefing_sms":
       return { briefing_sms_realizado: false, briefing_sms_realizado_at: null, briefing_sms_realizado_by: null, outcome: null };
     default:

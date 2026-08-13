@@ -9,11 +9,11 @@ const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import {
   type Nomination, type NominationNominee, type NominationStatusHistory,
-  type WeldTypeConfig, type WeldMaterialConfig, type NominationStatus, type PmDecision,
+  type WeldTypeConfig, type WeldMaterialConfig, type NominationStatus, type PmDecision, type QualityStatus,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE, QUALIDADE_ROLE,
   columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador,
 } from "@/lib/nominations";
-import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation } from "@/lib/nominationEmails";
+import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyQualityRejection } from "@/lib/nominationEmails";
 import { matchesNameSearch } from "@/lib/utils";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
@@ -609,20 +609,28 @@ function ManageDialog({
     },
   });
 
-  const toggleQualityValidated = useMutation({
-    mutationFn: async (val: boolean) => {
+  const setQualityStatus = useMutation({
+    mutationFn: async ({ status, reason }: { status: QualityStatus; reason?: string }) => {
+      const aprovado = status === "aprovado";
       const { error } = await supabase.from("nominations").update({
-        quality_validated: val,
-        quality_validated_at: val ? new Date().toISOString() : null,
-        quality_validated_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
+        quality_status: status,
+        quality_rejection_reason: status === "reprovado" ? (reason?.trim() || null) : null,
+        quality_validated: aprovado,
+        quality_validated_at: status !== "pendente" ? new Date().toISOString() : null,
+        quality_validated_by: status !== "pendente" ? (profile?.full_name ?? profile?.email ?? null) : null,
       }).eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
         nomination_id: nomination.id,
         status: nomination.current_status,
         changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-        notes: val ? "Validação de Qualidade marcada" : "Validação de Qualidade desmarcada",
+        notes: status === "aprovado"
+          ? "Qualidade aprovou"
+          : status === "reprovado"
+            ? `Qualidade reprovou${reason?.trim() ? `: ${reason.trim()}` : ""}`
+            : "Validação de Qualidade desmarcada",
       });
+      if (status === "reprovado") await notifyQualityRejection(nomination, reason?.trim() || null);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["nominations"] });
@@ -708,7 +716,11 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir nomeação."),
   });
 
-  const qualidadeGateOk = !nomination.requires_quality_validation || nomination.quality_validated;
+  const qualidadeGateOk = !nomination.requires_quality_validation || nomination.quality_status === "aprovado";
+  const canQuality = canOperate || role === QUALIDADE_ROLE;
+  const [showQualityReject, setShowQualityReject] = useState(false);
+  const [qualityReasonDraft, setQualityReasonDraft] = useState("");
+  const QUALITY_STATUS_LABEL: Record<QualityStatus, string> = { pendente: "Pendente", aprovado: "Aprovada", reprovado: "Reprovada" };
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -839,20 +851,78 @@ function ManageDialog({
                 </Button>
               )}
               {nomination.requires_quality_validation && (
-                <label className="flex items-center justify-between gap-2 rounded-md bg-purple-50 border border-purple-200 px-3 py-2 text-sm text-purple-900 cursor-pointer">
-                  <span className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 shrink-0" />
-                    Validação de Qualidade (tipo de solda exige)
-                  </span>
-                  <Checkbox
-                    checked={nomination.quality_validated}
-                    disabled={!(canOperate || role === QUALIDADE_ROLE)}
-                    onCheckedChange={(val) => toggleQualityValidated.mutate(!!val)}
-                  />
-                </label>
+                <div className="space-y-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm text-purple-900">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      Validação de Qualidade (tipo de solda exige)
+                    </span>
+                    {canQuality ? (
+                      <div className="flex gap-1.5">
+                        <Button
+                          type="button" size="sm" className="h-7 w-7 p-0"
+                          variant={nomination.quality_status === "aprovado" ? "default" : "outline"}
+                          loading={setQualityStatus.isPending && setQualityStatus.variables?.status === "aprovado"}
+                          onClick={() => { setShowQualityReject(false); setQualityStatus.mutate({ status: "aprovado" }); }}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button" size="sm" className="h-7 w-7 p-0"
+                          variant={nomination.quality_status === "reprovado" ? "destructive" : "outline"}
+                          onClick={() => setShowQualityReject(true)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          nomination.quality_status === "aprovado"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : nomination.quality_status === "reprovado"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {QUALITY_STATUS_LABEL[nomination.quality_status]}
+                      </span>
+                    )}
+                  </div>
+                  {nomination.quality_status === "reprovado" && nomination.quality_rejection_reason && (
+                    <p className="text-xs text-red-800">Motivo: {nomination.quality_rejection_reason}</p>
+                  )}
+                  {showQualityReject && (
+                    <div className="space-y-1.5">
+                      <Textarea
+                        rows={2} className="text-xs" placeholder="Motivo da reprovação (opcional)"
+                        value={qualityReasonDraft} onChange={(e) => setQualityReasonDraft(e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          type="button" size="sm" variant="destructive"
+                          loading={setQualityStatus.isPending && setQualityStatus.variables?.status === "reprovado"}
+                          onClick={() => {
+                            setQualityStatus.mutate(
+                              { status: "reprovado", reason: qualityReasonDraft },
+                              { onSuccess: () => { setShowQualityReject(false); setQualityReasonDraft(""); } },
+                            );
+                          }}
+                        >
+                          Confirmar reprovação
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => setShowQualityReject(false)}>Voltar</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               {!qualidadeGateOk && (
-                <p className="text-xs text-amber-700">Aguardando validação de Qualidade antes de avançar de Aprovação Técnica.</p>
+                <p className="text-xs text-amber-700">
+                  {nomination.quality_status === "reprovado"
+                    ? "A Qualidade reprovou esta solicitação — não é possível avançar de Aprovação Técnica."
+                    : "Aguardando aprovação da Qualidade antes de avançar de Aprovação Técnica."}
+                </p>
               )}
               {canOperate && showRevert && earlierStages.length > 0 && (
                 <>
@@ -944,13 +1014,18 @@ function ManageDialog({
               && ALL_STATUSES.indexOf(nomination.current_status) > ALL_STATUSES.indexOf("aprovacao_tecnica") && (
               <div
                 className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                  nomination.quality_validated
+                  nomination.quality_status === "aprovado"
                     ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                    : "border-amber-200 bg-amber-50 text-amber-900"
+                    : nomination.quality_status === "reprovado"
+                      ? "border-red-200 bg-red-50 text-red-900"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
                 }`}
               >
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
-                Qualidade: {nomination.quality_validated ? "Aprovada" : "Pendente"}
+                Qualidade: {nomination.quality_status === "aprovado" ? "Aprovada" : nomination.quality_status === "reprovado" ? "Reprovada" : "Pendente"}
+                {nomination.quality_status === "reprovado" && nomination.quality_rejection_reason && (
+                  <span className="text-xs font-normal opacity-80">— {nomination.quality_rejection_reason}</span>
+                )}
               </div>
             )}
             {nomination.current_status === "simulacao" && (
@@ -1198,12 +1273,14 @@ function NominationCard({
       {nomination.requires_quality_validation && (
         <span
           className={`mt-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
-            nomination.quality_validated
+            nomination.quality_status === "aprovado"
               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-700"
+              : nomination.quality_status === "reprovado"
+                ? "border-red-200 bg-red-50 text-red-700"
+                : "border-amber-200 bg-amber-50 text-amber-700"
           }`}
         >
-          {nomination.quality_validated ? "Qualidade validada" : "Qualidade pendente"}
+          {nomination.quality_status === "aprovado" ? "Qualidade validada" : nomination.quality_status === "reprovado" ? "Qualidade reprovada" : "Qualidade pendente"}
         </span>
       )}
     </div>

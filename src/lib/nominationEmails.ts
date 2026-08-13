@@ -134,3 +134,31 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
     console.warn("Falha ao enviar e-mail de cancelamento (aviso, não bloqueia):", err);
   }
 }
+
+// Diverge de notifyStageAdvance: é um bloqueio (a Qualidade reprovou), não um avanço — vai pro
+// PM (precisa agir/decidir o próximo passo) + cópia Logística, igual notifyCancellation.
+export async function notifyQualityRejection(nomination: Nomination, reason: string | null): Promise<void> {
+  try {
+    const [cc, pm] = await Promise.all([operatorEmails(), pmEmail(nomination)]);
+    const toFinal = pm ? [pm] : cc;
+    if (toFinal.length === 0) return;
+    const bspPart = nomination.bsp ? ` (${nomination.bsp})` : "";
+    await sendNominationPhaseEmail({
+      data: {
+        to: toFinal[0],
+        cc: Array.from(new Set([...toFinal.slice(1), ...cc])).join(",") || undefined,
+        subject: `Nomeação — Qualidade reprovou — ${nomination.funcao}${bspPart}`,
+        text: [
+          `A Qualidade REPROVOU esta solicitação em Aprovação Técnica.`,
+          `Função: ${nomination.funcao}`,
+          nomination.unidade ? `Unidade: ${nomination.unidade}` : null,
+          nomination.bsp ? `BSP: ${nomination.bsp}` : null,
+          nomination.weld_type ? `Tipo de solda: ${nomination.weld_type}` : null,
+          reason ? `Motivo: ${reason}` : null,
+        ].filter((l): l is string => !!l).join("\n"),
+      },
+    });
+  } catch (err) {
+    console.warn("Falha ao enviar e-mail de reprovação de qualidade (aviso, não bloqueia):", err);
+  }
+}
