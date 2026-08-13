@@ -23,6 +23,7 @@ import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CLIENTES } from "@/lib/clientes";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
@@ -744,8 +745,33 @@ function TransportPage() {
   const tab = isVisitante ? "solicitacoes" : (search.tab ?? "kanban");
   const setTab = (v: string) => navigate({ to: "/admin/transport", search: { ...search, tab: v } });
 
+  if (columns.isLoading || trips.isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-56" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <Skeleton className="h-9 w-36" />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-8 w-32" />)}
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="p-3 space-y-2">
+              <Skeleton className="h-4 w-24" />
+              {Array.from({ length: 3 }).map((_, j) => <Skeleton key={j} className="h-16 w-full" />)}
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Transporte &amp; Rotas</h1>

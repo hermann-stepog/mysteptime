@@ -22,14 +22,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
-import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload } from "lucide-react";
+import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload, History } from "lucide-react";
 import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
   STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas, type StatusEntrega,
-  mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma,
+  mondayOf, weekDates, addDaysStr, weekdayLabel, diasFaltandoNoHistograma, embarqueOrfaoDoHistograma,
   UNIDADES_OPERACIONAIS_FIXAS, EVENTOS_DIA, computeDuracaoHoras, suggestAdicionalNoturno, horasNoturnas, parseHHMM, daysBetweenStr,
   type TimesheetEmbarque, type TimesheetSemana, type TimesheetDia,
 } from "@/lib/timesheetOffshore";
@@ -564,9 +564,15 @@ function TimesheetOffshore() {
           <div className="flex flex-wrap items-end gap-2">
             <Skeleton className="h-8 w-48" />
             <Skeleton className="h-8 w-56" />
-            <Skeleton className="ml-auto h-9 w-36" />
+            <div className="ml-auto flex gap-2">
+              <Skeleton className="h-8 w-40" />
+              <Skeleton className="h-9 w-36" />
+            </div>
           </div>
         </Card>
+        <div className="flex flex-wrap gap-1.5">
+          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-8 w-24" />)}
+        </div>
         <Card>
           <Table>
             <TableHeader>
@@ -586,7 +592,7 @@ function TimesheetOffshore() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Timesheet Offshore</h1>
       </div>
@@ -856,41 +862,55 @@ function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
   const hoje = todayStr();
   const lancadosHoje = useMemo(() => semanas.filter((s) => s.data_recebimento === hoje).length, [semanas, hoje]);
 
+  // Virou um popover em vez de um cartão fixo do lado dos filtros: pareado com um card de
+  // altura variável (as pastilhas de unidade), o cartão fixo sempre deixava um vão vazio de um
+  // lado ou de outro, não tinha como ficar "proporcional" de verdade. Como gatilho, some do
+  // fluxo da página e não compete altura com mais nada.
   return (
-    <Card className="flex w-full flex-col gap-2 overflow-hidden border-primary/15 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent p-3 lg:w-64 lg:shrink-0">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">Últimas Atualizações</h3>
-        <span className="flex shrink-0 items-baseline gap-1 rounded-md bg-primary/15 px-2 py-0.5">
-          <span className="text-sm font-bold leading-none text-primary">{lancadosHoje}</span>
-          <span className="text-[9px] uppercase leading-none tracking-wide text-muted-foreground">hoje</span>
-        </span>
-      </div>
-
-      {recentes.length === 0 ? (
-        <p className="flex flex-1 items-center justify-center text-center text-[11px] text-muted-foreground">Nenhum lançamento registrado ainda.</p>
-      ) : (
-        <div className="max-h-64 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-          {recentes.map((s) => {
-            const colaboradorId = colaboradorPorEmbarqueId.get(s.embarque_id);
-            const nomeColaborador = colaboradorId ? nomePorColaboradorId.get(colaboradorId) : null;
-            const executor = s.recebido_por ? nomeExecutorById.get(s.recebido_por) : null;
-            return (
-              <div key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-primary/10 bg-background/60 px-2 py-1.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium">{nomeColaborador ?? "—"}</p>
-                  <p className="truncate text-[10px] text-muted-foreground">
-                    {fmtData(s.recebido_em!)}{executor ? ` · ${executor}` : ""}
-                  </p>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="h-8 gap-1.5 border-primary/20 bg-primary/5 text-xs text-primary hover:bg-primary/10">
+          <History className="h-3.5 w-3.5" />
+          Últimas Atualizações
+          {lancadosHoje > 0 && (
+            <span className="rounded-full bg-primary/15 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-primary">
+              {lancadosHoje} hoje
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-3">
+        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-primary">Últimas Atualizações</h3>
+        {recentes.length === 0 ? (
+          <p className="flex items-center justify-center py-6 text-center text-[11px] text-muted-foreground">Nenhum lançamento registrado ainda.</p>
+        ) : (
+          <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+            {recentes.map((s, i) => {
+              const colaboradorId = colaboradorPorEmbarqueId.get(s.embarque_id);
+              const nomeColaborador = colaboradorId ? nomePorColaboradorId.get(colaboradorId) : null;
+              const executor = s.recebido_por ? nomeExecutorById.get(s.recebido_por) : null;
+              return (
+                <div
+                  key={s.id}
+                  className="flex animate-in fade-in slide-in-from-left-2 items-center justify-between gap-2 rounded-md border border-primary/10 bg-background/60 px-2 py-1.5 fill-mode-backwards duration-500"
+                  style={{ animationDelay: `${i * 60}ms` }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium" title={nomeColaborador ?? "—"}>{nomeColaborador ?? "—"}</p>
+                    <p className="truncate text-[10px] text-muted-foreground" title={executor ?? undefined}>
+                      {fmtData(s.recebido_em!)}{executor ? ` · ${executor}` : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary">
+                    {fmtHora(s.recebido_em!)}
+                  </span>
                 </div>
-                <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary">
-                  {fmtHora(s.recebido_em!)}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </Card>
+              );
+            })}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1057,6 +1077,16 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     });
     return m;
   }, [periodosE]);
+  // Só períodos "E" já confirmados pelo Drake (não "programado", que é só planejamento futuro
+  // ainda não efetivado) contam como cobertura real pra saber se um embarque ficou órfão.
+  const periodosEConfirmadosByColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodosE.filter((p) => p.origem !== ORIGEM_PROGRAMADO).forEach((p) => {
+      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
+      m.get(p.colaborador_id)!.push(p);
+    });
+    return m;
+  }, [periodosE]);
   // Dias que o colaborador de fato já teve horas salvas (via "Salvar semana") — usado pra
   // cruzar com o Histograma e saber o que realmente falta lançar (não basta ter criado o
   // embarque, precisa ter salvo as horas do dia).
@@ -1089,9 +1119,10 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       periodosEByColaborador.get(embarque.colaborador_id) ?? [],
       diasSalvosPorColaborador.get(embarque.colaborador_id) ?? new Set(),
     );
+    const orfao = embarqueOrfaoDoHistograma(embarque, periodosEConfirmadosByColaborador.get(embarque.colaborador_id) ?? []);
     const funcaoEfetiva = funcaoEfetivaDoEmbarque(embarque, semanasByEmbarqueIdRows.get(embarque.id) ?? []);
-    return { embarque, colaborador, diasFaltando, funcaoEfetiva };
-  }), [embarques, colabById, periodosEByColaborador, diasSalvosPorColaborador, semanasByEmbarqueIdRows]);
+    return { embarque, colaborador, diasFaltando, orfao, funcaoEfetiva };
+  }), [embarques, colabById, periodosEByColaborador, periodosEConfirmadosByColaborador, diasSalvosPorColaborador, semanasByEmbarqueIdRows]);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
 
@@ -1136,76 +1167,76 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
-        <div className="flex flex-1 flex-col gap-3">
-          <Card className="p-3">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-0.5 w-36">
-                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-                <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
-              </div>
-              <div className="space-y-0.5 w-36">
-                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-                <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
-              </div>
-              <div className="space-y-0.5 w-48">
-                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
-                <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                    {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-0.5 w-40">
-                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
-                <Select value={filterBsp} onValueChange={setFilterBsp}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                    {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-0.5 w-56">
-                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-                <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
-              </div>
-              {!readOnly && (
-                <div className="ml-auto flex items-center gap-2">
-                  <Button onClick={() => setNovoOpen(true)}>
-                    <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
-                  </Button>
-                </div>
-              )}
-            </div>
-          </Card>
-
-          {cardsPorUnidade.length > 0 && (
-            <div className="flex flex-wrap content-start gap-1.5">
-              {cardsPorUnidade.map((unidade) => (
-                <Card
-                  key={unidade}
-                  role="button" tabIndex={0}
-                  onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
-                  style={{ flex: "1 1 6rem" }}
-                  className={cn(
-                    "flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent px-2 py-1.5 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
-                    filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
-                  )}
-                >
-                  <p className="truncate text-xs font-semibold leading-tight text-primary">{unidade}</p>
-                </Card>
-              ))}
-            </div>
-          )}
+      {/* "Últimas Atualizações" virou um botão-gatilho de popover dentro dessa mesma linha, em
+          vez de um cartão fixo do lado — como um cartão fixo tem altura própria e as pastilhas
+          de unidade logo abaixo têm altura variável (1 a 3 linhas conforme quantas unidades têm
+          embarque), qualquer jeito de "casar" as duas alturas deixava um vão vazio de um lado
+          ou de outro. Um botão de altura normal na mesma linha dos filtros não tem esse problema. */}
+      <Card className="p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
+            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-48">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
+            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {cardsPorUnidade.length > 0 && (
+              <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} />
+            )}
+            {!readOnly && (
+              <Button onClick={() => setNovoOpen(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />Novo Embarque
+              </Button>
+            )}
+          </div>
         </div>
+      </Card>
 
-        {cardsPorUnidade.length > 0 && (
-          <AtividadeRecenteCard semanas={semanas} embarques={embarques} colaboradores={colaboradores} />
-        )}
-      </div>
+      {cardsPorUnidade.length > 0 && (
+        <div className="flex flex-wrap content-start gap-1.5">
+          {cardsPorUnidade.map((unidade) => (
+            <Card
+              key={unidade}
+              role="button" tabIndex={0}
+              onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
+              style={{ flex: "1 1 6rem" }}
+              className={cn(
+                "flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent px-2 py-1.5 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
+              )}
+            >
+              <p className="truncate text-xs font-semibold leading-tight text-primary">{unidade}</p>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card>
         <Table>
@@ -1221,7 +1252,16 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           <TableBody>
             {filtered.map((r) => (
               <TableRow key={r.embarque.id}>
-                <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-1.5">
+                    {r.colaborador?.nome ?? "—"}
+                    {r.orfao && (
+                      <span title="Este período não tem mais nenhum embarque confirmado correspondente no Histograma Offshore atual — pode ter sido corrigido/alterado no Drake depois de criado aqui. Confira antes de lançar ou fechar essas horas.">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">
@@ -1293,6 +1333,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
               periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
               periodos={periodos}
               diasFaltando={rows.find((r) => r.embarque.id === lancandoEmbarque.id)?.diasFaltando ?? []}
+              orfao={rows.find((r) => r.embarque.id === lancandoEmbarque.id)?.orfao ?? false}
               readOnly={readOnly}
             />
           )}
@@ -1501,6 +1542,16 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
     });
     return m;
   }, [semanas]);
+  // Mesmo critério da aba de Lançamento (ver embarqueOrfaoDoHistograma) — só períodos "E" já
+  // confirmados pelo Drake contam como cobertura real.
+  const periodosEConfirmadosByColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodos.filter((p) => p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO).forEach((p) => {
+      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
+      m.get(p.colaborador_id)!.push(p);
+    });
+    return m;
+  }, [periodos]);
 
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
@@ -1530,7 +1581,8 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       // mostrar "1/1" quando na real tem 2 semanas, uma delas ainda não recebida.
       const total = Math.max(totalSemanasEsperadas(e.data_inicio_embarque, e.data_fim_embarque), semanasDoEmbarque.length);
       const funcaoEfetiva = funcaoEfetivaDoEmbarque(e, semanasDoEmbarque);
-      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva };
+      const orfao = embarqueOrfaoDoHistograma(e, periodosEConfirmadosByColaborador.get(e.colaborador_id) ?? []);
+      return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva, orfao };
     })
     .filter((r) =>
       (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
@@ -1566,7 +1618,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
           return 0;
       }
     }),
-  [embarques, semanasByEmbarqueId, colabById, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
+  [embarques, semanasByEmbarqueId, colabById, periodosEConfirmadosByColaborador, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
 
   return (
     <div className="space-y-4">
@@ -1627,7 +1679,16 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
               <EmptyStateRow colSpan={8} icon={CheckCircle2} title="Nenhum timesheet físico pendente" description="Todos os embarques já tiveram o físico recebido por completo." />
             ) : pendencias.map((r) => (
               <TableRow key={r.embarque.id}>
-                <TableCell className="font-medium">{r.colaborador?.nome ?? "—"}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-1.5">
+                    {r.colaborador?.nome ?? "—"}
+                    {r.orfao && (
+                      <span title="Este período não tem mais nenhum embarque confirmado correspondente no Histograma Offshore atual — pode ter sido corrigido/alterado no Drake depois de criado aqui. Confira antes de lançar ou fechar essas horas.">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
                 <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}</TableCell>
@@ -1663,6 +1724,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
               periodo={periodoCorrespondente(lancandoEmbarque, periodosByColaborador.get(lancandoEmbarque.colaborador_id) ?? [])}
               periodos={periodos}
               diasFaltando={[]}
+              orfao={pendencias.find((r) => r.embarque.id === lancandoEmbarque.id)?.orfao ?? false}
               readOnly={readOnly}
             />
           )}
@@ -1674,8 +1736,8 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
 
 // Painel de lançamento semanal de horas de um embarque específico — aberto via o ícone
 // "Lançar horas" na linha do embarque (não existe mais como aba separada).
-function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, diasFaltando, readOnly = false }: {
-  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; diasFaltando: string[]; readOnly?: boolean;
+function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, diasFaltando, orfao = false, readOnly = false }: {
+  embarque: TimesheetEmbarque; colaborador?: HistNovoColaborador; periodo?: HistNovoPeriodo; periodos: HistNovoPeriodo[]; diasFaltando: string[]; orfao?: boolean; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const [selectedSemanaId, setSelectedSemanaId] = useState("");
@@ -1858,6 +1920,15 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
           {semanas.length === 0 && <p className="text-xs text-muted-foreground py-2">Nenhuma semana lançada ainda.</p>}
         </div>
       </Card>
+
+      {orfao && (
+        <div className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-900">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          Este período não tem mais nenhum embarque confirmado correspondente no Histograma Offshore atual — pode ter
+          sido corrigido/alterado no Drake depois que este lançamento foi criado. Confira antes de lançar ou fechar
+          essas horas.
+        </div>
+      )}
 
       {diasFaltando.length > 0 && (
         <div

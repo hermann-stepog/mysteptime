@@ -747,7 +747,7 @@ function HospedagemPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div className="flex items-center gap-2">
         <BedDouble className="h-6 w-6 text-muted-foreground" />
         <h1 className="text-2xl font-semibold">Hospedagem</h1>

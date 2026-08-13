@@ -40,7 +40,7 @@ function PmLayout() {
             <BrandLogo className="h-8 w-auto" />
             <div className="hidden sm:block">
               <p className="text-[11px] font-semibold text-white/90">My Step Time</p>
-              <p className="text-[10px] text-white/50">Área do PM</p>
+              <p className="text-[10px] text-white/50">Área do Solicitante</p>
             </div>
           </div>
           <div className="flex items-center gap-3">

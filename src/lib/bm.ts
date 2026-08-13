@@ -129,7 +129,7 @@ export interface BmMobDesmobCost {
   invoice_uploaded_at: string | null;
 }
 
-export type MaterialCategoria = "habitat" | "rental" | "consumable";
+export type MaterialCategoria = "habitat" | "rental" | "consumable" | "mob_desmob_materiais";
 
 export interface BmLineMateriais {
   id: string;

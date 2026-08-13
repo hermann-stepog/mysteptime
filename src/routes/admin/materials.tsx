@@ -14,6 +14,8 @@ import { notify } from "@/lib/notify";
 import * as XLSX from "xlsx";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { NewMaterialDialog, VOLUMES } from "@/components/MaterialMultiSelect";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 
 export const Route = createFileRoute("/admin/materials")({ head: () => pageTitle("Materiais"), component: MaterialsPage });
@@ -35,7 +37,7 @@ function MaterialsPage() {
   const [editing, setEditing] = useState<Row | null>(null);
   const [importing, setImporting] = useState(false);
 
-  const { data: rows = [] } = useQuery({
+  const { data: rows = [], isLoading } = useQuery({
     queryKey: ["materials-all"],
     queryFn: async () => {
       const { data, error } = await supabase.from("materials").select("*").order("volume");
@@ -119,8 +121,39 @@ function MaterialsPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-40" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-40" />
+            <Skeleton className="h-9 w-44" />
+          </div>
+        </div>
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Volume</TableHead>
+                <TableHead>Qtd</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-24"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableSkeleton rows={8} cols={5} />
+          </Table>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Materiais</h1>
