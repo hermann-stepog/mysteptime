@@ -241,6 +241,14 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </div>
       )}
 
+      {custoTotal(trip) != null && (
+        <div className="mt-2">
+          <span className="inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
+            Valor: {fmtMoney(custoTotal(trip)!)}
+          </span>
+        </div>
+      )}
+
       <div className="mt-2 text-sm space-y-0.5">
         <div>
           <span className="text-muted-foreground">{trip.origin}</span>

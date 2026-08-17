@@ -1271,7 +1271,6 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias: number | null
-          drake_event_key: string | null
           id: string
           origem: string | null
           tipo: string
@@ -1285,7 +1284,6 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias?: number | null
-          drake_event_key?: string | null
           id?: string
           origem?: string | null
           tipo: string
@@ -1299,7 +1297,6 @@ export type Database = {
           data_fim?: string
           data_inicio?: string
           dias?: number | null
-          drake_event_key?: string | null
           id?: string
           origem?: string | null
           tipo?: string
