@@ -1271,7 +1271,6 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias: number | null
-          drake_event_key: string | null
           id: string
           origem: string | null
           tipo: string
@@ -1285,7 +1284,6 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias?: number | null
-          drake_event_key?: string | null
           id?: string
           origem?: string | null
           tipo: string
@@ -1299,7 +1297,6 @@ export type Database = {
           data_fim?: string
           data_inicio?: string
           dias?: number | null
-          drake_event_key?: string | null
           id?: string
           origem?: string | null
           tipo?: string
@@ -1995,7 +1992,6 @@ export type Database = {
           funcao_embarque: string | null
           id: string
           periodo_id: string | null
-          source_event_key: string | null
           status_entrega: string
           unidade_operacional: string | null
         }
@@ -2009,7 +2005,6 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
-          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }
@@ -2023,7 +2018,6 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
-          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }
