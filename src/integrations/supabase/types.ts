@@ -1992,6 +1992,7 @@ export type Database = {
           funcao_embarque: string | null
           id: string
           periodo_id: string | null
+          source_event_key: string | null
           status_entrega: string
           unidade_operacional: string | null
         }
@@ -2005,6 +2006,7 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
+          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }
@@ -2018,6 +2020,7 @@ export type Database = {
           funcao_embarque?: string | null
           id?: string
           periodo_id?: string | null
+          source_event_key?: string | null
           status_entrega?: string
           unidade_operacional?: string | null
         }

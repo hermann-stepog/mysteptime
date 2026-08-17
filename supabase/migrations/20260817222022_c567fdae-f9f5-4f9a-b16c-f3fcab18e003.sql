@@ -1,0 +1,2 @@
+ALTER TABLE public.timesheet_embarques ADD COLUMN IF NOT EXISTS source_event_key text;
+CREATE INDEX IF NOT EXISTS timesheet_embarques_source_event_key_idx ON public.timesheet_embarques (source_event_key);
