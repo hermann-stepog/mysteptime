@@ -1,0 +1,16 @@
+\set ON_ERROR_STOP on
+
+\if :{?run_csv}
+\else
+  \echo 'Informe -v run_csv=... -v collaborator_csv=... -v period_csv=... -v function_csv=... -v event_csv=... -v jornada_csv=...'
+  \quit 2
+\endif
+
+BEGIN;
+\copy legacy_access.runs(run_id,source_file,source_sha256,source_modified_at,status,notes) FROM :'run_csv' WITH (FORMAT csv, HEADER true, DELIMITER ';')
+\copy legacy_access.colaborador_map(run_id,legacy_code,matricula_base,sufixo,empresa_esperada,resolution_status,resolved_collaborator_id,source_name,current_name,proposed_matricula,proposed_nome,review_note,source_payload) FROM :'collaborator_csv' WITH (FORMAT csv, HEADER true, DELIMITER ';')
+\copy legacy_access.periodo_stage(run_id,source_key,source_kind,legacy_code,colaborador_id,unidade_operacional,bsp,tipo,data_inicio,data_fim,dias,origem,source_hash,source_payload,target_period_id,review_status,overlap_status,existing_period_id,blocking_reasons,review_note) FROM :'period_csv' WITH (FORMAT csv, HEADER true, DELIMITER ';')
+\copy legacy_access.funcao_stage(run_id,source_key,legacy_code,colaborador_id,funcao,embarcacao,data_inicio,data_fim,cod_alocacao,source_hash,source_payload,target_function_id,review_status,existing_function_id,blocking_reasons,review_note) FROM :'function_csv' WITH (FORMAT csv, HEADER true, DELIMITER ';')
+\copy legacy_access.evento_stage(run_id,source_key,cod_horas_semanal,cod_alocacao,legacy_code,event_code,event_label,handling_status,mapped_tipo,data_inicio,data_fim,inicio_hora_extra,fim_hora_extra,qtd_horas,jornada,projeto,nam,comentarios,source_hash,source_payload,review_status,review_note) FROM :'event_csv' WITH (FORMAT csv, HEADER true, DELIMITER ';')
+\copy legacy_access.jornada_stage(run_id,jornada_code,turno,tipo_jornada,tempo_jornada,intervalo_jornada,descricao_jornada,inicio_jornada,termino_jornada,tempo_paradas,duracao_jornada,inicio_normal_hora_extra,inicio_adicional_noturno,termino_adicional_noturno,duracao_adicional_noturno,source_hash,source_payload) FROM :'jornada_csv' WITH (FORMAT csv, HEADER true, DELIMITER ';')
+COMMIT;

@@ -22,7 +22,10 @@
     "drake:auth:validate": "node scripts/drake-auth-validate.mjs",
     "drake:scheduler:test-times": "tsx scripts/drake-scheduler-test-times.ts",
     "drake:scheduler:run-now": "tsx scripts/drake-scheduler-run-now.ts",
-    "drake:verify:lovable-bundle": "node scripts/drake-verify-lovable-bundle.mjs"
+    "drake:verify:lovable-bundle": "node scripts/drake-verify-lovable-bundle.mjs",
+    "access-history:build-stage": "node scripts/access-history-migration/build-stage.mjs",
+    "access-history:snapshot": "node scripts/access-history-migration/export-supabase-snapshot.mjs",
+    "access-history:test": "node --test scripts/access-history-migration/*.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

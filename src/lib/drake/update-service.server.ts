@@ -140,7 +140,7 @@ async function updateDrakeDataInner(
     const syncStarted = Date.now();
     let lastEmittedWorkerProgress = -1;
     const summary = await withSessionRetry((ctx) =>
-      synchronizeCurrentDrakeAnnualPositions(db, ctx, year, period.apiEndDate, {
+      synchronizeCurrentDrakeAnnualPositions(db, ctx, year, period.apiStartDate, {
         onWorkersLoaded: async (totalWorkers) => {
           await emit("loading-annual-positions", {
             status: "downloading",

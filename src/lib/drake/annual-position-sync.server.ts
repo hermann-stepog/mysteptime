@@ -7,7 +7,9 @@ import {
 } from "./worker-annual-position-api.server";
 import {
   buildAnnualPositionSnapshot,
+  buildDrakeTimesheetPlans,
   buildWorkerKey,
+  catalogAnnualPositionOccurrences,
   type AnnualPositionWorkerRow,
 } from "@/lib/histograma/drake-snapshot";
 import { importAnnualPositionSnapshot } from "@/lib/histograma/import-annual-position.server";
@@ -46,13 +48,17 @@ export async function synchronizeCurrentDrakeAnnualPositions(
 ): Promise<AnnualPositionSyncResult> {
   const activeWorkers = await fetchDrakeWorkers(http);
 
-  await synchronizeDrakeWorkerActiveFlags(
-    db,
-    activeWorkers,
-  );
+  // Segurança destrutiva:
+  // uma resposta vazia do Drake não pode significar "todo mundo inativo".
+  // Pode ser falha de consulta, autenticação, filtro ou indisponibilidade.
+  if (activeWorkers.length === 0) {
+    throw new Error(
+      "O Drake não devolveu colaboradores ATIVOS. A sincronização foi interrompida e o banco não foi alterado.",
+    );
+  }
 
-  // Congelado antes de qualquer gravacao desta execucao.
-  // Um E criado agora nunca torna outro colaborador elegivel.
+  // Congelado antes de qualquer gravação desta execução.
+  // Um E criado agora nunca torna outro colaborador elegível.
   const eligibleWorkerKeys = await loadEligibleWorkerKeys(db);
 
   const workers = filterWorkersWithEmbarkationHistory(
@@ -95,28 +101,97 @@ export async function synchronizeCurrentDrakeAnnualPositions(
       }),
     }),
   );
+  // Varre TODAS as ocorrências antes de qualquer gravação.
+  // Assim, uma única execução revela o catálogo completo do Drake.
+  const occurrenceCatalog =
+    catalogAnnualPositionOccurrences(sourceRows);
+
+  console.info(
+    "[drake-update] CATALOGO COMPLETO DA FICHA ANUAL",
+    occurrenceCatalog.all.map((item) => ({
+      sigla: item.acronym,
+      descricao: item.description,
+      tipo: item.occurrenceType,
+      mapeadoComo: item.mappedType,
+      mapeado: item.mapped,
+      quantidade: item.count,
+    })),
+  );
+
+  if (occurrenceCatalog.unknown.length > 0) {
+    console.error(
+      "[drake-update] OCORRENCIAS SEM MAPEAMENTO",
+      occurrenceCatalog.unknown.map((item) => ({
+        sigla: item.acronym,
+        descricao: item.description,
+        tipo: item.occurrenceType,
+        quantidade: item.count,
+      })),
+    );
+
+    const unknownLines = occurrenceCatalog.unknown
+      .map(
+        (item) =>
+          `- ${item.acronym || "<SEM SIGLA>"} | ` +
+          `${item.description || "<SEM DESCRICAO>"} | ` +
+          `${item.occurrenceType ?? "<SEM TIPO>"} | ` +
+          `${item.count} ocorrência(s)`,
+      )
+      .join("\n");
+
+    throw new Error(
+      `A Ficha Anual do Drake possui ` +
+      `${occurrenceCatalog.unknown.length} ocorrência(s) distinta(s) ` +
+      `sem mapeamento:\n${unknownLines}\n` +
+      "A sincronização foi interrompida antes de qualquer gravação.",
+    );
+  }
+
+  // Só constrói o snapshot quando TODO o catálogo estiver conhecido.
   const snapshot = buildAnnualPositionSnapshot(sourceRows);
+
+  // Nenhuma gravação no banco acontece antes deste hook.
   await hooks.onBeforeDatabaseSync?.();
+
+  // Só depois de toda a fonte Drake ser considerada válida atualizamos ativo/inativo.
+  await synchronizeDrakeWorkerActiveFlags(
+    db,
+    activeWorkers,
+    eligibleWorkerKeys,
+  );
+
   const result = await importAnnualPositionSnapshot(db, snapshot, {
     startDate: cutoffDate,
     endDate: `${year}-12-31`,
   });
 
   const workerByKey = new Map(snapshot.workers.map((worker) => [worker.workerKey, worker]));
-  for (const period of result.insertedPeriods) {
-    if (period.tipo !== "E") continue;
-    const worker = workerByKey.get(period.workerKey);
+  const timesheetPlans = buildDrakeTimesheetPlans(snapshot);
+  for (const plan of timesheetPlans) {
+    const worker = workerByKey.get(plan.workerKey);
     if (!worker) {
-      throw new Error("O Drake devolveu um novo embarque sem colaborador correspondente.");
+      throw new Error("O Drake devolveu um timesheet sem colaborador correspondente.");
     }
+    const collaboratorId = result.collaboratorIdByWorkerKey.get(plan.workerKey);
+    if (!collaboratorId) continue;
+    const linkedPeriod = result.insertedPeriods.find(
+      (period) =>
+        period.workerKey === plan.workerKey &&
+        period.dataInicio <= plan.dataInicio &&
+        period.dataFim >= plan.dataInicio &&
+        (period.tipo === "E" || period.tipo === "DB"),
+    );
+
     await createTimesheetForNewPeriodIfAbsent(db, {
-      colaboradorId: period.colaboradorId,
-      periodoId: period.id,
-      unidadeOperacional: period.unidadeOperacional,
-      bsp: period.centroDeCusto,
+      colaboradorId: collaboratorId,
+      periodoId: linkedPeriod?.id ?? null,
+      sourceEventKey: plan.sourceEventKey,
+      unidadeOperacional: plan.unidadeOperacional,
+      bsp: plan.centroDeCusto,
       funcaoEmbarque: worker.funcao || worker.funcaoOperacao || "—",
-      dataInicio: period.dataInicio,
-      dataFim: period.dataFim,
+      dataInicio: plan.dataInicio,
+      dataFim: plan.dataFim,
+      sourceDays: plan.days,
     });
   }
 
@@ -136,6 +211,7 @@ async function synchronizeDrakeWorkerActiveFlags(
   activeWorkers: Awaited<
     ReturnType<typeof fetchDrakeWorkers>
   >,
+  eligibleWorkerKeys: ReadonlySet<string>,
 ): Promise<void> {
   const activeKeys = new Set(
     activeWorkers.map((worker) =>
@@ -190,13 +266,18 @@ async function synchronizeDrakeWorkerActiveFlags(
       continue;
     }
 
-    const shouldBeActive =
-      activeKeys.has(
-        buildWorkerKey(
-          worker.empresa,
-          worker.matricula,
-        ),
-      );
+    const workerKey = buildWorkerKey(
+      worker.empresa,
+      worker.matricula,
+    );
+
+    // A atualização do Drake não altera colaboradores que nunca fizeram
+    // parte do Histograma operacional (sem E pré-existente).
+    if (!eligibleWorkerKeys.has(workerKey)) {
+      continue;
+    }
+
+    const shouldBeActive = activeKeys.has(workerKey);
 
     if (worker.ativo === shouldBeActive) {
       continue;

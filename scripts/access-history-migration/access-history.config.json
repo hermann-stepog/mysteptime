@@ -1,0 +1,75 @@
+{
+  "origin": "access_legado",
+  "companyBySuffix": {
+    "_1": "STEP OIL & GAS SERVICOS LTDA",
+    "_2": "STEP ENERGY DO BRASIL INDUSTRIA E SERVICOS LTDA",
+    "_3": "EXPATRIADOS",
+    "_4": "PETROHAB OIL & GAS SERVICOS LTDA"
+  },
+  "companyAliases": {
+    "STEP OIL & GAS SERVIÇOS LTDA": "STEP OIL & GAS SERVICOS LTDA",
+    "STEP ENERGY DO BRASIL INDÚSTRIA E SERVIÇOS LTDA": "STEP ENERGY DO BRASIL INDUSTRIA E SERVICOS LTDA",
+    "PETROHAB OIL & GAS SERVIÇOS LTDA": "PETROHAB OIL & GAS SERVICOS LTDA"
+  },
+  "unitAliases": {
+    "SAQUAREMA": "FPSA - CIDADE DE SAQUAREMA",
+    "ANCHIETA": "CDAN - CIDADE ANCHIETA",
+    "GUSMAO": "ALEXANDRE GUSMÃO",
+    "GUSMÃO": "ALEXANDRE GUSMÃO",
+    "ILHA BELA": "CDI - CIDADE ILHA BELA",
+    "MARICA": "FPMR - CIDADE DE MARICA",
+    "MARICÁ": "FPMR - CIDADE DE MARICA"
+  },
+  "eventTypeByLabel": {
+    "EMBARQUE": "E",
+    "EMBARCADO": "E",
+    "DESEMBARQUE": "DES",
+    "DOBRA": "DB",
+    "HOTEL PRE-EMBARQUE": "HTL",
+    "QUARENTENA HOTEL": "HTL",
+    "FERIAS": "FE",
+    "FOLGA": "F",
+    "STANDBY": "STB",
+    "ATESTADO MEDICO": "AT",
+    "LICENCA MEDICA": "LM",
+    "TRABALHO EXTERNO": "TE",
+    "HOTEL": "HTL",
+    "EMBARQUE CANCELADO": "CANC",
+    "HOTEL EMBARQUE CANCELADO": "CANC",
+    "INTEGRACAO": "TR",
+    "TREINAMENTO": "TR",
+    "AFASTAMENTO": "AFA",
+    "FOLGA INDENIZADA": "FI",
+    "FOLGA INDENIZADA HOTEL": "FIH",
+    "FOLGA INDENIZADA FERIAS": "FIF",
+    "FOLGA INDENIZADA CANCELAMENTO": "FIC",
+    "FOLGA INDENIZADA TREINAMENTO": "FIT",
+    "FALTA": "FT",
+    "NO SHOW": "NS",
+    "A DISPOSICAO": "AD"
+  },
+  "eventRawOnlyLabels": ["HORA EXTRA"],
+  "openAllocationPolicy": "function_only",
+  "identityAssertions": {
+    "000837_1": {
+      "expectedName": "LUCAS MIRANDA DOS SANTOS",
+      "reviewDecision": "create_approved",
+      "reviewedAtUtc": "2026-08-12T20:20:00.000Z",
+      "evidence": "dbo_Funcionario: CdChamada 000837 / Codigo_Interno 000837_1"
+    },
+    "900280_3": {
+      "expectedName": "LUIZ FELIPE RANGEL DE SOUZA",
+      "reviewDecision": "create_approved",
+      "reviewedAtUtc": "2026-08-12T20:20:00.000Z",
+      "evidence": "dbo_Funcionario: CdChamada 900280 / Codigo_Interno 900280_3"
+    },
+    "900322_3": {
+      "forceUnidentified": true,
+      "reviewDecision": "placeholder_approved",
+      "reviewedAtUtc": "2026-08-12T20:20:00.000Z",
+      "proposedSyntheticMatricula": "LEGACY:900322_3",
+      "proposedName": "[LEGADO NÃO IDENTIFICADO] 900322_3",
+      "evidence": "Cadastro ausente; 11 alocações SUPERVISOR preservadas na Tbl_JobList. Não associar a uma pessoa sem evidência."
+    }
+  }
+}

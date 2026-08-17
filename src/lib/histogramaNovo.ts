@@ -5,9 +5,32 @@
 // "BASE" é lançado só pela importação do relatório da base (ver DrakeUpdateCard) — nunca
 // vem do Drake nem é escolhido no formulário manual de período, é sempre derivado do
 // cruzamento desse relatório com quem está de Folga/Standby no momento.
-export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC" | "BASE";
+export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC" | "BASE" | "DB" | "DES" | "LM" | "LMV" | "TR" | "AD" | "FIH" | "AFA" | "FIF" | "FIC" | "FIT" | "FT" | "NS";
 
 export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "BASE", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL", "CANC"];
+
+const TIPO_VALIDOS: readonly TipoPeriodo[] = [
+  ...TIPO_ORDER,
+  "DB",
+  "DES",
+  "LM",
+  "LMV",
+  "TR",
+  "AD",
+  "FIH",
+
+  "AFA",
+
+  "FIF",
+
+  "FIC",
+
+  "FIT",
+
+  "FT",
+
+  "NS",
+];
 
 export const TIPO_COLOR: Record<TipoPeriodo, string> = {
   P: "#d1d5db",   // programado — cinza claro
@@ -24,6 +47,19 @@ export const TIPO_COLOR: Record<TipoPeriodo, string> = {
   FI: "#ED93B1",  // folga indenizada — rosa
   HTL: "#F2A9AE", // hotel — rosa salmão (igual ao Drake)
   CANC: "#A78BFA", // embarque cancelado — roxo claro
+  DB: "#DC2626",
+  DES: "#f59e0b",
+  LM: "#EF9F27",
+  LMV: "#EF9F27",
+  TR: "#e2e8f0",
+  AD: "#e2e8f0",
+  FIH: "#D46A8C",
+  AFA: "#EF9F27",
+  FIF: "#ED93B1",
+  FIC: "#ED93B1",
+  FIT: "#ED93B1",
+  FT: "#B91C1C",
+  NS: "#991B1B",
 };
 
 // Sigla exibida na grade — separada da chave interna (usada em dados/lógica) pra poder
@@ -58,6 +94,19 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
   FI: "Folga Indenizada",
   HTL: "Hotel",
   CANC: "Embarque Cancelado",
+  DB: "Dobra",
+  DES: "Desembarque",
+  LM: "Licença Médica",
+  LMV: "Licença Médica",
+  TR: "Treinamento",
+  AD: "À Disposição",
+  FIH: "Folga Indenizada Hotel",
+  AFA: "Afastamento",
+  FIF: "Folga Indenizada Férias",
+  FIC: "Folga Indenizada Cancelamento",
+  FIT: "Folga indenizada treinamento",
+  FT: "FALTA",
+  NS: "No Show",
 };
 
 // Status computado por dia por colaborador (o que a grade exibe), derivado por prioridade
@@ -65,9 +114,21 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
 // (Dobra), que nunca são lançados diretamente, só calculados. "DI" (Disponível) foi retirado
 // como status computado — quem não tem período cobrindo o dia (ou tem EC/DI cru) agora
 // aparece como "STB" (Standby), que passou a representar quem está realmente disponível.
-export type ComputedStatus = "P" | "E" | "BASE" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC";
+export type ComputedStatus = "P" | "E" | "BASE" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC" | "EC" | "DI" | "LM" | "LMV" | "TR" | "AD" | "AFA" | "FIF" | "FIC" | "FIT" | "FT" | "NS";
 
-export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "BASE", "AT", "FE", "STB", "F", "TE", "HTL", "FIH", "DDN", "DES", "FI", "DB", "CANC"];
+export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "BASE", "AT", "FE", "STB", "F", "TE", "HTL", "FIH", "DDN", "DES", "FI", "DB", "CANC", "EC", "DI", "LM", "LMV", "TR", "AD",
+  "AFA",
+
+  "FIF",
+
+  "FIC",
+
+  "FIT",
+
+  "FT",
+
+  "NS",
+];
 
 export const STATUS_COLOR: Record<ComputedStatus, string> = {
   P: "#d1d5db",
@@ -79,12 +140,24 @@ export const STATUS_COLOR: Record<ComputedStatus, string> = {
   F: "#E8DCC0",   // folga — bege claro (igual ao Drake)
   TE: "#BA7517",
   HTL: "#F2A9AE", // hotel — rosa salmão (igual ao Drake)
-  FIH: "#D46A8C",  // foi embarcar e ficou no hotel antes — rosa mais escuro que Hotel puro
+  FIH: "#D46A8C",  // Folga Indenizada Hotel — ocorrência explícita da Ficha Anual Drake
   DDN: "#F3F6F8", // branco gelo
   DES: "#f59e0b",  // desembarque — âmbar
   FI: "#ED93B1",
   DB: "#DC2626",   // dobra — vermelho, cor de alerta (sigla exibida vira "D", ver DISPLAY_ABBR)
   CANC: "#A78BFA", // embarque cancelado — roxo claro
+  EC: "#97C459",
+  DI: "#e5e7eb",
+  LM: "#EF9F27",
+  LMV: "#EF9F27",
+  TR: "#e2e8f0",
+  AD: "#e2e8f0",
+  AFA: "#EF9F27",
+  FIF: "#ED93B1",
+  FIC: "#ED93B1",
+  FIT: "#ED93B1",
+  FT: "#B91C1C",
+  NS: "#991B1B",
 };
 
 export const STATUS_LABEL: Record<ComputedStatus, string> = {
@@ -97,12 +170,24 @@ export const STATUS_LABEL: Record<ComputedStatus, string> = {
   F: "Folga",
   TE: "Trabalho Externo",
   HTL: "Hotel",
-  FIH: "Foi Embarcar e Ficou no Hotel",
+  FIH: "Folga Indenizada Hotel",
   DDN: "Desembarque em Dia Não Útil",
   DES: "Desembarque",
   FI: "Folga Indenizada",
   DB: "Dobra",
   CANC: "Embarque Cancelado",
+  EC: "Empresa em Casa",
+  DI: "Disponível",
+  LM: "Licença Médica",
+  LMV: "Licença Médica",
+  TR: "Treinamento",
+  AD: "À Disposição",
+  AFA: "Afastamento",
+  FIF: "Folga Indenizada Férias",
+  FIC: "Folga Indenizada Cancelamento",
+  FIT: "Folga indenizada treinamento",
+  FT: "FALTA",
+  NS: "No Show",
 };
 
 // Cor do "E" gerado automaticamente ao programar um colaborador (dias após o 1º dia
@@ -191,7 +276,7 @@ export function getContrastText(hex: string): string {
 }
 
 export function isTipoPeriodo(v: string): v is TipoPeriodo {
-  return (TIPO_ORDER as string[]).includes(v);
+  return (TIPO_VALIDOS as readonly string[]).includes(v);
 }
 
 const MONTH_LABEL = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -321,15 +406,7 @@ function daysBetween(a: string, b: string): number {
   return Math.round((new Date(by, bm - 1, bd).getTime() - new Date(ay, am - 1, ad).getTime()) / 86400000);
 }
 
-// O evento "Desembarque em Dia Não Útil" do relatório de Disponibilidade costuma vir com uma
-// faixa de datas que começa num dia útil (ex.: sexta) e vai até o fim do trecho não-útil
-// (domingo) — não é 1 dia só. Usamos isso só pra decidir, dentro dessa faixa, quais dias são
 // realmente sábado/domingo (não temos calendário de feriados no app).
-function isFimDeSemana(dateStr: string): boolean {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dow = new Date(y, m - 1, d).getDay();
-  return dow === 0 || dow === 6;
-}
 
 export interface DayStatusResult {
   status: ComputedStatus;
@@ -363,8 +440,164 @@ function embarqueTemDataFimPlaceholder(p: HistNovoPeriodo): boolean {
   return daysBetween(p.data_inicio, p.data_fim) + 1 > EMBARQUE_DURACAO_MAX_RAZOAVEL_DIAS;
 }
 
+const DRAKE_STATUS_BY_TIPO: Record<string, ComputedStatus> = {
+  P: "P",
+  E: "E",
+  F: "F",
+  FE: "FE",
+  STB: "STB",
+  AT: "AT",
+  EC: "EC",
+  DDN: "DDN",
+  TE: "TE",
+  DI: "DI",
+  FI: "FI",
+  HTL: "HTL",
+  CANC: "CANC",
+  DB: "DB",
+  DES: "DES",
+  LM: "LM",
+  LMV: "LMV",
+  TR: "TR",
+  AD: "AD",
+  FIH: "FIH",
+  AFA: "AFA",
+  FIF: "FIF",
+  FIC: "FIC",
+  FIT: "FIT",
+  FT: "FT",
+  NS: "NS",
+};
 export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): DayStatusResult {
-  const covering = (tipo: string) => periodos.find((p) => p.tipo === tipo && date >= p.data_inicio && date <= p.data_fim);
+  const covering = (tipo: string) =>
+    periodos.find(
+      (p) =>
+        p.tipo === tipo &&
+        date >= p.data_inicio &&
+        date <= p.data_fim,
+    );
+
+  /*
+   * REGRA P x DRAKE
+   *
+   * P é planejamento, não verdade histórica.
+   *
+   * PASSADO / HOJE:
+   *   se existe posição Drake para o dia, o Drake é autoritativo.
+   *   E => E, F => F, H => H, STB => STB, etc.
+   *
+   * FUTURO:
+   *   uma programação local continua P enquanto o Drake estiver apenas
+   *   em STB/P ou não possuir ocorrência para aquele dia.
+   *
+   *   Se o Drake já registrar uma ocorrência efetiva diferente,
+   *   essa ocorrência passa a vencer o P.
+   *
+   * O período P não é apagado do banco. Ele continua servindo como
+   * histórico do que havia sido programado.
+   */
+
+  const origemNormalizada = (p: HistNovoPeriodo) =>
+    (p.origem ?? "").trim().toLowerCase();
+
+  const cobreData = (p: HistNovoPeriodo) =>
+    date >= p.data_inicio &&
+    date <= p.data_fim;
+
+  // Primeiro dia da programação pode estar como P/manual.
+  // Continuação da programação pode estar como E/origem=programado.
+  const programadoLocal = periodos.find(
+    (p) =>
+      cobreData(p) &&
+      (
+        (
+          p.tipo === "P" &&
+          origemNormalizada(p) !== "drake"
+        ) ||
+        (
+          p.tipo === "E" &&
+          p.origem === ORIGEM_PROGRAMADO
+        )
+      ),
+  );
+
+  const drakePeriodo = periodos.find(
+    (p) =>
+      origemNormalizada(p) === "drake" &&
+      cobreData(p),
+  );
+
+  let drakeStatus: ComputedStatus | null = null;
+
+  if (drakePeriodo) {
+    drakeStatus =
+      DRAKE_STATUS_BY_TIPO[drakePeriodo.tipo] ?? null;
+
+    // Continua fail-closed:
+    // nenhuma sigla desconhecida do Drake pode ser reinterpretada.
+    if (!drakeStatus) {
+      throw new Error(
+        `Período Drake com tipo não suportado: "${drakePeriodo.tipo}". ` +
+        "O Histograma recusou inferir outro status.",
+      );
+    }
+  }
+
+  const dataHoje = todayStr();
+
+  if (programadoLocal) {
+    // PASSADO E HOJE:
+    // planejamento já deveria ter sido confirmado ou frustrado.
+    // Se o Drake sabe o resultado, ele passa a ser a verdade.
+    if (date <= dataHoje) {
+      if (drakePeriodo && drakeStatus) {
+        return {
+          status: drakeStatus,
+          periodo: drakePeriodo,
+        };
+      }
+
+      // Sem informação Drake, não inventamos resultado.
+      // Preserva P até que uma sincronização traga a posição real.
+      return {
+        status: "P",
+        periodo: programadoLocal,
+      };
+    }
+
+    // FUTURO:
+    // STB é o estado normal/default e não cancela uma programação futura.
+    // P do próprio Drake obviamente também continua P.
+    if (
+      !drakePeriodo ||
+      drakeStatus === "STB" ||
+      drakeStatus === "P"
+    ) {
+      return {
+        status: "P",
+        periodo: programadoLocal,
+      };
+    }
+
+    // Qualquer outra ocorrência explícita já registrada pelo Drake
+    // substitui visualmente a programação.
+    if (!drakePeriodo || !drakeStatus) {
+      throw new Error("A posição futura do Drake não pôde ser resolvida.");
+    }
+    return {
+      status: drakeStatus,
+      periodo: drakePeriodo,
+    };
+  }
+
+  // Sem programação local, a Ficha Anual continua sendo
+  // absolutamente autoritativa.
+  if (drakePeriodo && drakeStatus) {
+    return {
+      status: drakeStatus,
+      periodo: drakePeriodo,
+    };
+  }
 
   const at = covering("AT");
   if (at) return { status: "AT", periodo: at };
@@ -418,31 +651,18 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
     return { status: "F", periodo: folga };
   }
 
-  // Desembarque em Dia Não Útil: vem direto do relatório de Disponibilidade como evento
-  // próprio, mas a faixa importada costuma começar num dia útil (ex.: sexta) e só terminar
-  // no fim do fim de semana — só o(s) dia(s) que caem em sábado/domingo mostram "DDN"; o(s)
-  // dia(s) útil(eis) dentro da mesma faixa mostram "DES" (é o dia em que o desembarque
-  // realmente aconteceu, só que o resto do trecho não-útil ficou registrado junto).
+  // DDN vem explicitamente da Ficha Anual do Drake.
+  // Não reinterpretar conforme dia da semana.
   const ddn = covering("DDN");
-  if (ddn) return isFimDeSemana(date) ? { status: "DDN", periodo: ddn } : { status: "DES", periodo: ddn };
+  if (ddn) return { status: "DDN", periodo: ddn };
 
   const te = covering("TE");
   if (te) return { status: "TE", periodo: te };
 
   const htl = covering("HTL");
-  if (htl) {
-    // "Foi embarcar e ficou no hotel antes de embarcar" (FIH): esse hotel não é qualquer
-    // hospedagem, é especificamente a estadia logo antes de um embarque real do mesmo
-    // colaborador — reconhecido quando existe um período "E" começando em até 3 dias depois
-    // do fim desse hotel (janela curta o bastante pra não confundir com uma hospedagem
-    // qualquer sem relação com o próximo embarque).
-    const embarqueLogoDepois = periodos.some((p) => {
-      if (p.tipo !== "E") return false;
-      const gap = daysBetween(htl.data_fim, p.data_inicio);
-      return gap >= 0 && gap <= 3;
-    });
-    return { status: embarqueLogoDepois ? "FIH" : "HTL", periodo: htl };
-  }
+  // "H" do Drake é armazenado internamente como HTL e exibido como H via displayAbbr.
+  // Não transformar Hotel explícito do Drake em FIH por inferência.
+  if (htl) return { status: "HTL", periodo: htl };
 
   const canc = covering("CANC");
   if (canc) return { status: "CANC", periodo: canc };
@@ -508,6 +728,7 @@ export function toOldBucket(status: ComputedStatus): OldBucket {
     // como folga — pra taxa de ocupação/POB ele conta como embarcado normalmente, a folga vira
     // só uma questão de compensação (pagamento), não de presença física.
     case "FI":
+    case "FIF":
       return "E";
     case "P":
       return "P";
@@ -526,6 +747,7 @@ export function toOldBucket(status: ComputedStatus): OldBucket {
     case "TE":
       return "TE";
     case "AT":
+    case "AFA":
     case "DDN":
       return "IND";
     default:

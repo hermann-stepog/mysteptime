@@ -18,7 +18,19 @@ export async function gerarSemanasEDias(
   dataInicio: string,
   dataFim: string,
   bsp: string | null = null,
+  sourceDays?: DrakeTimesheetSourceDay[],
 ): Promise<void> {
+  if (sourceDays) {
+    await gerarSemanasEDiasExatosDoDrake(
+      supabase,
+      embarqueId,
+      dataInicio,
+      dataFim,
+      sourceDays,
+    );
+    return;
+  }
+
   let semanaInicio = mondayOf(dataInicio);
   while (semanaInicio <= dataFim) {
     const semanaFim = addDaysStr(semanaInicio, 6);
@@ -49,6 +61,79 @@ export async function gerarSemanasEDias(
     }
 
     semanaInicio = addDaysStr(semanaFim, 1);
+  }
+}
+
+export interface DrakeTimesheetSourceDay {
+  data: string;
+  evento: "Embarque" | "Dobra";
+  bsp: string | null;
+}
+
+/**
+ * A Ficha Anual já informa E/D para cada data. Neste fluxo não completamos a
+ * semana com linhas vazias e não recalculamos Dobra pela duração do embarque.
+ */
+async function gerarSemanasEDiasExatosDoDrake(
+  supabase: SupabaseClient,
+  embarqueId: string,
+  dataInicio: string,
+  dataFim: string,
+  sourceDays: DrakeTimesheetSourceDay[],
+): Promise<void> {
+  const daysByDate = new Map<string, DrakeTimesheetSourceDay>();
+
+  for (const day of sourceDays) {
+    if (day.data < dataInicio || day.data > dataFim) {
+      throw new Error(
+        `O dia ${day.data} do Drake está fora do embarque ${dataInicio}–${dataFim}.`,
+      );
+    }
+    if (daysByDate.has(day.data)) {
+      throw new Error(`O Drake devolveu o dia ${day.data} mais de uma vez no mesmo timesheet.`);
+    }
+    daysByDate.set(day.data, day);
+  }
+
+  if (daysByDate.size === 0) {
+    throw new Error("O Drake não devolveu dias para o timesheet do embarque.");
+  }
+
+  const daysByWeek = new Map<string, DrakeTimesheetSourceDay[]>();
+  for (const day of [...daysByDate.values()].sort((left, right) =>
+    left.data.localeCompare(right.data),
+  )) {
+    const weekStart = mondayOf(day.data);
+    const weekDays = daysByWeek.get(weekStart) ?? [];
+    weekDays.push(day);
+    daysByWeek.set(weekStart, weekDays);
+  }
+
+  for (const [semanaInicio, days] of [...daysByWeek.entries()].sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const semanaFim = addDaysStr(semanaInicio, 6);
+    const { data: semana, error: semErr } = await supabase
+      .from("timesheet_semanas")
+      .insert({
+        embarque_id: embarqueId,
+        data_inicio_semana: semanaInicio,
+        data_fim_semana: semanaFim,
+        recebido_fisico: false,
+      })
+      .select("id")
+      .single();
+    if (semErr) throw semErr;
+
+    const rows = days.map((day) => ({
+      semana_id: (semana as { id: string }).id,
+      data: day.data,
+      dia_semana: weekdayLabel(day.data),
+      evento: day.evento,
+      bsp: day.bsp,
+    }));
+    const { error: diasErr } = await supabase.from("timesheet_dias").insert(rows);
+    if (diasErr) throw diasErr;
   }
 }
 
@@ -97,7 +182,7 @@ async function trimSemanasEDiasApos(supabase: SupabaseClient, embarqueId: string
   }
 }
 
-interface EnsureTimesheetParams {
+export interface EnsureTimesheetParams {
   colaboradorId: string;
   periodoId: string | null;
   unidadeOperacional: string | null;
@@ -105,6 +190,11 @@ interface EnsureTimesheetParams {
   funcaoEmbarque: string;
   dataInicio: string;
   dataFim: string;
+}
+
+export interface DrakeEnsureTimesheetParams extends EnsureTimesheetParams {
+  sourceEventKey: string;
+  sourceDays: DrakeTimesheetSourceDay[];
 }
 
 // Só cria embarque+semanas+dias se esse colaborador não já tiver um timesheet_embarque com
@@ -162,37 +252,77 @@ export async function ensureTimesheetParaPeriodo(
   return { criado: true };
 }
 
-/**
- * Variante append-only usada pela ficha anual do Drake.
- * Nunca corrige, encurta, religa ou apaga um timesheet existente. Se houver qualquer
- * sobreposição para o colaborador, considera o intervalo já atendido e não cria outro.
- */
+/** Sincroniza um único embarque do Timesheet pela chave estável da Ficha Anual. */
 export async function createTimesheetForNewPeriodIfAbsent(
   supabase: SupabaseClient,
-  params: EnsureTimesheetParams,
+  params: DrakeEnsureTimesheetParams,
 ): Promise<{ criado: boolean }> {
-  const fimEfetivo = dataFimEfetiva(params.dataInicio, params.dataFim);
-
-  const { data: existentes, error: exErr } = await supabase
+  const { data: exact, error: exactError } = await supabase
     .from("timesheet_embarques")
-    .select("id, data_inicio_embarque, data_fim_embarque")
+    .select("id")
+    .eq("source_event_key", params.sourceEventKey)
+    .maybeSingle();
+  if (exactError) throw exactError;
+
+  if (exact) {
+    await reconcileDrakeTimesheet(
+      supabase,
+      (exact as { id: string }).id,
+      params,
+    );
+    return { criado: false };
+  }
+
+  // Adoção conservadora do legado: igualdade de identidade, datas, unidade e BSP.
+  // Sobreposição isolada não identifica o mesmo embarque.
+  const { data: legacyRows, error: legacyError } = await supabase
+    .from("timesheet_embarques")
+    .select(
+      "id, source_event_key, unidade_operacional, bsp, data_inicio_embarque, data_fim_embarque",
+    )
     .eq("colaborador_id", params.colaboradorId)
-    .lte("data_inicio_embarque", fimEfetivo)
-    .gte("data_fim_embarque", params.dataInicio)
-    .limit(1);
-  if (exErr) throw exErr;
-  if ((existentes ?? []).length > 0) return { criado: false };
+    .eq("data_inicio_embarque", params.dataInicio)
+    .eq("data_fim_embarque", params.dataFim)
+    .is("source_event_key", null);
+  if (legacyError) throw legacyError;
+
+  const legacyMatches = ((legacyRows ?? []) as Array<{
+    id: string;
+    source_event_key: string | null;
+    unidade_operacional: string | null;
+    bsp: string | null;
+    data_inicio_embarque: string;
+    data_fim_embarque: string;
+  }>).filter(
+    (row) =>
+      normalized(row.unidade_operacional) === normalized(params.unidadeOperacional) &&
+      normalized(row.bsp) === normalized(params.bsp),
+  );
+
+  if (legacyMatches.length > 1) {
+    throw new Error(
+      `Há ${legacyMatches.length} timesheets legados para o mesmo embarque ` +
+        `${params.dataInicio}–${params.dataFim}. A sincronização foi interrompida para não apagar lançamentos.`,
+    );
+  }
+
+  const legacy = legacyMatches[0];
+  if (legacy) {
+    await reconcileDrakeTimesheet(supabase, legacy.id, params);
+    return { criado: false };
+  }
 
   const { data: embarque, error: insErr } = await supabase
     .from("timesheet_embarques")
     .insert({
       colaborador_id: params.colaboradorId,
       periodo_id: params.periodoId,
+      source_event_key: params.sourceEventKey,
       unidade_operacional: params.unidadeOperacional,
       bsp: params.bsp,
       funcao_embarque: params.funcaoEmbarque,
       data_inicio_embarque: params.dataInicio,
-      data_fim_embarque: fimEfetivo,
+      data_fim_embarque: params.dataFim,
       status_entrega: "pendente",
     })
     .select("id")
@@ -203,8 +333,232 @@ export async function createTimesheetForNewPeriodIfAbsent(
     supabase,
     (embarque as { id: string }).id,
     params.dataInicio,
-    fimEfetivo,
+    params.dataFim,
     params.bsp,
+    params.sourceDays,
   );
   return { criado: true };
+}
+
+interface ExistingDrakeTimesheetWeek {
+  id: string;
+  data_inicio_semana: string;
+  data_fim_semana: string;
+  recebido_fisico: boolean;
+}
+
+interface ExistingDrakeTimesheetDay {
+  id: string;
+  semana_id: string;
+  data: string;
+  evento: string | null;
+  bsp: string | null;
+  descricao_tarefa: string | null;
+  numero_tarefa: string | null;
+  hora_entrada: string | null;
+  hora_saida: string | null;
+  hora_entrada_extra: string | null;
+  hora_saida_extra: string | null;
+  horas_normais: number | null;
+  horas_extras: number | null;
+  total_horas: number | null;
+  adicional_noturno: boolean | null;
+  feriado: boolean | null;
+}
+
+async function reconcileDrakeTimesheet(
+  supabase: SupabaseClient,
+  embarqueId: string,
+  params: DrakeEnsureTimesheetParams,
+): Promise<void> {
+  const desiredByDate = new Map(params.sourceDays.map((day) => [day.data, day]));
+  if (desiredByDate.size !== params.sourceDays.length) {
+    throw new Error("A Ficha Anual contém datas repetidas no mesmo timesheet.");
+  }
+
+  const { data: weekData, error: weekError } = await supabase
+    .from("timesheet_semanas")
+    .select("id, data_inicio_semana, data_fim_semana, recebido_fisico")
+    .eq("embarque_id", embarqueId);
+  if (weekError) throw weekError;
+  const weeks = (weekData ?? []) as ExistingDrakeTimesheetWeek[];
+
+  const weekIds = weeks.map((week) => week.id);
+  let days: ExistingDrakeTimesheetDay[] = [];
+  if (weekIds.length > 0) {
+    const { data: dayData, error: dayError } = await supabase
+      .from("timesheet_dias")
+      .select(
+        "id, semana_id, data, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado",
+      )
+      .in("semana_id", weekIds);
+    if (dayError) throw dayError;
+    days = (dayData ?? []) as ExistingDrakeTimesheetDay[];
+  }
+
+  const rowsByDate = new Map<string, ExistingDrakeTimesheetDay[]>();
+  for (const day of days) {
+    const rows = rowsByDate.get(day.data) ?? [];
+    rows.push(day);
+    rowsByDate.set(day.data, rows);
+  }
+
+  const keepByDate = new Map<string, ExistingDrakeTimesheetDay>();
+  const deleteIds: string[] = [];
+
+  // Valida toda remoção antes da primeira escrita.
+  for (const [date, rows] of rowsByDate) {
+    const desired = desiredByDate.get(date);
+    if (!desired) {
+      for (const row of rows) {
+        assertSafeGeneratedRow(row, params.sourceEventKey);
+        deleteIds.push(row.id);
+      }
+      continue;
+    }
+
+    const withUserContent = rows.filter(hasUserTimesheetContent);
+    if (withUserContent.length > 1) {
+      throw new Error(
+        `O timesheet possui lançamentos duplicados preenchidos em ${date}. Nada foi apagado.`,
+      );
+    }
+    const keep = withUserContent[0] ?? rows[0]!;
+    keepByDate.set(date, keep);
+    for (const duplicate of rows) {
+      if (duplicate.id === keep.id) continue;
+      assertSafeGeneratedRow(duplicate, params.sourceEventKey);
+      deleteIds.push(duplicate.id);
+    }
+  }
+
+  const { error: embarkationUpdateError } = await supabase
+    .from("timesheet_embarques")
+    .update({
+      periodo_id: params.periodoId,
+      source_event_key: params.sourceEventKey,
+      unidade_operacional: params.unidadeOperacional,
+      bsp: params.bsp,
+      funcao_embarque: params.funcaoEmbarque,
+      data_inicio_embarque: params.dataInicio,
+      data_fim_embarque: params.dataFim,
+    })
+    .eq("id", embarqueId);
+  if (embarkationUpdateError) throw embarkationUpdateError;
+
+  if (deleteIds.length > 0) {
+    const { error } = await supabase.from("timesheet_dias").delete().in("id", deleteIds);
+    if (error) throw error;
+  }
+
+  for (const [date, row] of keepByDate) {
+    const desired = desiredByDate.get(date)!;
+    if (row.evento === desired.evento && normalized(row.bsp) === normalized(desired.bsp)) {
+      continue;
+    }
+    const { error } = await supabase
+      .from("timesheet_dias")
+      .update({ evento: desired.evento, bsp: desired.bsp })
+      .eq("id", row.id);
+    if (error) throw error;
+  }
+
+  const weekByStart = new Map<string, ExistingDrakeTimesheetWeek>();
+  for (const week of weeks) {
+    if (!weekByStart.has(week.data_inicio_semana)) {
+      weekByStart.set(week.data_inicio_semana, week);
+    }
+  }
+
+  for (const desired of [...desiredByDate.values()].sort((left, right) =>
+    left.data.localeCompare(right.data),
+  )) {
+    if (keepByDate.has(desired.data)) continue;
+    const weekStart = mondayOf(desired.data);
+    let week = weekByStart.get(weekStart);
+    if (!week) {
+      const { data, error } = await supabase
+        .from("timesheet_semanas")
+        .insert({
+          embarque_id: embarqueId,
+          data_inicio_semana: weekStart,
+          data_fim_semana: addDaysStr(weekStart, 6),
+          recebido_fisico: false,
+        })
+        .select("id, data_inicio_semana, data_fim_semana, recebido_fisico")
+        .single();
+      if (error) throw error;
+      week = data as ExistingDrakeTimesheetWeek;
+      weeks.push(week);
+      weekByStart.set(weekStart, week);
+    }
+
+    const { error } = await supabase.from("timesheet_dias").insert({
+      semana_id: week.id,
+      data: desired.data,
+      dia_semana: weekdayLabel(desired.data),
+      evento: desired.evento,
+      bsp: desired.bsp,
+    });
+    if (error) throw error;
+  }
+
+  const survivingDayCountByWeek = new Map<string, number>();
+  for (const day of days) {
+    if (!deleteIds.includes(day.id)) {
+      survivingDayCountByWeek.set(
+        day.semana_id,
+        (survivingDayCountByWeek.get(day.semana_id) ?? 0) + 1,
+      );
+    }
+  }
+  for (const desired of desiredByDate.values()) {
+    if (keepByDate.has(desired.data)) continue;
+    const week = weekByStart.get(mondayOf(desired.data))!;
+    survivingDayCountByWeek.set(week.id, (survivingDayCountByWeek.get(week.id) ?? 0) + 1);
+  }
+
+  for (const week of weeks) {
+    if ((survivingDayCountByWeek.get(week.id) ?? 0) > 0 || week.recebido_fisico) continue;
+    const { error } = await supabase.from("timesheet_semanas").delete().eq("id", week.id);
+    if (error) throw error;
+  }
+}
+
+function hasUserTimesheetContent(day: ExistingDrakeTimesheetDay): boolean {
+  return Boolean(
+    day.descricao_tarefa?.trim() ||
+      day.numero_tarefa?.trim() ||
+      day.hora_entrada ||
+      day.hora_saida ||
+      day.hora_entrada_extra ||
+      day.hora_saida_extra ||
+      day.horas_normais != null ||
+      day.horas_extras != null ||
+      day.total_horas != null ||
+      day.adicional_noturno ||
+      day.feriado,
+  );
+}
+
+function assertSafeGeneratedRow(
+  day: ExistingDrakeTimesheetDay,
+  sourceEventKey: string,
+): void {
+  const generatedEvent = day.evento == null || day.evento === "Embarque" || day.evento === "Dobra";
+  if (hasUserTimesheetContent(day) || !generatedEvent) {
+    throw new Error(
+      `O timesheet ${sourceEventKey} possui conteúdo manual fora do Drake em ${day.data}. ` +
+        "A sincronização foi interrompida sem apagar esse lançamento.",
+    );
+  }
+}
+
+function normalized(value: string | null): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
 }

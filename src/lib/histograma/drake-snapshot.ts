@@ -70,6 +70,22 @@ export interface AnnualPositionDayRow {
   centroDeCusto: string | null;
 }
 
+export interface DrakeTimesheetPlanDay {
+  data: string;
+  evento: "Embarque" | "Dobra";
+  bsp: string | null;
+}
+
+export interface DrakeTimesheetPlan {
+  sourceEventKey: string;
+  workerKey: string;
+  unidadeOperacional: string | null;
+  centroDeCusto: string | null;
+  dataInicio: string;
+  dataFim: string;
+  days: DrakeTimesheetPlanDay[];
+}
+
 export function buildEmbarkationSnapshot(rows: EmbarkationSourceRow[]): DrakeHistogramSnapshot {
   const validRows = rows.map((row) => {
     const workerKey = buildWorkerKey(row.empresa, row.matricula);
@@ -223,6 +239,76 @@ export function buildAnnualPositionSnapshot(
   };
 }
 
+/**
+ * Monta os embarques do Timesheet exclusivamente com os dias E/D já
+ * informados pela Ficha Anual. Não completa calendário nem infere Dobra.
+ */
+export function buildDrakeTimesheetPlans(
+  snapshot: DrakeHistogramSnapshot,
+): DrakeTimesheetPlan[] {
+  const sourceDays = snapshot.periods
+    .filter((period) => period.tipo === "E" || period.tipo === "DB")
+    .flatMap((period) =>
+      datesInRange(period.dataInicio, period.dataFim).map((data) => ({
+        workerKey: period.workerKey,
+        unidadeOperacional: normalizedNullable(period.unidadeOperacional),
+        centroDeCusto: normalizedNullable(period.centroDeCusto),
+        data,
+        evento: period.tipo === "DB" ? ("Dobra" as const) : ("Embarque" as const),
+      })),
+    )
+    .sort(
+      (left, right) =>
+        left.workerKey.localeCompare(right.workerKey) || left.data.localeCompare(right.data),
+    );
+
+  const plans: DrakeTimesheetPlan[] = [];
+  let current: DrakeTimesheetPlan | null = null;
+
+  for (const day of sourceDays) {
+    const continuesCurrent =
+      current &&
+      current.workerKey === day.workerKey &&
+      addIsoDay(current.dataFim, 1) === day.data &&
+      normalizeIdentityPart(current.unidadeOperacional) ===
+        normalizeIdentityPart(day.unidadeOperacional) &&
+      normalizeIdentityPart(current.centroDeCusto) ===
+        normalizeIdentityPart(day.centroDeCusto);
+
+    if (!continuesCurrent) {
+      current = {
+        sourceEventKey: stableKey(["drake-timesheet", day.workerKey, day.data]),
+        workerKey: day.workerKey,
+        unidadeOperacional: day.unidadeOperacional,
+        centroDeCusto: day.centroDeCusto,
+        dataInicio: day.data,
+        dataFim: day.data,
+        days: [],
+      };
+      plans.push(current);
+    }
+
+    if (!current) {
+      throw new Error("Não foi possível montar o timesheet da Ficha Anual do Drake.");
+    }
+
+    if (current.days.some((existing) => existing.data === day.data)) {
+      throw new Error(
+        `A Ficha Anual do Drake possui mais de um evento de timesheet em ${day.data}.`,
+      );
+    }
+
+    current.dataFim = day.data;
+    current.days.push({
+      data: day.data,
+      evento: day.evento,
+      bsp: day.centroDeCusto,
+    });
+  }
+
+  return plans;
+}
+
 interface AnnualPositionWorkerGroup {
   workerKey: string;
   drakeWorkerIds: Set<string>;
@@ -321,6 +407,104 @@ function annualPositionDayFingerprint(day: AnnualPositionDayRow): string {
   ]);
 }
 
+export interface AnnualPositionOccurrenceCatalogItem {
+  acronym: string;
+  description: string;
+  occurrenceType: string | null;
+  mappedType: string | null;
+  mapped: boolean;
+  count: number;
+}
+
+export interface AnnualPositionOccurrenceCatalog {
+  all: AnnualPositionOccurrenceCatalogItem[];
+  unknown: AnnualPositionOccurrenceCatalogItem[];
+}
+
+export function catalogAnnualPositionOccurrences(
+  rows: AnnualPositionWorkerRow[],
+): AnnualPositionOccurrenceCatalog {
+  const byKey = new Map<
+    string,
+    {
+      acronym: string;
+      description: string;
+      occurrenceType: string | null;
+      count: number;
+    }
+  >();
+
+  for (const worker of rows) {
+    for (const position of worker.positions) {
+      const acronym =
+        position.occurrenceAcronym?.trim() ?? "";
+
+      const description =
+        position.occurrenceDescription?.trim() ?? "";
+
+      const occurrenceType =
+        position.occurrenceType?.trim() || null;
+
+      const key = JSON.stringify([
+        acronym,
+        description,
+        occurrenceType,
+      ]);
+
+      const current = byKey.get(key);
+
+      if (current) {
+        current.count += 1;
+        continue;
+      }
+
+      byKey.set(key, {
+        acronym,
+        description,
+        occurrenceType,
+        count: 1,
+      });
+    }
+  }
+
+  const all: AnnualPositionOccurrenceCatalogItem[] = [];
+
+  for (const item of byKey.values()) {
+    let mappedType: string | null = null;
+    let mapped = true;
+
+    try {
+      mappedType = mapAnnualPositionType(
+        item.acronym,
+        item.description,
+        item.occurrenceType,
+      );
+    } catch {
+      mapped = false;
+    }
+
+    all.push({
+      ...item,
+      mappedType,
+      mapped,
+    });
+  }
+
+  all.sort(
+    (left, right) =>
+      left.acronym.localeCompare(right.acronym) ||
+      left.description.localeCompare(right.description) ||
+      (left.occurrenceType ?? "").localeCompare(
+        right.occurrenceType ?? "",
+      ),
+  );
+
+  return {
+    all,
+    unknown: all.filter((item) => !item.mapped),
+  };
+}
+
 export function mapAnnualPositionType(
   acronym: string,
   description: string,
@@ -329,36 +513,101 @@ export function mapAnnualPositionType(
   const code = normalizeIdentityPart(acronym);
   const text = normalizeIdentityPart(`${description} ${occurrenceType ?? ""}`);
 
-  if (text.includes("DESEMBARQUE")) {
-    return text.includes("NAO UTIL") || code === "DDN" ? "DDN" : "F";
-  }
-  if (text.includes("EMBARQUE CANCELADO")) return "CANC";
-  if (text.includes("EMPRESA EM CASA")) return "EC";
-  if (code === "E" || code === "D" || text === "EMBARQUE" || text.includes("DOBRA")) return "E";
-  if (code === "P" || text.includes("PROGRAMADO")) return "P";
-  if (code === "F" || text === "FOLGA") return "F";
-  if (code === "FE" || text.includes("FERIAS")) return "FE";
-  if (code === "TE" || text.includes("TRABALHO EXTERNO")) return "TE";
-  if (code === "H" || code === "HTL" || text.includes("HOTEL")) return "HTL";
-  if (code === "FI" || text.includes("FOLGA INDENIZADA")) return "FI";
-  if (code === "DDN") return "DDN";
-  if (code === "EC") return "CANC";
-  if (
-    code === "AT" ||
-    code === "LM" ||
-    code === "LMV" ||
-    text.includes("ATESTADO") ||
-    text.includes("LICENCA MEDICA") ||
-    text.includes("AFASTAMENTO")
-  ) return "AT";
-  if (code === "STB" || code === "AD" || text.includes("STANDBY") || text.includes("DISPOSICAO")) {
-    return "STB";
+  if (!code) {
+    throw new Error(
+      `Ficha Anual do Drake retornou ocorrência sem sigla: "${description}". ` +
+      "A sincronização foi interrompida para não inventar um status.",
+    );
   }
 
-  // A grade atual não possui uma categoria visual para todas as ocorrências administrativas
-  // do Drake. Elas permanecem auditáveis em source_event_name e aparecem como Standby, que é
-  // o fallback já existente no Histograma, sem introduzir uma nova regra visual.
-  return "STB";
+  switch (code) {
+    case "P":
+      return "P";
+
+    case "E":
+      return "E";
+
+    case "D":
+    case "DB":
+      return "DB";
+
+    case "F":
+      return "F";
+
+    case "FE":
+      return "FE";
+
+    case "STB":
+      return "STB";
+
+    case "AFA":
+      return "AFA";
+
+    case "AT":
+      return "AT";
+
+    case "LM":
+      return "LM";
+
+    case "LMV":
+      return "LMV";
+
+    case "TR":
+      return "TR";
+
+    case "AD":
+      return "AD";
+
+    case "DDN":
+      return "DDN";
+
+    case "DES":
+      return "DES";
+
+    case "TE":
+      return "TE";
+
+    case "DI":
+      return "DI";
+
+    case "FI":
+      return "FI";
+
+    case "FIH":
+      return "FIH";
+
+    case "FIF":
+      return "FIF";
+
+    case "FIC":
+      return "FIC";
+
+    case "FIT":
+      return "FIT";
+
+    case "FT":
+      return "FT";
+
+    case "NS":
+      return "NS";
+
+    case "H":
+    case "HTL":
+      return "HTL";
+
+    case "EC":
+      return text.includes("EMBARQUE CANCELADO") ? "CANC" : "EC";
+
+    case "CANC":
+      return "CANC";
+
+    default:
+      throw new Error(
+        `Ocorrência da Ficha Anual do Drake sem mapeamento: ` +
+        `sigla="${acronym}", descrição="${description}", tipo="${occurrenceType ?? ""}". ` +
+        "A sincronização foi interrompida para preservar o espelho exato do Drake.",
+      );
+  }
 }
 
 export function buildWorkerKey(empresa: string | null, matricula: string): string {
@@ -462,4 +711,17 @@ function addIsoDay(date: string, amount: number): string {
   const [year, month, day] = date.split("-").map(Number);
   const value = new Date(Date.UTC(year, month - 1, day + amount));
   return value.toISOString().slice(0, 10);
+}
+
+function datesInRange(startDate: string, endDate: string): string[] {
+  const dates: string[] = [];
+  for (let date = startDate; date <= endDate; date = addIsoDay(date, 1)) {
+    dates.push(date);
+  }
+  return dates;
+}
+
+function normalizedNullable(value: string | null): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }

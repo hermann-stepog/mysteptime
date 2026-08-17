@@ -4,6 +4,7 @@ export interface TimesheetEmbarque {
   id: string;
   colaborador_id: string;
   periodo_id: string | null;
+  source_event_key: string | null;
   unidade_operacional: string | null;
   bsp: string | null;
   // Segundo BSP do mesmo embarque, quando parte dos dias é lançada numa BSP diferente da

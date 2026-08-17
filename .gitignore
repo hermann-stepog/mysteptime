@@ -47,3 +47,6 @@ private/drake/diagnostics/**
 tmp/drake/
 tmp/drake/**
 
+# Access legado: exportacoes contêm dados pessoais (inclusive CPF) e nunca devem ser commitadas.
+private/access-history/
+

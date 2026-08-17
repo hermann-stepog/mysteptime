@@ -1,0 +1,54 @@
+\set ON_ERROR_STOP on
+\if :{?run_id}
+\else
+  \echo 'Informe -v run_id=<uuid-do-run>'
+  \quit 2
+\endif
+
+SELECT resolution_status, count(*)
+FROM legacy_access.colaborador_map
+WHERE run_id = :'run_id'::uuid
+GROUP BY resolution_status
+ORDER BY resolution_status;
+
+SELECT review_status, overlap_status, count(*)
+FROM legacy_access.periodo_stage
+WHERE run_id = :'run_id'::uuid
+GROUP BY review_status, overlap_status
+ORDER BY review_status, overlap_status;
+
+SELECT review_status, count(*)
+FROM legacy_access.funcao_stage
+WHERE run_id = :'run_id'::uuid
+GROUP BY review_status
+ORDER BY review_status;
+
+SELECT handling_status, review_status, event_code, event_label, count(*)
+FROM legacy_access.evento_stage
+WHERE run_id = :'run_id'::uuid
+GROUP BY handling_status, review_status, event_code, event_label
+ORDER BY count(*) DESC;
+
+-- Deve retornar zero antes da aprovação.
+SELECT source_key, legacy_code, blocking_reasons, review_note
+FROM legacy_access.periodo_stage
+WHERE run_id = :'run_id'::uuid
+  AND (review_status = 'blocked' OR jsonb_array_length(blocking_reasons) > 0)
+ORDER BY source_key
+LIMIT 200;
+
+-- Sobreposição temporal nunca é aprovada automaticamente, mesmo com mesmo tipo/contexto.
+SELECT source_key, legacy_code, colaborador_id, tipo, data_inicio, data_fim,
+       unidade_operacional, bsp, overlap_status, existing_period_id, review_note
+FROM legacy_access.periodo_stage
+WHERE run_id = :'run_id'::uuid
+  AND overlap_status IN ('review_overlap_same_context', 'block_overlap_conflict', 'review_internal_duplicate')
+ORDER BY colaborador_id, data_inicio, source_key;
+
+-- Depois de revisar todos os CSVs/linhas, marque individualmente cada candidato como:
+--   approved       -> inserir (overlap_status precisa ser 'insert')
+--   skip_exact     -> vincular a existing_*_id sem duplicar
+--   excluded_reviewed -> não vai à tabela pública, mas permanece preservado no staging
+-- Só então, e com zero bloqueios, marque o run:
+-- UPDATE legacy_access.runs SET status='approved', reviewed_at=now()
+-- WHERE run_id=:'run_id'::uuid;
