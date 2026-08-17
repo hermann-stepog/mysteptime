@@ -279,3 +279,17 @@ export function diasFaltandoNoHistograma(periodosEDoColaborador: HistNovoPeriodo
     .filter((d) => !diasSalvosDoColaborador.has(d) && d.startsWith(anoVigente))
     .sort();
 }
+
+// Um embarque fica "órfão" quando nenhum período "E" confirmado (não programado) do
+// Histograma cobre mais a janela dele — normalmente porque uma sincronização do Drake depois
+// da criação do embarque reclassificou aquele período (ex.: virou Folga) ou mudou as datas, e
+// o timesheet_embarque derivado nunca foi revisto. Só sinaliza — nunca apaga nada sozinho,
+// já que o embarque pode ter horas reais já lançadas/salvas.
+export function embarqueOrfaoDoHistograma(
+  embarque: { data_inicio_embarque: string; data_fim_embarque: string },
+  periodosEConfirmadosDoColaborador: { data_inicio: string; data_fim: string }[],
+): boolean {
+  return !periodosEConfirmadosDoColaborador.some(
+    (p) => p.data_inicio <= embarque.data_fim_embarque && p.data_fim >= embarque.data_inicio_embarque,
+  );
+}

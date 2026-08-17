@@ -16,6 +16,8 @@ import { Plus, Check, X, Inbox } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { EmptyStateRow } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 
 export const Route = createFileRoute("/admin/approvals")({ head: () => pageTitle("Aprovações"), component: ApprovalsPage });
@@ -25,7 +27,7 @@ function ApprovalsPage() {
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState<Record<string, string>>({});
 
-  const { data: rows } = useQuery({
+  const { data: rows, isLoading } = useQuery({
     queryKey: ["approvals"],
     queryFn: async () => (await supabase.from("approval_requests").select("*, approvers(full_name, role_title), profiles!collaborator_id(full_name)").order("created_at", { ascending: false })).data ?? [],
   });
@@ -42,8 +44,27 @@ function ApprovalsPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["approvals"] }); notify.success("Decisão registrada"); },
   });
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2"><Skeleton className="h-7 w-40" /><Skeleton className="h-4 w-56" /></div>
+          <Skeleton className="h-9 w-44" />
+        </div>
+        <Card>
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead>Tipo</TableHead><TableHead>Colaborador</TableHead><TableHead>Aprovador</TableHead><TableHead>Status</TableHead><TableHead>Criado</TableHead><TableHead>Comentário</TableHead><TableHead className="text-right">Ações</TableHead>
+            </TableRow></TableHeader>
+            <TableSkeleton rows={8} cols={7} />
+          </Table>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-semibold">Aprovações</h1><p className="text-sm text-muted-foreground">Hora extra / MO sem folga indenizada</p></div>
         <Dialog open={open} onOpenChange={setOpen}>

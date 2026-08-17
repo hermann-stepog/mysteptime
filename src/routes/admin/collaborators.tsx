@@ -14,6 +14,8 @@ import { notify } from "@/lib/notify";
 import * as XLSX from "xlsx";
 import { NewCollaboratorDialog } from "@/components/CollaboratorSelect";
 import { EmptyStateRow } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 
 export const Route = createFileRoute("/admin/collaborators")({ head: () => pageTitle("Colaboradores"), component: CollaboratorsPage });
@@ -25,7 +27,7 @@ function CollaboratorsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Row | null>(null);
 
-  const { data: rows = [] } = useQuery({
+  const { data: rows = [], isLoading } = useQuery({
     queryKey: ["collaborators-all"],
     queryFn: async () => {
       const { data, error } = await supabase.from("collaborators").select("*").order("full_name");
@@ -148,8 +150,40 @@ function CollaboratorsPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-44" />
+            <Skeleton className="h-9 w-40" />
+            <Skeleton className="h-9 w-48" />
+          </div>
+        </div>
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome</TableHead>
+                <TableHead>Função</TableHead>
+                <TableHead>Cidade de residência</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-24"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableSkeleton rows={8} cols={5} />
+          </Table>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Colaboradores</h1>

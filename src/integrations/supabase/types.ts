@@ -553,6 +553,7 @@ export type Database = {
           id: string
           internal_notes: string | null
           ja_medido: boolean
+          logistica_manual: number
           markup_enabled: boolean
           markup_pct: number
           numero_bm: string | null
@@ -576,6 +577,7 @@ export type Database = {
           total_mo: number
           total_mob_desmob_materiais: number
           updated_at: string
+          valor_bm_manual: number | null
           vessel: string
         }
         Insert: {
@@ -587,6 +589,7 @@ export type Database = {
           id?: string
           internal_notes?: string | null
           ja_medido?: boolean
+          logistica_manual?: number
           markup_enabled?: boolean
           markup_pct?: number
           numero_bm?: string | null
@@ -610,6 +613,7 @@ export type Database = {
           total_mo?: number
           total_mob_desmob_materiais?: number
           updated_at?: string
+          valor_bm_manual?: number | null
           vessel: string
         }
         Update: {
@@ -621,6 +625,7 @@ export type Database = {
           id?: string
           internal_notes?: string | null
           ja_medido?: boolean
+          logistica_manual?: number
           markup_enabled?: boolean
           markup_pct?: number
           numero_bm?: string | null
@@ -644,6 +649,7 @@ export type Database = {
           total_mo?: number
           total_mob_desmob_materiais?: number
           updated_at?: string
+          valor_bm_manual?: number | null
           vessel?: string
         }
         Relationships: [
@@ -1055,6 +1061,66 @@ export type Database = {
         }
         Relationships: []
       }
+      drake_sync_runs: {
+        Row: {
+          base_ignored: number | null
+          base_inserted: number | null
+          base_not_found: number | null
+          disponibilidade_eventos: number | null
+          embarques_atualizados: number | null
+          embarques_criados: number | null
+          embarques_eventos: number | null
+          error_message: string | null
+          finished_at: string
+          id: string
+          skipped: number | null
+          source_file_name: string | null
+          source_type: string
+          started_at: string
+          status: string
+          triggered_by: string | null
+          triggered_by_label: string | null
+        }
+        Insert: {
+          base_ignored?: number | null
+          base_inserted?: number | null
+          base_not_found?: number | null
+          disponibilidade_eventos?: number | null
+          embarques_atualizados?: number | null
+          embarques_criados?: number | null
+          embarques_eventos?: number | null
+          error_message?: string | null
+          finished_at?: string
+          id?: string
+          skipped?: number | null
+          source_file_name?: string | null
+          source_type?: string
+          started_at: string
+          status: string
+          triggered_by?: string | null
+          triggered_by_label?: string | null
+        }
+        Update: {
+          base_ignored?: number | null
+          base_inserted?: number | null
+          base_not_found?: number | null
+          disponibilidade_eventos?: number | null
+          embarques_atualizados?: number | null
+          embarques_criados?: number | null
+          embarques_eventos?: number | null
+          error_message?: string | null
+          finished_at?: string
+          id?: string
+          skipped?: number | null
+          source_file_name?: string | null
+          source_type?: string
+          started_at?: string
+          status?: string
+          triggered_by?: string | null
+          triggered_by_label?: string | null
+        }
+        Relationships: []
+      }
       drake_worker_qualifications: {
         Row: {
           drake_worker_id: string
@@ -1343,12 +1409,97 @@ export type Database = {
         }
         Relationships: []
       }
+      nomination_nominees: {
+        Row: {
+          aptidao_checked: boolean
+          aptidao_checked_at: string | null
+          aptidao_checked_by: string | null
+          aptidao_divergence: boolean
+          aptidao_divergence_flagged_at: string | null
+          aptidao_divergence_text: string | null
+          colaborador_id: string
+          colaborador_nome: string
+          created_at: string
+          id: string
+          is_active: boolean
+          nomination_id: string
+          pm_decided_at: string | null
+          pm_decided_by: string | null
+          pm_decision: string
+          rh_validated: boolean
+          rh_validated_at: string | null
+          rh_validated_by: string | null
+          technical_selected_at: string | null
+          technical_selected_by: string | null
+        }
+        Insert: {
+          aptidao_checked?: boolean
+          aptidao_checked_at?: string | null
+          aptidao_checked_by?: string | null
+          aptidao_divergence?: boolean
+          aptidao_divergence_flagged_at?: string | null
+          aptidao_divergence_text?: string | null
+          colaborador_id: string
+          colaborador_nome: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          nomination_id: string
+          pm_decided_at?: string | null
+          pm_decided_by?: string | null
+          pm_decision?: string
+          rh_validated?: boolean
+          rh_validated_at?: string | null
+          rh_validated_by?: string | null
+          technical_selected_at?: string | null
+          technical_selected_by?: string | null
+        }
+        Update: {
+          aptidao_checked?: boolean
+          aptidao_checked_at?: string | null
+          aptidao_checked_by?: string | null
+          aptidao_divergence?: boolean
+          aptidao_divergence_flagged_at?: string | null
+          aptidao_divergence_text?: string | null
+          colaborador_id?: string
+          colaborador_nome?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          nomination_id?: string
+          pm_decided_at?: string | null
+          pm_decided_by?: string | null
+          pm_decision?: string
+          rh_validated?: boolean
+          rh_validated_at?: string | null
+          rh_validated_by?: string | null
+          technical_selected_at?: string | null
+          technical_selected_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nomination_nominees_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nomination_nominees_nomination_id_fkey"
+            columns: ["nomination_id"]
+            isOneToOne: false
+            referencedRelation: "nominations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nomination_status_history: {
         Row: {
           changed_at: string
           changed_by_name: string
           id: string
           nomination_id: string
+          nominee_id: string | null
           notes: string | null
           status: string
         }
@@ -1357,6 +1508,7 @@ export type Database = {
           changed_by_name: string
           id?: string
           nomination_id: string
+          nominee_id?: string | null
           notes?: string | null
           status: string
         }
@@ -1365,6 +1517,7 @@ export type Database = {
           changed_by_name?: string
           id?: string
           nomination_id?: string
+          nominee_id?: string | null
           notes?: string | null
           status?: string
         }
@@ -1376,67 +1529,119 @@ export type Database = {
             referencedRelation: "nominations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "nomination_status_history_nominee_id_fkey"
+            columns: ["nominee_id"]
+            isOneToOne: false
+            referencedRelation: "nomination_nominees"
+            referencedColumns: ["id"]
+          },
         ]
       }
       nominations: {
         Row: {
           briefing_sms_realizado: boolean
+          briefing_sms_realizado_at: string | null
+          briefing_sms_realizado_by: string | null
+          bsp: string | null
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           client: string | null
-          colaborador_id: string
-          colaborador_nome: string
+          colaborador_id: string | null
+          colaborador_nome: string | null
           created_at: string
           current_status: string
           funcao: string
           id: string
+          logistics_received_at: string | null
+          logistics_received_by: string | null
           notes: string | null
+          outcome: string | null
           period_end: string | null
           period_start: string | null
           pm_name: string | null
           pm_user_id: string | null
           project: string | null
           quality_validated: boolean
+          quality_validated_at: string | null
+          quality_validated_by: string | null
+          quantidade: number
           requires_quality_validation: boolean
+          sequence_number: number | null
+          unidade: string | null
           updated_at: string
+          weld_material: string | null
           weld_type: string | null
         }
         Insert: {
           briefing_sms_realizado?: boolean
+          briefing_sms_realizado_at?: string | null
+          briefing_sms_realizado_by?: string | null
+          bsp?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client?: string | null
-          colaborador_id: string
-          colaborador_nome: string
+          colaborador_id?: string | null
+          colaborador_nome?: string | null
           created_at?: string
           current_status?: string
           funcao: string
           id?: string
+          logistics_received_at?: string | null
+          logistics_received_by?: string | null
           notes?: string | null
+          outcome?: string | null
           period_end?: string | null
           period_start?: string | null
           pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
           quality_validated?: boolean
+          quality_validated_at?: string | null
+          quality_validated_by?: string | null
+          quantidade?: number
           requires_quality_validation?: boolean
+          sequence_number?: number | null
+          unidade?: string | null
           updated_at?: string
+          weld_material?: string | null
           weld_type?: string | null
         }
         Update: {
           briefing_sms_realizado?: boolean
+          briefing_sms_realizado_at?: string | null
+          briefing_sms_realizado_by?: string | null
+          bsp?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client?: string | null
-          colaborador_id?: string
-          colaborador_nome?: string
+          colaborador_id?: string | null
+          colaborador_nome?: string | null
           created_at?: string
           current_status?: string
           funcao?: string
           id?: string
+          logistics_received_at?: string | null
+          logistics_received_by?: string | null
           notes?: string | null
+          outcome?: string | null
           period_end?: string | null
           period_start?: string | null
           pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
           quality_validated?: boolean
+          quality_validated_at?: string | null
+          quality_validated_by?: string | null
+          quantidade?: number
           requires_quality_validation?: boolean
+          sequence_number?: number | null
+          unidade?: string | null
           updated_at?: string
+          weld_material?: string | null
           weld_type?: string | null
         }
         Relationships: [
@@ -2351,6 +2556,24 @@ export type Database = {
         }
         Relationships: []
       }
+      weld_material_config: {
+        Row: {
+          created_at: string
+          id: string
+          material_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          material_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          material_name?: string
+        }
+        Relationships: []
+      }
       weld_type_config: {
         Row: {
           created_at: string
@@ -2393,6 +2616,10 @@ export type Database = {
         | "logistics_operator"
         | "visitante"
         | "pm"
+        | "aprovacao_tecnica"
+        | "qualidade"
+        | "rh"
+        | "sms"
       approval_status: "pending" | "approved" | "rejected"
       billing_type: "com_cobranca" | "sem_cobranca"
       cost_type:
@@ -2561,6 +2788,10 @@ export const Constants = {
         "logistics_operator",
         "visitante",
         "pm",
+        "aprovacao_tecnica",
+        "qualidade",
+        "rh",
+        "sms",
       ],
       approval_status: ["pending", "approved", "rejected"],
       billing_type: ["com_cobranca", "sem_cobranca"],

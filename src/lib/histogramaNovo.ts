@@ -205,6 +205,20 @@ export const STB_BG_COLOR = "#e2e8f0";
 // (hist_novo_periodos, timesheet_dias etc.) sem perder nada relevante pro uso atual do app.
 export const DRAKE_DATA_CUTOFF = "2026-01-01";
 
+// Colaboradores que embarcam de fato (têm ao menos um período tipo="E" confirmado, não só
+// "Programado") — é o critério real de "é offshore", usado pra não deixar gente de escritório/
+// onshore entrar em telas que só fazem sentido pra quem embarca (importação "Na Base",
+// Simulação de disponibilidade em Nomeações). Diferente de "tem qualquer período" (usado no
+// Dashboard pra decidir quem está "ativo" no mês), que deixa passar onshore com férias/atestado
+// lançado — não é um teste de offshore, só de atividade recente.
+export function getColaboradoresComEmbarque(periodos: HistNovoPeriodo[]): Set<string> {
+  const s = new Set<string>();
+  periodos.forEach((p) => {
+    if (p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO) s.add(p.colaborador_id);
+  });
+  return s;
+}
+
 // BSP "de verdade" de um período — vem de `centro_de_custo` (Drake) ou `bsp` (lançamento manual
 // em LancamentosTab), nunca os dois ao mesmo tempo dependendo da origem do registro.
 export function bspDoPeriodo(p: HistNovoPeriodo): string | null {

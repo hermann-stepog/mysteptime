@@ -36,6 +36,7 @@ dist-ssr
 *.sw?
 
 # Env
+.env
 .env.*
 !.env.example
 

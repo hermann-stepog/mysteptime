@@ -30,23 +30,34 @@ const nav: NavItem[] = [
 // dentro de cada um — é restringido dentro de cada página e via RLS no Supabase).
 const VISITANTE_PATHS = ["/admin/transport", "/admin/histograma-novo", "/admin/timesheet-offshore"];
 
+// Papéis de etapa do fluxo de Nomeações (Aprovação Técnica/Qualidade/RH/SMS) só têm acesso
+// a esse único módulo — a ação real (o que cada um pode editar dentro dele) continua
+// restrita por etapa via RLS, isso aqui só esconde o resto do menu.
+const STAGE_ROLES = ["aprovacao_tecnica", "qualidade", "rh", "sms"];
+const STAGE_ROLE_PATHS = ["/admin/nominations"];
+
 function AdminLayout() {
   const { user, role, loading, signOut, profile } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isAllowedRole = role === "logistics_operator" || role === "visitante" || STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;
     if (!user) navigate({ to: "/auth" });
     else if (!role || role === "pending") navigate({ to: "/pending" });
-    else if (role !== "logistics_operator" && role !== "visitante") navigate({ to: "/app" });
-  }, [user, role, loading, navigate]);
+    else if (!isAllowedRole) navigate({ to: "/app" });
+  }, [user, role, loading, isAllowedRole, navigate]);
 
-  if (loading || !user || (role !== "logistics_operator" && role !== "visitante")) {
+  if (loading || !user || !isAllowedRole) {
     return <AppLoader />;
   }
 
-  const visibleNav = role === "visitante" ? nav.filter((n) => VISITANTE_PATHS.includes(n.to)) : nav;
+  const visibleNav = role === "visitante"
+    ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
+    : STAGE_ROLES.includes(role ?? "")
+      ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to))
+      : nav;
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-50 to-slate-100/60">

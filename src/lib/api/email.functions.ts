@@ -5,6 +5,7 @@ import { sendEmail } from "../email.server";
 export const sendNominationPhaseEmail = createServerFn({ method: "POST" })
   .inputValidator(z.object({
     to: z.string().email(),
+    cc: z.string().optional(),
     subject: z.string().min(1),
     text: z.string().min(1),
   }))
