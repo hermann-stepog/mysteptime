@@ -1451,7 +1451,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <EmptyStateRow colSpan={12} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
+            {filtered.length === 0 && <EmptyStateRow colSpan={14} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
           </TableBody>
         </Table>
       </Card>
