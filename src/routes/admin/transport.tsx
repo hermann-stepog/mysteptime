@@ -1441,6 +1441,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
                 <TableCell>{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>
+                <TableCell className="max-w-[240px] whitespace-pre-wrap text-xs text-muted-foreground">{t.notes || "—"}</TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   {onDuplicate && (
                     <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
