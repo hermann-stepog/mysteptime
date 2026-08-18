@@ -220,6 +220,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
               {trip.departure_time && <span>Part.: {trip.departure_time}</span>}
               {trip.departure_time && trip.arrival_time && <span> · </span>}
               {trip.arrival_time && <span>Dest.: {trip.arrival_time}</span>}
+              {trip.duracao_min != null && <span> · {trip.duracao_min} min</span>}
             </div>
           )}
         </div>
