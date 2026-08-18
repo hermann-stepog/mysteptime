@@ -103,6 +103,10 @@ function custoTotal(t: Trip): number | null {
   const valores = [t.custo, t.custo_2, t.custo_3].filter((v): v is number => v != null);
   return valores.length ? valores.reduce((a, b) => a + b, 0) : null;
 }
+// Cartões de Uber exibem as observações diretamente no card.
+function isUber(t: Trip): boolean {
+  return /uber/i.test(t.car_number ?? "");
+}
 function compareCarNumber(a: string, b: string) {
   const na = parseInt((a.match(/\d+/) ?? ["0"])[0], 10);
   const nb = parseInt((b.match(/\d+/) ?? ["0"])[0], 10);
@@ -246,6 +250,12 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
           <span className="inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
             Valor: {fmtMoney(custoTotal(trip)!)}
           </span>
+        </div>
+      )}
+
+      {isUber(trip) && trip.notes && (
+        <div className="mt-2 whitespace-pre-wrap rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+          {trip.notes}
         </div>
       )}
 
@@ -1209,6 +1219,11 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                       {t.departure_time && <span>Partida: {t.departure_time}</span>}
                       {t.departure_time && t.arrival_time && <span> · </span>}
                       {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
+                    </div>
+                  )}
+                  {isUber(t) && t.notes && (
+                    <div className="mt-2 whitespace-pre-wrap rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+                      {t.notes}
                     </div>
                   )}
                   <div className="mt-1 flex flex-wrap gap-1">
