@@ -1240,6 +1240,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                       {t.departure_time && <span>Partida: {t.departure_time}</span>}
                       {t.departure_time && t.arrival_time && <span> · </span>}
                       {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
+                      {t.duracao_min != null && <span> · {t.duracao_min} min</span>}
                     </div>
                   )}
                   {isUber(t) && t.notes && (
