@@ -69,6 +69,7 @@ type Trip = {
   unidade: string | null;
   departure_time: string | null;
   arrival_time: string | null;
+  duracao_min: number | null;
   status: TripStatus;
   custo: number | null;
   custo_2: number | null;
