@@ -69,6 +69,7 @@ type Trip = {
   unidade: string | null;
   departure_time: string | null;
   arrival_time: string | null;
+  duracao_min: number | null;
   status: TripStatus;
   custo: number | null;
   custo_2: number | null;
@@ -219,6 +220,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
               {trip.departure_time && <span>Part.: {trip.departure_time}</span>}
               {trip.departure_time && trip.arrival_time && <span> · </span>}
               {trip.arrival_time && <span>Dest.: {trip.arrival_time}</span>}
+              {trip.duracao_min != null && <span> · {trip.duracao_min} min</span>}
             </div>
           )}
         </div>
@@ -1238,6 +1240,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                       {t.departure_time && <span>Partida: {t.departure_time}</span>}
                       {t.departure_time && t.arrival_time && <span> · </span>}
                       {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
+                      {t.duracao_min != null && <span> · {t.duracao_min} min</span>}
                     </div>
                   )}
                   {isUber(t) && t.notes && (
