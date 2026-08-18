@@ -178,14 +178,25 @@ function useTransportData() {
   const trips = useQuery({
     queryKey: ["transport_trips"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transport_trips")
-        .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
-        .order("scheduled_at");
-      if (error) throw error;
-      return (data ?? []) as Trip[];
+      // A API limita cada resposta a 1000 linhas; buscamos em páginas para não
+      // perder as viagens mais recentes quando o total ultrapassa esse limite.
+      const PAGE = 1000;
+      const all: Trip[] = [];
+      for (let page = 0; ; page++) {
+        const { data, error } = await supabase
+          .from("transport_trips")
+          .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
+          .order("scheduled_at")
+          .range(page * PAGE, page * PAGE + PAGE - 1);
+        if (error) throw error;
+        const rows = (data ?? []) as Trip[];
+        all.push(...rows);
+        if (rows.length < PAGE) break;
+      }
+      return all;
     },
   });
+
   return { columns, trips };
 }
 
