@@ -1221,6 +1221,11 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                       {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
                     </div>
                   )}
+                  {isUber(t) && t.notes && (
+                    <div className="mt-2 whitespace-pre-wrap rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+                      {t.notes}
+                    </div>
+                  )}
                   <div className="mt-1 flex flex-wrap gap-1">
                     {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
                   </div>
