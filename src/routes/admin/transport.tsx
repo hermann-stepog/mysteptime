@@ -1379,7 +1379,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
           <Label className="text-xs">Colaborador</Label>
           <ColaboradorFiltroCombobox value={colaboradorId} onChange={setColaboradorId} />
         </div>
+        <Button variant="outline" size="sm" onClick={() => { setFrom(""); setTo(""); setTagId("all"); setStatus("all"); setCliente("all"); setTipo("all"); setColaboradorId(""); }}>Limpar filtros</Button>
+        <span className="text-xs text-muted-foreground">{filtered.length} viagem(ns)</span>
       </div>
+
       <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
