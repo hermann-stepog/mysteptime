@@ -249,6 +249,12 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </div>
       )}
 
+      {isUber(trip) && trip.notes && (
+        <div className="mt-2 whitespace-pre-wrap rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+          {trip.notes}
+        </div>
+      )}
+
       <div className="mt-2 text-sm space-y-0.5">
         <div>
           <span className="text-muted-foreground">{trip.origin}</span>
