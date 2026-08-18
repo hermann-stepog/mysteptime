@@ -1418,6 +1418,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <TableHead>Pessoas/Materiais</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Custo</TableHead>
+              <TableHead>Observações</TableHead>
               <TableHead className="w-[1%]"></TableHead>
             </TableRow>
           </TableHeader>
