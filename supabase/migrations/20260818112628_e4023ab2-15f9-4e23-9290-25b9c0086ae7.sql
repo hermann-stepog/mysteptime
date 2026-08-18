@@ -1,0 +1,2 @@
+ALTER TABLE public.transport_trips ADD COLUMN IF NOT EXISTS external_ref text;
+CREATE UNIQUE INDEX IF NOT EXISTS transport_trips_external_ref_uidx ON public.transport_trips (external_ref) WHERE external_ref IS NOT NULL;

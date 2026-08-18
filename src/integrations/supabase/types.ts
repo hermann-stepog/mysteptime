@@ -2423,6 +2423,7 @@ export type Database = {
           departure_time: string | null
           destination: string
           destinos_extras: string[]
+          external_ref: string | null
           id: string
           notes: string | null
           origens_extras: string[]
@@ -2452,6 +2453,7 @@ export type Database = {
           departure_time?: string | null
           destination: string
           destinos_extras?: string[]
+          external_ref?: string | null
           id?: string
           notes?: string | null
           origens_extras?: string[]
@@ -2481,6 +2483,7 @@ export type Database = {
           departure_time?: string | null
           destination?: string
           destinos_extras?: string[]
+          external_ref?: string | null
           id?: string
           notes?: string | null
           origens_extras?: string[]
