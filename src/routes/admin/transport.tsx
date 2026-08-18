@@ -1307,17 +1307,24 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [colaboradorId, setColaboradorId] = useState("");
 
   const filtered = useMemo(() => {
+    const tagName = (tags as Tag[]).find((g) => g.id === tagId)?.name?.toLowerCase() ?? "";
     return (trips as Trip[]).filter((t) => {
-      if (from && t.scheduled_at < from) return false;
-      if (to && t.scheduled_at > to + "T23:59:59") return false;
-      if (tagId !== "all" && !t.tags.some((x) => x.tag_id === tagId)) return false;
+      const dia = (t.scheduled_at ?? "").slice(0, 10);
+      if (from && dia < from) return false;
+      if (to && dia > to) return false;
+      if (tagId !== "all") {
+        const hasTag = t.tags.some((x) => x.tag_id === tagId);
+        const uberCar = tagName === "uber" && (t.car_number ?? "").toLowerCase().includes("uber");
+        if (!hasTag && !uberCar) return false;
+      }
       if (status !== "all" && t.status !== status) return false;
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
     }).sort((a, b) => compareCarNumber(a.car_number, b.car_number));
-  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId]);
+  }, [trips, tags, from, to, tagId, status, cliente, tipo, colaboradorId]);
+
 
   return (
     <div className="space-y-3">
@@ -1372,7 +1379,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
           <Label className="text-xs">Colaborador</Label>
           <ColaboradorFiltroCombobox value={colaboradorId} onChange={setColaboradorId} />
         </div>
+        <Button variant="outline" size="sm" onClick={() => { setFrom(""); setTo(""); setTagId("all"); setStatus("all"); setCliente("all"); setTipo("all"); setColaboradorId(""); }}>Limpar filtros</Button>
+        <span className="text-xs text-muted-foreground">{filtered.length} viagem(ns)</span>
       </div>
+
       <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
