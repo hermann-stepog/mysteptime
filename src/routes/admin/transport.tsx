@@ -103,6 +103,10 @@ function custoTotal(t: Trip): number | null {
   const valores = [t.custo, t.custo_2, t.custo_3].filter((v): v is number => v != null);
   return valores.length ? valores.reduce((a, b) => a + b, 0) : null;
 }
+// Cartões de Uber exibem as observações diretamente no card.
+function isUber(t: Trip): boolean {
+  return /uber/i.test(t.car_number ?? "");
+}
 function compareCarNumber(a: string, b: string) {
   const na = parseInt((a.match(/\d+/) ?? ["0"])[0], 10);
   const nb = parseInt((b.match(/\d+/) ?? ["0"])[0], 10);
