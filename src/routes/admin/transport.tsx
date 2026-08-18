@@ -1174,8 +1174,14 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
 }
 
 function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplicate }: any) {
-  const [date, setDate] = useState(todayISO());
-  const dayTrips = useMemo(() => (trips as Trip[]).filter((t) => t.scheduled_at.slice(0, 10) === date).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, date]);
+  const [from, setFrom] = useState(todayISO());
+  const [to, setTo] = useState(todayISO());
+  const dayTrips = useMemo(() => (trips as Trip[]).filter((t) => {
+    const dia = (t.scheduled_at ?? "").slice(0, 10);
+    if (from && dia < from) return false;
+    if (to && dia > to) return false;
+    return true;
+  }).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, from, to]);
   const groupedByCar = useMemo(() => {
     const m = new Map<string, Trip[]>();
     for (const t of dayTrips) {
@@ -1185,19 +1191,32 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
     return Array.from(m.entries()).sort(([a], [b]) => compareCarNumber(a, b));
   }, [dayTrips]);
   const shift = (n: number) => {
-    const d = new Date(date + "T00:00:00"); d.setDate(d.getDate() + n);
-    setDate(d.toISOString().slice(0, 10));
+    const move = (iso: string) => { const d = new Date((iso || todayISO()) + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    setFrom((f) => move(f)); setTo((t) => move(t));
   };
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <Button variant="outline" size="icon" onClick={() => shift(-1)}><ChevronLeft className="h-4 w-4" /></Button>
-        <div className="relative">
-          <CalIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="pl-9 w-44" />
+        <div>
+          <Label className="text-xs">De</Label>
+          <div className="relative">
+            <CalIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="pl-9 w-44" />
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs">Até</Label>
+          <div className="relative">
+            <CalIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="pl-9 w-44" />
+          </div>
         </div>
         <Button variant="outline" size="icon" onClick={() => shift(1)}><ChevronRight className="h-4 w-4" /></Button>
-        <span className="ml-2 text-sm text-muted-foreground">{fmtDate(date)} · {dayTrips.length} viagem(ns) · {groupedByCar.length} carro(s)</span>
+        <Button variant="outline" size="sm" onClick={() => { setFrom(todayISO()); setTo(todayISO()); }}>Hoje</Button>
+        <span className="ml-2 text-sm text-muted-foreground">
+          {from === to ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`} · {dayTrips.length} viagem(ns) · {groupedByCar.length} carro(s)
+        </span>
       </div>
       <div className="space-y-6">
         {groupedByCar.map(([car, list]) => (
