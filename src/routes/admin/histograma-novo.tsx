@@ -18,17 +18,13 @@ import {
   AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeInView, FadeInRow } from "@/components/FadeInView";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
-import {
-  MultiSortableHead,
-  SortableHead,
-  useMultiTableSort,
-  useTableSort,
-} from "@/components/SortableTableHead";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList,
   PieChart, Pie, Cell,
@@ -44,7 +40,7 @@ import {
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
-  normalizeUnidadeOperacional,
+  normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade,
   toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
   calcularHistoricoOcupacaoColaborador,
   type OldBucket,
@@ -666,7 +662,7 @@ export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: str
 
 // ─── Lançamentos tab ─────────────────────────────────────────────────────────
 
-type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias" | "inicioFolga" | "fimFolga";
+type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
 
 // Valor sentinela do filtro de Evento pra "Desembarque" — não é um TipoPeriodo de verdade (nunca
 // é lançado, sempre calculado a partir do fim de um período "E", igual ao Histograma computa DES),
@@ -754,29 +750,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     setFilterDe(deInput);
     setFilterAte(ateInput);
   };
-
-  const limparFiltros = () => {
-    setColaboradorInput([]);
-    setTipoInput([]);
-    setUnidadeInput([]);
-    setBspInput([]);
-    setFuncaoInput([]);
-    setDeInput("");
-    setAteInput("");
-
-    setFilterColaborador([]);
-    setFilterTipo([]);
-    setFilterUnidade([]);
-    setFilterBsp([]);
-    setFilterFuncao([]);
-    setFilterDe("");
-    setFilterAte("");
-  };
   const [editing, setEditing] = useState<HistNovoPeriodo | null>(null);
   // Ordenação clicável no cabeçalho — aplicada só nos períodos já filtrados na tela; sem
   // coluna escolhida, mantém a ordem padrão (data de início, mais antiga primeiro).
-  const { sortRules, toggleSort } =
-    useMultiTableSort<LancamentosSortColumn>();
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<LancamentosSortColumn>();
 
   const createPeriodo = useMutation({
     mutationFn: async (colaboradorIds: string[]) => {
@@ -895,7 +872,6 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     const tiposNormaisSelecionados = filterTipo.filter((t) => t !== EVENTO_FILTER_DESEMBARQUE);
 
     const filtrosComuns = (p: HistNovoPeriodo) =>
-      colaboradorById.get(p.colaborador_id)?.ativo !== false &&
       (filterColaborador.length === 0 || filterColaborador.includes(p.colaborador_id)) &&
       (filterUnidade.length === 0 || (p.unidade_operacional != null && filterUnidade.includes(p.unidade_operacional))) &&
       (filterBsp.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && filterBsp.includes(b); })()) &&
@@ -939,143 +915,34 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         .filter(filtrosComuns)
       : [];
 
-    const compareColumn = (
-      column: LancamentosSortColumn,
-      a: any,
-      b: any,
-    ): number => {
-      switch (column) {
+    return [...linhasNormais, ...linhasDesembarque].sort((a, b) => {
+      if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
+      const dir = sortDirection === "asc" ? 1 : -1;
+      switch (sortColumn) {
         case "colaborador":
-          return (
-            colaboradorById.get(
-              a.colaborador_id,
-            )?.nome ?? ""
-          ).localeCompare(
-            colaboradorById.get(
-              b.colaborador_id,
-            )?.nome ?? "",
-          );
-
+          return dir * (colaboradorById.get(a.colaborador_id)?.nome ?? "").localeCompare(colaboradorById.get(b.colaborador_id)?.nome ?? "");
         case "funcao": {
-          const fa = colaboradorById.get(
-            a.colaborador_id,
-          );
-
-          const fb = colaboradorById.get(
-            b.colaborador_id,
-          );
-
-          return (
-            fa?.funcao ||
-            fa?.funcao_operacao ||
-            ""
-          ).localeCompare(
-            fb?.funcao ||
-            fb?.funcao_operacao ||
-            "",
-          );
+          const fa = colaboradorById.get(a.colaborador_id);
+          const fb = colaboradorById.get(b.colaborador_id);
+          return dir * (fa?.funcao || fa?.funcao_operacao || "").localeCompare(fb?.funcao || fb?.funcao_operacao || "");
         }
-
         case "evento":
-          return a.tipo.localeCompare(
-            b.tipo,
-          );
-
+          return dir * a.tipo.localeCompare(b.tipo);
         case "unidade":
-          return (
-            a.unidade_operacional ?? ""
-          ).localeCompare(
-            b.unidade_operacional ?? "",
-          );
-
+          return dir * (a.unidade_operacional ?? "").localeCompare(b.unidade_operacional ?? "");
         case "bsp":
-          return (
-            bspDoPeriodo(a) ?? ""
-          ).localeCompare(
-            bspDoPeriodo(b) ?? "",
-          );
-
+          return dir * (bspDoPeriodo(a) ?? "").localeCompare(bspDoPeriodo(b) ?? "");
         case "inicio":
-          return a.data_inicio.localeCompare(
-            b.data_inicio,
-          );
-
+          return dir * a.data_inicio.localeCompare(b.data_inicio);
         case "fim":
-          return a.data_fim.localeCompare(
-            b.data_fim,
-          );
-
+          return dir * a.data_fim.localeCompare(b.data_fim);
         case "dias":
-          return (
-            (a.dias ?? 0) -
-            (b.dias ?? 0)
-          );
-
-        case "inicioFolga":
-          return (
-            ultimaFolgaPorColaborador.get(
-              a.colaborador_id,
-            )?.data_inicio ?? ""
-          ).localeCompare(
-            ultimaFolgaPorColaborador.get(
-              b.colaborador_id,
-            )?.data_inicio ?? "",
-          );
-
-        case "fimFolga":
-          return (
-            ultimaFolgaPorColaborador.get(
-              a.colaborador_id,
-            )?.data_fim ?? ""
-          ).localeCompare(
-            ultimaFolgaPorColaborador.get(
-              b.colaborador_id,
-            )?.data_fim ?? "",
-          );
-
+          return dir * ((a.dias ?? 0) - (b.dias ?? 0));
         default:
           return 0;
       }
-    };
-
-    return [
-      ...linhasNormais,
-      ...linhasDesembarque,
-    ].sort((a, b) => {
-      // No manual sort: preserve current default.
-      if (sortRules.length === 0) {
-        return a.data_inicio.localeCompare(
-          b.data_inicio,
-        );
-      }
-
-      // Priority follows click order.
-      for (const rule of sortRules) {
-        const comparison =
-          compareColumn(
-            rule.column,
-            a,
-            b,
-          );
-
-        if (comparison !== 0) {
-          return rule.direction === "asc"
-            ? comparison
-            : -comparison;
-        }
-      }
-
-      // Stable deterministic fallback.
-      return (
-        a.data_inicio.localeCompare(
-          b.data_inicio,
-        ) ||
-        String(a.id).localeCompare(
-          String(b.id),
-        )
-      );
     });
-  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, ultimaFolgaPorColaborador, sortRules]);
+  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
   // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
@@ -1219,16 +1086,6 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           <Button size="sm" className="h-8" onClick={aplicarFiltro}>
             <Search className="mr-1.5 h-3.5 w-3.5" />Buscar
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-8"
-            onClick={limparFiltros}
-          >
-            <X className="mr-1.5 h-3.5 w-3.5" />
-            Limpar filtros
-          </Button>
           <Button size="sm" variant="outline" className="h-8" onClick={exportarLancamentos}>
             <Download className="mr-1.5 h-3.5 w-3.5" />Exportar
           </Button>
@@ -1242,26 +1099,16 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         <Table>
           <TableHeader>
             <TableRow>
-              <MultiSortableHead label="Colaborador" column="colaborador" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead label="Função" column="funcao" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead label="Evento" column="evento" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead label="Unidade" column="unidade" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead label="BSP" column="bsp" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead label="Início" column="inicio" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead label="Fim" column="fim" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead label="Dias" column="dias" sortRules={sortRules} onSort={toggleSort} />
-              <MultiSortableHead
-                label={"In\u00edcio Folga"}
-                column="inicioFolga"
-                sortRules={sortRules}
-                onSort={toggleSort}
-              />
-              <MultiSortableHead
-                label="Fim Folga"
-                column="fimFolga"
-                sortRules={sortRules}
-                onSort={toggleSort}
-              />
+              <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Evento" column="evento" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Início" column="inicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Fim" column="fim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Dias" column="dias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead>Início Folga</TableHead>
+              <TableHead>Fim Folga</TableHead>
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
@@ -1501,11 +1348,18 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const [bspFilter, setBspFilter] = useState<string[]>([]);
   const [funcaoFilter, setFuncaoFilter] = useState<string[]>([]);
 
+  // Ver comentário de buildUnidadeCanonMap (histogramaNovo.ts) — agrupa "Bravo"/"BRAVO" etc.
+  // numa só opção de filtro, sem alterar nenhum texto gravado.
+  const unidadeCanonMap = useMemo(() => buildUnidadeCanonMap(periodos), [periodos]);
   const unidadeOptions = useMemo(
-    () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
-    [periodos],
+    () => Array.from(new Set(periodos.map((p) => canonUnidade(p.unidade_operacional, unidadeCanonMap)).filter((u): u is string => !!u))).sort(),
+    [periodos, unidadeCanonMap],
   );
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFilter), [periodos, unidadeFilter]);
+  const unidadesCruasFiltro = useMemo(
+    () => periodos.filter((p) => unidadeFilter.includes(canonUnidade(p.unidade_operacional, unidadeCanonMap) ?? "")).map((p) => p.unidade_operacional!),
+    [periodos, unidadeFilter, unidadeCanonMap],
+  );
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFilter.length ? unidadesCruasFiltro : []), [periodos, unidadeFilter, unidadesCruasFiltro]);
   // "funcao" é a função de embarque do colaborador (a que bate com os rates cadastrados);
   // "funcao_operacao" é só usada como reserva pra quem não tem funcao preenchida.
   const funcaoOptions = useMemo(
@@ -1587,12 +1441,12 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
       if (funcaoFilter.length && !funcaoFilter.includes(c.funcao || c.funcao_operacao || "")) return false;
       if (unidadeFilter.length === 0 && bspFilter.length === 0) return true;
       return (periodosByColaborador.get(c.id) ?? []).some((p) =>
-        (unidadeFilter.length === 0 || (p.unidade_operacional != null && unidadeFilter.includes(p.unidade_operacional))) &&
+        (unidadeFilter.length === 0 || unidadeFilter.includes(canonUnidade(p.unidade_operacional, unidadeCanonMap) ?? "")) &&
         (bspFilter.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && bspFilter.includes(b); })()) &&
         p.data_fim >= gridDe && p.data_inicio <= gridAte,
       );
     });
-  }, [statusFiltered, unidadeFilter, bspFilter, funcaoFilter, periodosByColaborador, gridDe, gridAte]);
+  }, [statusFiltered, unidadeFilter, bspFilter, funcaoFilter, periodosByColaborador, gridDe, gridAte, unidadeCanonMap]);
 
   // Conta pessoas únicas por nome (evita contar duas vezes cadastros duplicados do mesmo colaborador).
   const visibleCount = useMemo(
@@ -1894,7 +1748,7 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
 // embarcando com a frequência esperada".
 function IndiceIndividualCard({ historico }: { historico: HistoricoOcupacaoColaborador }) {
   const categorias = STATUS_ORDER
-    .filter((s) => s !== "STB" && s !== "DDN" && (historico.diasPorCategoria[s] ?? 0) > 0)
+    .filter((s) => (historico.diasPorCategoria[s] ?? 0) > 0)
     .map((s) => ({ status: s, label: STATUS_LABEL[s], color: STATUS_COLOR[s], value: historico.diasPorCategoria[s] ?? 0 }));
 
   return (
@@ -1928,6 +1782,9 @@ function IndiceIndividualCard({ historico }: { historico: HistoricoOcupacaoColab
         <p className="mt-1 text-sm font-semibold">
           {historico.dataUltimoEmbarque ? fmtDiaCurto(historico.dataUltimoEmbarque) : "—"}
         </p>
+        {historico.diasDesdeUltimoEmbarque != null && (
+          <p className="text-xs text-muted-foreground">{historico.diasDesdeUltimoEmbarque} dias atrás</p>
+        )}
       </div>
 
       <div className="border-t pt-3">
@@ -2161,12 +2018,23 @@ function DashboardTab({ colaboradores, periodos }: {
     return { total, embarcados, programados, disponiveis, naoDisp, folga, naBase, utilizacao };
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
 
+  const colaboradoresNaBase = useMemo(() => activeColaboradores
+    .filter((c) => {
+      const status = computeStatusParaDashboard(
+        periodosByColaborador.get(c.id) ?? [],
+        pobReferenceDate,
+      ).status;
+      return toOldBucket(status) === "BASE";
+    })
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+  [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+
   const kpiCards = [
     { label: "Headcount Total", value: kpis.total, icon: Users },
     { label: "Embarcados", value: kpis.embarcados, icon: Ship },
     { label: "Programados", value: kpis.programados, icon: CalendarDays },
     { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
-    { label: "Na Base", value: kpis.naBase, icon: Building2 },
+    { label: "Na Base", value: kpis.naBase, icon: Building2, hoverNames: colaboradoresNaBase.map((c) => c.nome) },
     { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
@@ -2422,19 +2290,39 @@ function DashboardTab({ colaboradores, periodos }: {
 
       {/* ── KPIs ── */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        {kpiCards.map((k, i) => (
-          <FadeInView key={k.label} delay={i * 0.05}>
-          <Card className="bg-gradient-to-br from-white to-slate-50 p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
-              <k.icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="mt-2 bg-gradient-to-br from-slate-800 to-slate-500 bg-clip-text text-3xl font-semibold text-transparent">
-              {k.value}
-            </div>
-          </Card>
-          </FadeInView>
-        ))}
+        {kpiCards.map((k, i) => {
+          const card = (
+            <Card className={cn("bg-gradient-to-br from-white to-slate-50 p-4", k.hoverNames && "cursor-default")}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
+                <k.icon className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="mt-2 bg-gradient-to-br from-slate-800 to-slate-500 bg-clip-text text-3xl font-semibold text-transparent">
+                {k.value}
+              </div>
+            </Card>
+          );
+
+          return (
+            <FadeInView key={k.label} delay={i * 0.05}>
+              {k.hoverNames ? (
+                <HoverCard openDelay={150} closeDelay={100}>
+                  <HoverCardTrigger asChild>{card}</HoverCardTrigger>
+                  <HoverCardContent className="w-72 p-3" align="center" side="bottom">
+                    <p className="text-xs font-semibold">Colaboradores na base ({k.hoverNames.length})</p>
+                    {k.hoverNames.length > 0 ? (
+                      <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/85">
+                        {k.hoverNames.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-muted-foreground">Nenhum colaborador na base.</p>
+                    )}
+                  </HoverCardContent>
+                </HoverCard>
+              ) : card}
+            </FadeInView>
+          );
+        })}
       </div>
 
       {/* ── Ocupação ── */}

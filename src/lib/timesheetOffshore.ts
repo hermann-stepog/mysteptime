@@ -289,7 +289,25 @@ export function embarqueOrfaoDoHistograma(
   embarque: { data_inicio_embarque: string; data_fim_embarque: string },
   periodosEConfirmadosDoColaborador: { data_inicio: string; data_fim: string }[],
 ): boolean {
-  return !periodosEConfirmadosDoColaborador.some(
+  const coberto = periodosEConfirmadosDoColaborador.some(
     (p) => p.data_inicio <= embarque.data_fim_embarque && p.data_fim >= embarque.data_inicio_embarque,
   );
+  if (coberto) return false;
+
+  // "Dia do desembarque": o Drake já classifica esse dia como Folga (o período E confirmado
+  // termina no dia anterior) — o dia em si não tem mais cobertura "E" nenhuma, mas fisicamente
+  // ainda é o desembarque de verdade, com horas reais (viagem, entrega de equipamento etc.)
+  // que precisam ser lançadas. Não é um desencontro de verdade, só o Drake não ter uma etapa
+  // própria pra esse dia — reconhece o padrão só pra lançamentos de 1 dia só, começando
+  // exatamente no dia seguinte ao fim de um período E confirmado, sem afastar o aviso de
+  // qualquer outro caso onde o embarque realmente perdeu a cobertura no Histograma.
+  const ehDiaUnico = embarque.data_inicio_embarque === embarque.data_fim_embarque;
+  if (ehDiaUnico) {
+    const ehDiaDeDesembarque = periodosEConfirmadosDoColaborador.some(
+      (p) => addDaysStr(p.data_fim, 1) === embarque.data_inicio_embarque,
+    );
+    if (ehDiaDeDesembarque) return false;
+  }
+
+  return true;
 }
