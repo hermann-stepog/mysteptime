@@ -25,7 +25,7 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload, History } from "lucide-react";
 import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspOptionsForUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
   STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas, type StatusEntrega,
@@ -535,12 +535,16 @@ function TimesheetOffshore() {
 
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
 
+  // Mapa de grafia canônica por unidade (ver comentário em buildUnidadeCanonMap) — resolve
+  // "Bravo"/"BRAVO" pra uma pastilha só, sem alterar nenhum texto já gravado no banco.
+  const unidadeCanonMap = useMemo(() => buildUnidadeCanonMap(periodos), [periodos]);
+
   const unidadeOptions = useMemo(
     () => Array.from(new Set([
       ...UNIDADES_OPERACIONAIS_FIXAS,
-      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
+      ...periodos.map((p) => canonUnidade(p.unidade_operacional, unidadeCanonMap)).filter((u): u is string => !!u),
     ])).sort(),
-    [periodos],
+    [periodos, unidadeCanonMap],
   );
 
   // Visitante só consulta esse módulo — nenhuma ação de lançar/editar/excluir fica visível.
@@ -603,10 +607,10 @@ function TimesheetOffshore() {
           <TabsTrigger value="pendencias">Timesheets Pendentes</TabsTrigger>
         </TabsList>
         <TabsContent value="embarques" className="mt-4">
-          <EmbarquesTab colaboradores={colaboradores} periodos={periodos} periodosE={periodosE} embarques={embarques} semanas={semanas} dias={dias} unidadeOptions={unidadeOptions} readOnly={readOnly} />
+          <EmbarquesTab colaboradores={colaboradores} periodos={periodos} periodosE={periodosE} embarques={embarques} semanas={semanas} dias={dias} unidadeOptions={unidadeOptions} unidadeCanonMap={unidadeCanonMap} readOnly={readOnly} />
         </TabsContent>
         <TabsContent value="pendencias" className="mt-4">
-          <PendenciasTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} semanas={semanas} unidadeOptions={unidadeOptions} readOnly={readOnly} />
+          <PendenciasTab colaboradores={colaboradores} periodos={periodos} embarques={embarques} semanas={semanas} unidadeOptions={unidadeOptions} unidadeCanonMap={unidadeCanonMap} readOnly={readOnly} />
         </TabsContent>
       </Tabs>
     </div>
@@ -918,8 +922,8 @@ function AtividadeRecenteCard({ semanas, embarques, colaboradores }: {
 
 type EmbarquesSortColumn = "colaborador" | "funcao" | "unidade" | "bsp";
 
-function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, dias, unidadeOptions, readOnly = false }: {
-  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; periodosE: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; dias: TimesheetDia[]; unidadeOptions: string[]; readOnly?: boolean;
+function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, dias, unidadeOptions, unidadeCanonMap, readOnly = false }: {
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; periodosE: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; dias: TimesheetDia[]; unidadeOptions: string[]; unidadeCanonMap: Map<string, string>; readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const [filterUnidade, setFilterUnidade] = useState("all");
@@ -1124,10 +1128,20 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
     return { embarque, colaborador, diasFaltando, orfao, funcaoEfetiva };
   }), [embarques, colabById, periodosEByColaborador, periodosEConfirmadosByColaborador, diasSalvosPorColaborador, semanasByEmbarqueIdRows]);
 
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
+  // filterUnidade guarda a grafia canônica (a que aparece nas pastilhas/dropdown) — pra
+  // cruzar com hist_novo_periodos/embarques (que podem ter a grafia antiga gravada), compara
+  // sempre via canonUnidade em vez de igualdade direta de texto.
+  const unidadesCruas = useMemo(
+    () => (filterUnidade === "all" ? [] : periodos.filter((p) => canonUnidade(p.unidade_operacional, unidadeCanonMap) === filterUnidade).map((p) => p.unidade_operacional!)),
+    [periodos, filterUnidade, unidadeCanonMap],
+  );
+  const bspOptions = useMemo(
+    () => bspOptionsForUnidade(periodos, filterUnidade === "all" ? "all" : unidadesCruas),
+    [periodos, filterUnidade, unidadesCruas],
+  );
 
   const filtered = rows.filter((r) =>
-    (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
+    (filterUnidade === "all" || canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) === filterUnidade) &&
     (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
     (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
     (!filterDe || r.embarque.data_fim_embarque >= filterDe) &&
@@ -1141,7 +1155,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
       case "funcao":
         return dir * a.funcaoEfetiva.localeCompare(b.funcaoEfetiva);
       case "unidade":
-        return dir * (a.embarque.unidade_operacional ?? "").localeCompare(b.embarque.unidade_operacional ?? "");
+        return dir * (canonUnidade(a.embarque.unidade_operacional, unidadeCanonMap) ?? "").localeCompare(canonUnidade(b.embarque.unidade_operacional, unidadeCanonMap) ?? "");
       case "bsp":
         return dir * [a.embarque.bsp, a.embarque.bsp_2].filter(Boolean).join(" · ").localeCompare([b.embarque.bsp, b.embarque.bsp_2].filter(Boolean).join(" · "));
       default:
@@ -1153,17 +1167,20 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   // abaixo (por embarque, não por timesheet_dias já lançado): um colaborador cujo embarque
   // cobre o período aparece mesmo que os dias ainda não tenham sido gerados/lançados um a um,
   // senão o cartão ficava incompleto em relação à tabela que ele mesmo filtra ao ser clicado.
+  // A grafia mostrada/agrupada é sempre a canônica (ver unidadeCanonMap) — o texto gravado no
+  // embarque não é alterado por isso, só a forma como aparece nas pastilhas.
   const cardsPorUnidade = useMemo(() => {
     const unidades = new Set<string>();
     embarques.forEach((e) => {
-      if (!e.unidade_operacional) return;
+      const canon = canonUnidade(e.unidade_operacional, unidadeCanonMap);
+      if (!canon) return;
       if (filterDe && e.data_fim_embarque < filterDe) return;
       if (filterAte && e.data_inicio_embarque > filterAte) return;
       if (filterBsp !== "all" && e.bsp !== filterBsp) return;
-      unidades.add(e.unidade_operacional);
+      unidades.add(canon);
     });
     return Array.from(unidades).sort((a, b) => a.localeCompare(b));
-  }, [embarques, filterDe, filterAte, filterBsp]);
+  }, [embarques, filterDe, filterAte, filterBsp, unidadeCanonMap]);
 
   return (
     <div className="space-y-3">
@@ -1263,7 +1280,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
                   </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}
                 </TableCell>
@@ -1522,8 +1539,8 @@ type PendenciasSortColumn = "colaborador" | "funcao" | "unidade" | "bsp" | "peri
 // Completo (embora Completo não apareça aqui, já filtrado fora da lista de pendências).
 const STATUS_ENTREGA_ORDER: Record<StatusEntrega, number> = { pendente: 0, parcial: 1, completo: 2 };
 
-function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOptions, readOnly = false }: {
-  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; unidadeOptions: string[]; readOnly?: boolean;
+function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOptions, unidadeCanonMap, readOnly = false }: {
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; embarques: TimesheetEmbarque[]; semanas: TimesheetSemana[]; unidadeOptions: string[]; unidadeCanonMap: Map<string, string>; readOnly?: boolean;
 }) {
   const colabById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
   const periodosByColaborador = useMemo(() => {
@@ -1568,7 +1585,14 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
   // início do embarque, mais antigo primeiro).
   const { sortColumn, sortDirection, toggleSort } = useTableSort<PendenciasSortColumn>();
 
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, filterUnidade), [periodos, filterUnidade]);
+  const unidadesCruas = useMemo(
+    () => (filterUnidade === "all" ? [] : periodos.filter((p) => canonUnidade(p.unidade_operacional, unidadeCanonMap) === filterUnidade).map((p) => p.unidade_operacional!)),
+    [periodos, filterUnidade, unidadeCanonMap],
+  );
+  const bspOptions = useMemo(
+    () => bspOptionsForUnidade(periodos, filterUnidade === "all" ? "all" : unidadesCruas),
+    [periodos, filterUnidade, unidadesCruas],
+  );
 
   const pendencias = useMemo(() => embarques
     .filter((e) => e.status_entrega !== "completo")
@@ -1585,7 +1609,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva, orfao };
     })
     .filter((r) =>
-      (filterUnidade === "all" || r.embarque.unidade_operacional === filterUnidade) &&
+      (filterUnidade === "all" || canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) === filterUnidade) &&
       (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
       (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
       // Diferente da aba de Lançamento (que usa sobreposição de data, pra achar quem esteve
@@ -1605,7 +1629,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
         case "funcao":
           return dir * a.funcaoEfetiva.localeCompare(b.funcaoEfetiva);
         case "unidade":
-          return dir * (a.embarque.unidade_operacional ?? "").localeCompare(b.embarque.unidade_operacional ?? "");
+          return dir * (canonUnidade(a.embarque.unidade_operacional, unidadeCanonMap) ?? "").localeCompare(canonUnidade(b.embarque.unidade_operacional, unidadeCanonMap) ?? "");
         case "bsp":
           return dir * ([a.embarque.bsp, a.embarque.bsp_2].filter(Boolean).join(" · ")).localeCompare([b.embarque.bsp, b.embarque.bsp_2].filter(Boolean).join(" · "));
         case "periodo":
@@ -1618,7 +1642,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
           return 0;
       }
     }),
-  [embarques, semanasByEmbarqueId, colabById, periodosEConfirmadosByColaborador, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
+  [embarques, semanasByEmbarqueId, colabById, periodosEConfirmadosByColaborador, filterUnidade, filterBsp, filterNome, filterDe, filterAte, sortColumn, sortDirection, unidadeCanonMap]);
 
   return (
     <div className="space-y-4">
@@ -1690,7 +1714,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
                   </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{r.funcaoEfetiva}</TableCell>
-                <TableCell className="text-muted-foreground">{r.embarque.unidade_operacional ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{[r.embarque.bsp, r.embarque.bsp_2].filter(Boolean).join(" · ") || "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{fmt(r.embarque.data_inicio_embarque)} a {fmt(r.embarque.data_fim_embarque)}</TableCell>
                 <TableCell className="text-muted-foreground">{r.recebidas} / {r.total}</TableCell>

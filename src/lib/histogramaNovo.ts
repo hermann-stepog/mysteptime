@@ -162,6 +162,36 @@ export function normalizeUnidadeOperacional(raw: string | null | undefined): str
   return UNIDADE_OPERACIONAL_ALIASES[trimmed.toUpperCase()] ?? trimmed;
 }
 
+// Além dos apelidos conhecidos acima, a mesma unidade também aparece grafada com
+// maiúscula/minúscula diferente entre importações (ex.: "Bravo" num embarque antigo, "BRAVO"
+// num período mais recente) — não dá pra resolver isso com uma tabela fixa de apelidos, já
+// que qualquer unidade pode variar de caixa a qualquer momento. Em vez de adivinhar qual
+// grafia está "certa", agrupamos por chave maiúscula e usamos como canônica a grafia do
+// período mais recente (maior data_inicio) — ou seja, "o que o Drake está escrevendo agora"
+// é sempre a fonte da verdade, sem exigir curadoria manual.
+export function buildUnidadeCanonMap(periodos: Pick<HistNovoPeriodo, "unidade_operacional" | "data_inicio">[]): Map<string, string> {
+  const porChave = new Map<string, { valor: string; dataInicio: string }>();
+  periodos.forEach((p) => {
+    const bruta = normalizeUnidadeOperacional(p.unidade_operacional);
+    if (!bruta) return;
+    const chave = bruta.toUpperCase();
+    const atual = porChave.get(chave);
+    if (!atual || p.data_inicio > atual.dataInicio) porChave.set(chave, { valor: bruta, dataInicio: p.data_inicio });
+  });
+  const map = new Map<string, string>();
+  porChave.forEach(({ valor }, chave) => map.set(chave, valor));
+  return map;
+}
+
+// Resolve a grafia canônica de uma unidade (pra exibição/filtro) a partir do mapa acima —
+// nunca altera o texto já gravado em timesheet_embarques/hist_novo_periodos, só a forma como
+// é mostrado/comparado na tela.
+export function canonUnidade(raw: string | null | undefined, canonMap: Map<string, string>): string | null {
+  const normalizado = normalizeUnidadeOperacional(raw);
+  if (!normalizado) return null;
+  return canonMap.get(normalizado.toUpperCase()) ?? normalizado;
+}
+
 // BSPs já vistos nos períodos do Histograma, restritos à(s) unidade(s) escolhida(s) (ou
 // todos, se "all"/lista vazia) — usado pra alimentar o filtro de BSP ao lado do filtro de
 // Unidade Operacional nas várias telas do app. Aceita tanto uma unidade única (telas com

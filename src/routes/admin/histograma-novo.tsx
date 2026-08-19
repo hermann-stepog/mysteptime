@@ -40,7 +40,7 @@ import {
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
-  normalizeUnidadeOperacional,
+  normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade,
   toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
   calcularHistoricoOcupacaoColaborador,
   type OldBucket,
@@ -1348,11 +1348,18 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const [bspFilter, setBspFilter] = useState<string[]>([]);
   const [funcaoFilter, setFuncaoFilter] = useState<string[]>([]);
 
+  // Ver comentário de buildUnidadeCanonMap (histogramaNovo.ts) — agrupa "Bravo"/"BRAVO" etc.
+  // numa só opção de filtro, sem alterar nenhum texto gravado.
+  const unidadeCanonMap = useMemo(() => buildUnidadeCanonMap(periodos), [periodos]);
   const unidadeOptions = useMemo(
-    () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
-    [periodos],
+    () => Array.from(new Set(periodos.map((p) => canonUnidade(p.unidade_operacional, unidadeCanonMap)).filter((u): u is string => !!u))).sort(),
+    [periodos, unidadeCanonMap],
   );
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFilter), [periodos, unidadeFilter]);
+  const unidadesCruasFiltro = useMemo(
+    () => periodos.filter((p) => unidadeFilter.includes(canonUnidade(p.unidade_operacional, unidadeCanonMap) ?? "")).map((p) => p.unidade_operacional!),
+    [periodos, unidadeFilter, unidadeCanonMap],
+  );
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFilter.length ? unidadesCruasFiltro : []), [periodos, unidadeFilter, unidadesCruasFiltro]);
   // "funcao" é a função de embarque do colaborador (a que bate com os rates cadastrados);
   // "funcao_operacao" é só usada como reserva pra quem não tem funcao preenchida.
   const funcaoOptions = useMemo(
@@ -1434,12 +1441,12 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
       if (funcaoFilter.length && !funcaoFilter.includes(c.funcao || c.funcao_operacao || "")) return false;
       if (unidadeFilter.length === 0 && bspFilter.length === 0) return true;
       return (periodosByColaborador.get(c.id) ?? []).some((p) =>
-        (unidadeFilter.length === 0 || (p.unidade_operacional != null && unidadeFilter.includes(p.unidade_operacional))) &&
+        (unidadeFilter.length === 0 || unidadeFilter.includes(canonUnidade(p.unidade_operacional, unidadeCanonMap) ?? "")) &&
         (bspFilter.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && bspFilter.includes(b); })()) &&
         p.data_fim >= gridDe && p.data_inicio <= gridAte,
       );
     });
-  }, [statusFiltered, unidadeFilter, bspFilter, funcaoFilter, periodosByColaborador, gridDe, gridAte]);
+  }, [statusFiltered, unidadeFilter, bspFilter, funcaoFilter, periodosByColaborador, gridDe, gridAte, unidadeCanonMap]);
 
   // Conta pessoas únicas por nome (evita contar duas vezes cadastros duplicados do mesmo colaborador).
   const visibleCount = useMemo(

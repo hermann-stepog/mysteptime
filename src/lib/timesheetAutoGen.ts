@@ -120,25 +120,39 @@ export async function ensureTimesheetParaPeriodo(
 
   const { data: existentes, error: exErr } = await supabase
     .from("timesheet_embarques")
-    .select("id, data_inicio_embarque, data_fim_embarque")
+    .select("id, data_inicio_embarque, data_fim_embarque, unidade_operacional, bsp, funcao_embarque")
     .eq("colaborador_id", params.colaboradorId);
   if (exErr) throw exErr;
 
-  const existente = ((existentes ?? []) as { id: string; data_inicio_embarque: string; data_fim_embarque: string }[])
+  const existente = ((existentes ?? []) as {
+    id: string; data_inicio_embarque: string; data_fim_embarque: string;
+    unidade_operacional: string | null; bsp: string | null; funcao_embarque: string;
+  }[])
     .find((e) => e.data_inicio_embarque <= fimEfetivo && e.data_fim_embarque >= params.dataInicio);
 
   if (existente) {
+    const updates: Record<string, unknown> = {};
+
     // O Drake pode ter confirmado depois um desembarque real, mais cedo do que o placeholder
     // (ou do que a duração corrigida) que já tínhamos gravado — corrige o embarque existente e
     // apara os dias que não aconteceram de verdade, em vez de deixá-los parados pra sempre.
-    if (fimEfetivo < existente.data_fim_embarque) {
-      const { error: updErr } = await supabase
-        .from("timesheet_embarques")
-        .update({ data_fim_embarque: fimEfetivo })
-        .eq("id", existente.id);
+    if (fimEfetivo < existente.data_fim_embarque) updates.data_fim_embarque = fimEfetivo;
+
+    // Cabeçalho do embarque (unidade/BSP/função) fica desatualizado quando o Drake corrige
+    // esse dado depois que o embarque já foi criado — re-sincroniza sempre que houver
+    // diferença. Isso só corrige o "cabeçalho" (o cartão/lista) do embarque; nunca escreve em
+    // timesheet_semanas/timesheet_dias, então nenhuma hora já lançada é tocada. Só aplica
+    // quando o valor novo é real (não sobrescreve um dado bom com um vazio vindo de uma
+    // exportação incompleta do Drake).
+    if (params.unidadeOperacional && params.unidadeOperacional !== existente.unidade_operacional) updates.unidade_operacional = params.unidadeOperacional;
+    if (params.bsp && params.bsp !== existente.bsp) updates.bsp = params.bsp;
+    if (params.funcaoEmbarque && params.funcaoEmbarque !== "—" && params.funcaoEmbarque !== existente.funcao_embarque) updates.funcao_embarque = params.funcaoEmbarque;
+
+    if (Object.keys(updates).length > 0) {
+      const { error: updErr } = await supabase.from("timesheet_embarques").update(updates).eq("id", existente.id);
       if (updErr) throw updErr;
-      await trimSemanasEDiasApos(supabase, existente.id, fimEfetivo);
     }
+    if (updates.data_fim_embarque) await trimSemanasEDiasApos(supabase, existente.id, fimEfetivo);
     return { criado: false };
   }
 
