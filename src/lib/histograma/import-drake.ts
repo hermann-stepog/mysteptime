@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import { ORIGEM_PROGRAMADO, addDays, normalizeUnidadeOperacional, type HistNovoColaborador } from "@/lib/histogramaNovo";
+import { ORIGEM_PROGRAMADO, addDays, normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador } from "@/lib/histogramaNovo";
 import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
@@ -341,6 +341,10 @@ export async function importDrakeEmbarkation(
   // reinsere essas linhas a cada import (ids novos toda vez), então o dedup de
   // ensureTimesheetParaPeriodo é feito por sobreposição de data, não por periodo_id.
   const colabById = new Map(allColabs.map((c) => [c.id, c]));
+  // A mesma unidade pode aparecer com maiúscula/minúscula diferente entre linhas do próprio
+  // Drake (ex.: "Bravo" numa linha, "BRAVO" noutra) — o mapa canônico resolve isso agrupando
+  // por chave maiúscula e usando a grafia mais recente, sem precisar de curadoria manual.
+  const unidadeCanonMap = buildUnidadeCanonMap(periodosToInsert);
   for (const p of periodosToInsert) {
     const colaborador = colabById.get(p.colaborador_id);
     // "funcao" (função de embarque) é a que bate com os rates cadastrados — "funcao_operacao"
@@ -350,7 +354,7 @@ export async function importDrakeEmbarkation(
     await ensureTimesheetParaPeriodo(supabase, {
       colaboradorId: p.colaborador_id,
       periodoId: null,
-      unidadeOperacional: p.unidade_operacional,
+      unidadeOperacional: canonUnidade(p.unidade_operacional, unidadeCanonMap),
       bsp: p.centro_de_custo,
       funcaoEmbarque,
       dataInicio: p.data_inicio,
@@ -406,6 +410,7 @@ async function garantirEmbarquesParaPeriodosSemCobertura(supabase: SupabaseClien
     .from("hist_novo_colaboradores").select("id, funcao, funcao_operacao").in("id", colaboradorIds);
   if (colabsErr) throw colabsErr;
   const colabById = new Map((colabsData ?? []).map((c: any) => [c.id, c]));
+  const unidadeCanonMap = buildUnidadeCanonMap(periodosE);
 
   for (const p of confirmados) {
     const cobertos = embarquesPorColaborador.get(p.colaborador_id) ?? [];
@@ -417,7 +422,7 @@ async function garantirEmbarquesParaPeriodosSemCobertura(supabase: SupabaseClien
     await ensureTimesheetParaPeriodo(supabase, {
       colaboradorId: p.colaborador_id,
       periodoId: null,
-      unidadeOperacional: p.unidade_operacional,
+      unidadeOperacional: canonUnidade(p.unidade_operacional, unidadeCanonMap),
       bsp: p.centro_de_custo,
       funcaoEmbarque,
       dataInicio: p.data_inicio,
