@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/EmptyState";
-import { Plus, Trash2, Truck, Upload, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car, Percent } from "lucide-react";
+import { Plus, Trash2, Truck, Upload, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car, Percent, Undo2 } from "lucide-react";
 import { type BmMobDesmobCost, type MobDesmobCategoria, type TipoMarkup } from "@/lib/bm";
 import { listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 
@@ -483,6 +483,55 @@ export function MobDesmobTab() {
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
   });
 
+  const desfazerAplicacao = useMutation({
+    mutationFn: async (bsp: string) => {
+      const aplicados = custos
+        .filter((c) => c.bsp === bsp && c.applied && c.applied_at)
+        .sort((a, b) => (b.applied_at ?? "").localeCompare(a.applied_at ?? ""));
+      const maisRecente = aplicados[0];
+      if (!maisRecente?.applied_at) throw new Error("Nenhuma aplicação encontrada neste BSP.");
+
+      const itensDaAplicacao = aplicados.filter((c) => c.applied_at === maisRecente.applied_at);
+      const ids = itensDaAplicacao.map((c) => c.id);
+      const bmNumber = maisRecente.applied_bm_number;
+
+      const { error } = await supabase.from("bm_mob_desmob_costs").update({
+        applied: false,
+        applied_bm_number: null,
+        applied_at: null,
+      }).in("id", ids);
+      if (error) throw error;
+
+      if (bmNumber) {
+        const { data: markups, error: markupsError } = await supabase
+          .from("bm_mob_desmob_markups")
+          .select("id, custo_ids")
+          .eq("bsp", bsp)
+          .eq("applied_bm_number", bmNumber);
+        if (markupsError) throw markupsError;
+
+        const idsSet = new Set(ids);
+        const markupIds = (markups ?? [])
+          .filter((m: { custo_ids: string[] }) => (m.custo_ids ?? []).some((id) => idsSet.has(id)))
+          .map((m: { id: string }) => m.id);
+        if (markupIds.length) {
+          const { error: deleteMarkupError } = await supabase
+            .from("bm_mob_desmob_markups").delete().in("id", markupIds);
+          if (deleteMarkupError) throw deleteMarkupError;
+        }
+      }
+
+      return { quantidade: ids.length, bmNumber };
+    },
+    onSuccess: ({ quantidade, bmNumber }) => {
+      qc.invalidateQueries({ queryKey: ["bm-mob-desmob-costs"] });
+      qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
+      qc.invalidateQueries({ queryKey: ["bm-mob-desmob-markups"] });
+      notify.success(`${quantidade} custo(s) removido(s) do BM ${bmNumber ?? "selecionado"}.`);
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao desfazer a aplicação."),
+  });
+
   const totalPendenteFiltrado = round2(grupos.reduce((a, g) => a + g.totalPendente, 0));
 
 
@@ -732,7 +781,19 @@ export function MobDesmobTab() {
                 </div>
               )}
 
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-1.5">
+                {g.itens.some((c) => c.applied) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[10px]"
+                    loading={desfazerAplicacao.isPending && desfazerAplicacao.variables === g.bsp}
+                    disabled={desfazerAplicacao.isPending}
+                    onClick={() => desfazerAplicacao.mutate(g.bsp)}
+                  >
+                    <Undo2 className="mr-1 h-3 w-3" />Desfazer ação
+                  </Button>
+                )}
                 <Button size="sm" disabled={g.totalPendente <= 0}
                   onClick={() => {
                     setMarkupResultado(null);
