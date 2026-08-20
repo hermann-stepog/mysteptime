@@ -17,10 +17,9 @@ import {
 } from "@/lib/drake/update-types";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
-import { parseExcelDate } from "@/lib/histograma/import-drake";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
-  computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr, getColaboradoresComEmbarque,
+  computeDayStatus, toOldBucket, STATUS_LABEL, todayStr, getColaboradoresComEmbarque,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { cn } from "@/lib/utils";
@@ -231,11 +230,9 @@ export function DrakeUpdateCard() {
   // colaboradores que embarcam de fato (têm ao menos um período tipo="E" confirmado, não só
   // "Programado") — o relatório da portaria lista todo mundo que passa pela base, incluindo
   // gente de escritório/onshore sem ciclo de embarque, que não deve virar "Na Base". Cada
-  // importação SUBSTITUI por completo o lote anterior (apaga todo tipo="BASE" e insere de
-  // novo a partir da planilha atual). A planilha do dia normalmente só informa "hoje" (sem
-  // data fim própria) — nesse caso o "Na Base" continua valendo nos dias seguintes com os
-  // dados de ontem até ela importar uma planilha nova, em vez de sumir no dia seguinte por
-  // falta de reimportação.
+  // importação é um retrato do dia: cada registro "BASE" vale exclusivamente na data em que
+  // o arquivo foi importado. Uma nova importação no mesmo dia substitui apenas o retrato
+  // daquele dia; os dias anteriores permanecem no histórico e nunca se projetam para frente.
   const handleImportBase = async (file: File) => {
     const startedAt = new Date().toISOString();
     setImportandoBase(true);
@@ -255,39 +252,17 @@ export function DrakeUpdateCard() {
       const hasHeader = idxNome >= 0 || idxInicio >= 0 || idxFim >= 0;
       const dataRows = hasHeader ? rows.slice(1) : rows;
       if (idxNome < 0) idxNome = 0;
-      // O relatório real ("Relatório de acesso diário") só tem Nome + Função — nenhuma coluna
-      // de data. Sem essa checagem, o código caía no fallback posicional (coluna 1 = "Data
-      // Início"), lendo a FUNÇÃO como se fosse data, o que nunca dá parse e zera o import
-      // inteiro. Sem coluna de data nenhuma, a planilha já É o retrato de hoje: todo mundo
-      // listado está na base HOJE, sem precisar de datas explícitas.
-      const semColunaDeData = idxInicio < 0 && idxFim < 0;
-      const idxInicioResolvido = idxInicio < 0 ? 1 : idxInicio;
-      const idxFimResolvido = idxFim < 0 ? 2 : idxFim;
+      const dataImportacao = todayStr();
 
       const linhas = dataRows
         .map((r) => {
           const nome = String(r[idxNome] ?? "").trim();
-          if (semColunaDeData) {
-            const hoje = todayStr();
-            return { nome, dataInicio: hoje, dataFim: addDays(hoje, 365) };
-          }
-          const dataInicio = parseExcelDate(r[idxInicioResolvido]);
-          const dataFimInformada = parseExcelDate(r[idxFimResolvido]);
-          return {
-            nome,
-            dataInicio,
-            // A planilha do dia normalmente só traz "hoje" (sem data fim própria) — nesse
-            // caso o "Na Base" precisa continuar valendo nos dias seguintes até ela importar
-            // uma planilha nova (que substitui esse lote inteiro, ver abaixo), não só no dia
-            // exato do import. Só respeita uma data fim mais curta quando a planilha realmente
-            // trouxer uma.
-            dataFim: dataFimInformada ?? (dataInicio ? addDays(dataInicio, 365) : null),
-          };
+          return { nome, dataInicio: dataImportacao, dataFim: dataImportacao };
         })
         .filter((l): l is { nome: string; dataInicio: string; dataFim: string } => !!l.nome && !!l.dataInicio && !!l.dataFim);
 
       if (!linhas.length) {
-        throw new Error("Nenhuma linha válida encontrada — preciso de nome e data de início em cada linha.");
+        throw new Error("Nenhuma linha válida encontrada — preciso do nome em cada linha.");
       }
 
       const [colaboradores, periodos] = await Promise.all([
@@ -305,8 +280,7 @@ export function DrakeUpdateCard() {
       });
       const periodosPorColab = new Map<string, HistNovoPeriodo[]>();
       // Ignora tipo="BASE" ao montar o status atual — senão, quem já tinha sido marcado "Na
-      // Base" numa importação anterior (ou no dia anterior, já que sem data fim própria o
-      // registro vale por 365 dias) aparecia com status "Base" em vez de Folga/Standby, e essa
+      // Base" numa importação anterior aparecia com status "Base" em vez de Folga/Standby, e essa
       // reimportação (que é exatamente o que vai SUBSTITUIR esse mesmo registro) achava que já
       // tinha uma info "mais autoritativa" e pulava a pessoa, zerando ela do lote novo.
       periodos.forEach((p) => {
@@ -350,7 +324,13 @@ export function DrakeUpdateCard() {
         inseridos.push(colaborador.nome);
       }
 
-      const { error: delErr } = await supabase.from("hist_novo_periodos").delete().eq("tipo", "BASE");
+      // Reimportar no mesmo dia substitui o retrato atual. Registros de dias anteriores ficam
+      // preservados no histograma, mas como duram um único dia nunca mantêm alguém "Na Base"
+      // amanhã sem uma nova importação.
+      const { error: delErr } = await supabase.from("hist_novo_periodos").delete()
+        .eq("tipo", "BASE")
+        .lte("data_inicio", dataImportacao)
+        .gte("data_fim", dataImportacao);
       if (delErr) throw delErr;
       if (registros.length > 0) {
         const { error: insErr } = await supabase.from("hist_novo_periodos").insert(registros);
