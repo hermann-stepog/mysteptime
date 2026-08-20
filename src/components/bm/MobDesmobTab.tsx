@@ -15,8 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/EmptyState";
-import { Plus, Trash2, Truck, Upload, Download, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car } from "lucide-react";
-import { type BmMobDesmobCost, type MobDesmobCategoria } from "@/lib/bm";
+import { Plus, Trash2, Truck, Upload, Download, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car, Percent } from "lucide-react";
+import { type BmMobDesmobCost, type MobDesmobCategoria, type TipoMarkup } from "@/lib/bm";
 import { listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 import { extractInvoiceNumberLocally } from "@/lib/invoiceNumberExtraction";
 
@@ -44,6 +44,27 @@ function num(v: unknown): number {
   const s = String(v ?? "").replace(/[R$\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
+}
+
+// ── Markup opcional no "Aplicar ao BM" por cartão ────────────────────────────────────────
+// Cálculo direto sobre o total do cartão (não por lançamento) — sem goal-seek, as duas
+// fórmulas já isolam o valor final:
+//   Simples:        valorFinal = valorBase * (1 + lucro/100)
+//   Com imposto:     valorFinal = valorBase * (1 + lucro/100) / (1 - imposto/100)
+function calcularValorComMarkup(valorBase: number, tipo: TipoMarkup, percentualLucro: number, percentualImposto: number): number {
+  const bruto = valorBase * (1 + percentualLucro / 100);
+  if (tipo === "simples") return round2(bruto);
+  return round2(bruto / (1 - percentualImposto / 100));
+}
+
+interface MarkupResultado {
+  incluiuMarkup: boolean;
+  tipoMarkup: TipoMarkup | null;
+  percentualLucro: number | null;
+  percentualImposto: number | null;
+  valorPendenteOriginal: number;
+  valorMarkupCalculado: number;
+  valorFinal: number;
 }
 
 // ── Import da planilha de custos (transporte / hotel) ────────────────────────
@@ -194,6 +215,15 @@ export function MobDesmobTab() {
   // os marcados aqui; se nada estiver marcado naquele BSP, cai no comportamento antigo
   // (aplica todos os pendentes do grupo).
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  // Etapa de confirmação de markup — só existe no fluxo por cartão ("Aplicar ao BM"), nunca
+  // no "Aplicar tudo ao BM" do topo. markupBsp aberto = modal "Incluir Markup?" visível;
+  // markupResultado é o que foi decidido lá, consumido depois no diálogo de escolha do BM.
+  const [markupBsp, setMarkupBsp] = useState<string | null>(null);
+  const [markupStep, setMarkupStep] = useState<"ask" | "form">("ask");
+  const [markupTipo, setMarkupTipo] = useState<TipoMarkup>("simples");
+  const [markupLucro, setMarkupLucro] = useState("15");
+  const [markupImposto, setMarkupImposto] = useState("13");
+  const [markupResultado, setMarkupResultado] = useState<MarkupResultado | null>(null);
 
   function toggleSelecionado(id: string) {
     setSelecionados((prev) => {
@@ -457,6 +487,19 @@ export function MobDesmobTab() {
     },
   });
 
+  // Markups já aplicados por cartão (histórico) — só existe pro fluxo por BSP, nunca pro
+  // "Aplicar tudo ao BM". Se a tabela ainda não existir no banco (migration não aplicada),
+  // a query cai em erro e isso aqui vira [] silenciosamente — o resto da aba continua normal.
+  const { data: markupsAplicados = [] } = useQuery({
+    queryKey: ["bm-mob-desmob-markups"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bm_mob_desmob_markups").select("bsp, incluiu_markup, valor_markup_calculado");
+      if (error) throw error;
+      return (data ?? []) as { bsp: string; incluiu_markup: boolean; valor_markup_calculado: number }[];
+    },
+  });
+
   // Agrupamento por BSP — cada BSP vira um cartão com seus custos de transporte e hotel.
   const custosFiltrados = useMemo(
     () => custos.filter((c) => (!dataDe || (c.data ?? "") >= dataDe) && (!dataAte || (c.data ?? "") <= dataAte)),
@@ -477,9 +520,15 @@ export function MobDesmobTab() {
         const soma = (f: (c: BmMobDesmobCost) => boolean) =>
           round2(itens.filter(f).reduce((a, c) => a + c.total_cost, 0));
         const pendentes = itens.filter((c) => !c.applied);
+        const markupAplicado = round2(
+          markupsAplicados
+            .filter((m) => m.bsp === bsp && m.incluiu_markup)
+            .reduce((a, m) => a + (Number(m.valor_markup_calculado) || 0), 0),
+        );
         return {
           bsp,
           itens,
+          markupAplicado,
           pendentes,
           transporte: soma((c) => c.categoria === "transporte"),
           hotel: soma((c) => c.categoria === "hotel"),
@@ -489,7 +538,7 @@ export function MobDesmobTab() {
           bmsAplicados: Array.from(new Set(itens.filter((c) => c.applied && c.applied_bm_number).map((c) => c.applied_bm_number!))),
         };
       });
-  }, [custosFiltrados]);
+  }, [custosFiltrados, markupsAplicados]);
 
   const importar = useMutation({
     mutationFn: async (file: File) => {
@@ -556,24 +605,11 @@ export function MobDesmobTab() {
     return bms.filter((b) => [b.bmNumber, b.poNumber, b.client, b.vessel].some((v) => (v ?? "").toLowerCase().includes(q)));
   }, [bms, busca]);
 
-  // "__todos__" = aplicar em lote tudo o que está pendente no período filtrado.
-  // Para um BSP específico: se houver itens marcados naquele BSP, aplica só os marcados;
-  // sem marcação, cai no comportamento antigo (aplica todos os pendentes do grupo).
-  const grupoAplicando = useMemo(() => {
-    if (aplicarBsp === TODOS) {
-      const pendentes = grupos.flatMap((g) => g.pendentes);
-      const soma = (f: (c: BmMobDesmobCost) => boolean) =>
-        round2(custosFiltrados.filter(f).reduce((a, c) => a + c.total_cost, 0));
-      return {
-        bsp: TODOS,
-        pendentes,
-        transporte: soma((c) => c.categoria === "transporte"),
-        hotel: soma((c) => c.categoria === "hotel"),
-        totalPendente: round2(pendentes.reduce((a, c) => a + c.total_cost, 0)),
-        usandoSelecao: false,
-      };
-    }
-    const g = grupos.find((g) => g.bsp === aplicarBsp);
+  // Pendentes de um BSP específico a considerar numa aplicação: se houver itens marcados
+  // naquele BSP, só os marcados; sem marcação, cai no comportamento antigo (todos os
+  // pendentes do grupo). Reaproveitado tanto pelo modal de markup quanto pelo de aplicar.
+  function grupoParaBsp(bsp: string) {
+    const g = grupos.find((g) => g.bsp === bsp);
     if (!g) return null;
     const marcadosDoGrupo = g.pendentes.filter((c) => selecionados.has(c.id));
     const usandoSelecao = marcadosDoGrupo.length > 0;
@@ -588,7 +624,38 @@ export function MobDesmobTab() {
       totalPendente: round2(pendentes.reduce((a, c) => a + c.total_cost, 0)),
       usandoSelecao,
     };
+  }
+
+  // "__todos__" = aplicar em lote tudo o que está pendente no período filtrado (sem markup —
+  // essa etapa é exclusiva do fluxo por cartão). Pra um BSP específico, reaproveita grupoParaBsp.
+  const grupoAplicando = useMemo(() => {
+    if (aplicarBsp === TODOS) {
+      const pendentes = grupos.flatMap((g) => g.pendentes);
+      const soma = (f: (c: BmMobDesmobCost) => boolean) =>
+        round2(custosFiltrados.filter(f).reduce((a, c) => a + c.total_cost, 0));
+      return {
+        bsp: TODOS,
+        pendentes,
+        transporte: soma((c) => c.categoria === "transporte"),
+        hotel: soma((c) => c.categoria === "hotel"),
+        totalPendente: round2(pendentes.reduce((a, c) => a + c.total_cost, 0)),
+        usandoSelecao: false,
+      };
+    }
+    return aplicarBsp ? grupoParaBsp(aplicarBsp) : null;
   }, [grupos, custosFiltrados, aplicarBsp, selecionados]);
+
+  const grupoMarkup = useMemo(() => (markupBsp ? grupoParaBsp(markupBsp) : null), [grupos, markupBsp, selecionados]);
+
+  const valorMarkupPreview = useMemo(() => {
+    if (!grupoMarkup) return null;
+    const lucro = Number(markupLucro.replace(",", "."));
+    const imposto = Number(markupImposto.replace(",", "."));
+    if (!Number.isFinite(lucro) || lucro < 0) return null;
+    if (markupTipo === "com_imposto" && (!Number.isFinite(imposto) || imposto < 0 || imposto >= 100)) return null;
+    const valorFinal = calcularValorComMarkup(grupoMarkup.totalPendente, markupTipo, lucro, imposto);
+    return { valorBase: grupoMarkup.totalPendente, valorFinal, valorMarkup: round2(valorFinal - grupoMarkup.totalPendente), lucro, imposto };
+  }, [grupoMarkup, markupTipo, markupLucro, markupImposto]);
 
   const aplicar = useMutation({
     mutationFn: async () => {
@@ -601,10 +668,30 @@ export function MobDesmobTab() {
         applied_at: new Date().toISOString(),
       }).in("id", grupoAplicando.pendentes.map((c) => c.id));
       if (error) throw error;
+
+      // Registro do markup só existe no fluxo por cartão — nunca no "Aplicar tudo ao BM".
+      if (aplicarBsp !== TODOS) {
+        const incluiuMarkup = markupResultado?.incluiuMarkup ?? false;
+        const valorPendenteOriginal = markupResultado?.valorPendenteOriginal ?? grupoAplicando.totalPendente;
+        const { error: markupError } = await supabase.from("bm_mob_desmob_markups").insert({
+          bsp: grupoAplicando.bsp,
+          applied_bm_number: bmSelecionado.bmNumber,
+          custo_ids: grupoAplicando.pendentes.map((c) => c.id),
+          incluiu_markup: incluiuMarkup,
+          tipo_markup: incluiuMarkup ? markupResultado?.tipoMarkup ?? null : null,
+          percentual_lucro: incluiuMarkup ? markupResultado?.percentualLucro ?? null : null,
+          percentual_imposto: incluiuMarkup ? markupResultado?.percentualImposto ?? null : null,
+          valor_pendente_original: valorPendenteOriginal,
+          valor_markup_calculado: incluiuMarkup ? markupResultado?.valorMarkupCalculado ?? 0 : 0,
+          valor_final: incluiuMarkup ? markupResultado?.valorFinal ?? valorPendenteOriginal : valorPendenteOriginal,
+        });
+        if (markupError) throw markupError;
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-costs"] });
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
+      qc.invalidateQueries({ queryKey: ["bm-mob-desmob-markups"] });
       const n = grupoAplicando?.pendentes.length ?? 0;
       notify.success(
         aplicarBsp === TODOS
@@ -620,6 +707,7 @@ export function MobDesmobTab() {
       });
       setAplicarBsp(null);
       setBmSelecionado(null);
+      setMarkupResultado(null);
     },
 
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
@@ -673,7 +761,7 @@ export function MobDesmobTab() {
               Pendente no período: <span className="font-semibold">{fmtMoney(totalPendenteFiltrado)}</span>
             </span>
             <Button size="sm" disabled={totalPendenteFiltrado <= 0}
-              onClick={() => { setAplicarBsp(TODOS); setBmSelecionado(null); setBusca(""); }}>
+              onClick={() => { setAplicarBsp(TODOS); setBmSelecionado(null); setBusca(""); setMarkupResultado(null); }}>
               <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar tudo ao BM
             </Button>
           </div>
@@ -777,6 +865,9 @@ export function MobDesmobTab() {
                   <p className="text-sm font-semibold">{fmtMoney(g.total)}</p>
                   {g.totalPendente > 0 && (
                     <p className="text-[11px] text-muted-foreground">Pendente: {fmtMoney(g.totalPendente)}</p>
+                  )}
+                  {g.markupAplicado > 0 && (
+                    <p className="text-[11px] font-medium text-emerald-700">Markup aplicado: {fmtMoney(g.markupAplicado)}</p>
                   )}
                   {g.pendentes.some((c) => selecionados.has(c.id)) && (
                     <p className="text-[11px] font-medium text-primary">
@@ -967,7 +1058,14 @@ export function MobDesmobTab() {
 
               <div className="flex justify-end">
                 <Button size="sm" disabled={g.totalPendente <= 0}
-                  onClick={() => { setAplicarBsp(g.bsp); setBmSelecionado(null); setBusca(""); }}>
+                  onClick={() => {
+                    setMarkupResultado(null);
+                    setMarkupTipo("simples");
+                    setMarkupLucro("15");
+                    setMarkupImposto("13");
+                    setMarkupStep("ask");
+                    setMarkupBsp(g.bsp);
+                  }}>
                   <Send className="mr-1.5 h-3.5 w-3.5" />
                   {g.pendentes.some((c) => selecionados.has(c.id))
                     ? `Aplicar selecionados (${g.pendentes.filter((c) => selecionados.has(c.id)).length}) ao BM`
@@ -1055,7 +1153,108 @@ export function MobDesmobTab() {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={!!aplicarBsp} onOpenChange={(o) => { if (!o) { setAplicarBsp(null); setBmSelecionado(null); } }}>
+      <Dialog open={!!markupBsp} onOpenChange={(o) => { if (!o) setMarkupBsp(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Incluir Markup?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border p-3 text-xs">
+              <p>BSP <span className="font-medium">{markupBsp}</span></p>
+              <p className="mt-1">
+                Valor pendente {grupoMarkup?.usandoSelecao ? "selecionado" : "do cartão"}: <span className="font-semibold">{fmtMoney(grupoMarkup?.totalPendente ?? 0)}</span>
+              </p>
+            </div>
+
+            {markupStep === "ask" ? (
+              <div className="flex justify-end gap-2">
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => {
+                    setMarkupResultado({
+                      incluiuMarkup: false, tipoMarkup: null, percentualLucro: null, percentualImposto: null,
+                      valorPendenteOriginal: grupoMarkup?.totalPendente ?? 0,
+                      valorMarkupCalculado: 0,
+                      valorFinal: grupoMarkup?.totalPendente ?? 0,
+                    });
+                    setAplicarBsp(markupBsp);
+                    setBmSelecionado(null);
+                    setBusca("");
+                    setMarkupBsp(null);
+                  }}
+                >
+                  Não
+                </Button>
+                <Button size="sm" onClick={() => setMarkupStep("form")}>Sim</Button>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <Label className="text-xs">Tipo de Markup</Label>
+                  <select
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={markupTipo}
+                    onChange={(e) => setMarkupTipo(e.target.value as TipoMarkup)}
+                  >
+                    <option value="simples">Simples (custo + %)</option>
+                    <option value="com_imposto">Com imposto embutido</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Percentual de Lucro (%)</Label>
+                    <Input type="number" step="0.01" value={markupLucro} onChange={(e) => setMarkupLucro(e.target.value)} />
+                  </div>
+                  {markupTipo === "com_imposto" && (
+                    <div>
+                      <Label className="text-xs">Percentual de Imposto (%)</Label>
+                      <Input type="number" step="0.01" value={markupImposto} onChange={(e) => setMarkupImposto(e.target.value)} />
+                    </div>
+                  )}
+                </div>
+
+                {valorMarkupPreview && (
+                  <div className="rounded-md border p-3 text-xs">
+                    <p>Valor base: <span className="font-medium">{fmtMoney(valorMarkupPreview.valorBase)}</span></p>
+                    <p>Markup: <span className="font-medium">{fmtMoney(valorMarkupPreview.valorMarkup)}</span></p>
+                    <p className="mt-1 border-t pt-1">
+                      Valor final: <span className="font-semibold">{fmtMoney(valorMarkupPreview.valorFinal)}</span>
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setMarkupBsp(null)}>Cancelar</Button>
+                  <Button
+                    size="sm"
+                    disabled={!valorMarkupPreview}
+                    onClick={() => {
+                      if (!valorMarkupPreview) return;
+                      setMarkupResultado({
+                        incluiuMarkup: true,
+                        tipoMarkup: markupTipo,
+                        percentualLucro: valorMarkupPreview.lucro,
+                        percentualImposto: markupTipo === "com_imposto" ? valorMarkupPreview.imposto : null,
+                        valorPendenteOriginal: valorMarkupPreview.valorBase,
+                        valorMarkupCalculado: valorMarkupPreview.valorMarkup,
+                        valorFinal: valorMarkupPreview.valorFinal,
+                      });
+                      setAplicarBsp(markupBsp);
+                      setBmSelecionado(null);
+                      setBusca("");
+                      setMarkupBsp(null);
+                    }}
+                  >
+                    <Percent className="mr-1.5 h-3.5 w-3.5" />Aplicar
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!aplicarBsp} onOpenChange={(o) => { if (!o) { setAplicarBsp(null); setBmSelecionado(null); setMarkupResultado(null); } }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
@@ -1077,7 +1276,17 @@ export function MobDesmobTab() {
               <p>Transporte: <span className="font-medium">{fmtMoney(grupoAplicando?.transporte ?? 0)}</span></p>
               <p>Hotel: <span className="font-medium">{fmtMoney(grupoAplicando?.hotel ?? 0)}</span></p>
               <p className="mt-1 border-t pt-1">
-                Total {grupoAplicando?.usandoSelecao ? "selecionado" : "pendente"} a aplicar: <span className="font-semibold">{fmtMoney(grupoAplicando?.totalPendente ?? 0)}</span>
+                Total {grupoAplicando?.usandoSelecao ? "selecionado" : "pendente"}: <span className="font-semibold">{fmtMoney(markupResultado?.valorPendenteOriginal ?? grupoAplicando?.totalPendente ?? 0)}</span>
+              </p>
+              {markupResultado?.incluiuMarkup && (
+                <p className="text-emerald-700">
+                  Markup aplicado ({markupResultado.tipoMarkup === "simples" ? "Simples" : "Com imposto embutido"}
+                  {" "}· {markupResultado.percentualLucro}% lucro{markupResultado.tipoMarkup === "com_imposto" ? ` + ${markupResultado.percentualImposto}% imposto` : ""}):
+                  {" "}<span className="font-semibold">{fmtMoney(markupResultado.valorMarkupCalculado)}</span>
+                </p>
+              )}
+              <p className={markupResultado?.incluiuMarkup ? "border-t pt-1" : undefined}>
+                Total a enviar ao BM: <span className="font-semibold">{fmtMoney(markupResultado?.incluiuMarkup ? markupResultado.valorFinal : (grupoAplicando?.totalPendente ?? 0))}</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -1111,7 +1320,7 @@ export function MobDesmobTab() {
               </Table>
             </div>
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setAplicarBsp(null)}>Cancelar</Button>
+              <Button size="sm" variant="outline" onClick={() => { setAplicarBsp(null); setMarkupResultado(null); }}>Cancelar</Button>
               <Button size="sm" disabled={!bmSelecionado} loading={aplicar.isPending} onClick={() => aplicar.mutate()}>
                 <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar
               </Button>

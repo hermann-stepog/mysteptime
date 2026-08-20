@@ -62,37 +62,43 @@ function AdminLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-50 to-slate-100/60">
 
-      {/* ── Top navbar ── */}
-      <header className="sticky top-0 z-10 flex items-center gap-4 bg-[#0f2744]/90 backdrop-blur-md border-b border-white/10 px-4 py-2 lg:px-6">
-        <BrandLogo className="h-9 w-auto shrink-0" />
+      {/* ── Top navbar ──
+          O header inteiro é um flex-wrap: em telas largas os itens cabem numa linha só e
+          nada muda visualmente. Quando não cabem, o próprio nav quebra em várias linhas
+          (em vez de rolar por baixo do pano, que é o que gerava a barra de rolagem
+          horizontal) — sem largura fixa em nenhum elemento, então nada ultrapassa a viewport. */}
+      <header className="sticky top-0 z-10 w-full max-w-full bg-[#0f2744]/90 backdrop-blur-md border-b border-white/10 px-3 py-2 sm:px-4 lg:px-6">
+        <div className="flex w-full max-w-full flex-wrap items-start gap-x-4 gap-y-2">
+          <BrandLogo className="mt-0.5 h-7 w-auto shrink-0 sm:h-8 lg:h-9" />
 
-        <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
-          {visibleNav.map((n) => {
-            const active = n.exact ? pathname === n.to : pathname.startsWith(n.to);
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={cn(
-                  "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-white/15 text-white shadow-sm border border-white/20"
-                    : "text-white/55 hover:bg-white/8 hover:text-white/85",
-                )}
-              >
-                {n.label}
-              </Link>
-            );
-          })}
-        </nav>
+          <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+            {visibleNav.map((n) => {
+              const active = n.exact ? pathname === n.to : pathname.startsWith(n.to);
+              return (
+                <Link
+                  key={n.to}
+                  to={n.to}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
+                    active
+                      ? "bg-white/15 text-white shadow-sm border border-white/20"
+                      : "text-white/55 hover:bg-white/8 hover:text-white/85",
+                  )}
+                >
+                  {n.label}
+                </Link>
+              );
+            })}
+          </nav>
 
-        <button
-          onClick={async () => { await signOut(); navigate({ to: "/auth" }); }}
-          title={`Sair (${profile?.full_name || profile?.email || ""})`}
-          className="shrink-0 text-white/50 hover:text-red-300 transition-colors"
-        >
-          <LogOut className="h-5 w-5" />
-        </button>
+          <button
+            onClick={async () => { await signOut(); navigate({ to: "/auth" }); }}
+            title={`Sair (${profile?.full_name || profile?.email || ""})`}
+            className="mt-1 shrink-0 text-white/50 hover:text-red-300 transition-colors"
+          >
+            <LogOut className="h-5 w-5" />
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 overflow-auto p-4 lg:p-8">

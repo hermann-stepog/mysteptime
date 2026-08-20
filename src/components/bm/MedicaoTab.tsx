@@ -65,12 +65,13 @@ interface Form {
   period_end: string;
   qtd: string;
   valor_unitario: string;
+  valor_total: string;
   notes: string;
 }
 
 const FORM_VAZIO: Form = {
   descricao: "", bsp: "", tag: "", cliente: "",
-  period_start: "", period_end: "", qtd: "1", valor_unitario: "", notes: "",
+  period_start: "", period_end: "", qtd: "1", valor_unitario: "", valor_total: "", notes: "",
 };
 
 /** Coluna do cabeçalho do BM (tabela bms) onde o total consolidado da medição é gravado. */
@@ -123,6 +124,9 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
       if (!form.descricao.trim()) throw new Error("Informe a descrição.");
       const qtd = Number(form.qtd) || 0;
       const valor_unitario = Number(form.valor_unitario) || 0;
+      const valor_total = form.valor_total.trim() === ""
+        ? round2(qtd * valor_unitario)
+        : round2(Number(form.valor_total.replace(",", ".")) || 0);
       const { error } = await supabase.from("bm_medicoes").insert({
         tipo,
         descricao: form.descricao.trim(),
@@ -133,7 +137,7 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
         period_end: form.period_end || null,
         qtd,
         valor_unitario,
-        valor_total: round2(qtd * valor_unitario),
+        valor_total,
         notes: form.notes.trim() || null,
       });
       if (error) throw error;
@@ -152,8 +156,18 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
       if (!patch) return;
       const qtd = Number(patch.qtd ?? row.qtd) || 0;
       const valor_unitario = Number(patch.valor_unitario ?? row.valor_unitario) || 0;
+      const valor_total = patch.valor_total == null
+        ? round2(qtd * valor_unitario)
+        : round2(Number(patch.valor_total) || 0);
       const { error } = await supabase.from("bm_medicoes").update({
-        ...patch, qtd, valor_unitario, valor_total: round2(qtd * valor_unitario),
+        ...patch,
+        bsp: patch.bsp === "" ? null : patch.bsp,
+        tag: patch.tag === "" ? null : patch.tag,
+        cliente: patch.cliente === "" ? null : patch.cliente,
+        period_start: patch.period_start === "" ? null : patch.period_start,
+        period_end: patch.period_end === "" ? null : patch.period_end,
+        notes: patch.notes === "" ? null : patch.notes,
+        qtd, valor_unitario, valor_total,
       }).eq("id", row.id);
       if (error) throw error;
     },
@@ -274,7 +288,9 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
           </div>
           <div>
             <Label className="text-xs">Valor total</Label>
-            <Input readOnly value={fmtMoney((Number(form.qtd) || 0) * (Number(form.valor_unitario) || 0))} className="bg-muted/40" />
+            <Input type="number" step="0.01" value={form.valor_total}
+              onChange={(e) => setForm({ ...form, valor_total: e.target.value })}
+              placeholder={String(round2((Number(form.qtd) || 0) * (Number(form.valor_unitario) || 0)))} />
           </div>
           <div className="md:col-span-2">
             <Label className="text-xs">Observações</Label>
@@ -316,10 +332,13 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
                 <TableHead className="min-w-[200px]">{descricaoLabel}</TableHead>
                 <TableHead>BSP</TableHead>
                 <TableHead>TAG</TableHead>
-                <TableHead>Período</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Início</TableHead>
+                <TableHead>Fim</TableHead>
                 <TableHead className="w-24">Qtd</TableHead>
                 <TableHead className="w-32">Valor unit.</TableHead>
                 <TableHead>Total</TableHead>
+                <TableHead>Observações</TableHead>
                 <TableHead>BM</TableHead>
                 <TableHead className="w-20" />
               </TableRow>
@@ -347,8 +366,23 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
                           onChange={(e) => setEdit(r.id, "tag", e.target.value)} />
                       )}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {fmtDate(r.period_start)} – {fmtDate(r.period_end)}
+                    <TableCell>
+                      {r.applied ? (r.cliente ?? "—") : (
+                        <Input className="h-8 w-32 text-xs" value={(valorEditado(r, "cliente") as string) ?? ""}
+                          onChange={(e) => setEdit(r.id, "cliente", e.target.value)} />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {r.applied ? fmtDate(r.period_start) : (
+                        <Input type="date" className="h-8 w-36 text-xs" value={(valorEditado(r, "period_start") as string) ?? ""}
+                          onChange={(e) => setEdit(r.id, "period_start", e.target.value)} />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {r.applied ? fmtDate(r.period_end) : (
+                        <Input type="date" className="h-8 w-36 text-xs" value={(valorEditado(r, "period_end") as string) ?? ""}
+                          onChange={(e) => setEdit(r.id, "period_end", e.target.value)} />
+                      )}
                     </TableCell>
                     <TableCell>
                       {r.applied ? r.qtd : (
@@ -362,10 +396,18 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
                           onChange={(e) => setEdit(r.id, "valor_unitario", e.target.value)} />
                       )}
                     </TableCell>
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {fmtMoney(editando
-                        ? (Number(edits[r.id]?.qtd ?? r.qtd) || 0) * (Number(edits[r.id]?.valor_unitario ?? r.valor_unitario) || 0)
-                        : r.valor_total)}
+                    <TableCell>
+                      {r.applied ? fmtMoney(r.valor_total) : (
+                        <Input type="number" step="0.01" className="h-8 w-28 text-xs font-medium"
+                          value={valorEditado(r, "valor_total") as number}
+                          onChange={(e) => setEdit(r.id, "valor_total", e.target.value)} />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {r.applied ? (r.notes ?? "—") : (
+                        <Input className="h-8 w-40 text-xs" value={(valorEditado(r, "notes") as string) ?? ""}
+                          onChange={(e) => setEdit(r.id, "notes", e.target.value)} />
+                      )}
                     </TableCell>
                     <TableCell>
                       {r.applied
@@ -392,7 +434,7 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
                 );
               })}
               {registros.length === 0 && !isFetching && (
-                <EmptyStateRow colSpan={9} icon={ClipboardList} title="Nenhum registro incluído" />
+                <EmptyStateRow colSpan={12} icon={ClipboardList} title="Nenhum registro incluído" />
               )}
             </TableBody>
           </Table>
