@@ -14,6 +14,7 @@ export const Route = createFileRoute("/pm")({ component: PmLayout });
 const NAV = [
   { to: "/pm", label: "Minhas Solicitações" },
   { to: "/pm/bms", label: "BMs para Aprovar" },
+  { to: "/admin/histograma-novo", label: "Histograma Offshore" },
 ];
 
 function PmLayout() {

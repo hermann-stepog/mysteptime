@@ -169,37 +169,38 @@ function HistogramaOffshoreNovo() {
 
 function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const { role } = useAuth();
-  const isVisitante = role === "visitante";
+  const isOperator = role === "logistics_operator";
+  // Todo mundo que chega nessa página (operador, visitante, solicitante e os papéis de etapa
+  // de Nomeações) vê Dashboard + Histograma — só a aba Lançamentos (lança/edita de verdade)
+  // continua exclusiva do operador de logística.
+  const canSeeHistograma = true;
+  const canSeeLancamentos = isOperator;
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
-        {!isVisitante && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
+        {isOperator && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
       </div>
 
       <Tabs defaultValue="dashboard">
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          {!isVisitante && (
-            <>
-              <TabsTrigger value="histograma">Histograma</TabsTrigger>
-              <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
-            </>
-          )}
+          {canSeeHistograma && <TabsTrigger value="histograma">Histograma</TabsTrigger>}
+          {canSeeLancamentos && <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard" className="mt-4">
           <DashboardTab colaboradores={colaboradores} periodos={periodos} />
         </TabsContent>
-        {!isVisitante && (
-          <>
-            <TabsContent value="histograma" className="mt-4">
-              <HistogramaTab colaboradores={colaboradores} periodos={periodos} />
-            </TabsContent>
-            <TabsContent value="lancamentos" className="mt-4">
-              <LancamentosTab colaboradores={colaboradores} periodos={periodos} />
-            </TabsContent>
-          </>
+        {canSeeHistograma && (
+          <TabsContent value="histograma" className="mt-4">
+            <HistogramaTab colaboradores={colaboradores} periodos={periodos} />
+          </TabsContent>
+        )}
+        {canSeeLancamentos && (
+          <TabsContent value="lancamentos" className="mt-4">
+            <LancamentosTab colaboradores={colaboradores} periodos={periodos} />
+          </TabsContent>
         )}
       </Tabs>
     </div>
@@ -1885,14 +1886,22 @@ const pobChartConfig = {
 // de cada fatia (payload.color) direto, via formatter customizado abaixo.
 const donutChartConfig = {} satisfies ChartConfig;
 
-function renderDonutTooltipRow(value: number | string, name: string, payload: { color?: string } | undefined) {
+type DonutStatusDatum = { name: string; value: number; color: string; nomes: string[] };
+
+function renderDonutNamesTooltip(props: unknown) {
+  const { active, payload } = props as { active?: boolean; payload?: { payload: DonutStatusDatum }[] };
+  if (!active || !payload?.length) return null;
+  const dado = payload[0].payload;
   return (
-    <div className="flex w-full items-center gap-2">
-      <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: payload?.color }} />
-      <span className="flex flex-1 justify-between gap-4 leading-none">
-        <span className="text-muted-foreground">{name}</span>
-        <span className="font-mono font-medium tabular-nums text-foreground">{value} pessoas</span>
-      </span>
+    <div className="w-64 rounded-lg border border-border/60 bg-background/95 p-2.5 text-xs shadow-lg backdrop-blur-sm">
+      <div className="flex items-center gap-2 border-b pb-1.5">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: dado.color }} />
+        <span className="font-semibold">{dado.name}</span>
+        <span className="ml-auto text-muted-foreground">{dado.value}</span>
+      </div>
+      <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
+        {dado.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
+      </ul>
     </div>
   );
 }
@@ -2109,29 +2118,30 @@ function DashboardTab({ colaboradores, periodos }: {
   // com o restante ("fora da ocupação" — Standby, Férias, Atestado etc.) em tons de
   // amarelo/laranja, pra ficar visualmente claro que são as duas metades complementares.
   const ocupacaoData = useMemo(() => {
-    const counts: Partial<Record<ComputedStatus, number>> = {};
+    const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const status = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
       if (!isOcupadoBucket(toOldBucket(status))) return;
-      counts[status] = (counts[status] ?? 0) + 1;
+      porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
     return STATUS_ORDER
-      .filter((s) => (counts[s] ?? 0) > 0)
-      .map((s) => ({ name: STATUS_LABEL[s], value: counts[s] ?? 0 }))
+      .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
+      .map((s) => ({ name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0, nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")) }))
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
 
   const naoOcupacaoData = useMemo(() => {
-    const counts: Partial<Record<ComputedStatus, number>> = {};
+    const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const status = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
       if (isOcupadoBucket(toOldBucket(status))) return;
-      counts[status] = (counts[status] ?? 0) + 1;
+      porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
     return STATUS_ORDER
-      .filter((s) => (counts[s] ?? 0) > 0)
+      .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
       .map((s, i) => ({
-        name: STATUS_LABEL[s], value: counts[s] ?? 0,
+        name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0,
+        nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")),
         color: NAO_OCUPACAO_COLOR[s] ?? OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length],
       }));
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
@@ -2391,17 +2401,7 @@ function DashboardTab({ colaboradores, periodos }: {
                   <Pie data={ocupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
                     {ocupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
                   </Pie>
-                  <ChartTooltip
-                    content={
-                      <ChartTooltipContent
-                        hideLabel
-                        nameKey="name"
-                        formatter={(value, name, _item, _index, payload) =>
-                          renderDonutTooltipRow(value as number, name as string, payload as { color?: string })
-                        }
-                      />
-                    }
-                  />
+                  <ChartTooltip content={renderDonutNamesTooltip} />
                 </PieChart>
               </ChartContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -2416,11 +2416,21 @@ function DashboardTab({ colaboradores, periodos }: {
             </div>
             <div className="flex-1 min-w-[160px] space-y-2">
               {ocupacaoData.map((d) => (
-                <div key={d.name} className="flex items-center gap-2 text-sm">
-                  <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                  <span className="text-muted-foreground">{d.name}</span>
-                  <span className="ml-auto font-semibold">{d.value}</span>
-                </div>
+                <HoverCard key={d.name} openDelay={120} closeDelay={80}>
+                  <HoverCardTrigger asChild>
+                    <div className="flex cursor-default items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50">
+                      <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                      <span className="text-muted-foreground">{d.name}</span>
+                      <span className="ml-auto font-semibold">{d.value}</span>
+                    </div>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-64 p-2.5" side="top" align="start">
+                    <p className="text-xs font-semibold">{d.name} ({d.value})</p>
+                    <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
+                      {d.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
+                    </ul>
+                  </HoverCardContent>
+                </HoverCard>
               ))}
             </div>
           </div>
@@ -2431,17 +2441,7 @@ function DashboardTab({ colaboradores, periodos }: {
                   <Pie data={naoOcupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
                     {naoOcupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
                   </Pie>
-                  <ChartTooltip
-                    content={
-                      <ChartTooltipContent
-                        hideLabel
-                        nameKey="name"
-                        formatter={(value, name, _item, _index, payload) =>
-                          renderDonutTooltipRow(value as number, name as string, payload as { color?: string })
-                        }
-                      />
-                    }
-                  />
+                  <ChartTooltip content={renderDonutNamesTooltip} />
                 </PieChart>
               </ChartContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -2456,11 +2456,21 @@ function DashboardTab({ colaboradores, periodos }: {
             </div>
             <div className="flex-1 min-w-[160px] space-y-2">
               {naoOcupacaoData.map((d) => (
-                <div key={d.name} className="flex items-center gap-2 text-sm">
-                  <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                  <span className="text-muted-foreground">{d.name}</span>
-                  <span className="ml-auto font-semibold">{d.value}</span>
-                </div>
+                <HoverCard key={d.name} openDelay={120} closeDelay={80}>
+                  <HoverCardTrigger asChild>
+                    <div className="flex cursor-default items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50">
+                      <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                      <span className="text-muted-foreground">{d.name}</span>
+                      <span className="ml-auto font-semibold">{d.value}</span>
+                    </div>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-64 p-2.5" side="top" align="start">
+                    <p className="text-xs font-semibold">{d.name} ({d.value})</p>
+                    <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
+                      {d.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
+                    </ul>
+                  </HoverCardContent>
+                </HoverCard>
               ))}
             </div>
           </div>

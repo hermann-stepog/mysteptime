@@ -27,21 +27,28 @@ const nav: NavItem[] = [
   { to: "/admin/settings",       label: "Configurações" },
 ];
 
-// Visitante só vê 3 módulos no menu (o acesso de verdade — quais abas/dados aparecem
-// dentro de cada um — é restringido dentro de cada página e via RLS no Supabase).
-const VISITANTE_PATHS = ["/admin/transport", "/admin/histograma-novo", "/admin/timesheet-offshore"];
+// Todo mundo que não é operador (Visitante, Solicitante e os 4 papéis de etapa de Nomeações)
+// tem acesso às mesmas 3 abas: Histograma Offshore (Dashboard + Histograma, sem Lançamentos —
+// ver histograma-novo.tsx) e Nomeações (board inteiro visível, todas as etapas, em tempo
+// real — cada um só mexe na própria etapa, via os gates já existentes em canMoveToColumn/RLS).
+const NAO_OPERADOR_PATHS = ["/admin/histograma-novo", "/admin/nominations"];
 
-// Papéis de etapa do fluxo de Nomeações (Aprovação Técnica/Qualidade/RH/SMS) só têm acesso
-// a esse único módulo — a ação real (o que cada um pode editar dentro dele) continua
-// restrita por etapa via RLS, isso aqui só esconde o resto do menu.
+// Visitante ainda tem Transporte e Timesheet Offshore além disso (acesso histórico dele).
+const VISITANTE_PATHS = ["/admin/transport", "/admin/timesheet-offshore", ...NAO_OPERADOR_PATHS];
+
+const PM_PATHS = NAO_OPERADOR_PATHS;
+
+// Papéis de etapa do fluxo de Nomeações (Aprovação Técnica/Qualidade/RH/SMS) — a ação real (o
+// que cada um pode editar dentro de Nomeações) continua restrita por etapa via RLS, isso aqui
+// só decide o que aparece no menu.
 const STAGE_ROLES = ["aprovacao_tecnica", "qualidade", "rh", "sms"];
-const STAGE_ROLE_PATHS = ["/admin/nominations"];
+const STAGE_ROLE_PATHS = NAO_OPERADOR_PATHS;
 
 function AdminLayout() {
   const { user, role, loading, signOut, profile } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isAllowedRole = role === "logistics_operator" || role === "visitante" || STAGE_ROLES.includes(role ?? "");
+  const isAllowedRole = role === "logistics_operator" || role === "visitante" || role === "pm" || STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;
@@ -56,9 +63,11 @@ function AdminLayout() {
 
   const visibleNav = role === "visitante"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
-    : STAGE_ROLES.includes(role ?? "")
-      ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to))
-      : nav;
+    : role === "pm"
+      ? nav.filter((n) => PM_PATHS.includes(n.to))
+      : STAGE_ROLES.includes(role ?? "")
+        ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to))
+        : nav;
 
   return (
     <motion.div
