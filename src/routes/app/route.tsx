@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
+import { motion } from "framer-motion";
 import { ClipboardList, CalendarDays, FileText, Bell, Wallet, LogOut, Truck } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
@@ -37,7 +38,12 @@ function AppLayout() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-b from-background to-muted/40 pb-20">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className="flex min-h-screen flex-col bg-gradient-to-b from-background to-muted/40 pb-20"
+    >
       <header className="sticky top-0 z-10 flex items-center justify-between bg-[#0f2744]/90 backdrop-blur-md border-b border-white/10 px-4 py-3 text-sidebar-foreground">
         <div className="flex items-center gap-2">
           <BrandLogo className="h-7 w-auto bg-white rounded p-1" />
@@ -58,6 +64,6 @@ function AppLayout() {
           );
         })}
       </nav>
-    </div>
+    </motion.div>
   );
 }

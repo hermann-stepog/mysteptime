@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
+import { motion } from "framer-motion";
 import { LogOut } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
@@ -60,7 +61,12 @@ function AdminLayout() {
       : nav;
 
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-50 to-slate-100/60">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className="flex min-h-screen flex-col bg-gradient-to-br from-slate-50 to-slate-100/60"
+    >
 
       {/* ── Top navbar ──
           O header inteiro é um flex-wrap: em telas largas os itens cabem numa linha só e
@@ -104,6 +110,6 @@ function AdminLayout() {
       <main className="flex-1 overflow-auto p-4 lg:p-8">
         <AnimatedOutlet />
       </main>
-    </div>
+    </motion.div>
   );
 }

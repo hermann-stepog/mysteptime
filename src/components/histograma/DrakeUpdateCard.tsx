@@ -17,10 +17,9 @@ import {
 } from "@/lib/drake/update-types";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
-import { parseExcelDate } from "@/lib/histograma/drake-spreadsheet-parser";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
-  computeDayStatus, toOldBucket, STATUS_LABEL, addDays, todayStr,
+  computeDayStatus, toOldBucket, STATUS_LABEL, todayStr, getColaboradoresComEmbarque,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { cn } from "@/lib/utils";
@@ -30,6 +29,7 @@ interface BaseImportResult {
   ignorados: { nome: string; motivo: string }[];
   naoEncontrados: string[];
   ambiguos: string[];
+  semEmbarque: string[];
 }
 
 function normalizeNome(s: string): string {
@@ -79,7 +79,7 @@ function messageFromErrorPayload(event: DrakeProgressEvent): string {
 }
 
 export function DrakeUpdateCard() {
-  const { role } = useAuth();
+  const { role, user, profile } = useAuth();
   const qc = useQueryClient();
   const canUpdate = role === "logistics_operator";
 
@@ -88,6 +88,7 @@ export function DrakeUpdateCard() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [embarkationStatus, setEmbarkationStatus] = useState<DrakeReportStatus>("waiting");
+  const [availabilityStatus, setAvailabilityStatus] = useState<DrakeReportStatus>("waiting");
   const [result, setResult] = useState<DrakeUpdateResult | null>(null);
   const [buttonLabel, setButtonLabel] = useState<"idle" | "running" | "done">("idle");
   const [showProgress, setShowProgress] = useState(false);
@@ -126,6 +127,7 @@ export function DrakeUpdateCard() {
       setProgress(event.progress);
     }
     setEmbarkationStatus(event.embarkationStatus);
+    setAvailabilityStatus(event.availabilityStatus);
 
     if (event.type === "error") {
       setIsRunning(false);
@@ -133,6 +135,7 @@ export function DrakeUpdateCard() {
       setError(messageFromErrorPayload(event));
       setMessage(null);
       notify.error(messageFromErrorPayload(event));
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       return;
     }
 
@@ -144,9 +147,11 @@ export function DrakeUpdateCard() {
       setProgress(100);
       setMessage("Dados atualizados com sucesso.");
       setEmbarkationStatus("completed");
+      setAvailabilityStatus("completed");
       setResult(event.result ?? null);
       setButtonLabel("done");
       notify.success("Dados atualizados com sucesso.");
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       void qc.invalidateQueries({ queryKey: ["hist-novo-colaboradores"] });
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       if (doneTimer.current) clearTimeout(doneTimer.current);
@@ -166,6 +171,7 @@ export function DrakeUpdateCard() {
     setProgress(0);
     setMessage("Preparando atualização...");
     setEmbarkationStatus("waiting");
+    setAvailabilityStatus("waiting");
     setButtonLabel("running");
 
     try {
@@ -220,13 +226,15 @@ export function DrakeUpdateCard() {
   // Importa o relatório de "quem vem trabalhar na base" (planilha externa, fora do Drake) e
   // cruza por nome com quem está de Folga ou Standby agora — só esses dois casos viram "Na
   // Base" (ver isOcupadoBucket em histogramaNovo.ts); quem já está Embarcado, de Férias,
-  // Atestado etc. é ignorado, porque essas informações são mais autoritativas. Cada
-  // importação SUBSTITUI por completo o lote anterior (apaga todo tipo="BASE" e insere de
-  // novo a partir da planilha atual). A planilha do dia normalmente só informa "hoje" (sem
-  // data fim própria) — nesse caso o "Na Base" continua valendo nos dias seguintes com os
-  // dados de ontem até ela importar uma planilha nova, em vez de sumir no dia seguinte por
-  // falta de reimportação.
+  // Atestado etc. é ignorado, porque essas informações são mais autoritativas. Só entram
+  // colaboradores que embarcam de fato (têm ao menos um período tipo="E" confirmado, não só
+  // "Programado") — o relatório da portaria lista todo mundo que passa pela base, incluindo
+  // gente de escritório/onshore sem ciclo de embarque, que não deve virar "Na Base". Cada
+  // importação é um retrato do dia: cada registro "BASE" vale exclusivamente na data em que
+  // o arquivo foi importado. Uma nova importação no mesmo dia substitui apenas o retrato
+  // daquele dia; os dias anteriores permanecem no histórico e nunca se projetam para frente.
   const handleImportBase = async (file: File) => {
+    const startedAt = new Date().toISOString();
     setImportandoBase(true);
     setBaseResult(null);
     try {
@@ -244,39 +252,17 @@ export function DrakeUpdateCard() {
       const hasHeader = idxNome >= 0 || idxInicio >= 0 || idxFim >= 0;
       const dataRows = hasHeader ? rows.slice(1) : rows;
       if (idxNome < 0) idxNome = 0;
-      // O relatório real ("Relatório de acesso diário") só tem Nome + Função — nenhuma coluna
-      // de data. Sem essa checagem, o código caía no fallback posicional (coluna 1 = "Data
-      // Início"), lendo a FUNÇÃO como se fosse data, o que nunca dá parse e zera o import
-      // inteiro. Sem coluna de data nenhuma, a planilha já É o retrato de hoje: todo mundo
-      // listado está na base HOJE, sem precisar de datas explícitas.
-      const semColunaDeData = idxInicio < 0 && idxFim < 0;
-      const idxInicioResolvido = idxInicio < 0 ? 1 : idxInicio;
-      const idxFimResolvido = idxFim < 0 ? 2 : idxFim;
+      const dataImportacao = todayStr();
 
       const linhas = dataRows
         .map((r) => {
           const nome = String(r[idxNome] ?? "").trim();
-          if (semColunaDeData) {
-            const hoje = todayStr();
-            return { nome, dataInicio: hoje, dataFim: addDays(hoje, 365) };
-          }
-          const dataInicio = parseExcelDate(r[idxInicioResolvido]);
-          const dataFimInformada = parseExcelDate(r[idxFimResolvido]);
-          return {
-            nome,
-            dataInicio,
-            // A planilha do dia normalmente só traz "hoje" (sem data fim própria) — nesse
-            // caso o "Na Base" precisa continuar valendo nos dias seguintes até ela importar
-            // uma planilha nova (que substitui esse lote inteiro, ver abaixo), não só no dia
-            // exato do import. Só respeita uma data fim mais curta quando a planilha realmente
-            // trouxer uma.
-            dataFim: dataFimInformada ?? (dataInicio ? addDays(dataInicio, 365) : null),
-          };
+          return { nome, dataInicio: dataImportacao, dataFim: dataImportacao };
         })
         .filter((l): l is { nome: string; dataInicio: string; dataFim: string } => !!l.nome && !!l.dataInicio && !!l.dataFim);
 
       if (!linhas.length) {
-        throw new Error("Nenhuma linha válida encontrada — preciso de nome e data de início em cada linha.");
+        throw new Error("Nenhuma linha válida encontrada — preciso do nome em cada linha.");
       }
 
       const [colaboradores, periodos] = await Promise.all([
@@ -294,8 +280,7 @@ export function DrakeUpdateCard() {
       });
       const periodosPorColab = new Map<string, HistNovoPeriodo[]>();
       // Ignora tipo="BASE" ao montar o status atual — senão, quem já tinha sido marcado "Na
-      // Base" numa importação anterior (ou no dia anterior, já que sem data fim própria o
-      // registro vale por 365 dias) aparecia com status "Base" em vez de Folga/Standby, e essa
+      // Base" numa importação anterior aparecia com status "Base" em vez de Folga/Standby, e essa
       // reimportação (que é exatamente o que vai SUBSTITUIR esse mesmo registro) achava que já
       // tinha uma info "mais autoritativa" e pulava a pessoa, zerando ela do lote novo.
       periodos.forEach((p) => {
@@ -303,11 +288,18 @@ export function DrakeUpdateCard() {
         if (!periodosPorColab.has(p.colaborador_id)) periodosPorColab.set(p.colaborador_id, []);
         periodosPorColab.get(p.colaborador_id)!.push(p);
       });
+      // O relatório de acesso da base lista todo mundo que passou pela portaria, incluindo
+      // gente de escritório/onshore que nunca embarca. "Na Base" só faz sentido pra quem tem
+      // histórico de embarque (tipo="E" confirmado, não só "Programado") — do contrário essas
+      // pessoas nunca aparecem em Folga/Standby (não têm ciclo de embarque) e o cruzamento por
+      // status simplesmente não se aplica a elas.
+      const colaboradoresQueEmbarcam = getColaboradoresComEmbarque(periodos);
 
       const inseridos: string[] = [];
       const ignorados: { nome: string; motivo: string }[] = [];
       const naoEncontrados: string[] = [];
       const ambiguos: string[] = [];
+      const semEmbarque: string[] = [];
       const registros: any[] = [];
 
       for (const linha of linhas) {
@@ -315,6 +307,7 @@ export function DrakeUpdateCard() {
         if (candidatos.length === 0) { naoEncontrados.push(linha.nome); continue; }
         if (candidatos.length > 1) { ambiguos.push(linha.nome); continue; }
         const colaborador = candidatos[0];
+        if (!colaboradoresQueEmbarcam.has(colaborador.id)) { semEmbarque.push(colaborador.nome); continue; }
         const ps = periodosPorColab.get(colaborador.id) ?? [];
         const result = computeDayStatus(ps, linha.dataInicio);
         const bucket = toOldBucket(result.status);
@@ -331,7 +324,13 @@ export function DrakeUpdateCard() {
         inseridos.push(colaborador.nome);
       }
 
-      const { error: delErr } = await supabase.from("hist_novo_periodos").delete().eq("tipo", "BASE");
+      // Reimportar no mesmo dia substitui o retrato atual. Registros de dias anteriores ficam
+      // preservados no histograma, mas como duram um único dia nunca mantêm alguém "Na Base"
+      // amanhã sem uma nova importação.
+      const { error: delErr } = await supabase.from("hist_novo_periodos").delete()
+        .eq("tipo", "BASE")
+        .lte("data_inicio", dataImportacao)
+        .gte("data_fim", dataImportacao);
       if (delErr) throw delErr;
       if (registros.length > 0) {
         const { error: insErr } = await supabase.from("hist_novo_periodos").insert(registros);
@@ -339,9 +338,35 @@ export function DrakeUpdateCard() {
       }
 
       void qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
-      setBaseResult({ inseridos, ignorados, naoEncontrados, ambiguos });
+      setBaseResult({ inseridos, ignorados, naoEncontrados, ambiguos, semEmbarque });
+      const { error: logErr } = await (supabase as any).from("drake_sync_runs").insert({
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        status: "success",
+        source_type: "base",
+        source_file_name: file.name,
+        triggered_by: user?.id ?? null,
+        triggered_by_label: profile?.full_name || profile?.email || user?.email || null,
+        base_inserted: inseridos.length,
+        base_ignored: ignorados.length + ambiguos.length + semEmbarque.length,
+        base_not_found: naoEncontrados.length,
+      });
+      if (logErr) console.warn("Falha ao registrar importacao da planilha da base:", logErr.message);
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       notify.success(`${inseridos.length} colaborador(es) marcado(s) como "Na Base".`);
     } catch (e: any) {
+      const { error: logErr } = await (supabase as any).from("drake_sync_runs").insert({
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        status: "error",
+        source_type: "base",
+        source_file_name: file.name,
+        triggered_by: user?.id ?? null,
+        triggered_by_label: profile?.full_name || profile?.email || user?.email || null,
+        error_message: String(e?.message || "Erro ao importar o relatorio da base.").slice(0, 2000),
+      });
+      if (logErr) console.warn("Falha ao registrar erro da planilha da base:", logErr.message);
+      void qc.invalidateQueries({ queryKey: ["drake-sync-runs"] });
       notify.error(e.message || "Erro ao importar o relatório da base.");
     } finally {
       setImportandoBase(false);
@@ -353,8 +378,8 @@ export function DrakeUpdateCard() {
     <Card className="self-start p-4 space-y-3">
       <h3 className="text-sm font-semibold">Atualizar dados do Drake</h3>
       <p className="text-xs text-muted-foreground">
-        Busca a ficha anual de posição de cada colaborador diretamente no Drake e atualiza o
-        Histograma Offshore.
+        Busca os relatórios atualizados diretamente no Drake e atualiza automaticamente os
+        colaboradores, embarques e períodos de disponibilidade.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -418,6 +443,12 @@ export function DrakeUpdateCard() {
               {baseResult.ignorados.map((i) => `${i.nome} (${i.motivo})`).join(", ")}
             </p>
           )}
+          {baseResult.semEmbarque.length > 0 && (
+            <p className="text-muted-foreground">
+              {baseResult.semEmbarque.length} ignorado(s) (sem histórico de embarque): {" "}
+              {baseResult.semEmbarque.join(", ")}
+            </p>
+          )}
           {baseResult.naoEncontrados.length > 0 && (
             <p className="text-muted-foreground">
               {baseResult.naoEncontrados.length} não encontrado(s) por nome: {baseResult.naoEncontrados.join(", ")}
@@ -445,10 +476,19 @@ export function DrakeUpdateCard() {
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
                 <ReportStatusIcon status={embarkationStatus} />
-                Fichas anuais de posição
+                Relatório de embarque
               </span>
               <span className="text-muted-foreground">
                 {DRAKE_REPORT_STATUS_LABEL[embarkationStatus]}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <ReportStatusIcon status={availabilityStatus} />
+                Relatório de disponibilidade
+              </span>
+              <span className="text-muted-foreground">
+                {DRAKE_REPORT_STATUS_LABEL[availabilityStatus]}
               </span>
             </div>
           </div>
@@ -467,12 +507,6 @@ export function DrakeUpdateCard() {
               )}
               {result.availabilityEvents != null && (
                 <p>{result.availabilityEvents} períodos de disponibilidade lançados</p>
-              )}
-              {result.annualPositionWorkers != null && (
-                <p>{result.annualPositionWorkers} colaboradores consultados no Drake</p>
-              )}
-              {result.annualPositionEvents != null && (
-                <p>{result.annualPositionEvents} períodos da ficha anual sincronizados</p>
               )}
             </div>
           )}
