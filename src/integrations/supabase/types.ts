@@ -427,6 +427,51 @@ export type Database = {
         }
         Relationships: []
       }
+      bm_mob_desmob_markups: {
+        Row: {
+          applied_bm_number: string
+          bsp: string
+          created_at: string
+          custo_ids: string[]
+          id: string
+          incluiu_markup: boolean
+          percentual_imposto: number | null
+          percentual_lucro: number | null
+          tipo_markup: string | null
+          valor_final: number
+          valor_markup_calculado: number
+          valor_pendente_original: number
+        }
+        Insert: {
+          applied_bm_number: string
+          bsp: string
+          created_at?: string
+          custo_ids?: string[]
+          id?: string
+          incluiu_markup?: boolean
+          percentual_imposto?: number | null
+          percentual_lucro?: number | null
+          tipo_markup?: string | null
+          valor_final?: number
+          valor_markup_calculado?: number
+          valor_pendente_original?: number
+        }
+        Update: {
+          applied_bm_number?: string
+          bsp?: string
+          created_at?: string
+          custo_ids?: string[]
+          id?: string
+          incluiu_markup?: boolean
+          percentual_imposto?: number | null
+          percentual_lucro?: number | null
+          tipo_markup?: string | null
+          valor_final?: number
+          valor_markup_calculado?: number
+          valor_pendente_original?: number
+        }
+        Relationships: []
+      }
       bm_status_history: {
         Row: {
           bm_id: string
@@ -1271,6 +1316,7 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias: number | null
+          drake_event_key: string | null
           id: string
           origem: string | null
           tipo: string
@@ -1284,6 +1330,7 @@ export type Database = {
           data_fim: string
           data_inicio: string
           dias?: number | null
+          drake_event_key?: string | null
           id?: string
           origem?: string | null
           tipo: string
@@ -1297,6 +1344,7 @@ export type Database = {
           data_fim?: string
           data_inicio?: string
           dias?: number | null
+          drake_event_key?: string | null
           id?: string
           origem?: string | null
           tipo?: string
