@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
 import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
@@ -88,6 +89,7 @@ export function TimesheetsTab() {
   const qc = useQueryClient();
   const [de, setDe] = useState(primeiroDiaDoMes);
   const [ate, setAte] = useState(ultimoDiaDoMes);
+  const [unidadeFiltro, setUnidadeFiltro] = useState("all");
   const [bspSelecionada, setBspSelecionada] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [colaboradorAberto, setColaboradorAberto] = useState<string | null>(null);
@@ -266,9 +268,23 @@ export function TimesheetsTab() {
   });
 
   // ── Agrupamentos ────────────────────────────────────────────────────────────────────
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set(copias.map((c) => c.unidade_operacional).filter((u): u is string => !!u))).sort(),
+    [copias],
+  );
+
+  useEffect(() => {
+    if (unidadeFiltro !== "all" && !unidadeOptions.includes(unidadeFiltro)) setUnidadeFiltro("all");
+  }, [unidadeOptions, unidadeFiltro]);
+
+  const copiasFiltradas = useMemo(
+    () => (unidadeFiltro === "all" ? copias : copias.filter((c) => c.unidade_operacional === unidadeFiltro)),
+    [copias, unidadeFiltro],
+  );
+
   const bsps = useMemo(() => {
     const map = new Map<string, { bsp: string | null; colaboradores: Set<string>; dias: number }>();
-    for (const c of copias) {
+    for (const c of copiasFiltradas) {
       const key = bspLabel(c.bsp);
       const entry = map.get(key) ?? { bsp: c.bsp, colaboradores: new Set<string>(), dias: 0 };
       entry.colaboradores.add(c.colaborador_id ?? c.colaborador_nome);
@@ -278,7 +294,7 @@ export function TimesheetsTab() {
     return Array.from(map.entries())
       .map(([key, v]) => ({ key, colaboradores: v.colaboradores.size, dias: v.dias }))
       .sort((a, b) => a.key.localeCompare(b.key));
-  }, [copias]);
+  }, [copiasFiltradas]);
 
   useEffect(() => {
     if (bspSelecionada && !bsps.some((b) => b.key === bspSelecionada)) setBspSelecionada(null);
@@ -287,7 +303,7 @@ export function TimesheetsTab() {
   const grupos = useMemo(() => {
     if (!bspSelecionada) return [];
     const termo = busca.trim().toLowerCase();
-    const linhas = copias
+    const linhas = copiasFiltradas
       .filter((c) => bspLabel(c.bsp) === bspSelecionada)
       .filter((c) => !termo || c.colaborador_nome.toLowerCase().includes(termo));
     const map = new Map<string, BmTimesheetDia[]>();
@@ -302,7 +318,7 @@ export function TimesheetsTab() {
         dias: dias.sort((a, b) => a.data.localeCompare(b.data)),
       }))
       .sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [copias, bspSelecionada, busca]);
+  }, [copiasFiltradas, bspSelecionada, busca]);
 
   const carregando = carregandoOrigem || carregandoCopias || importar.isPending;
 
@@ -317,6 +333,16 @@ export function TimesheetsTab() {
           <div className="space-y-1">
             <Label className="text-xs">Até</Label>
             <Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Unidade</Label>
+            <Select value={unidadeFiltro} onValueChange={(v) => { setUnidadeFiltro(v); setBspSelecionada(null); }}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Colaborador</Label>
