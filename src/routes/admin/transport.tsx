@@ -28,7 +28,8 @@ import { CLIENTES } from "@/lib/clientes";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { cn, matchesNameSearch } from "@/lib/utils";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
+import { PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import { pageTitle } from "@/lib/pageTitle";
 
 
@@ -1458,6 +1459,20 @@ const STATUS_COLOR: Record<TripStatus, string> = {
 const BLUES = ["#1e3a8a", "#1d4ed8", "#1e40af", "#2563eb", "#475569", "#64748b", "#0369a1", "#334155", "#0284c7", "#94a3b8"];
 const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", faturado: "#5b21b6", cancelado: "#c00000" };
 
+// Fatias/barras com cor por item (Cell) não têm uma chave fixa de série pra mapear num
+// ChartConfig — fica vazio e o tooltip/legenda padrão do shadcn lê a cor de cada item direto
+// do payload (item.payload.fill), igual ao mesmo padrão já usado no Histograma Offshore.
+const dynamicChartConfig = {} satisfies ChartConfig;
+
+const monthlyChartConfig = {
+  count: { label: "Viagens", color: "var(--color-chart-2)" },
+} satisfies ChartConfig;
+
+const tagComparisonChartConfig = {
+  pessoas: { label: "Pessoas", color: "var(--color-chart-2)" },
+  material: { label: "Material", color: "var(--color-chart-5)" },
+} satisfies ChartConfig;
+
 function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
   const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
   const [from, setFrom] = useState(firstOfMonth);
@@ -1618,15 +1633,15 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           <h2 className="text-base font-semibold">Distribuição por status</h2>
           <div className="mt-3 h-64">
             {statusData.length === 0 ? <EmptyState icon={Activity} title="Sem dados" className="h-full" /> : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartContainer config={dynamicChartConfig} className="aspect-auto h-full w-full">
                 <PieChart>
                   <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} label={(e: any) => `${e.name}: ${e.value}`}>
                     {statusData.map((e) => <Cell key={e.name} fill={e.color} />)}
                   </Pie>
-                  <Tooltip />
-                  <Legend />
+                  <ChartTooltip content={<ChartTooltipContent hideLabel nameKey="name" />} />
+                  <ChartLegend content={<ChartLegendContent nameKey="name" />} />
                 </PieChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             )}
           </div>
         </Card>
@@ -1635,15 +1650,25 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           <h2 className="text-base font-semibold">Evolução mensal</h2>
           <div className="mt-3 h-64">
             {monthlyData.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyData}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="month" fontSize={11} />
-                  <YAxis fontSize={11} allowDecimals={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="#1d4ed8" strokeWidth={2.5} dot={{ r: 3, fill: "#1d4ed8" }} activeDot={{ r: 5, fill: "#1e3a8a" }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <ChartContainer config={monthlyChartConfig} className="aspect-auto h-full w-full">
+                <AreaChart data={monthlyData}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
+                  <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    stroke="var(--color-count)"
+                    fill="var(--color-count)"
+                    fillOpacity={0.18}
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    dot={{ r: 3, fill: "var(--color-count)", strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </AreaChart>
+              </ChartContainer>
             )}
           </div>
         </Card>
@@ -1652,18 +1677,18 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           <h2 className="text-base font-semibold">Top rotas por volume</h2>
           <div className="mt-3 h-72">
             {topRoutes.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartContainer config={dynamicChartConfig} className="aspect-auto h-full w-full">
                 <BarChart data={topRoutes} layout="vertical" margin={{ left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis type="number" fontSize={11} allowDecimals={false} />
-                  <YAxis type="category" dataKey="rota" fontSize={10} width={140} />
-                  <Tooltip />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                  <CartesianGrid horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
+                  <YAxis type="category" dataKey="rota" tickLine={false} axisLine={false} fontSize={10} width={140} />
+                  <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel />} />
+                  <Bar dataKey="count" radius={[0, 6, 6, 0]}>
                     {topRoutes.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
                     <LabelList dataKey="count" position="right" fontSize={11} fill="hsl(var(--foreground))" />
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             )}
           </div>
         </Card>
@@ -1672,21 +1697,21 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           <h2 className="text-base font-semibold">Comparativo por etiqueta</h2>
           <div className="mt-3 h-72">
             {tagComparison.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartContainer config={tagComparisonChartConfig} className="aspect-auto h-full w-full">
                 <BarChart data={tagComparison}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="name" fontSize={11} />
-                  <YAxis fontSize={11} allowDecimals={false} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="pessoas" name="Pessoas" fill="#1d4ed8" radius={[4, 4, 0, 0]}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
+                  <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent />} />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  <Bar dataKey="pessoas" fill="var(--color-pessoas)" radius={[6, 6, 0, 0]}>
                     <LabelList dataKey="pessoas" position="top" fontSize={11} fill="hsl(var(--foreground))" />
                   </Bar>
-                  <Bar dataKey="material" name="Material" fill="#64748b" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="material" fill="var(--color-material)" radius={[6, 6, 0, 0]}>
                     <LabelList dataKey="material" position="top" fontSize={11} fill="hsl(var(--foreground))" />
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             )}
           </div>
         </Card>
@@ -1695,18 +1720,18 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
           <h2 className="text-base font-semibold">Quantidade de viagens por cliente</h2>
           <div className="mt-3 h-72">
             {tripsByClient.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartContainer config={dynamicChartConfig} className="aspect-auto h-full w-full">
                 <BarChart data={tripsByClient}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="cliente" fontSize={11} />
-                  <YAxis fontSize={11} allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" name="Viagens" radius={[4, 4, 0, 0]}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="cliente" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
+                  <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel />} />
+                  <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                     {tripsByClient.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
                     <LabelList dataKey="count" position="top" fontSize={11} fill="hsl(var(--foreground))" />
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             )}
           </div>
         </Card>

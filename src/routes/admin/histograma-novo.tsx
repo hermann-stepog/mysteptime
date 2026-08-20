@@ -26,9 +26,10 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
   PieChart, Pie, Cell,
 } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
@@ -1869,6 +1870,33 @@ const DASH_COLORS = {
 
 const DASH_UNIT_PALETTE = ["#1e3a5f", "#2563eb", "#0288d1", "#f97316", "#22c55e", "#8b5cf6", "#eab308", "#94a3b8", "#f43f5e", "#14b8a6"];
 
+const weeklyChartConfig = {
+  Embarcado: { label: "Embarcado", color: "var(--color-chart-1)" },
+  FolgaFerias: { label: "Folga/Férias", color: "var(--color-chart-5)" },
+  Disponível: { label: "Disponível", color: "var(--color-chart-3)" },
+} satisfies ChartConfig;
+
+const pobChartConfig = {
+  POB: { label: "POB", color: "var(--color-chart-3)" },
+} satisfies ChartConfig;
+
+// Fatias de pizza vêm de status dinâmicos (varia conforme o que existe nos dados do período) —
+// sem chave fixa pra mapear aqui, então o config fica vazio e o ChartTooltipContent usa a cor
+// de cada fatia (payload.color) direto, via formatter customizado abaixo.
+const donutChartConfig = {} satisfies ChartConfig;
+
+function renderDonutTooltipRow(value: number | string, name: string, payload: { color?: string } | undefined) {
+  return (
+    <div className="flex w-full items-center gap-2">
+      <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: payload?.color }} />
+      <span className="flex flex-1 justify-between gap-4 leading-none">
+        <span className="text-muted-foreground">{name}</span>
+        <span className="font-mono font-medium tabular-nums text-foreground">{value} pessoas</span>
+      </span>
+    </div>
+  );
+}
+
 // Só nos gráficos do Dashboard: o 1º dia de Folga logo após o fim de um embarque (status
 // "DES") já conta e aparece como "Folga" comum, sem virar categoria própria — a grade do
 // Histograma e a lista de Lançamentos continuam mostrando esse dia separado como
@@ -2190,7 +2218,7 @@ function DashboardTab({ colaboradores, periodos }: {
           else if (bucket === "B") disp++;
         });
       });
-      return { label, Embarcado: Math.round(emb / n), "Folga/Férias": Math.round(folga / n), Disponível: Math.round(disp / n) };
+      return { label, Embarcado: Math.round(emb / n), FolgaFerias: Math.round(folga / n), Disponível: Math.round(disp / n) };
     });
   }, [datesMesAtual, dailyRecords]);
 
@@ -2235,14 +2263,17 @@ function DashboardTab({ colaboradores, periodos }: {
     if (!active || !payload?.length) return null;
     const row = payload[0].payload;
     return (
-      <div className="rounded-md border border-border bg-popover p-2 text-xs shadow-md">
-        <p className="font-semibold">{row.mes} — {row.POB} pessoa(s)</p>
+      <div className="grid min-w-[8rem] gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+        <p className="font-medium">{row.mes} — {row.POB} pessoa(s)</p>
         {row.porUnidade.length > 0 && (
-          <ul className="mt-1 space-y-0.5">
+          <ul className="grid gap-1.5">
             {row.porUnidade.map((u) => (
-              <li key={u.unidade} className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: unitColor.get(u.unidade) ?? DASH_COLORS.slate }} />
-                <span>{u.unidade}: {u.count}</span>
+              <li key={u.unidade} className="flex w-full items-center gap-2">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: unitColor.get(u.unidade) ?? DASH_COLORS.slate }} />
+                <span className="flex flex-1 justify-between gap-4 leading-none">
+                  <span className="text-muted-foreground">{u.unidade}</span>
+                  <span className="font-mono font-medium tabular-nums text-foreground">{u.count}</span>
+                </span>
               </li>
             ))}
           </ul>
@@ -2354,13 +2385,25 @@ function DashboardTab({ colaboradores, periodos }: {
         </p>
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="flex flex-wrap items-center gap-4">
-            <div className="relative shrink-0">
-              <PieChart width={180} height={180}>
-                <Pie data={ocupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} stroke="none">
-                  {ocupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
-                </Pie>
-                <Tooltip formatter={(v: number, n: string) => [`${v} pessoas`, n]} />
-              </PieChart>
+            <div className="relative h-[180px] w-[180px] shrink-0">
+              <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px]">
+                <PieChart>
+                  <Pie data={ocupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
+                    {ocupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
+                  </Pie>
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        hideLabel
+                        nameKey="name"
+                        formatter={(value, name, _item, _index, payload) =>
+                          renderDonutTooltipRow(value as number, name as string, payload as { color?: string })
+                        }
+                      />
+                    }
+                  />
+                </PieChart>
+              </ChartContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span
                   className="text-2xl font-bold"
@@ -2382,13 +2425,25 @@ function DashboardTab({ colaboradores, periodos }: {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4 lg:border-l lg:pl-6">
-            <div className="relative shrink-0">
-              <PieChart width={180} height={180}>
-                <Pie data={naoOcupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} stroke="none">
-                  {naoOcupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
-                </Pie>
-                <Tooltip formatter={(v: number, n: string) => [`${v} pessoas`, n]} />
-              </PieChart>
+            <div className="relative h-[180px] w-[180px] shrink-0">
+              <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px]">
+                <PieChart>
+                  <Pie data={naoOcupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
+                    {naoOcupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
+                  </Pie>
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        hideLabel
+                        nameKey="name"
+                        formatter={(value, name, _item, _index, payload) =>
+                          renderDonutTooltipRow(value as number, name as string, payload as { color?: string })
+                        }
+                      />
+                    }
+                  />
+                </PieChart>
+              </ChartContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span
                   className="text-2xl font-bold"
@@ -2562,18 +2617,18 @@ function DashboardTab({ colaboradores, periodos }: {
         {weeklyData.length === 0 ? (
           <EmptyState icon={TrendingUp} title="Nenhum dado no período selecionado" />
         ) : (
-          <ResponsiveContainer width="100%" height={180}>
+          <ChartContainer config={weeklyChartConfig} className="aspect-auto h-[200px] w-full">
             <BarChart data={weeklyData} margin={{ top: 16, right: 8, bottom: 4, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={DASH_COLORS.grid} />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
               <YAxis hide />
-              <Tooltip />
-              <Legend iconSize={9} wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="Embarcado" stackId="a" fill={DASH_COLORS.navy}><LabelList position="insideTop" style={{ fill: "white", fontSize: 10, fontWeight: 700 }} /></Bar>
-              <Bar dataKey="Folga/Férias" stackId="a" fill={DASH_COLORS.slate}><LabelList position="insideTop" style={{ fill: "white", fontSize: 10, fontWeight: 700 }} /></Bar>
-              <Bar dataKey="Disponível" stackId="a" fill={DASH_COLORS.blue} radius={[3, 3, 0, 0]}><LabelList position="insideTop" style={{ fill: "white", fontSize: 10, fontWeight: 700 }} /></Bar>
+              <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent indicator="dot" />} />
+              <ChartLegend content={<ChartLegendContent />} />
+              <Bar dataKey="Embarcado" stackId="a" fill="var(--color-Embarcado)" />
+              <Bar dataKey="FolgaFerias" stackId="a" fill="var(--color-FolgaFerias)" />
+              <Bar dataKey="Disponível" stackId="a" fill="var(--color-Disponível)" radius={[6, 6, 0, 0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         )}
       </Card>
 
@@ -2584,17 +2639,17 @@ function DashboardTab({ colaboradores, periodos }: {
         {pobByMonth.length === 0 ? (
           <EmptyState icon={TrendingUp} title="Nenhum dado no período selecionado" />
         ) : (
-          <ResponsiveContainer width="100%" height={280}>
+          <ChartContainer config={pobChartConfig} className="aspect-auto h-[280px] w-full">
             <BarChart data={pobByMonth} margin={{ top: 16, right: 8, bottom: 8, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={DASH_COLORS.grid} />
-              <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip content={renderPobMesTooltip} />
-              <Bar dataKey="POB" fill={DASH_COLORS.cyan} radius={[4, 4, 0, 0]}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="mes" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
+              <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11 }} />
+              <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={renderPobMesTooltip} />
+              <Bar dataKey="POB" fill="var(--color-POB)" radius={[6, 6, 0, 0]}>
                 <LabelList dataKey="POB" position="top" style={{ fontSize: 11, fontWeight: 700, fill: DASH_COLORS.labelDark }} />
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         )}
       </Card>
 

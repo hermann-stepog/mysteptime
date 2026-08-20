@@ -25,7 +25,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { AlertTriangle, ArrowLeft, ArrowRight, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2, ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import {
   type Bm, type BmStatus, type BmLineMo, type BmLineLogistica, type BmLineMateriais, type BmDiaOverride, type MaterialCategoria,
@@ -33,6 +33,7 @@ import {
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
+import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
 import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
@@ -159,7 +160,7 @@ function BmPage() {
         </div>
         <Card className="p-4 space-y-3">
           <Skeleton className="h-4 w-1/3" />
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
@@ -927,7 +928,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // ── Logística Mob/Desmob (transporte e hotel) aplicada ao BSP selecionado ───────────────
   // Os custos importados na aba "Logística Mob/Desmob" são aplicados por BSP; ao selecionar
   // o BSP aqui, os totais de transporte e hotel já aplicados entram no cálculo do BM.
-  const { data: mobDesmob = { transporte: 0, hotel: 0, outros: 0 } } = useQuery({
+  const { data: mobDesmob = { transporte: 0, hotel: 0, outros: 0, markup: 0 } } = useQuery({
     queryKey: ["bm-mob-desmob-aplicados", cab.bsp, numeroBmAtual],
     enabled: !!cab.bsp,
     queryFn: async () => {
@@ -935,16 +936,26 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number")
         .eq("applied", true).eq("bsp", cab.bsp);
       if (error) throw error;
-      const acc = { transporte: 0, hotel: 0, outros: 0 };
+      const acc = { transporte: 0, hotel: 0, outros: 0, markup: 0 };
       for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
         if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
-        const k = (r.categoria in acc ? r.categoria : "outros") as keyof typeof acc;
+        const k = (r.categoria in acc ? r.categoria : "outros") as "transporte" | "hotel" | "outros";
         acc[k] = round2(acc[k] + (Number(r.total_cost) || 0));
+      }
+      // Markup incluído na aplicação por cartão ("Aplicar ao BM" de um BSP) — nunca gerado
+      // pelo "Aplicar tudo ao BM". Se a tabela ainda não existir (migration não aplicada),
+      // isso aqui cai em silêncio e markup fica 0, sem quebrar o resto do BM.
+      const { data: markups } = await supabase
+        .from("bm_mob_desmob_markups").select("applied_bm_number, incluiu_markup, valor_markup_calculado")
+        .eq("bsp", cab.bsp).eq("incluiu_markup", true);
+      for (const m of (markups ?? []) as { applied_bm_number: string; valor_markup_calculado: number }[]) {
+        if (numeroBmAtual && m.applied_bm_number && m.applied_bm_number !== numeroBmAtual) continue;
+        acc.markup = round2(acc.markup + (Number(m.valor_markup_calculado) || 0));
       }
       return acc;
     },
   });
-  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros + logisticaManual);
+  const totalMobDesmob = round2(mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros + mobDesmob.markup + logisticaManual);
 
   const totalGeral = round2(totals.grandTotal + totalMobDesmob);
 
@@ -1429,37 +1440,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
             </div>
 
-            <div>
-              <Label className="text-xs">
-                Valor do BM
-              </Label>
-
-              {bmNovoManual ? (
-                <Input
-                  type="number" step="0.01"
-                  value={valorBmManual ?? ""}
-                  onChange={(e) => setValorBmManual(e.target.value === "" ? null : Number(e.target.value))}
-                />
-              ) : (
-                <Input
-                  readOnly
-                  className="bg-muted/40"
-                  value={
-                    bmsSelecionados.length > 0
-                      ? fmtMoney(valorTotalBms)
-                      : "—"
-                  }
-                />
-              )}
-
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {bmNovoManual
-                  ? "Pré-preenchido com o total já medido — some no Current BM/Balance da folha de rosto e no valor enviado ao Smartsheet ao emitir o BM."
-                  : bmsSelecionados.length > 0
-                    ? `Soma de ${bmsSelecionados.length} BM(s) selecionada(s) na coluna VALOR BM.`
-                    : "Selecione uma ou mais BMs para calcular o total."}
-              </p>
-            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1492,6 +1472,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 <Label className="text-xs">Outros</Label>
                 <Input readOnly className="bg-muted/40" value={fmtMoney(mobDesmob.outros)} />
               </div>
+              {mobDesmob.markup > 0 && (
+                <div>
+                  <Label className="text-xs text-emerald-700">Markup aplicado</Label>
+                  <Input readOnly className="border-emerald-200 bg-emerald-50 text-emerald-800" value={fmtMoney(mobDesmob.markup)} />
+                </div>
+              )}
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
               {cab.bsp
@@ -1690,11 +1676,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               Gerar BM
             </Button>
           )}
-          {step < 4 && (
-            <Button size="sm" disabled={step === 0 && !podeAvancarStep0} onClick={() => setStep(step + 1)}>
-              Próximo<ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-            </Button>
-          )}
         </div>
       </div>
     </Card>
@@ -1713,16 +1694,31 @@ function round2(n: number): number {
 // simples que BmTimesheetCoverView (sem tabela de horas/diárias, que não existe pra esse
 // tipo de BM), listando as linhas de bm_lines_materiais e o total geral.
 function MaterialBmCoverView({ bm, linhas }: { bm: Bm; linhas: BmLineMateriais[] }) {
+  const categoria = linhas[0]?.categoria;
+  const tipoLabel = categoria === "rental" ? "Locação"
+    : categoria === "consumable" ? "Consumíveis"
+    : categoria === "mob_desmob_materiais" ? "Mob/Desmob de Materiais"
+    : "Habitat";
+  const quantidadeTotal = linhas.reduce((total, linha) => total + (Number(linha.qtd) || 0), 0);
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between border-b pb-3">
+    <div className="space-y-4 bg-background print:bg-white print:text-black">
+      <div className="flex justify-end print:hidden">
+        <Button size="sm" variant="outline" onClick={() => window.print()}>
+          <Printer className="mr-1.5 h-3.5 w-3.5" />Imprimir / Salvar PDF
+        </Button>
+      </div>
+      <div className="flex items-center justify-between border-b-2 border-primary pb-4">
+        <BrandLogo className="h-12 w-auto" />
         <div>
-          <p className="text-lg font-semibold">{bm.client_name}</p>
-          <p className="text-sm text-muted-foreground">
-            {bm.vessel} · {fmt(bm.period_start)} - {fmt(bm.period_end)} · BM {bm.numero_bm ?? "—"}
-          </p>
+          <p className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">Boletim de Medição</p>
+          <p className="text-right text-xl font-semibold">{tipoLabel}</p>
         </div>
-        <StatusBadge tone={STATUS_TONE[bm.current_status]}>{STATUS_LABELS[bm.current_status]}</StatusBadge>
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border p-4 text-sm md:grid-cols-4">
+        <div><p className="text-xs text-muted-foreground">Número do BM</p><p className="font-semibold">{bm.numero_bm ?? "—"}</p></div>
+        <div><p className="text-xs text-muted-foreground">BSP</p><p className="font-semibold">{bm.project_name || bm.vessel || "—"}</p></div>
+        <div><p className="text-xs text-muted-foreground">Período</p><p className="font-semibold">{fmt(bm.period_start)} - {fmt(bm.period_end)}</p></div>
+        <div><p className="text-xs text-muted-foreground">Status</p><StatusBadge tone={STATUS_TONE[bm.current_status]}>{STATUS_LABELS[bm.current_status]}</StatusBadge></div>
       </div>
       {bm.current_status === "rejected" && bm.rejection_reason && (
         <p className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
@@ -1756,10 +1752,14 @@ function MaterialBmCoverView({ bm, linhas }: { bm: Bm; linhas: BmLineMateriais[]
           ))}
         </TableBody>
       </Table>
-      <div className="flex justify-end border-t pt-3">
-        <div className="text-right">
-          <p className="text-xs text-muted-foreground">Total geral</p>
-          <p className="text-lg font-semibold">{fmtMoney(bm.total_geral)}</p>
+      <div className="grid grid-cols-2 gap-3 border-t pt-4 md:ml-auto md:max-w-md">
+        <div className="rounded-md bg-muted/40 p-3 text-right">
+          <p className="text-xs text-muted-foreground">Quantidade total</p>
+          <p className="text-lg font-semibold">{quantidadeTotal.toLocaleString("pt-BR")}</p>
+        </div>
+        <div className="rounded-md bg-primary/10 p-3 text-right">
+          <p className="text-xs text-muted-foreground">Valor final do BM</p>
+          <p className="text-xl font-bold">{fmtMoney(bm.total_geral)}</p>
         </div>
       </div>
     </div>
