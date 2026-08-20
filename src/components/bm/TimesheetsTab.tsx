@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
 import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
@@ -66,8 +67,17 @@ function ultimoDiaDoMes(): string {
   return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
 }
 
-function bspLabel(bsp: string | null): string {
-  return bsp?.trim() ? bsp.trim() : "Sem BSP";
+// Em algumas unidades, o embarque de origem não tem um código de BSP de verdade cadastrado
+// (o Drake às vezes só tem o centro de custo = nome da própria unidade, completo ou
+// abreviado — "PARATY" pra "FPPA - CIDADE DE PARATY", por exemplo) — nesses casos o campo
+// bsp acaba gravado com o nome da unidade em vez de um código, e mostrar isso como se fosse
+// o BSP confunde mais do que ajuda. Todo BSP de verdade neste sistema tem pelo menos um
+// dígito (25-906, BSP 25-1031 etc.); nome de unidade nunca tem — um jeito simples e seguro
+// de distinguir os dois sem precisar reconhecer cada nome de unidade um por um.
+function bspLabelDaLinha(c: { bsp: string | null; unidade_operacional: string | null }): string {
+  const bsp = c.bsp?.trim();
+  if (!bsp || !/\d/.test(bsp)) return "Sem BSP";
+  return bsp;
 }
 
 function numOrNull(v: string): number | null {
@@ -88,6 +98,7 @@ export function TimesheetsTab() {
   const qc = useQueryClient();
   const [de, setDe] = useState(primeiroDiaDoMes);
   const [ate, setAte] = useState(ultimoDiaDoMes);
+  const [unidadeFiltro, setUnidadeFiltro] = useState("all");
   const [bspSelecionada, setBspSelecionada] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [colaboradorAberto, setColaboradorAberto] = useState<string | null>(null);
@@ -266,10 +277,24 @@ export function TimesheetsTab() {
   });
 
   // ── Agrupamentos ────────────────────────────────────────────────────────────────────
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set(copias.map((c) => c.unidade_operacional).filter((u): u is string => !!u))).sort(),
+    [copias],
+  );
+
+  useEffect(() => {
+    if (unidadeFiltro !== "all" && !unidadeOptions.includes(unidadeFiltro)) setUnidadeFiltro("all");
+  }, [unidadeOptions, unidadeFiltro]);
+
+  const copiasDaUnidade = useMemo(
+    () => (unidadeFiltro === "all" ? copias : copias.filter((c) => c.unidade_operacional === unidadeFiltro)),
+    [copias, unidadeFiltro],
+  );
+
   const bsps = useMemo(() => {
     const map = new Map<string, { bsp: string | null; colaboradores: Set<string>; dias: number }>();
-    for (const c of copias) {
-      const key = bspLabel(c.bsp);
+    for (const c of copiasDaUnidade) {
+      const key = bspLabelDaLinha(c);
       const entry = map.get(key) ?? { bsp: c.bsp, colaboradores: new Set<string>(), dias: 0 };
       entry.colaboradores.add(c.colaborador_id ?? c.colaborador_nome);
       entry.dias += 1;
@@ -278,7 +303,7 @@ export function TimesheetsTab() {
     return Array.from(map.entries())
       .map(([key, v]) => ({ key, colaboradores: v.colaboradores.size, dias: v.dias }))
       .sort((a, b) => a.key.localeCompare(b.key));
-  }, [copias]);
+  }, [copiasDaUnidade]);
 
   useEffect(() => {
     if (bspSelecionada && !bsps.some((b) => b.key === bspSelecionada)) setBspSelecionada(null);
@@ -287,8 +312,8 @@ export function TimesheetsTab() {
   const grupos = useMemo(() => {
     if (!bspSelecionada) return [];
     const termo = busca.trim().toLowerCase();
-    const linhas = copias
-      .filter((c) => bspLabel(c.bsp) === bspSelecionada)
+    const linhas = copiasDaUnidade
+      .filter((c) => bspLabelDaLinha(c) === bspSelecionada)
       .filter((c) => !termo || c.colaborador_nome.toLowerCase().includes(termo));
     const map = new Map<string, BmTimesheetDia[]>();
     for (const l of linhas) {
@@ -302,7 +327,7 @@ export function TimesheetsTab() {
         dias: dias.sort((a, b) => a.data.localeCompare(b.data)),
       }))
       .sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [copias, bspSelecionada, busca]);
+  }, [copiasDaUnidade, bspSelecionada, busca]);
 
   const carregando = carregandoOrigem || carregandoCopias || importar.isPending;
 
@@ -317,6 +342,16 @@ export function TimesheetsTab() {
           <div className="space-y-1">
             <Label className="text-xs">Até</Label>
             <Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Unidade</Label>
+            <Select value={unidadeFiltro} onValueChange={(v) => { setUnidadeFiltro(v); setBspSelecionada(null); }}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Colaborador</Label>
