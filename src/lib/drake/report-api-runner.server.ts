@@ -21,7 +21,11 @@ import { drakeGet, drakePostJson, type DrakeHttpResult } from "./drake-http.serv
 import { DrakeIntegrationError } from "./integration-error.server";
 import { buildReportParameters } from "./report-parameter-builder";
 import { patchDrakeLogContext, shortId } from "./logger";
-import { DRAKE_SIGNALR_REQUIRED_FOR_EXPORT, DRAKE_QUERY_EXECUTION_NOT_CREATED, DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB } from "./update-types";
+import {
+  DRAKE_SIGNALR_REQUIRED_FOR_EXPORT,
+  DRAKE_QUERY_EXECUTION_NOT_CREATED,
+  DRAKE_EXPORT_ACCEPTED_WITHOUT_JOB,
+} from "./update-types";
 import type { DrakeSignalRSession } from "./signalr-session.server";
 
 const EXPORT_URL = "/api/v2/Queries/Query/ExportToExcel";
@@ -31,6 +35,8 @@ type StrategyUsed = "execute-then-export";
 
 export interface RunSingleApiReportOptions {
   signalRSession: DrakeSignalRSession;
+  /** Permite auditorias/sincronizações cobrirem uma data futura explícita. */
+  periodNow?: Date;
 }
 
 type HttpResult = Pick<DrakeHttpResult, "status" | "contentType" | "json" | "text"> & {
@@ -624,8 +630,7 @@ async function requestExportJob(args: {
       : null;
   const rowCount = Array.isArray(executeJson?.rows) ? executeJson.rows.length : null;
   const columnCount = Array.isArray(executeJson?.columns) ? executeJson.columns.length : null;
-  const totalRows =
-    typeof executeJson?.totalRows === "number" ? executeJson.totalRows : null;
+  const totalRows = typeof executeJson?.totalRows === "number" ? executeJson.totalRows : null;
 
   logger.info("drake-execute", "Consulta aceita", {
     reportCode: args.report.code,
@@ -644,8 +649,7 @@ async function requestExportJob(args: {
   if (!scheduled && !scheduledBackgroundJobId && (rowCount == null || rowCount === 0)) {
     throw new DrakeIntegrationError({
       code: DRAKE_QUERY_EXECUTION_NOT_CREATED,
-      message:
-        "A consulta foi aceita, mas nenhuma execucao observavel foi criada no Drake.",
+      message: "A consulta foi aceita, mas nenhuma execucao observavel foi criada no Drake.",
       stage: "execute-query",
       reportCode: args.report.code,
       details: {
@@ -736,7 +740,7 @@ export async function runSingleApiReport(
   try {
     await validateQueryDefinition(request, report);
 
-    const prepared = buildReportParameters(report, env.DRAKE_TIMEZONE);
+    const prepared = buildReportParameters(report, env.DRAKE_TIMEZONE, options.periodNow);
     const preparedMeta = {
       names: prepared.parameters.map((item) => item.name),
       count: prepared.parameters.length,

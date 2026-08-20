@@ -773,7 +773,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
         const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
         const { data: colaboradores, error: colErr } = colabIds.length
-          ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colabIds)
+          ? await supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", colabIds)
           : { data: [], error: null };
         if (colErr) throw colErr;
 
@@ -783,9 +783,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
         novasCopias = diasOrigem
           .filter((d: any) => !existentes.has(d.id))
-          .map((d: any) => {
+          .flatMap((d: any) => {
             const semana = semanaById.get(d.semana_id);
             const embarque = semana ? embarqueById.get(semana.embarque_id) : null;
+            if (!embarque || !nomeById.has(embarque.colaborador_id)) return [];
             return {
               source_dia_id: d.id,
               colaborador_id: embarque?.colaborador_id ?? null,
@@ -816,7 +817,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         }
       }
 
-      const todasAsCopias = [...(copiasData ?? []), ...novasCopias];
+      const copiasCandidatas = [...(copiasData ?? []), ...novasCopias];
+      const colaboradorIds = Array.from(new Set(copiasCandidatas.map((d: any) => d.colaborador_id).filter(Boolean)));
+      const { data: colaboradoresAtivos, error: ativosErr } = colaboradorIds.length
+        ? await supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", colaboradorIds)
+        : { data: [], error: null };
+      if (ativosErr) throw ativosErr;
+      const activeIds = new Set((colaboradoresAtivos ?? []).map((c: any) => c.id));
+      const todasAsCopias = copiasCandidatas.filter((d: any) => activeIds.has(d.colaborador_id));
 
       const diasComColaborador: TimesheetDiaComColaborador[] = todasAsCopias
         .filter((d: any) => d.colaborador_id && normalizeBmBspKey(d.bsp) === bspAlvo)

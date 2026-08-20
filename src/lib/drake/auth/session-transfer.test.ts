@@ -181,14 +181,16 @@ describe("auth provider contracts", () => {
     expect(auth).not.toMatch(/interactiveBootstrapRequiredError/);
   });
 
-  it("a ficha anual só é consultada depois da sessão validada", async () => {
+  it("o relatório de BSP e a ficha anual só são consultados depois da sessão validada", async () => {
     const fs = await import("node:fs/promises");
     const src = await fs.readFile("src/lib/drake/update-service.server.ts", "utf8");
     const authIdx = src.indexOf("await authenticate(false)");
-    const annualIdx = src.indexOf("synchronizeCurrentDrakeAnnualPositions(db, ctx, year");
+    const reportIdx = src.indexOf("runSingleApiReport(ctx, API_REPORT_1");
+    const annualIdx = src.indexOf("synchronizeCurrentDrakeAnnualPositions(");
     expect(authIdx).toBeGreaterThan(-1);
+    expect(reportIdx).toBeGreaterThan(authIdx);
     expect(annualIdx).toBeGreaterThan(authIdx);
-    expect(src).not.toMatch(/openDrakeSignalRSession/);
+    expect(src).toMatch(/openDrakeSignalRSession/);
     expect(src).toMatch(/createDrakeApiContextFromAuthenticatedSession/);
     expect(src).toMatch(/renovando automaticamente/);
   });

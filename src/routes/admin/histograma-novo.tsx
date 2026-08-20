@@ -111,7 +111,11 @@ function usePeriodosQuery() {
 
 function HistogramaOffshoreNovo() {
   const { data: colaboradores = [], isLoading: loadingColabs, error: errorColabs } = useColaboradoresQuery();
-  const { data: periodos = [], isLoading: loadingPeriodos, error: errorPeriodos } = usePeriodosQuery();
+  const { data: todosPeriodos = [], isLoading: loadingPeriodos, error: errorPeriodos } = usePeriodosQuery();
+  const periodos = useMemo(() => {
+    const activeIds = new Set(colaboradores.map((colaborador) => colaborador.id));
+    return todosPeriodos.filter((periodo) => activeIds.has(periodo.colaborador_id));
+  }, [colaboradores, todosPeriodos]);
 
   if (loadingColabs || loadingPeriodos)
     return (

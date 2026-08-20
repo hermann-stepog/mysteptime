@@ -53,13 +53,14 @@ async function fetchDiasParaGrid(vessel: string, periodStart: string, periodEnd:
   const embarqueById = new Map<string, any>((embarquesData ?? []).map((e: any) => [e.id, e]));
   const colaboradorIds = Array.from(new Set((embarquesData ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
   const { data: colaboradoresData } = colaboradorIds.length
-    ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colaboradorIds)
+    ? await supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", colaboradorIds)
     : { data: [] };
+  const activeIds = new Set((colaboradoresData ?? []).map((c: any) => c.id));
 
   const dias = (diasData ?? []).map((d: any) => {
     const embarque = embarqueById.get(embarqueBySemanaId.get(d.semana_id) ?? "");
     return { ...d, colaborador_id: embarque?.colaborador_id ?? null };
-  }).filter((d: any) => d.colaborador_id);
+  }).filter((d: any) => d.colaborador_id && activeIds.has(d.colaborador_id));
 
   return { colaboradores: (colaboradoresData ?? []) as { id: string; nome: string }[], dias };
 }

@@ -124,11 +124,11 @@ describe("http-only imports", () => {
     }
   });
 
-  it("update-service usa somente HTTP, sem SignalR nem navegador", async () => {
+  it("update-service usa o relatório de BSP sem navegador", async () => {
     const fs = await import("node:fs/promises");
     const src = await fs.readFile("src/lib/drake/update-service.server.ts", "utf8");
     expect(src).not.toMatch(/\bchromium\b/);
-    expect(src).not.toMatch(/openDrakeSignalRSession|runSingleApiReport/);
+    expect(src).toMatch(/openDrakeSignalRSession|runSingleApiReport/);
     expect(src).toMatch(/synchronizeCurrentDrakeAnnualPositions/);
     expect(src).not.toMatch(/\.rpc\(/);
     expect(src).not.toMatch(/bloqueio.*banco/i);
@@ -149,21 +149,23 @@ describe("updateDrakeData ficha anual", () => {
 
     const events: Array<{ stage: string; embarkationStatus: string; availabilityStatus: string }> =
       [];
-    const synchronizeAnnual = vi.fn().mockImplementation(async (_db, _http, _year, _cutoffDate, hooks) => {
-      await hooks.onWorkersLoaded(10);
-      await hooks.onWorkerProgress({ completedWorkers: 10, totalWorkers: 10 });
-      await hooks.onPositionsLoaded();
-      await hooks.onBeforeDatabaseSync();
-      return {
-        createdWorkers: 1,
-        updatedWorkers: 9,
-        synchronizedEvents: 30,
-        removedStaleEvents: 0,
-        preservedExistingEvents: 2,
-        skippedExistingDays: 4,
-        processedWorkers: 10,
-      };
-    });
+    const synchronizeAnnual = vi
+      .fn()
+      .mockImplementation(async (_db, _http, _year, _cutoffDate, _embarkationRows, hooks) => {
+        await hooks.onWorkersLoaded(10);
+        await hooks.onWorkerProgress({ completedWorkers: 10, totalWorkers: 10 });
+        await hooks.onPositionsLoaded();
+        await hooks.onBeforeDatabaseSync();
+        return {
+          createdWorkers: 1,
+          updatedWorkers: 9,
+          synchronizedEvents: 30,
+          removedStaleEvents: 0,
+          preservedExistingEvents: 2,
+          skippedExistingDays: 4,
+          processedWorkers: 10,
+        };
+      });
 
     vi.doMock("./auth/environment-credentials-auth.server", () => ({
       EnvironmentCredentialsDrakeAuthProvider: class {
@@ -186,6 +188,18 @@ describe("updateDrakeData ficha anual", () => {
     }));
     vi.doMock("./annual-position-sync.server", () => ({
       synchronizeCurrentDrakeAnnualPositions: synchronizeAnnual,
+    }));
+    vi.doMock("./signalr-session.server", () => ({
+      openDrakeSignalRSession: vi.fn().mockResolvedValue({
+        connectionId: "signal-test",
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    }));
+    vi.doMock("./report-api-runner.server", () => ({
+      runSingleApiReport: vi.fn().mockResolvedValue({ buffer: Buffer.from("report") }),
+    }));
+    vi.doMock("@/lib/histograma/import-drake", () => ({
+      parseDrakeWorkbook: vi.fn().mockReturnValue([]),
     }));
 
     const { updateDrakeData } = await import("./update-service.server");
@@ -216,5 +230,8 @@ describe("updateDrakeData ficha anual", () => {
     vi.doUnmock("./auth/environment-credentials-auth.server");
     vi.doUnmock("./api-session.server");
     vi.doUnmock("./annual-position-sync.server");
+    vi.doUnmock("./signalr-session.server");
+    vi.doUnmock("./report-api-runner.server");
+    vi.doUnmock("@/lib/histograma/import-drake");
   });
 });

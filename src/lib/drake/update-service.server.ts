@@ -24,6 +24,10 @@ import { getApiPeriodDates } from "./report-parameter-builder";
 import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { sanitizeError } from "./sanitize-error.server";
 import { synchronizeCurrentDrakeAnnualPositions } from "./annual-position-sync.server";
+import { API_REPORT_1 } from "./report-contracts";
+import { runSingleApiReport } from "./report-api-runner.server";
+import { openDrakeSignalRSession } from "./signalr-session.server";
+import { parseDrakeWorkbook } from "@/lib/histograma/import-drake";
 import {
   DRAKE_ANNUAL_POSITION_SYNC_FAILED,
   DRAKE_STAGE_MESSAGE,
@@ -42,9 +46,9 @@ export interface DrakeUpdateTrigger {
 }
 
 /**
- * Atualiza o Histograma Offshore diretamente pelas fichas anuais do Drake.
- * A rota, o scheduler e o contrato NDJSON permanecem os mesmos; não há navegador, SignalR,
- * geração de relatório ou arquivo temporário neste fluxo.
+ * Atualiza o Histograma Offshore pelas fichas anuais do Drake. Status e datas
+ * vêm da Ficha Anual; unidade e BSP de E/D vêm do relatório oficial de
+ * embarque por centro de custo.
  */
 export async function updateDrakeData(
   db: DbClient,
@@ -135,35 +139,57 @@ async function updateDrakeDataInner(
     const period = getApiPeriodDates(env.DRAKE_TIMEZONE);
     const year = Number(period.apiStartDate.slice(0, 4));
     await emit("preparing-period", { status: "processing" });
+    const embarkationRows = await withSessionRetry(async (ctx) => {
+      const signalR = await openDrakeSignalRSession(ctx);
+      try {
+        const report = await runSingleApiReport(ctx, API_REPORT_1, {
+          signalRSession: signalR,
+          // A Ficha Anual contém programações futuras. O relatório precisa
+          // cobrir o mesmo ano inteiro para também resolver o BSP desses dias.
+          periodNow: new Date(Date.UTC(year, 11, 31, 12)),
+        });
+        return parseDrakeWorkbook(report.buffer);
+      } finally {
+        await signalR.close().catch(() => undefined);
+      }
+    });
     await emit("loading-workers", { status: "processing" });
 
     const syncStarted = Date.now();
     let lastEmittedWorkerProgress = -1;
     const summary = await withSessionRetry((ctx) =>
-      synchronizeCurrentDrakeAnnualPositions(db, ctx, year, period.apiStartDate, {
-        onWorkersLoaded: async (totalWorkers) => {
-          await emit("loading-annual-positions", {
-            status: "downloading",
-            message: `Carregando fichas anuais de ${totalWorkers} colaboradores...`,
-          });
+      synchronizeCurrentDrakeAnnualPositions(
+        db,
+        ctx,
+        year,
+        period.apiStartDate,
+        embarkationRows,
+        {
+          onWorkersLoaded: async (totalWorkers) => {
+            await emit("loading-annual-positions", {
+              status: "downloading",
+              message: `Carregando fichas anuais de ${totalWorkers} colaboradores...`,
+            });
+          },
+          onWorkerProgress: async ({ completedWorkers, totalWorkers }) => {
+            const progress = 25 + Math.floor((completedWorkers / totalWorkers) * 59);
+            if (progress === lastEmittedWorkerProgress && completedWorkers < totalWorkers) return;
+            lastEmittedWorkerProgress = progress;
+            await emit("loading-annual-positions", {
+              status: "downloading",
+              progress,
+              message: `Carregando fichas anuais (${completedWorkers}/${totalWorkers})...`,
+            });
+          },
+          onPositionsLoaded: async () => {
+            await emit("validating-annual-position", { status: "validating" });
+          },
+          onBeforeDatabaseSync: async () => {
+            await emit("synchronizing-annual-position", { status: "importing" });
+          },
         },
-        onWorkerProgress: async ({ completedWorkers, totalWorkers }) => {
-          const progress = 25 + Math.floor((completedWorkers / totalWorkers) * 59);
-          if (progress === lastEmittedWorkerProgress && completedWorkers < totalWorkers) return;
-          lastEmittedWorkerProgress = progress;
-          await emit("loading-annual-positions", {
-            status: "downloading",
-            progress,
-            message: `Carregando fichas anuais (${completedWorkers}/${totalWorkers})...`,
-          });
-        },
-        onPositionsLoaded: async () => {
-          await emit("validating-annual-position", { status: "validating" });
-        },
-        onBeforeDatabaseSync: async () => {
-          await emit("synchronizing-annual-position", { status: "importing" });
-        },
-      }, period.apiEndDate),
+        period.apiEndDate,
+      ),
     );
 
     await emit("annual-position-completed", { status: "completed" });

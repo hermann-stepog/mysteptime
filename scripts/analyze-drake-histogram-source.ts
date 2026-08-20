@@ -6,12 +6,14 @@ import {
   buildWorkerKey,
   catalogAnnualPositionOccurrences,
   type AnnualPositionWorkerRow,
+  type EmbarkationSourceRow,
 } from "../src/lib/histograma/drake-snapshot";
 import { displayAbbr, normalizeUnidadeOperacional } from "../src/lib/histogramaNovo";
-import type {
-  DrakeAnnualPositionRow,
-  DrakeLogisticScheduleRow,
-} from "../src/lib/drake/worker-annual-position-api.server";
+import type { DrakeAnnualPositionRow } from "../src/lib/drake/worker-annual-position-api.server";
+import {
+  buildEmbarkationReportIndex,
+  resolveEmbarkationReportRow,
+} from "../src/lib/drake/annual-position-embarkation";
 
 type Capture = {
   asOfDate: string;
@@ -24,56 +26,51 @@ type Capture = {
     jobDescription: string | null;
     payrollJobName: string | null;
     positions: DrakeAnnualPositionRow[];
-    schedules: DrakeLogisticScheduleRow[];
   }>;
 };
 
 const input = process.argv[2] ?? path.resolve("private", "drake-audit", "source-2026-08-20.json");
 const capture = JSON.parse(readFileSync(input, "utf8")) as Capture;
+const reportInput = process.argv[3] ?? path.resolve("private", "drake-audit", "report1-rows.json");
+const reportRows = JSON.parse(readFileSync(reportInput, "utf8")) as EmbarkationSourceRow[];
+const embarkationIndex = buildEmbarkationReportIndex(reportRows);
 
-let exactScheduleDays = 0;
-let inheritedScheduleDays = 0;
-let missingScheduleDays = 0;
 let normalizedUnitChanges = 0;
-let maxScheduleAgeDays = 0;
 let embarkationDays = 0;
 let embarkationDaysWithoutUnit = 0;
 let embarkationDaysWithoutCostCenter = 0;
 let embarkationDaysWithDetailsUnit = 0;
 let unitSourceConflicts = 0;
-const scheduleAgeCounts = new Map<number, number>();
 const sourceRows: AnnualPositionWorkerRow[] = [];
 
 for (const worker of capture.workers) {
-  const { positions, schedules } = worker;
+  const { positions } = worker;
   const mappedPositions = positions.map((position) => {
-    const schedule = scheduleForDate(schedules, position.Date);
-    const rawUnit =
-      optionalString(position.Details?.Uop) ?? schedule?.DestinationDescription ?? null;
+    const detailsUnit = optionalString(position.Details?.Uop);
+    const isEmbarkationDay = ["E", "D"].includes(position.OccurrenceAcronym);
+    const reportRow = isEmbarkationDay
+      ? resolveEmbarkationReportRow(
+          embarkationIndex,
+          buildWorkerKey(worker.companyName, worker.registration),
+          position.Date,
+          detailsUnit,
+        )
+      : null;
+    const rawUnit = reportRow?.unidade_operacional ?? detailsUnit;
     const normalizedUnit = normalizeUnidadeOperacional(rawUnit);
     if (normalize(rawUnit) !== normalize(normalizedUnit)) normalizedUnitChanges += 1;
 
     if (position.OccurrenceAcronym === "E" || position.OccurrenceAcronym === "D") {
       embarkationDays += 1;
       if (!normalizedUnit) embarkationDaysWithoutUnit += 1;
-      if (!schedule?.CostCenterDescription) embarkationDaysWithoutCostCenter += 1;
-      const detailsUnit = optionalString(position.Details?.Uop);
+      if (!reportRow?.centro_de_custo) embarkationDaysWithoutCostCenter += 1;
       if (detailsUnit) embarkationDaysWithDetailsUnit += 1;
       if (
         detailsUnit &&
-        schedule?.DestinationDescription &&
-        normalize(detailsUnit) !== normalize(schedule.DestinationDescription)
+        reportRow?.unidade_operacional &&
+        normalize(detailsUnit) !== normalize(reportRow.unidade_operacional)
       ) {
         unitSourceConflicts += 1;
-      }
-      if (!schedule) {
-        missingScheduleDays += 1;
-      } else {
-        const age = daysBetween(schedule.Date, position.Date);
-        scheduleAgeCounts.set(age, (scheduleAgeCounts.get(age) ?? 0) + 1);
-        maxScheduleAgeDays = Math.max(maxScheduleAgeDays, age);
-        if (age === 0) exactScheduleDays += 1;
-        else inheritedScheduleDays += 1;
       }
     }
 
@@ -83,7 +80,7 @@ for (const worker of capture.workers) {
       occurrenceDescription: position.OccurrenceDescription,
       occurrenceType: position.OccurrenceType,
       unidadeOperacional: normalizedUnit,
-      centroDeCusto: schedule?.CostCenterDescription ?? null,
+      centroDeCusto: reportRow?.centro_de_custo ?? null,
     };
   });
 
@@ -129,13 +126,6 @@ console.log(
         embarkationDaysWithoutCostCenter,
         embarkationDaysWithDetailsUnit,
         unitSourceConflicts,
-      },
-      embarkationScheduleMatch: {
-        exactScheduleDays,
-        inheritedScheduleDays,
-        missingScheduleDays,
-        maxScheduleAgeDays,
-        scheduleAgeCounts: [...scheduleAgeCounts.entries()].sort(([left], [right]) => left - right),
       },
     },
     null,
@@ -230,18 +220,6 @@ function compareSnapshotToSource(
   };
 }
 
-function scheduleForDate(
-  schedules: DrakeLogisticScheduleRow[],
-  date: string,
-): DrakeLogisticScheduleRow | null {
-  let current: DrakeLogisticScheduleRow | null = null;
-  for (const schedule of schedules) {
-    if (schedule.Date > date) break;
-    current = schedule;
-  }
-  return current && normalize(current.Type) === "TRABALHO" ? current : null;
-}
-
 function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -270,8 +248,4 @@ function datesInRange(startDate: string, endDate: string): string[] {
 function addIsoDay(date: string, amount: number): string {
   const [year, month, day] = date.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day + amount)).toISOString().slice(0, 10);
-}
-
-function daysBetween(start: string, end: string): number {
-  return Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000);
 }

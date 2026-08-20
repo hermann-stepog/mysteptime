@@ -188,7 +188,7 @@ export async function generateRelatorioRH(
   unidadeFiltro = "all",
 ): Promise<void> {
   const [{ data: colaboradores }, embarques, periodosFI, todasSemanas] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
     // Folga Indenizada (tipo "FI") já vem pronta do Drake no Histograma — não é lançada aqui,
     // só somada nesse relatório (mesma coluna 413, mesmo adicional de 100%).
@@ -308,7 +308,7 @@ export async function generateRelatorioTimesheetsLancados(
   dataFim: string = defaultEnd(),
 ): Promise<void> {
   const [{ data: colaboradores }, embarques] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
@@ -380,7 +380,7 @@ export async function generateRelatorioMedicao(
   unidadeFiltro = "all",
 ): Promise<void> {
   const [{ data: colaboradores }, embarques, periodos] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
     selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
@@ -459,7 +459,7 @@ export async function generateRelatorioFolhaRH(
   dataFim: string = defaultEnd(),
 ): Promise<void> {
   const [{ data: colaboradores }, embarques] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
@@ -472,10 +472,11 @@ export async function generateRelatorioFolhaRH(
     .map((d) => {
       const embarque = embarqueById.get(d.embarque_id);
       const colaborador = embarque ? colabById.get(embarque.colaborador_id) : undefined;
+      if (!embarque || !colaborador) return null;
       return {
-        colaborador: colaborador?.nome ?? "—",
-        embarcacao: embarque?.unidade_operacional ?? "—",
-        funcao: embarque?.funcao_embarque ?? "—",
+        colaborador: colaborador.nome,
+        embarcacao: embarque.unidade_operacional ?? "—",
+        funcao: embarque.funcao_embarque ?? "—",
         tipo_evento: d.evento ?? "—",
         data_inicio: d.data,
         data_fim: d.data,
@@ -483,6 +484,7 @@ export async function generateRelatorioFolhaRH(
         comentarios: d.descricao_tarefa ?? "",
       };
     })
+    .filter((linha): linha is NonNullable<typeof linha> => linha !== null)
     .sort((a, b) => a.colaborador.localeCompare(b.colaborador) || a.data_inicio.localeCompare(b.data_inicio));
 
   const header = ["Colaborador", "Embarcação", "Função", "Tipo de Evento", "Data Início", "Data Fim", "Quantidade de Horas", "Comentários"];
@@ -515,26 +517,33 @@ function TimesheetOffshore() {
         .order("nome").order("id").range(from, to)),
   });
 
-  const { data: periodos = [], isLoading: l2 } = useQuery({
+  const { data: todosPeriodos = [], isLoading: l2 } = useQuery({
     queryKey: ["hist-novo-periodos"],
     queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
-  const { data: embarques = [], isLoading: l3 } = useQuery({
+  const { data: todosEmbarques = [], isLoading: l3 } = useQuery({
     queryKey: ["timesheet-embarques"],
     queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
-  const { data: semanas = [], isLoading: l4 } = useQuery({
+  const { data: todasSemanas = [], isLoading: l4 } = useQuery({
     queryKey: ["timesheet-semanas-all"],
     queryFn: () => selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
-  const { data: dias = [], isLoading: l5 } = useQuery({
+  const { data: todosDias = [], isLoading: l5 } = useQuery({
     queryKey: ["timesheet-dias-all"],
     queryFn: () => selectAllPages<TimesheetDia>((from, to) => supabase.from("timesheet_dias").select("*").gte("data", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
+  const activeIds = useMemo(() => new Set(colaboradores.map((c) => c.id)), [colaboradores]);
+  const periodos = useMemo(() => todosPeriodos.filter((p) => activeIds.has(p.colaborador_id)), [todosPeriodos, activeIds]);
+  const embarques = useMemo(() => todosEmbarques.filter((e) => activeIds.has(e.colaborador_id)), [todosEmbarques, activeIds]);
+  const activeEmbarkationIds = useMemo(() => new Set(embarques.map((e) => e.id)), [embarques]);
+  const semanas = useMemo(() => todasSemanas.filter((s) => activeEmbarkationIds.has(s.embarque_id)), [todasSemanas, activeEmbarkationIds]);
+  const activeWeekIds = useMemo(() => new Set(semanas.map((s) => s.id)), [semanas]);
+  const dias = useMemo(() => todosDias.filter((d) => activeWeekIds.has(d.semana_id)), [todosDias, activeWeekIds]);
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
 
   // Mapa de grafia canônica por unidade (ver comentário em buildUnidadeCanonMap) — resolve

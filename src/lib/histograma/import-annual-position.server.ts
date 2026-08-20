@@ -276,6 +276,7 @@ async function loadWorkersByRegistrations(
     const { data, error } = await db
       .from("hist_novo_colaboradores")
       .select("id, matricula, nome, empresa, funcao, funcao_operacao")
+      .eq("ativo", true)
       .in("matricula", batch);
     if (error) throw error;
     workers.push(...((data ?? []) as HistNovoColaborador[]));

@@ -36,16 +36,6 @@ export interface DrakeAnnualPositionRow {
 export interface DrakeWorkerAnnualPosition {
   worker: DrakeWorkerDashboardRow;
   positions: DrakeAnnualPositionRow[];
-  schedules: DrakeLogisticScheduleRow[];
-}
-
-export interface DrakeLogisticScheduleRow {
-  Date: string;
-  Type: string;
-  OriginDescription: string | null;
-  DestinationDescription: string | null;
-  CostCenterDescription: string | null;
-  JobDescription: string | null;
 }
 
 interface WorkerDashboardResponse {
@@ -55,9 +45,7 @@ interface WorkerDashboardResponse {
   items: DrakeWorkerDashboardRow[];
 }
 
-export async function fetchDrakeWorkers(
-  http: DrakeHttpClient,
-): Promise<DrakeWorkerDashboardRow[]> {
+export async function fetchDrakeWorkers(http: DrakeHttpClient): Promise<DrakeWorkerDashboardRow[]> {
   const firstPage = await fetchWorkerPage(http, 1);
   const pages = Math.ceil(firstPage.count / firstPage.limit);
   const items = [...firstPage.items];
@@ -82,9 +70,7 @@ export async function fetchDrakeWorkers(
   // O filtro acontece antes das chamadas individuais de GetPositionsByYear.
   const activeItems = items.filter((worker) => normalize(worker.status) === "ATIVO");
   if (activeItems.length === 0) {
-    throw new Error(
-      "O Drake não devolveu nenhum colaborador ativo. O banco não foi alterado.",
-    );
+    throw new Error("O Drake não devolveu nenhum colaborador ativo. O banco não foi alterado.");
   }
 
   const validItems = activeItems.filter(
@@ -132,57 +118,18 @@ export async function fetchAnnualPositionsForWorkers(
 
       const worker = workers[index];
       const positions = await fetchWorkerAnnualPosition(http, worker, year);
-      const schedules = positions.some((position) => position.OccurrenceAcronym === "E")
-        ? await fetchWorkerLogisticSchedules(http, worker.id)
-        : [];
-      results[index] = { worker, positions, schedules };
+      results[index] = { worker, positions };
       completed += 1;
       await onProgress?.(completed, workers.length);
     }
   }
 
   await Promise.all(
-    Array.from(
-      { length: Math.min(ANNUAL_POSITION_CONCURRENCY, workers.length) },
-      () => runWorker(),
+    Array.from({ length: Math.min(ANNUAL_POSITION_CONCURRENCY, workers.length) }, () =>
+      runWorker(),
     ),
   );
   return results;
-}
-
-async function fetchWorkerLogisticSchedules(
-  http: DrakeHttpClient,
-  workerId: string,
-): Promise<DrakeLogisticScheduleRow[]> {
-  const response = await http.get("/api/v1/BI/LogisticScheduling", {
-    failOnStatusCode: false,
-    params: { workerId, daysBefore: 500, daysAfter: 500, page: 1, limit: 5_000 },
-  });
-  if (response.status() < 200 || response.status() >= 300) {
-    throw new Error(
-      `O Drake não devolveu as programações logísticas do colaborador ${workerId} (HTTP ${response.status()}).`,
-    );
-  }
-  const value = await response.json();
-  if (!isRecord(value) || !Array.isArray(value.Items)) {
-    throw new Error(`As programações logísticas do colaborador ${workerId} são inválidas.`);
-  }
-  const count = Number(value.Count);
-  if (!Number.isInteger(count) || count < 0 || value.Items.length !== count) {
-    throw new Error(`As programações logísticas do colaborador ${workerId} estão incompletas.`);
-  }
-  return value.Items.map((item) => {
-    if (!isRecord(item)) throw new Error(`O Drake devolveu uma programação inválida (${workerId}).`);
-    const date = requiredString(item.Date, "data da programação logística").slice(0, 10);
-    return {
-      Date: date,
-      Type: requiredString(item.Type, "tipo da programação logística"),
-      OriginDescription: optionalString(item.OriginDescription),
-      DestinationDescription: optionalString(item.DestinationDescription),
-      CostCenterDescription: optionalString(item.CostCenterDescription),
-      JobDescription: optionalString(item.JobDescription),
-    };
-  }).sort((left, right) => left.Date.localeCompare(right.Date));
 }
 
 async function fetchWorkerPage(
@@ -260,7 +207,8 @@ function parseWorker(value: unknown): DrakeWorkerDashboardRow {
 }
 
 function parseAnnualPosition(value: unknown, workerId: string): DrakeAnnualPositionRow {
-  if (!isRecord(value)) throw new Error(`A ficha anual do colaborador ${workerId} contém uma linha inválida.`);
+  if (!isRecord(value))
+    throw new Error(`A ficha anual do colaborador ${workerId} contém uma linha inválida.`);
   const date = requiredString(value.Date, "data da ficha anual").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     throw new Error(`A ficha anual do colaborador ${workerId} contém uma data inválida.`);
@@ -268,10 +216,7 @@ function parseAnnualPosition(value: unknown, workerId: string): DrakeAnnualPosit
   return {
     Date: date,
     OccurrenceAcronym: requiredString(value.OccurrenceAcronym, "sigla da ocorrência"),
-    OccurrenceDescription: requiredString(
-      value.OccurrenceDescription,
-      "descrição da ocorrência",
-    ),
+    OccurrenceDescription: requiredString(value.OccurrenceDescription, "descrição da ocorrência"),
     OccurrenceType: optionalString(value.OccurrenceType),
     Details: isRecord(value.Details) ? value.Details : null,
   };
@@ -330,7 +275,11 @@ function daysBetween(start: string, end: string): number {
 }
 
 function normalize(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

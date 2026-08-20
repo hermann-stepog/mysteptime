@@ -11,12 +11,17 @@ import {
   buildWorkerKey,
   catalogAnnualPositionOccurrences,
   type AnnualPositionWorkerRow,
+  type EmbarkationSourceRow,
 } from "@/lib/histograma/drake-snapshot";
 import { importAnnualPositionSnapshot } from "@/lib/histograma/import-annual-position.server";
 import { normalizeUnidadeOperacional } from "@/lib/histogramaNovo";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { createTimesheetForNewPeriodIfAbsent } from "@/lib/timesheetAutoGen";
 import { filterWorkersAlreadyInHistogram } from "./annual-position-eligibility";
+import {
+  buildEmbarkationReportIndex,
+  resolveEmbarkationReportRow,
+} from "./annual-position-embarkation";
 
 export interface AnnualPositionSyncProgress {
   completedWorkers: number;
@@ -45,6 +50,7 @@ export async function synchronizeCurrentDrakeAnnualPositions(
   http: DrakeHttpClient,
   year: number,
   cutoffDate: string,
+  embarkationRows: EmbarkationSourceRow[],
   hooks: AnnualPositionSyncHooks = {},
   asOfDate?: string,
 ): Promise<AnnualPositionSyncResult> {
@@ -61,7 +67,7 @@ export async function synchronizeCurrentDrakeAnnualPositions(
 
   // A carga não cria pessoas: espelha somente quem já pertence ao Histograma.
   // A lista é congelada antes de qualquer gravação e cruzada com os ATIVOS do Drake.
-  const histogramWorkerKeys = await loadHistogramWorkerKeys(db);
+  const histogramWorkerKeys = await loadActiveHistogramWorkerKeys(db);
 
   const workers = filterWorkersAlreadyInHistogram(activeWorkers, histogramWorkerKeys);
 
@@ -74,32 +80,38 @@ export async function synchronizeCurrentDrakeAnnualPositions(
       hooks.onWorkerProgress?.({ completedWorkers, totalWorkers }),
   );
   await hooks.onPositionsLoaded?.();
+  const embarkationIndex = buildEmbarkationReportIndex(embarkationRows);
 
-  const sourceRows: AnnualPositionWorkerRow[] = annualPositions.map(
-    ({ worker, positions, schedules }) => ({
-      drakeWorkerId: worker.id,
-      matricula: worker.registration,
-      nome: worker.name,
-      empresa: worker.companyName,
-      funcao: worker.jobDescription,
-      funcaoOperacao: worker.payrollJobName,
-      positions: positions.map((position) => {
-        const schedule = scheduleForDate(schedules, position.Date);
-        return {
-          date: position.Date,
-          occurrenceAcronym: position.OccurrenceAcronym,
-          occurrenceDescription: position.OccurrenceDescription,
-          occurrenceType: position.OccurrenceType,
-          unidadeOperacional: normalizeUnidadeOperacional(
-            optionalString(position.Details?.Uop) ?? schedule?.DestinationDescription,
-          ),
-          // Contract na ficha anual é o cliente, não o centro de custo. O centro de custo
-          // exibido no Histograma vem da programação logística do mesmo colaborador.
-          centroDeCusto: schedule?.CostCenterDescription ?? null,
-        };
-      }),
+  const sourceRows: AnnualPositionWorkerRow[] = annualPositions.map(({ worker, positions }) => ({
+    drakeWorkerId: worker.id,
+    matricula: worker.registration,
+    nome: worker.name,
+    empresa: worker.companyName,
+    funcao: worker.jobDescription,
+    funcaoOperacao: worker.payrollJobName,
+    positions: positions.map((position) => {
+      const detailsUnit = optionalString(position.Details?.Uop);
+      const isEmbarkationDay = ["E", "D"].includes(position.OccurrenceAcronym.trim().toUpperCase());
+      const reportRow = isEmbarkationDay
+        ? resolveEmbarkationReportRow(
+            embarkationIndex,
+            buildWorkerKey(worker.companyName, worker.registration),
+            position.Date,
+            detailsUnit,
+          )
+        : null;
+      return {
+        date: position.Date,
+        occurrenceAcronym: position.OccurrenceAcronym,
+        occurrenceDescription: position.OccurrenceDescription,
+        occurrenceType: position.OccurrenceType,
+        unidadeOperacional: normalizeUnidadeOperacional(
+          reportRow?.unidade_operacional ?? detailsUnit,
+        ),
+        centroDeCusto: reportRow?.centro_de_custo ?? null,
+      };
     }),
-  );
+  }));
   // Varre TODAS as ocorrências antes de qualquer gravação.
   // Assim, uma única execução revela o catálogo completo do Drake.
   const occurrenceCatalog = catalogAnnualPositionOccurrences(sourceRows);
@@ -306,7 +318,6 @@ async function synchronizeDrakeWorkerActiveFlags(
     id: string;
     empresa: string | null;
     matricula: string;
-    ativo: boolean;
   }> = [];
 
   const pageSize = 1000;
@@ -315,7 +326,8 @@ async function synchronizeDrakeWorkerActiveFlags(
   while (true) {
     const { data, error } = await db
       .from("hist_novo_colaboradores")
-      .select("id, empresa, matricula, ativo")
+      .select("id, empresa, matricula")
+      .eq("ativo", true)
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -325,7 +337,6 @@ async function synchronizeDrakeWorkerActiveFlags(
       id: string;
       empresa: string | null;
       matricula: string;
-      ativo: boolean;
     }>;
 
     workers.push(...rows);
@@ -335,7 +346,6 @@ async function synchronizeDrakeWorkerActiveFlags(
     from += pageSize;
   }
 
-  const activateIds: string[] = [];
   const deactivateIds: string[] = [];
 
   for (const worker of workers) {
@@ -350,26 +360,11 @@ async function synchronizeDrakeWorkerActiveFlags(
       continue;
     }
 
-    const shouldBeActive = activeKeys.has(workerKey);
-
-    if (worker.ativo === shouldBeActive) {
-      continue;
-    }
-
-    if (shouldBeActive) {
-      activateIds.push(worker.id);
-    } else {
+    // A sincronização pode desativar quem deixou de estar ativo no Drake,
+    // mas nunca reativa um cadastro desativado localmente pelo usuário.
+    if (!activeKeys.has(workerKey)) {
       deactivateIds.push(worker.id);
     }
-  }
-
-  for (const batch of chunkEligibilityIds(activateIds, 200)) {
-    const { error } = await db
-      .from("hist_novo_colaboradores")
-      .update({ ativo: true })
-      .in("id", batch);
-
-    if (error) throw error;
   }
 
   for (const batch of chunkEligibilityIds(deactivateIds, 200)) {
@@ -386,27 +381,7 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function scheduleForDate<T extends { Date: string; Type: string }>(
-  schedules: T[],
-  date: string,
-): T | null {
-  let current: T | null = null;
-  for (const schedule of schedules) {
-    if (schedule.Date > date) break;
-    current = schedule;
-  }
-  return current && normalize(current.Type) === "TRABALHO" ? current : null;
-}
-
-function normalize(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toUpperCase();
-}
-
-async function loadHistogramWorkerKeys(db: SupabaseClient): Promise<Set<string>> {
+async function loadActiveHistogramWorkerKeys(db: SupabaseClient): Promise<Set<string>> {
   const histogramWorkerKeys = new Set<string>();
   const pageSize = 1000;
   let from = 0;
@@ -415,6 +390,7 @@ async function loadHistogramWorkerKeys(db: SupabaseClient): Promise<Set<string>>
     const { data, error } = await db
       .from("hist_novo_colaboradores")
       .select("empresa, matricula")
+      .eq("ativo", true)
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 

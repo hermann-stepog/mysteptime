@@ -130,7 +130,7 @@ export function TimesheetsTab() {
 
       const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
       const { data: colaboradores, error: colErr } = colabIds.length
-        ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colabIds)
+        ? await supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", colabIds)
         : { data: [], error: null };
       if (colErr) throw colErr;
 
@@ -138,9 +138,10 @@ export function TimesheetsTab() {
       const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
       const nomeById = new Map<string, string>((colaboradores ?? []).map((c: any) => [c.id, c.nome]));
 
-      return dias.map((d: any) => {
+      return dias.flatMap((d: any) => {
         const semana = semanaById.get(d.semana_id);
         const embarque = semana ? embarqueById.get(semana.embarque_id) : null;
+        if (!embarque || !nomeById.has(embarque.colaborador_id)) return [];
         return {
           source_dia_id: d.id,
           colaborador_id: embarque?.colaborador_id ?? null,
@@ -176,7 +177,14 @@ export function TimesheetsTab() {
         .from("bm_timesheet_dias").select("*").gte("data", de).lte("data", ate)
         .order("colaborador_nome").order("data");
       if (error) throw error;
-      return (data ?? []) as BmTimesheetDia[];
+      const rows = (data ?? []) as BmTimesheetDia[];
+      const colaboradorIds = Array.from(new Set(rows.map((row) => row.colaborador_id).filter(Boolean))) as string[];
+      const { data: ativos, error: ativosError } = colaboradorIds.length
+        ? await supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", colaboradorIds)
+        : { data: [], error: null };
+      if (ativosError) throw ativosError;
+      const activeIds = new Set((ativos ?? []).map((row: any) => row.id));
+      return rows.filter((row) => !!row.colaborador_id && activeIds.has(row.colaborador_id));
     },
   });
 

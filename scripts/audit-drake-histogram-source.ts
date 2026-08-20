@@ -60,9 +60,9 @@ try {
     capturedAt: new Date().toISOString(),
     asOfDate: today,
     year,
-    source: "Drake GetPositionsByYear + LogisticScheduling",
+    source: "Drake GetPositionsByYear",
     mode: "read-only",
-    workers: annualPositions.map(({ worker, positions, schedules }) => ({
+    workers: annualPositions.map(({ worker, positions }) => ({
       workerIdentityHash: createHash("sha256")
         .update(
           `${worker.companyName.trim().toUpperCase()}|${worker.registration.trim().toUpperCase()}`,
@@ -76,7 +76,6 @@ try {
       jobDescription: worker.jobDescription,
       payrollJobName: worker.payrollJobName,
       positions,
-      schedules,
     })),
     summary: {
       activeWorkers: workers.length,
