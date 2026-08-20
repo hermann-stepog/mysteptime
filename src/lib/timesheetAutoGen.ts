@@ -361,7 +361,7 @@ interface ExistingDrakeTimesheetWeek {
   recebido_fisico: boolean;
 }
 
-interface ExistingDrakeTimesheetDay {
+export interface ExistingDrakeTimesheetDay {
   id: string;
   semana_id: string;
   data: string;
@@ -424,8 +424,11 @@ async function reconcileDrakeTimesheet(
   for (const [date, rows] of rowsByDate) {
     const desired = desiredByDate.get(date);
     if (!desired) {
+      // Este embarque já foi identificado pela chave estável do Drake (ou adotado
+      // por identidade exata). Portanto, qualquer data ausente em sourceDays é uma
+      // linha extra — inclusive dias vazios que o gerador legado criou para completar
+      // a semana. A fonte autoritativa é o Drake e o resultado precisa permanecer 1:1.
       for (const row of rows) {
-        assertSafeGeneratedRow(row, params.sourceEventKey);
         deleteIds.push(row.id);
       }
       continue;
@@ -539,7 +542,10 @@ async function reconcileDrakeTimesheet(
   }
 }
 
-function hasUserTimesheetContent(day: ExistingDrakeTimesheetDay): boolean {
+export function hasUserTimesheetContent(day: ExistingDrakeTimesheetDay): boolean {
+  // As colunas numéricas dos timesheets legados podem vir do banco com DEFAULT 0.
+  // Zero, sozinho, representa uma célula vazia; apenas horas efetivamente diferentes
+  // de zero devem impedir a remoção de um dia automático fora do recorte do Drake.
   return Boolean(
     day.descricao_tarefa?.trim() ||
       day.numero_tarefa?.trim() ||
@@ -547,9 +553,9 @@ function hasUserTimesheetContent(day: ExistingDrakeTimesheetDay): boolean {
       day.hora_saida ||
       day.hora_entrada_extra ||
       day.hora_saida_extra ||
-      day.horas_normais != null ||
-      day.horas_extras != null ||
-      day.total_horas != null ||
+      (day.horas_normais ?? 0) !== 0 ||
+      (day.horas_extras ?? 0) !== 0 ||
+      (day.total_horas ?? 0) !== 0 ||
       day.adicional_noturno ||
       day.feriado,
   );

@@ -267,7 +267,8 @@ export function DrakeUpdateCard() {
 
       const [colaboradores, periodos] = await Promise.all([
         selectAllPages<HistNovoColaborador>((from, to) =>
-          supabase.from("hist_novo_colaboradores").select("*").order("id").range(from, to)),
+          supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true)
+            .order("id").range(from, to)),
         selectAllPages<HistNovoPeriodo>((from, to) =>
           supabase.from("hist_novo_periodos").select("*").order("id").range(from, to)),
       ]);
@@ -485,7 +486,7 @@ export function DrakeUpdateCard() {
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
                 <ReportStatusIcon status={availabilityStatus} />
-                Relatório de disponibilidade
+                Fichas anuais de posição
               </span>
               <span className="text-muted-foreground">
                 {DRAKE_REPORT_STATUS_LABEL[availabilityStatus]}

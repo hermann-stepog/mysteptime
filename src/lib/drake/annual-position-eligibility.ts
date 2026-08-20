@@ -5,15 +5,11 @@ export interface DrakeWorkerIdentity {
   companyName: string;
 }
 
-export function filterWorkersWithEmbarkationHistory<
-  T extends DrakeWorkerIdentity,
->(
+export function filterWorkersAlreadyInHistogram<T extends DrakeWorkerIdentity>(
   workers: T[],
-  eligibleWorkerKeys: ReadonlySet<string>,
+  histogramWorkerKeys: ReadonlySet<string>,
 ): T[] {
   return workers.filter((worker) =>
-    eligibleWorkerKeys.has(
-      buildWorkerKey(worker.companyName, worker.registration),
-    ),
+    histogramWorkerKeys.has(buildWorkerKey(worker.companyName, worker.registration)),
   );
 }

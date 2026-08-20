@@ -409,6 +409,69 @@ export interface HistNovoPeriodo {
   created_at: string;
 }
 
+export interface EmbarkationCycle {
+  colaboradorId: string;
+  dataInicio: string;
+  dataFim: string;
+  dataDesembarque: string;
+  unidadeOperacional: string | null;
+  centroDeCusto: string | null;
+  bsp: string | null;
+  sourcePeriod: HistNovoPeriodo;
+}
+
+/**
+ * Um ciclo offshore continua sendo o mesmo embarque quando a Ficha Anual alterna
+ * dias E (Embarque) e DB (Dobra). Mudança de sigla, unidade ou BSP no meio do
+ * ciclo não pode fabricar um novo embarque ou um desembarque intermediário.
+ */
+export function buildEmbarkationCycles(periodos: HistNovoPeriodo[]): EmbarkationCycle[] {
+  const actual = periodos
+    .filter(
+      (periodo) =>
+        (periodo.tipo === "E" || periodo.tipo === "DB") &&
+        periodo.origem !== ORIGEM_PROGRAMADO,
+    )
+    .sort(
+      (left, right) =>
+        left.colaborador_id.localeCompare(right.colaborador_id) ||
+        left.data_inicio.localeCompare(right.data_inicio) ||
+        left.data_fim.localeCompare(right.data_fim) ||
+        left.id.localeCompare(right.id),
+    );
+
+  const cycles: EmbarkationCycle[] = [];
+  for (const periodo of actual) {
+    const previous = cycles.at(-1);
+    if (
+      previous &&
+      previous.colaboradorId === periodo.colaborador_id &&
+      periodo.data_inicio <= addDays(previous.dataFim, 1)
+    ) {
+      if (periodo.data_fim > previous.dataFim) {
+        previous.dataFim = periodo.data_fim;
+        previous.dataDesembarque = addDays(periodo.data_fim, 1);
+      }
+      previous.unidadeOperacional ??= periodo.unidade_operacional;
+      previous.centroDeCusto ??= periodo.centro_de_custo;
+      previous.bsp ??= periodo.bsp;
+      continue;
+    }
+
+    cycles.push({
+      colaboradorId: periodo.colaborador_id,
+      dataInicio: periodo.data_inicio,
+      dataFim: periodo.data_fim,
+      dataDesembarque: addDays(periodo.data_fim, 1),
+      unidadeOperacional: periodo.unidade_operacional,
+      centroDeCusto: periodo.centro_de_custo,
+      bsp: periodo.bsp,
+      sourcePeriod: periodo,
+    });
+  }
+  return cycles;
+}
+
 // Encontra o período cujo intervalo [data_inicio, data_fim] cobre a data informada.
 export function findPeriodoForDate(periodos: HistNovoPeriodo[], date: string): HistNovoPeriodo | undefined {
   return periodos.find((p) => date >= p.data_inicio && date <= p.data_fim);
@@ -594,49 +657,43 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
     // planejamento já deveria ter sido confirmado ou frustrado.
     // Se o Drake sabe o resultado, ele passa a ser a verdade.
     if (date <= dataHoje) {
-      if (drakePeriodo && drakeStatus) {
+      if (drakePeriodo && drakeStatus && drakeStatus !== "P") {
         return {
           status: drakeStatus,
           periodo: drakePeriodo,
         };
       }
+      // P expirado não é um fato. Sem confirmação de embarque, ele deixa de
+      // participar da resolução e o status real (ou o vazio/default) vence.
+    }
+    else {
+      // FUTURO: STB é o estado default e não cancela uma programação futura.
+      if (
+        !drakePeriodo ||
+        drakeStatus === "STB" ||
+        drakeStatus === "P"
+      ) {
+        return {
+          status: "P",
+          periodo: programadoLocal,
+        };
+      }
 
-      // Sem informação Drake, não inventamos resultado.
-      // Preserva P até que uma sincronização traga a posição real.
+      // Qualquer outra ocorrência explícita já registrada pelo Drake
+      // substitui visualmente a programação.
+      if (!drakeStatus) {
+        throw new Error("A posição futura do Drake não pôde ser resolvida.");
+      }
       return {
-        status: "P",
-        periodo: programadoLocal,
+        status: drakeStatus,
+        periodo: drakePeriodo,
       };
     }
-
-    // FUTURO:
-    // STB é o estado normal/default e não cancela uma programação futura.
-    // P do próprio Drake obviamente também continua P.
-    if (
-      !drakePeriodo ||
-      drakeStatus === "STB" ||
-      drakeStatus === "P"
-    ) {
-      return {
-        status: "P",
-        periodo: programadoLocal,
-      };
-    }
-
-    // Qualquer outra ocorrência explícita já registrada pelo Drake
-    // substitui visualmente a programação.
-    if (!drakePeriodo || !drakeStatus) {
-      throw new Error("A posição futura do Drake não pôde ser resolvida.");
-    }
-    return {
-      status: drakeStatus,
-      periodo: drakePeriodo,
-    };
   }
 
   // Sem programação local, a Ficha Anual continua sendo
   // absolutamente autoritativa.
-  if (drakePeriodo && drakeStatus) {
+  if (drakePeriodo && drakeStatus && (drakeStatus !== "P" || date > dataHoje)) {
     return {
       status: drakeStatus,
       periodo: drakePeriodo,
@@ -678,7 +735,7 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
   // essas datas, o bloco acima já vence primeiro e o "Programado" deixa de valer sozinho.
   const continuacaoProgramada = periodos.find((p) => p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO && date >= p.data_inicio && date <= p.data_fim);
   const programado = covering("P") ?? continuacaoProgramada;
-  if (programado) return { status: "P", periodo: programado };
+  if (programado && date > dataHoje) return { status: "P", periodo: programado };
 
   // "BASE" só existe por causa do cruzamento do relatório da base com quem estava de Folga
   // ou Standby no momento da importação (ver DrakeUpdateCard) — por isso é checado logo
@@ -690,8 +747,10 @@ export function computeDayStatus(periodos: HistNovoPeriodo[], date: string): Day
 
   const folga = covering("F");
   if (folga) {
-    const desembarque = periodos.find((p) => p.tipo === "E" && addDays(p.data_fim, 1) === date);
-    if (desembarque) return { status: "DES", periodo: desembarque };
+    const desembarque = buildEmbarkationCycles(periodos).find(
+      (cycle) => cycle.dataDesembarque === date,
+    );
+    if (desembarque) return { status: "DES", periodo: desembarque.sourcePeriod };
     return { status: "F", periodo: folga };
   }
 
@@ -766,11 +825,11 @@ export type OldBucket = "E" | "P" | "BASE" | "D" | "B" | "FO" | "FE" | "TE" | "I
 // (substituiu o antigo "DI"), por isso cai no balde "B" (Disponível), não mais em "IND".
 export function toOldBucket(status: ComputedStatus): OldBucket {
   switch (status) {
-    case "E":
-    case "DB":
     // Folga Indenizada: o colaborador embarcou (fisicamente a bordo) num dia que também caía
     // como folga — pra taxa de ocupação/POB ele conta como embarcado normalmente, a folga vira
     // só uma questão de compensação (pagamento), não de presença física.
+    case "E":
+    case "DB":
     case "FI":
     case "FIF":
       return "E";

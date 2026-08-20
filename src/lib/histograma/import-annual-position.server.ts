@@ -84,13 +84,13 @@ export interface AnnualPositionAppendPlan {
 const BATCH_SIZE = 300;
 
 /**
- * Importação append-only da ficha anual.
+ * Importação autoritativa da ficha anual.
  *
  * Regras de sincronização:
  * - colaboradores existentes não são sobrescritos;
- * - períodos manual/programado/base e demais origens não automáticas são preservados;
+ * - períodos locais permanecem armazenados para auditoria, mas nunca bloqueiam o Drake;
  * - períodos antigos de origem Drake/Disponibilidade são substituídos pela Ficha Anual atual;
- * - novos períodos nunca ocupam dias protegidos por lançamentos não automáticos;
+ * - a grade resolve o Drake primeiro; somente programação futura pode sobrepô-lo visualmente;
  * - uma segunda execução com o mesmo snapshot mantém o resultado idempotente. *
  * A exclusão mútua usada pela rota/scheduler continua sendo o lock em memória já existente.
  * Sem uma constraint única no banco não existe garantia distribuída entre réplicas, portanto
@@ -128,28 +128,25 @@ export async function importAnnualPositionSnapshot(
   const collaboratorIds = [...new Set(workerSync.collaboratorIdByWorkerKey.values())];
   const existing = await loadProtectedExistingPeriods(db, collaboratorIds, window);
 
-  // A Ficha Anual é a fonte autoritativa para os dados automáticos.
-  // Períodos antigos vindos de Drake/Disponibilidade serão substituídos pelo snapshot novo.
-  // Manual/programado/base e qualquer outra origem continuam protegidos.
+  // A Ficha Anual é a fonte autoritativa. Períodos locais permanecem no banco
+  // para auditoria, mas não podem retirar nenhum dia do snapshot do Drake.
   const { replaceableAutomatic, protectedExisting } =
     partitionAnnualPositionExistingPeriods(existing);
 
   const plan = planAppendOnlyPeriods(protectedExisting, desired);
-  const synchronizedEventKeys = new Set(
-    plan.inserts.map(({ row }) => row.drake_event_key),
-  );
-  const staleAutomatic = selectStaleAutomaticPeriods(
-    replaceableAutomatic,
-    synchronizedEventKeys,
-  );
+  const synchronizedEventKeys = new Set(plan.inserts.map(({ row }) => row.drake_event_key));
+  const staleAutomatic = selectStaleAutomaticPeriods(replaceableAutomatic, synchronizedEventKeys);
 
   const insertedPeriods: InsertedAnnualPositionPeriod[] = [];
   for (const batch of chunk(plan.inserts, 400)) {
     const { data, error } = await db
       .from("hist_novo_periodos")
-      .upsert(batch.map(({ row }) => toDatabasePeriodRow(row)), {
-        onConflict: "drake_event_key",
-      })
+      .upsert(
+        batch.map(({ row }) => toDatabasePeriodRow(row)),
+        {
+          onConflict: "drake_event_key",
+        },
+      )
       .select(
         "id, colaborador_id, unidade_operacional, centro_de_custo, tipo, data_inicio, data_fim",
       );
@@ -210,82 +207,35 @@ export async function importAnnualPositionSnapshot(
 }
 
 /**
- * Planeja somente inserts. Todo dia já coberto por qualquer período existente fica congelado.
- * Um período novo pode ser dividido em dois ou mais trechos para preencher apenas lacunas.
+ * Planeja o espelho completo do Drake. Registros locais podem continuar armazenados,
+ * porém não retiram, dividem nem substituem dias da fonte autoritativa.
  */
 export function planAppendOnlyPeriods(
-  existing: ExistingProtectedPeriod[],
+  _existing: ExistingProtectedPeriod[],
   desired: DesiredDatabasePeriod[],
 ): AnnualPositionAppendPlan {
-  // Programacao local precisa continuar armazenada para auditoria,
-  // mas NAO pode impedir a Ficha Anual do Drake de registrar o que
-  // realmente aconteceu naquele dia.
-  //
-  // Primeiro dia programado:
-  //   tipo=P, normalmente origem=manual
-  //
-  // Continuacao da programacao:
-  //   tipo=E, origem=programado
-  //
-  // Ambos permanecem no banco, mas nao contam como cobertura que
-  // bloqueia a insercao do snapshot autoritativo do Drake.
-  const blockingExisting = existing.filter((period) => {
-    const origem = (period.origem ?? "").trim().toLowerCase();
-
-    const isProgramming =
-      period.tipo === "P" ||
-      (period.tipo === "E" && origem === "programado");
-
-    return !isProgramming;
-  });
-
-  const coverageByCollaborator =
-    buildCoverageByCollaborator(blockingExisting);
   const inserts: PlannedInsert[] = [];
-  let preservedExistingEvents = 0;
-  let skippedExistingDays = 0;
 
   for (const target of [...desired].sort(compareDesiredPeriods)) {
-    const coverage = coverageByCollaborator.get(target.colaborador_id) ?? [];
-    const uncovered = subtractCoverage(target.data_inicio, target.data_fim, coverage);
-    const desiredDays = inclusiveDays(target.data_inicio, target.data_fim);
-    const uncoveredDays = uncovered.reduce(
-      (total, interval) => total + inclusiveDays(interval.startDate, interval.endDate),
-      0,
-    );
-
-    if (uncoveredDays < desiredDays) {
-      preservedExistingEvents += 1;
-      skippedExistingDays += desiredDays - uncoveredDays;
-    }
-
-    for (const interval of uncovered) {
-      const eventKey = segmentEventKey(
-        target.eventKey,
-        interval.startDate,
-        interval.endDate,
-      );
-      const row: DesiredDatabasePeriod = {
-        ...target,
-        eventKey,
-        drake_event_key: eventKey,
-        data_inicio: interval.startDate,
-        data_fim: interval.endDate,
-        dias: inclusiveDays(interval.startDate, interval.endDate),
-      };
-      inserts.push({ eventKey: row.eventKey, workerKey: row.workerKey, row });
-      addCoverage(coverage, interval.startDate, interval.endDate);
-      coverageByCollaborator.set(target.colaborador_id, coverage);
-    }
+    const eventKey = segmentEventKey(target.eventKey, target.data_inicio, target.data_fim);
+    const row: DesiredDatabasePeriod = {
+      ...target,
+      eventKey,
+      drake_event_key: eventKey,
+    };
+    inserts.push({ eventKey, workerKey: row.workerKey, row });
   }
 
-  return { inserts, preservedExistingEvents, skippedExistingDays };
+  return {
+    inserts,
+    preservedExistingEvents: 0,
+    skippedExistingDays: 0,
+  };
 }
 
-export function mapEligibleExistingAnnualWorkers(
+export function mapExistingAnnualWorkers(
   workers: DrakeHistogramSnapshot["workers"],
   existing: HistNovoColaborador[],
-  collaboratorIdsWithExistingEmbarkation: ReadonlySet<string>,
 ): Map<string, string> {
   const existingByWorkerKey = mapWorkersByKey(existing);
   const collaboratorIdByWorkerKey = new Map<string, string>();
@@ -293,15 +243,8 @@ export function mapEligibleExistingAnnualWorkers(
   for (const worker of workers) {
     const existingWorker = existingByWorkerKey.get(worker.workerKey);
 
-    // Regra de elegibilidade:
-    // - não cria colaborador;
-    // - empresa + matrícula precisam existir no Histograma;
-    // - o colaborador precisa possuir pelo menos um E que JÁ existia no banco
-    //   antes desta sincronização.
-    if (
-      !existingWorker ||
-      !collaboratorIdsWithExistingEmbarkation.has(existingWorker.id)
-    ) {
+    // Não cria colaborador: empresa + matrícula precisam existir no Histograma.
+    if (!existingWorker) {
       continue;
     }
 
@@ -311,30 +254,12 @@ export function mapEligibleExistingAnnualWorkers(
   return collaboratorIdByWorkerKey;
 }
 
-async function mapExistingWorkersOnly(
-  db: SupabaseClient,
-  snapshot: DrakeHistogramSnapshot,
-) {
-  const matriculas = [
-    ...new Set(snapshot.workers.map((worker) => worker.matricula)),
-  ];
+async function mapExistingWorkersOnly(db: SupabaseClient, snapshot: DrakeHistogramSnapshot) {
+  const matriculas = [...new Set(snapshot.workers.map((worker) => worker.matricula))];
 
   const existing = await loadWorkersByRegistrations(db, matriculas);
 
-  // Esta consulta acontece ANTES de buildDesiredPeriods e antes de qualquer INSERT
-  // da sincronização. Portanto, somente um E que já existia previamente pode
-  // estabelecer elegibilidade.
-  const collaboratorIdsWithExistingEmbarkation =
-    await loadCollaboratorIdsWithExistingEmbarkation(
-      db,
-      existing.map((worker) => worker.id),
-    );
-
-  const collaboratorIdByWorkerKey = mapEligibleExistingAnnualWorkers(
-    snapshot.workers,
-    existing,
-    collaboratorIdsWithExistingEmbarkation,
-  );
+  const collaboratorIdByWorkerKey = mapExistingAnnualWorkers(snapshot.workers, existing);
 
   return {
     createdWorkers: 0,
@@ -342,56 +267,6 @@ async function mapExistingWorkersOnly(
   };
 }
 
-export async function loadCollaboratorIdsWithExistingEmbarkation(
-  db: SupabaseClient,
-  collaboratorIds: string[],
-): Promise<Set<string>> {
-  const eligible = new Set<string>();
-
-  if (collaboratorIds.length === 0) {
-    return eligible;
-  }
-
-  // O Supabase/PostgREST limita a quantidade de linhas devolvidas por request.
-  // Como existem mais de 1000 períodos E, consultar tudo sem paginação pode
-  // omitir colaboradores perfeitamente elegíveis.
-  const pageSize = 1000;
-
-  for (const ids of chunk(collaboratorIds, BATCH_SIZE)) {
-    let from = 0;
-
-    while (true) {
-      const { data, error } = await db
-        .from("hist_novo_periodos")
-        .select("id, colaborador_id")
-        .in("colaborador_id", ids)
-        .eq("tipo", "E")
-        .order("id", { ascending: true })
-        .range(from, from + pageSize - 1);
-
-      if (error) throw error;
-
-      const rows = (data ?? []) as Array<{
-        id: string;
-        colaborador_id: string | null;
-      }>;
-
-      for (const row of rows) {
-        if (row.colaborador_id) {
-          eligible.add(row.colaborador_id);
-        }
-      }
-
-      if (rows.length < pageSize) {
-        break;
-      }
-
-      from += pageSize;
-    }
-  }
-
-  return eligible;
-}
 async function loadWorkersByRegistrations(
   db: SupabaseClient,
   registrations: string[],
@@ -456,9 +331,7 @@ function buildDesiredPeriods(
   return periods;
 }
 
-export function partitionAnnualPositionExistingPeriods(
-  periods: ExistingProtectedPeriod[],
-): {
+export function partitionAnnualPositionExistingPeriods(periods: ExistingProtectedPeriod[]): {
   replaceableAutomatic: ExistingProtectedPeriod[];
   protectedExisting: ExistingProtectedPeriod[];
 } {
@@ -483,8 +356,7 @@ export function selectStaleAutomaticPeriods(
   synchronizedEventKeys: ReadonlySet<string>,
 ): ExistingProtectedPeriod[] {
   return periods.filter(
-    (period) =>
-      !period.drake_event_key || !synchronizedEventKeys.has(period.drake_event_key),
+    (period) => !period.drake_event_key || !synchronizedEventKeys.has(period.drake_event_key),
   );
 }
 
@@ -502,15 +374,9 @@ async function unlinkTimesheetsFromPeriodIds(
   }
 }
 
-async function deleteHistogramPeriodsByIds(
-  db: SupabaseClient,
-  periodIds: string[],
-): Promise<void> {
+async function deleteHistogramPeriodsByIds(db: SupabaseClient, periodIds: string[]): Promise<void> {
   for (const ids of chunk(periodIds, BATCH_SIZE)) {
-    const { error } = await db
-      .from("hist_novo_periodos")
-      .delete()
-      .in("id", ids);
+    const { error } = await db.from("hist_novo_periodos").delete().in("id", ids);
 
     if (error) throw error;
   }
@@ -541,56 +407,9 @@ async function loadProtectedExistingPeriods(
   return rows;
 }
 
-function buildCoverageByCollaborator(
-  periods: ExistingProtectedPeriod[],
-): Map<string, DateInterval[]> {
-  const result = new Map<string, DateInterval[]>();
-  for (const period of periods) {
-    const coverage = result.get(period.colaborador_id) ?? [];
-    addCoverage(coverage, period.data_inicio, period.data_fim);
-    result.set(period.colaborador_id, coverage);
-  }
-  return result;
-}
-
 interface DateInterval {
   startDate: string;
   endDate: string;
-}
-
-function addCoverage(coverage: DateInterval[], startDate: string, endDate: string): void {
-  coverage.push({ startDate, endDate });
-  coverage.sort((left, right) => left.startDate.localeCompare(right.startDate));
-  const merged: DateInterval[] = [];
-  for (const interval of coverage) {
-    const last = merged.at(-1);
-    if (!last || addIsoDay(last.endDate, 1) < interval.startDate) {
-      merged.push({ ...interval });
-    } else if (interval.endDate > last.endDate) {
-      last.endDate = interval.endDate;
-    }
-  }
-  coverage.splice(0, coverage.length, ...merged);
-}
-
-function subtractCoverage(
-  startDate: string,
-  endDate: string,
-  coverage: DateInterval[],
-): DateInterval[] {
-  const result: DateInterval[] = [];
-  let cursor = startDate;
-  for (const interval of coverage) {
-    if (interval.endDate < cursor) continue;
-    if (interval.startDate > endDate) break;
-    if (interval.startDate > cursor) {
-      result.push({ startDate: cursor, endDate: addIsoDay(interval.startDate, -1) });
-    }
-    if (interval.endDate >= cursor) cursor = addIsoDay(interval.endDate, 1);
-    if (cursor > endDate) break;
-  }
-  if (cursor <= endDate) result.push({ startDate: cursor, endDate });
-  return result;
 }
 
 function validateSnapshotPeriodsDoNotOverlap(periods: DrakePeriodSnapshotRow[]): void {

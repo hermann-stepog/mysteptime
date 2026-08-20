@@ -163,7 +163,7 @@ async function updateDrakeDataInner(
         onBeforeDatabaseSync: async () => {
           await emit("synchronizing-annual-position", { status: "importing" });
         },
-      }),
+      }, period.apiEndDate),
     );
 
     await emit("annual-position-completed", { status: "completed" });

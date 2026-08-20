@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEmbarkationCycles,
   computeDayStatus,
   displayAbbr,
   type HistNovoPeriodo,
@@ -87,6 +88,39 @@ describe("fidelidade absoluta da Ficha Anual do Drake", () => {
     expect(
       computeDayStatus([desembarque], "2026-04-19").status,
     ).toBe("DES");
+  });
+
+  it("não fabrica embarque nem desembarque no meio de E, Dobra, E", () => {
+    const periods = [
+      periodo("E", "2026-04-01", "2026-04-10", "embarque-1"),
+      periodo("DB", "2026-04-11", "2026-04-12", "dobra"),
+      periodo("E", "2026-04-13", "2026-04-15", "embarque-2"),
+    ];
+
+    expect(buildEmbarkationCycles(periods)).toMatchObject([
+      {
+        dataInicio: "2026-04-01",
+        dataFim: "2026-04-15",
+        dataDesembarque: "2026-04-16",
+      },
+    ]);
+  });
+
+  it("mantém ciclos separados quando existe um dia sem E ou Dobra", () => {
+    const periods = [
+      periodo("E", "2026-04-01", "2026-04-05", "embarque-1"),
+      periodo("E", "2026-04-07", "2026-04-10", "embarque-2"),
+    ];
+
+    expect(
+      buildEmbarkationCycles(periods).map((cycle) => [
+        cycle.dataInicio,
+        cycle.dataDesembarque,
+      ]),
+    ).toEqual([
+      ["2026-04-01", "2026-04-06"],
+      ["2026-04-07", "2026-04-11"],
+    ]);
   });
 
   it("mantém EC e DI explícitos sem convertê-los para STB", () => {
@@ -281,6 +315,29 @@ describe("fidelidade absoluta da Ficha Anual do Drake", () => {
 
       expect(
         computeDayStatus([p, drake], date).status,
+      ).toBe("STB");
+    });
+
+    it("no passado remove P quando não existe confirmação do Drake", () => {
+      const date = "2000-01-12";
+      const p = programado(date, "p-passado-sem-drake");
+
+      expect(
+        computeDayStatus([p], date).status,
+      ).toBe("STB");
+    });
+
+    it("não exibe P histórico nem quando ele veio do próprio Drake", () => {
+      const date = "2000-01-13";
+      const drakeProgramado = periodo(
+        "P",
+        date,
+        date,
+        "drake-p-passado",
+      );
+
+      expect(
+        computeDayStatus([drakeProgramado], date).status,
       ).toBe("STB");
     });
 

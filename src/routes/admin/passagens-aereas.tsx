@@ -72,9 +72,10 @@ function usePeriodosEQuery() {
 
 function useColaboradoresQuery() {
   return useQuery<{ id: string; nome: string }[]>({
-    queryKey: ["hist-novo-colaboradores"],
+    queryKey: ["hist-novo-colaboradores", "ativos", "nomes"],
     queryFn: () => selectAllPages<{ id: string; nome: string }>((from, to) =>
-      supabase.from("hist_novo_colaboradores").select("id, nome").order("nome").range(from, to),
+      supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true)
+        .order("nome").range(from, to),
     ),
   });
 }

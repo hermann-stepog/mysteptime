@@ -45,6 +45,7 @@ private/drake/storage-state.json
 private/drake/*.tmp
 private/drake/diagnostics/
 private/drake/diagnostics/**
+private/drake-audit/
 tmp/drake/
 tmp/drake/**
 

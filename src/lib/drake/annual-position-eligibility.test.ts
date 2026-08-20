@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildWorkerKey } from "@/lib/histograma/drake-snapshot";
-import { filterWorkersWithEmbarkationHistory } from "./annual-position-eligibility";
+import { filterWorkersAlreadyInHistogram } from "./annual-position-eligibility";
 
 describe("elegibilidade da ficha anual Drake", () => {
-  it("mantem somente colaboradores que ja possuem E no Histograma", () => {
+  it("mantém somente colaboradores que já existem no Histograma", () => {
     const workers = [
       {
         id: "worker-1",
@@ -19,13 +19,9 @@ describe("elegibilidade da ficha anual Drake", () => {
       },
     ];
 
-    const eligible = new Set([
-      buildWorkerKey("STEP", "100"),
-    ]);
+    const existing = new Set([buildWorkerKey("STEP", "100")]);
 
-    expect(
-      filterWorkersWithEmbarkationHistory(workers, eligible),
-    ).toEqual([workers[0]]);
+    expect(filterWorkersAlreadyInHistogram(workers, existing)).toEqual([workers[0]]);
   });
 
   it("nao libera colaborador apenas por ter a mesma matricula em outra empresa", () => {
@@ -37,12 +33,8 @@ describe("elegibilidade da ficha anual Drake", () => {
       },
     ];
 
-    const eligible = new Set([
-      buildWorkerKey("STEP", "100"),
-    ]);
+    const existing = new Set([buildWorkerKey("STEP", "100")]);
 
-    expect(
-      filterWorkersWithEmbarkationHistory(workers, eligible),
-    ).toEqual([]);
+    expect(filterWorkersAlreadyInHistogram(workers, existing)).toEqual([]);
   });
 });

@@ -271,7 +271,8 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   });
   const { data: colaboradores = [] } = useQuery<{ funcao: string | null; funcao_operacao: string | null }[]>({
     queryKey: ["pm-create-nomination-colaboradores-funcoes"],
-    queryFn: async () => (await supabase.from("hist_novo_colaboradores").select("funcao, funcao_operacao")).data ?? [],
+    queryFn: async () => (await supabase.from("hist_novo_colaboradores")
+      .select("funcao, funcao_operacao").eq("ativo", true)).data ?? [],
   });
   const funcaoOptions = useMemo(() => {
     const s = new Set<string>();

@@ -86,6 +86,11 @@ export interface DrakeTimesheetPlan {
   days: DrakeTimesheetPlanDay[];
 }
 
+export interface AnnualPositionSnapshotOptions {
+  /** P só representa programação futura; hoje e passado nunca entram no espelho. */
+  asOfDate?: string;
+}
+
 export function buildEmbarkationSnapshot(rows: EmbarkationSourceRow[]): DrakeHistogramSnapshot {
   const validRows = rows.map((row) => {
     const workerKey = buildWorkerKey(row.empresa, row.matricula);
@@ -172,6 +177,7 @@ export function buildAvailabilitySnapshot(rows: AvailabilitySourceRow[]): DrakeH
  */
 export function buildAnnualPositionSnapshot(
   rows: AnnualPositionWorkerRow[],
+  options: AnnualPositionSnapshotOptions = {},
 ): DrakeHistogramSnapshot {
   const consolidatedRows = consolidateAnnualPositionRows(rows);
   const workers = consolidatedRows.map((row) => ({
@@ -196,6 +202,10 @@ export function buildAnnualPositionSnapshot(
         day.occurrenceDescription,
         day.occurrenceType,
       );
+      if (tipo === "P" && options.asOfDate && day.date <= options.asOfDate) {
+        current = null;
+        continue;
+      }
       const unidade = day.unidadeOperacional?.trim() || null;
       const centro = day.centroDeCusto?.trim() || null;
       const fingerprint = stableKey([

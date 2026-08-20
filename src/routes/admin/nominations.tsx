@@ -1558,6 +1558,7 @@ function SimulacaoTab({
       const { data, error } = await supabase
         .from("hist_novo_colaboradores")
         .select("id, nome, funcao, funcao_operacao")
+        .eq("ativo", true)
         .order("nome");
       if (error) throw error;
       return (data ?? []) as SimColaborador[];

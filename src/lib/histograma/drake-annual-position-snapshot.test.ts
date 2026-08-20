@@ -49,6 +49,26 @@ describe("ficha anual de posição do Drake", () => {
     });
   });
 
+  it("remove P de hoje e do passado, mantendo somente programação futura", () => {
+    const snapshot = buildAnnualPositionSnapshot(
+      [
+        worker([
+          day("2026-08-18", "P", "PROGRAMADO", "RAIA", "BSP A"),
+          day("2026-08-19", "P", "PROGRAMADO", "RAIA", "BSP A"),
+          day("2026-08-20", "P", "PROGRAMADO", "RAIA", "BSP A"),
+        ]),
+      ],
+      { asOfDate: "2026-08-19" },
+    );
+
+    expect(snapshot.periods).toHaveLength(1);
+    expect(snapshot.periods[0]).toMatchObject({
+      tipo: "P",
+      dataInicio: "2026-08-20",
+      dataFim: "2026-08-20",
+    });
+  });
+
   it("deriva o timesheet 1:1 dos dias E e D informados pelo Drake", () => {
     const snapshot = buildAnnualPositionSnapshot([
       worker([

@@ -3,51 +3,18 @@ import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
-  addDays, todayStr, weekdayAbbr, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
+  todayStr, weekdayAbbr, E_A_CONFIRMAR_COLOR,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
-
-interface ProximoEvento {
-  data: string;
-  colaboradorId: string;
-  colaboradorNome: string;
-  tipo: "embarque" | "desembarque";
-  // Só relevante pra tipo "embarque": "P" (Programado) ainda não foi confirmado pelo Drake,
-  // é só o dia da mobilização — diferente de um "E" já confirmado. Mostrado com cor/rótulo
-  // diferentes pra não parecer a mesma coisa que um embarque de verdade (ver feedback:
-  // filtrar por "E — Embarcado" na tabela de Lançamentos não encontra um "P", já que são
-  // tipos diferentes por baixo).
-  confirmado: boolean;
-  unidade: string | null;
-}
+import { buildUpcomingEvents, type ProximoEvento } from "@/lib/histograma/upcoming-events";
 
 const JANELA_DIAS = 7;
 
-// Embarque/desembarque programados pros próximos 7 dias, a partir dos mesmos períodos já
-// carregados na aba Lançamentos — sem consulta própria. "Embarque" vem de "P" (dia da
-// mobilização) ou "E" recém confirmado (não a continuação origem=programado do 2º dia em
-// diante, que é o MESMO embarque, não um evento novo); "Desembarque" é o dia seguinte ao fim
-// de um período "E" (mesma regra usada no Histograma pra computar status de desembarque).
 function useProximosEventos(periodos: HistNovoPeriodo[], colaboradorById: Map<string, HistNovoColaborador>): ProximoEvento[] {
-  return useMemo(() => {
-    const hoje = todayStr();
-    const limite = addDays(hoje, JANELA_DIAS);
-    const eventos: ProximoEvento[] = [];
-    periodos.forEach((p) => {
-      const c = colaboradorById.get(p.colaborador_id);
-      if (!c) return;
-      if ((p.tipo === "P" || p.tipo === "E") && p.origem !== ORIGEM_PROGRAMADO && p.data_inicio >= hoje && p.data_inicio <= limite) {
-        eventos.push({ data: p.data_inicio, colaboradorId: p.colaborador_id, colaboradorNome: c.nome, tipo: "embarque", confirmado: p.tipo === "E", unidade: p.unidade_operacional });
-      }
-      if (p.tipo === "E") {
-        const dataDesembarque = addDays(p.data_fim, 1);
-        if (dataDesembarque >= hoje && dataDesembarque <= limite) {
-          eventos.push({ data: dataDesembarque, colaboradorId: p.colaborador_id, colaboradorNome: c.nome, tipo: "desembarque", confirmado: true, unidade: p.unidade_operacional });
-        }
-      }
-    });
-    return eventos.sort((a, b) => a.data.localeCompare(b.data) || a.colaboradorNome.localeCompare(b.colaboradorNome));
-  }, [periodos, colaboradorById]);
+  return useMemo(
+    () => buildUpcomingEvents(periodos, colaboradorById, todayStr(), JANELA_DIAS),
+    [periodos, colaboradorById],
+  );
 }
 
 function fmtDiaMes(dateStr: string): string {

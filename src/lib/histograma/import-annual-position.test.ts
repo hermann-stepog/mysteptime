@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildWorkerKey } from "./drake-snapshot";
 import {
   importAnnualPositionSnapshot,
-  loadCollaboratorIdsWithExistingEmbarkation,
-  mapEligibleExistingAnnualWorkers,
+  mapExistingAnnualWorkers,
   partitionAnnualPositionExistingPeriods,
   planAppendOnlyPeriods,
   selectStaleAutomaticPeriods,
@@ -43,7 +42,7 @@ function desired(patch: Partial<DesiredDatabasePeriod> = {}): DesiredDatabasePer
   };
 }
 
-describe("importação append-only da ficha anual", () => {
+describe("importação autoritativa da ficha anual", () => {
   it("valida sobreposição antes de qualquer acesso ao banco", async () => {
     const from = vi.fn(() => {
       throw new Error("o banco não deveria ser acessado");
@@ -87,96 +86,86 @@ describe("importação append-only da ficha anual", () => {
     };
 
     await expect(
-      importAnnualPositionSnapshot(
-        { from } as never,
-        snapshot,
-        { startDate: "2026-08-06", endDate: "2026-12-31" },
-      ),
+      importAnnualPositionSnapshot({ from } as never, snapshot, {
+        startDate: "2026-08-06",
+        endDate: "2026-12-31",
+      }),
     ).rejects.toThrow(/antes da gravação.*banco não foi alterado/i);
     expect(from).not.toHaveBeenCalled();
   });
 
-  it("não altera nem reinsere um período já existente", () => {
+  it("planeja o período Drake completo mesmo quando existe um período local igual", () => {
     const plan = planAppendOnlyPeriods([existing({ data_fim: "2026-08-14" })], [desired()]);
 
-    expect(plan.inserts).toEqual([]);
-    expect(plan.preservedExistingEvents).toBe(1);
-    expect(plan.skippedExistingDays).toBe(9);
+    expect(plan.inserts).toHaveLength(1);
+    expect(plan.inserts[0]?.row).toMatchObject({
+      origem: "drake",
+      data_inicio: "2026-08-06",
+      data_fim: "2026-08-14",
+      dias: 9,
+    });
+    expect(plan.preservedExistingEvents).toBe(0);
+    expect(plan.skippedExistingDays).toBe(0);
   });
 
-  it("cria somente os dias posteriores ao período existente", () => {
+  it("não corta o início do Drake por causa de um período local anterior", () => {
     const plan = planAppendOnlyPeriods([existing()], [desired()]);
 
     expect(plan.inserts).toHaveLength(1);
     expect(plan.inserts[0]?.row).toMatchObject({
-      data_inicio: "2026-08-11",
+      data_inicio: "2026-08-06",
       data_fim: "2026-08-14",
-      dias: 4,
+      dias: 9,
     });
-    expect(plan.skippedExistingDays).toBe(5);
+    expect(plan.skippedExistingDays).toBe(0);
   });
 
-  it("divide o novo período para preencher somente lacunas", () => {
+  it("não fragmenta o Drake quando um período local cobre o meio da faixa", () => {
     const plan = planAppendOnlyPeriods(
       [existing({ data_inicio: "2026-08-09", data_fim: "2026-08-11" })],
       [desired()],
     );
 
     expect(plan.inserts.map(({ row }) => [row.data_inicio, row.data_fim])).toEqual([
-      ["2026-08-06", "2026-08-08"],
-      ["2026-08-12", "2026-08-14"],
+      ["2026-08-06", "2026-08-14"],
     ]);
-    expect(plan.skippedExistingDays).toBe(3);
+    expect(plan.skippedExistingDays).toBe(0);
   });
 
-  it("considera qualquer origem existente como protegida", () => {
+  it("nenhuma origem local impede a gravação da fonte autoritativa", () => {
     const plan = planAppendOnlyPeriods(
       [existing({ origem: "disponibilidade", tipo: "F", data_fim: "2026-08-07" })],
       [desired()],
     );
 
-    expect(plan.inserts[0]?.row.data_inicio).toBe("2026-08-08");
-    expect(plan.skippedExistingDays).toBe(2);
+    expect(plan.inserts[0]?.row.data_inicio).toBe("2026-08-06");
+    expect(plan.skippedExistingDays).toBe(0);
   });
 
   it("separa Drake e Disponibilidade como substituíveis e preserva dados manuais", () => {
-    const { replaceableAutomatic, protectedExisting } =
-      partitionAnnualPositionExistingPeriods([
-        existing({ id: "manual", origem: "manual" }),
-        existing({ id: "programado", origem: "programado" }),
-        existing({ id: "base", origem: "manual", tipo: "BASE" }),
-        existing({ id: "drake", origem: "drake" }),
-        existing({ id: "disponibilidade", origem: "disponibilidade" }),
-      ]);
-
-    expect(replaceableAutomatic.map((p) => p.id)).toEqual([
-      "drake",
-      "disponibilidade",
+    const { replaceableAutomatic, protectedExisting } = partitionAnnualPositionExistingPeriods([
+      existing({ id: "manual", origem: "manual" }),
+      existing({ id: "programado", origem: "programado" }),
+      existing({ id: "base", origem: "manual", tipo: "BASE" }),
+      existing({ id: "drake", origem: "drake" }),
+      existing({ id: "disponibilidade", origem: "disponibilidade" }),
     ]);
 
-    expect(protectedExisting.map((p) => p.id)).toEqual([
-      "manual",
-      "programado",
-      "base",
-    ]);
+    expect(replaceableAutomatic.map((p) => p.id)).toEqual(["drake", "disponibilidade"]);
+
+    expect(protectedExisting.map((p) => p.id)).toEqual(["manual", "programado", "base"]);
   });
 
   it("normaliza a origem automática antes de decidir se pode substituir", () => {
-    const { replaceableAutomatic, protectedExisting } =
-      partitionAnnualPositionExistingPeriods([
-        existing({ id: "drake", origem: " DRAKE " }),
-        existing({ id: "disp", origem: "Disponibilidade" }),
-        existing({ id: "manual", origem: "manual" }),
-      ]);
-
-    expect(replaceableAutomatic.map((p) => p.id)).toEqual([
-      "drake",
-      "disp",
+    const { replaceableAutomatic, protectedExisting } = partitionAnnualPositionExistingPeriods([
+      existing({ id: "drake", origem: " DRAKE " }),
+      existing({ id: "disp", origem: "Disponibilidade" }),
+      existing({ id: "manual", origem: "manual" }),
     ]);
 
-    expect(protectedExisting.map((p) => p.id)).toEqual([
-      "manual",
-    ]);
+    expect(replaceableAutomatic.map((p) => p.id)).toEqual(["drake", "disp"]);
+
+    expect(protectedExisting.map((p) => p.id)).toEqual(["manual"]);
   });
   it("mantém a mesma chave Drake e remove somente eventos realmente obsoletos", () => {
     const periods = [
@@ -186,12 +175,10 @@ describe("importação append-only da ficha anual", () => {
     ];
 
     expect(
-      selectStaleAutomaticPeriods(periods, new Set(["event-current"])).map(
-        (period) => period.id,
-      ),
+      selectStaleAutomaticPeriods(periods, new Set(["event-current"])).map((period) => period.id),
     ).toEqual(["stale", "legacy"]);
   });
-  it("sincroniza somente colaborador já existente que possuía E antes da execução", () => {
+  it("sincroniza todos os colaboradores já existentes, mesmo sem E anterior", () => {
     const workers = [
       {
         workerKey: buildWorkerKey("STEP", "100"),
@@ -238,18 +225,15 @@ describe("importação append-only da ficha anual", () => {
       },
     ];
 
-    const result = mapEligibleExistingAnnualWorkers(
-      workers,
-      existing,
-      new Set(["col-100"]),
-    );
+    const result = mapExistingAnnualWorkers(workers, existing);
 
     expect([...result.entries()]).toEqual([
       [buildWorkerKey("STEP", "100"), "col-100"],
+      [buildWorkerKey("STEP", "200"), "col-200"],
     ]);
   });
 
-  it("não deixa um colaborador sem E pré-existente se tornar elegível", () => {
+  it("não cria colaborador ausente do Histograma", () => {
     const workers = [
       {
         workerKey: buildWorkerKey("STEP", "100"),
@@ -261,22 +245,7 @@ describe("importação append-only da ficha anual", () => {
       },
     ];
 
-    const existing = [
-      {
-        id: "col-100",
-        matricula: "100",
-        nome: "TESTE",
-        empresa: "STEP",
-        funcao: null,
-        funcao_operacao: null,
-      },
-    ];
-
-    const result = mapEligibleExistingAnnualWorkers(
-      workers,
-      existing,
-      new Set(),
-    );
+    const result = mapExistingAnnualWorkers(workers, []);
 
     expect(result.size).toBe(0);
   });
@@ -344,7 +313,7 @@ describe("importação append-only da ficha anual", () => {
     expect(plan.skippedExistingDays).toBe(0);
   });
 
-  it("periodo manual real continua protegendo o dia contra sobrescrita", () => {
+  it("período manual real permanece para auditoria, mas não bloqueia o dia Drake", () => {
     const plan = planAppendOnlyPeriods(
       [
         existing({
@@ -364,10 +333,16 @@ describe("importação append-only da ficha anual", () => {
       ],
     );
 
-    expect(plan.inserts).toEqual([]);
-    expect(plan.skippedExistingDays).toBe(1);
+    expect(plan.inserts).toHaveLength(1);
+    expect(plan.inserts[0]?.row).toMatchObject({
+      tipo: "STB",
+      origem: "drake",
+      data_inicio: "2026-08-05",
+      data_fim: "2026-08-05",
+    });
+    expect(plan.skippedExistingDays).toBe(0);
   });
-  it("uma segunda execução com o que foi inserido não gera duplicação", () => {
+  it("uma segunda execução mantém a mesma chave para o upsert idempotente", () => {
     const first = planAppendOnlyPeriods([], [desired()]);
     const stored = first.inserts.map<ExistingProtectedPeriod>(({ row }, index) => ({
       id: `inserted-${index}`,
@@ -381,8 +356,9 @@ describe("importação append-only da ficha anual", () => {
     }));
 
     const second = planAppendOnlyPeriods(stored, [desired()]);
-    expect(second.inserts).toEqual([]);
-    expect(second.skippedExistingDays).toBe(9);
+    expect(second.inserts).toHaveLength(1);
+    expect(second.inserts[0]?.row.drake_event_key).toBe(first.inserts[0]?.row.drake_event_key);
+    expect(second.skippedExistingDays).toBe(0);
   });
 
   it("não usa período de outro colaborador para bloquear o novo", () => {
@@ -396,53 +372,5 @@ describe("importação append-only da ficha anual", () => {
       data_inicio: "2026-08-06",
       data_fim: "2026-08-14",
     });
-  });
-});
-
-describe("paginação da elegibilidade da ficha anual", () => {
-  it("pagina todos os E sem perder colaborador depois de 1000 linhas", async () => {
-    const allRows = Array.from(
-      { length: 1001 },
-      (_, index) => ({
-        id: `period-${String(index).padStart(4, "0")}`,
-        colaborador_id:
-          index === 1000
-            ? "colaborador-que-estava-depois-do-limite"
-            : `colaborador-${index}`,
-      }),
-    );
-
-    const range = vi.fn(
-      async (from: number, to: number) => ({
-        data: allRows.slice(from, to + 1),
-        error: null,
-      }),
-    );
-
-    const query: any = {
-      select: vi.fn(() => query),
-      in: vi.fn(() => query),
-      eq: vi.fn(() => query),
-      order: vi.fn(() => query),
-      range,
-    };
-
-    const db = {
-      from: vi.fn(() => query),
-    } as never;
-
-    const result =
-      await loadCollaboratorIdsWithExistingEmbarkation(
-        db,
-        ["colaborador-que-estava-depois-do-limite"],
-      );
-
-    expect(range).toHaveBeenCalledTimes(2);
-    expect(range).toHaveBeenNthCalledWith(1, 0, 999);
-    expect(range).toHaveBeenNthCalledWith(2, 1000, 1999);
-
-    expect(
-      result.has("colaborador-que-estava-depois-do-limite"),
-    ).toBe(true);
   });
 });

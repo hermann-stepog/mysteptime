@@ -509,8 +509,10 @@ function TimesheetOffshore() {
   // Todas as tabelas abaixo já passam de 1000 linhas — sem paginação o Supabase corta em
   // silêncio (era o motivo real de "sumiu" BSP/colaborador/dia em várias telas).
   const { data: colaboradores = [], isLoading: l1 } = useQuery({
-    queryKey: ["hist-novo-colaboradores"],
-    queryFn: () => selectAllPages<HistNovoColaborador>((from, to) => supabase.from("hist_novo_colaboradores").select("*").order("nome").order("id").range(from, to)),
+    queryKey: ["hist-novo-colaboradores", "ativos", "completo"],
+    queryFn: () => selectAllPages<HistNovoColaborador>((from, to) =>
+      supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true)
+        .order("nome").order("id").range(from, to)),
   });
 
   const { data: periodos = [], isLoading: l2 } = useQuery({
@@ -1141,6 +1143,9 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   );
 
   const filtered = rows.filter((r) =>
+    // O histórico permanece no banco e nos relatórios exportáveis, mas colaboradores
+    // inativos não aparecem nas listas operacionais nem recebem novos lançamentos.
+    !!r.colaborador &&
     (filterUnidade === "all" || canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) === filterUnidade) &&
     (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
     (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
@@ -1609,6 +1614,7 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva, orfao };
     })
     .filter((r) =>
+      !!r.colaborador &&
       (filterUnidade === "all" || canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) === filterUnidade) &&
       (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
       (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&

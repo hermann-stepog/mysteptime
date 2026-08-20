@@ -39,7 +39,7 @@ import { cn, matchesNameSearch } from "@/lib/utils";
 import {
   TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
-  buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
+  buildYearDates, buildEmbarkationCycles, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade,
   toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
@@ -78,13 +78,14 @@ const AUSENCIA_LABEL: Record<"F" | "FE" | "AT", string> = {
 
 function useColaboradoresQuery() {
   return useQuery({
-    queryKey: ["hist-novo-colaboradores"],
+    queryKey: ["hist-novo-colaboradores", "ativos", "completo"],
     queryFn: () =>
       // "id" como segundo critério é essencial: "nome" sozinho não é único (pode empatar),
       // e sem um desempate determinístico o range() de cada página pode repetir ou pular
       // linhas entre uma requisição e outra.
       selectAllPages<HistNovoColaborador>((from, to) =>
-        supabase.from("hist_novo_colaboradores").select("*").order("nome").order("id").range(from, to),
+        supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true)
+          .order("nome").order("id").range(from, to),
       ),
   });
 }
@@ -459,7 +460,7 @@ function EventoMultiCombobox({ options, value, onChange }: {
 // Lista todos os períodos do tipo "E" (embarcado) lançados no Histograma Offshore.
 export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: string): Promise<void> {
   const [{ data: colaboradores, error: cErr }, periodos] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
     selectAllPages<HistNovoPeriodo>((from, to) => {
       let q = supabase.from("hist_novo_periodos").select("*").eq("tipo", "E")
         .gte("data_fim", DRAKE_DATA_CUTOFF)
@@ -501,7 +502,7 @@ export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: 
 // "ativo" do Dashboard); o status em si é sempre avaliado em relação a hoje.
 export async function generateRelatorioDisponibilidade(dataInicio?: string, dataFim?: string): Promise<void> {
   const [{ data: colaboradores, error: cErr }, periodos] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
     selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   if (cErr) throw cErr;
@@ -576,7 +577,7 @@ function computeHeadcountSnapshot(
 
 async function fetchColaboradoresEPeriodos() {
   const [{ data: colaboradores, error: cErr }, periodos] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*"),
+    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
     selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   if (cErr) throw cErr;
@@ -761,6 +762,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     mutationFn: async (colaboradorIds: string[]) => {
       if (colaboradorIds.length === 0) throw new Error("Selecione ao menos um colaborador.");
       if (!form.data_inicio || !form.data_fim) throw new Error("Informe as datas de início e fim.");
+      if (form.tipo === "P" && form.data_inicio <= todayStr()) {
+        throw new Error("Programado só pode ser lançado em uma data futura.");
+      }
 
       const diasTotal = Math.round((new Date(form.data_fim).getTime() - new Date(form.data_inicio).getTime()) / 86400000) + 1;
       const registros: any[] = [];
@@ -829,6 +833,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
 
   const updatePeriodo = useMutation({
     mutationFn: async (p: HistNovoPeriodo) => {
+      if ((p.tipo === "P" || p.origem === ORIGEM_PROGRAMADO) && p.data_inicio <= todayStr()) {
+        throw new Error("Programado só pode existir em uma data futura.");
+      }
       const dias = Math.round((new Date(p.data_fim).getTime() - new Date(p.data_inicio).getTime()) / 86400000) + 1;
       const { data, error } = await supabase.from("hist_novo_periodos").update({
         colaborador_id: p.colaborador_id,
@@ -886,34 +893,43 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     // então o filtro precisa comparar contra esse mesmo "tipo efetivo", senão filtrar só por
     // "Embarcado" também trazia essas linhas (que a própria tabela já rotula como Programado).
     const tipoEfetivo = (p: HistNovoPeriodo): string => (p.origem === ORIGEM_PROGRAMADO ? "P" : p.tipo);
+    const hoje = todayStr();
+    const embarkationCycles = buildEmbarkationCycles(periodos);
+    const programacaoFoiConfirmada = (p: HistNovoPeriodo): boolean =>
+      embarkationCycles.some(
+        (cycle) =>
+          cycle.colaboradorId === p.colaborador_id &&
+          (cycle.dataInicio === p.data_inicio ||
+            cycle.dataInicio === addDays(p.data_inicio, 1)),
+      );
 
     const linhasNormais = periodos.filter((p) =>
       (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(tipoEfetivo(p))) &&
-      // Um "P" (Programado) que já tem um "E" (real ou a confirmar) começando logo em
-      // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
-      // programação em aberto — o embarque em si já está representado por esse "E". Manter
-      // as duas linhas juntas na lista parecia um conflito/duplicidade; assim que existe o
-      // "E" correspondente, o "P" some da lista NA VISÃO PADRÃO (sem filtro de Evento) — mas
-      // se ela filtrar explicitamente por "P — Programado" (sozinho ou junto com outros),
-      // precisa continuar vendo todos os "P" de verdade, mesmo os que já têm um "E" associado
-      // (senão a contagem nunca bate com o que aparece no card "Próximos eventos", que conta
-      // todo "P" sem essa exclusão).
-      (tiposNormaisSelecionados.includes("P") || !(p.tipo === "P" && periodos.some((e) =>
-        e.colaborador_id === p.colaborador_id && e.tipo === "E" &&
-        (e.data_inicio === p.data_fim || e.data_inicio === addDays(p.data_fim, 1)),
-      ))) &&
+      // P só existe no futuro e desaparece assim que o ciclo E/Dobra confirma
+      // o embarque, inclusive quando o filtro explícito de Programado está ativo.
+      (tipoEfetivo(p) !== "P" ||
+        (p.data_inicio > hoje && !programacaoFoiConfirmada(p))) &&
       filtrosComuns(p),
     );
 
-    // "Desembarque" nunca é um período de verdade — é o dia seguinte ao fim de cada período
-    // "E", igual ao Histograma computa DES. Monta uma linha virtual por embarque (mesmo
+    // "Desembarque" nunca é um período de verdade — é o dia seguinte ao fim do ciclo
+    // E/Dobra completo. Monta uma linha virtual por ciclo (mesmo
     // critério de filtro de colaborador/unidade/BSP/função, mas De/Até compara com a data de
     // desembarque, não com data_inicio/data_fim do embarque em si) — só entra na lista quando
     // "DES — Desembarque" está entre os selecionados (nunca aparece em "Todos").
     const linhasDesembarque = desembarqueSelecionado
-      ? periodos
-        .filter((p) => p.tipo === "E")
-        .map((p) => ({ ...p, data_inicio: addDays(p.data_fim, 1), data_fim: addDays(p.data_fim, 1), dias: 1, tipo: "DES", id: `${p.id}::des` }))
+      ? embarkationCycles
+        .map((cycle) => ({
+          ...cycle.sourcePeriod,
+          unidade_operacional: cycle.unidadeOperacional,
+          centro_de_custo: cycle.centroDeCusto,
+          bsp: cycle.bsp,
+          data_inicio: cycle.dataDesembarque,
+          data_fim: cycle.dataDesembarque,
+          dias: 1,
+          tipo: "DES",
+          id: `${cycle.sourcePeriod.id}::des::${cycle.dataInicio}`,
+        }))
         .filter(filtrosComuns)
       : [];
 
@@ -1031,6 +1047,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                 <Label className="text-xs">Data início</Label>
                 <Input
                   className="h-11 text-base" type="date" value={form.data_inicio}
+                  min={form.tipo === "P" ? addDays(todayStr(), 1) : undefined}
                   onChange={(e) => setForm({ ...form, data_inicio: e.target.value, ...(form.tipo === "P" ? { data_fim: e.target.value } : {}) })}
                 />
               </div>
@@ -1230,6 +1247,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                   <Label className="text-xs">Data início</Label>
                   <Input
                     type="date" value={editing.data_inicio}
+                    min={editing.tipo === "P" ? addDays(todayStr(), 1) : undefined}
                     onChange={(e) => setEditing({ ...editing, data_inicio: e.target.value, ...(editing.tipo === "P" ? { data_fim: e.target.value } : {}) })}
                   />
                 </div>
