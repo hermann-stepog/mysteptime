@@ -129,6 +129,26 @@ export interface BmMobDesmobCost {
   invoice_uploaded_at: string | null;
 }
 
+export type TipoMarkup = "simples" | "com_imposto";
+
+// Uma linha por aplicação de um cartão de BSP ao BM (botão "Aplicar ao BM" do cartão) —
+// nunca gerada pelo "Aplicar tudo ao BM" do topo. Guarda se o markup foi incluído e como o
+// valor final foi calculado, pra manter o histórico visível se o BM for reaberto depois.
+export interface BmMobDesmobMarkup {
+  id: string;
+  created_at: string;
+  bsp: string;
+  applied_bm_number: string;
+  custo_ids: string[];
+  incluiu_markup: boolean;
+  tipo_markup: TipoMarkup | null;
+  percentual_lucro: number | null;
+  percentual_imposto: number | null;
+  valor_pendente_original: number;
+  valor_markup_calculado: number;
+  valor_final: number;
+}
+
 export type MaterialCategoria = "habitat" | "rental" | "consumable" | "mob_desmob_materiais";
 
 export interface BmLineMateriais {

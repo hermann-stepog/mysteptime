@@ -55,6 +55,11 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
 }
 
 :root {
@@ -93,6 +98,15 @@
   --sidebar-accent-foreground: oklch(0.96 0.015 235);
   --sidebar-border: oklch(0.4 0.09 260);
   --sidebar-ring: oklch(0.66 0.17 235);
+
+  /* Paleta padrão dos gráficos (shadcn/ui charts) — reaproveita as mesmas cores da marca já
+     usadas nos dashboards (DASH_COLORS em histograma-novo.tsx), pra todo gráfico novo puxar
+     daqui em vez de cor solta no componente. */
+  --chart-1: #1e3a5f; /* navy */
+  --chart-2: #2563eb; /* blue */
+  --chart-3: #0288d1; /* cyan */
+  --chart-4: #f97316; /* orange */
+  --chart-5: #22c55e; /* green */
 }
 
 @layer base {
