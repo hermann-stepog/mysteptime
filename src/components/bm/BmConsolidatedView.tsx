@@ -171,6 +171,16 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
     return m;
   }, [dates, dayGrid, codesByColaborador]);
 
+  const totalMobilizacao = useMemo(
+    () => Array.from(mobilizacaoPorData.values()).reduce((a, b) => a + b, 0),
+    [mobilizacaoPorData],
+  );
+  const totalDemobilizacao = useMemo(
+    () => Array.from(demobilizacaoPorData.values()).reduce((a, b) => a + b, 0),
+    [demobilizacaoPorData],
+  );
+
+
   return (
     <div className="bm-print-area">
     <div className="bm-print-scale-inner space-y-6">
