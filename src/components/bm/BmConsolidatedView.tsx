@@ -419,6 +419,23 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
         </div>
       </section>
 
+      {/* ── Total geral da folha (diárias + horas) ── */}
+      <section className="flex justify-end">
+        <div className="w-full rounded border bg-muted/30 p-3 sm:w-80">
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Diárias de embarque</span><span>{fmtMoney(workingDays)}</span>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Horas (HE / Adicional Noturno)</span><span>{fmtMoney(totalValorHoras)}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t pt-2 text-sm font-bold">
+            <span>Valor total do BM</span><span>{fmtMoney(currentBm)}</span>
+          </div>
+        </div>
+      </section>
+
+
+
     </div>
       <div className="flex justify-end print:hidden">
         <Button variant="outline" onClick={() => window.print()}>
