@@ -16,7 +16,7 @@ import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "luc
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
-import { selectAllPages } from "@/lib/supabasePaginate";
+import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
 
 // Cópia dos dias do Timesheet Offshore dentro do BM. Tudo o que é editado aqui vive só em
 // bm_timesheet_dias — nunca volta pro timesheet_dias original.
@@ -113,11 +113,11 @@ export function TimesheetsTab() {
   const periodoValido = !!de && !!ate && de <= ate;
 
   // ── Origem: dias reais do Timesheet Offshore no período ─────────────────────────────
-  const { data: origem = [], isFetching: carregandoOrigem } = useQuery({
+  const { data: origem = [], isFetching: carregandoOrigem, error: erroOrigem } = useQuery({
     queryKey: ["bm-ts-origem", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const dias = await selectAllPages<any>((from, to) =>
+      const dias = await selectAllPagesSequential<any>((from, to) =>
         supabase
           .from("timesheet_dias")
           .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
@@ -130,25 +130,23 @@ export function TimesheetsTab() {
       if (!dias.length) return [];
 
       const semanaIds = Array.from(new Set(dias.map((d: any) => d.semana_id)));
-      const { data: semanas, error: semErr } = await supabase
-        .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);
-      if (semErr) throw semErr;
+      const semanas = await selectInChunks<any, any>(semanaIds, (ids) =>
+        supabase.from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", ids),
+      );
 
-      const embarqueIds = Array.from(new Set((semanas ?? []).map((s: any) => s.embarque_id)));
-      const { data: embarques, error: embErr } = embarqueIds.length
-        ? await supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", embarqueIds)
-        : { data: [], error: null };
-      if (embErr) throw embErr;
+      const embarqueIds = Array.from(new Set(semanas.map((s: any) => s.embarque_id)));
+      const embarques = await selectInChunks<any, any>(embarqueIds, (ids) =>
+        supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", ids),
+      );
 
-      const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
-      const { data: colaboradores, error: colErr } = colabIds.length
-        ? await supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", colabIds)
-        : { data: [], error: null };
-      if (colErr) throw colErr;
+      const colabIds = Array.from(new Set(embarques.map((e: any) => e.colaborador_id).filter(Boolean)));
+      const colaboradores = await selectInChunks<any, any>(colabIds, (ids) =>
+        supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", ids),
+      );
 
-      const semanaById = new Map<string, any>((semanas ?? []).map((s: any) => [s.id, s]));
-      const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
-      const nomeById = new Map<string, string>((colaboradores ?? []).map((c: any) => [c.id, c.nome]));
+      const semanaById = new Map<string, any>(semanas.map((s: any) => [s.id, s]));
+      const embarqueById = new Map<string, any>(embarques.map((e: any) => [e.id, e]));
+      const nomeById = new Map<string, string>(colaboradores.map((c: any) => [c.id, c.nome]));
 
       return dias.flatMap((d: any) => {
         const semana = semanaById.get(d.semana_id);
@@ -181,11 +179,11 @@ export function TimesheetsTab() {
   });
 
   // ── Cópia local do BM ───────────────────────────────────────────────────────────────
-  const { data: copias = [], isFetching: carregandoCopias } = useQuery({
+  const { data: copias = [], isFetching: carregandoCopias, error: erroCopias } = useQuery({
     queryKey: ["bm-ts-copias", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const rows = await selectAllPages<BmTimesheetDia>((from, to) =>
+      const rows = await selectAllPagesSequential<BmTimesheetDia>((from, to) =>
         supabase
           .from("bm_timesheet_dias")
           .select("*")
@@ -197,11 +195,10 @@ export function TimesheetsTab() {
           .range(from, to),
       );
       const colaboradorIds = Array.from(new Set(rows.map((row) => row.colaborador_id).filter(Boolean))) as string[];
-      const { data: ativos, error: ativosError } = colaboradorIds.length
-        ? await supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", colaboradorIds)
-        : { data: [], error: null };
-      if (ativosError) throw ativosError;
-      const activeIds = new Set((ativos ?? []).map((row: any) => row.id));
+      const ativos = await selectInChunks<any, any>(colaboradorIds, (ids) =>
+        supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", ids),
+      );
+      const activeIds = new Set(ativos.map((row: any) => row.id));
       return rows.filter((row) => !!row.colaborador_id && activeIds.has(row.colaborador_id));
     },
   });
@@ -366,9 +363,16 @@ export function TimesheetsTab() {
   }, [copiasDaUnidade, bspSelecionada, busca]);
 
   const carregando = carregandoOrigem || carregandoCopias || importar.isPending;
+  const erroCarregamento = erroOrigem ?? erroCopias;
 
   return (
     <div className="space-y-4">
+      {erroCarregamento && (
+        <Card className="border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+          <p className="font-medium">Não foi possível carregar todas as horas do Timesheet.</p>
+          <p className="mt-1 text-xs">A lista vazia abaixo não representa os dados reais. Tente novamente.</p>
+        </Card>
+      )}
       <Card className="p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
@@ -404,7 +408,7 @@ export function TimesheetsTab() {
 
       {!periodoValido ? (
         <Card className="p-4"><EmptyState icon={CalendarRange} title="Selecione um período válido" /></Card>
-      ) : bsps.length === 0 ? (
+      ) : erroCarregamento ? null : bsps.length === 0 ? (
         <Card className="p-4"><EmptyState icon={CalendarRange} title="Nenhum timesheet no período selecionado" description={carregando ? "Carregando…" : undefined} /></Card>
       ) : (
         <>

@@ -47,7 +47,7 @@ import {
   resolveBmRateClientNames,
   selectBmRateGroup,
 } from "@/lib/bmUnitResolver";
-import { selectAllPages } from "@/lib/supabasePaginate";
+import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
 
 interface BmFlowRowOption {
   client: string;
@@ -735,13 +735,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // — filtrar por vessel ali zerava embarqueIds e nunca trazia hora nenhuma. BSP também varia
   // de prefixo (BSP/BPP/B3D/BPS + espaço/traço opcional) entre as duas fontes, daí a
   // normalização abaixo stripar qualquer prefixo alfabético, não só "BSP".
-  const { data: diasBase = EMPTY_DIAS_BM, isFetching: carregandoDias } = useQuery({
+  const { data: diasBase = EMPTY_DIAS_BM, isFetching: carregandoDias, error: erroDias } = useQuery({
     queryKey: ["bm-dias", cab.bsp, cab.periodStart, cab.periodEnd],
     enabled: headerCompleto && !!cab.bsp,
     queryFn: async () => {
       const bspAlvo = normalizeBmBspKey(cab.bsp);
 
-      const copiasData = await selectAllPages<any>((from, to) =>
+      const copiasData = await selectAllPagesSequential<any>((from, to) =>
         supabase
           .from("bm_timesheet_dias")
           .select("id, source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
@@ -758,7 +758,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       // filtrado por este BSP, pra sempre garantir a cópia antes de agregar Mão de Obra.
       const existentes = new Set((copiasData ?? []).map((c: any) => c.source_dia_id).filter(Boolean));
 
-      const diasOrigem = await selectAllPages<any>((from, to) =>
+      const diasOrigem = await selectAllPagesSequential<any>((from, to) =>
         supabase
           .from("timesheet_dias")
           .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
@@ -772,25 +772,23 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       let novasCopias: any[] = [];
       if (diasOrigem.length) {
         const semanaIds = Array.from(new Set(diasOrigem.map((d: any) => d.semana_id)));
-        const { data: semanas, error: semErr } = await supabase
-          .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);
-        if (semErr) throw semErr;
+        const semanas = await selectInChunks<any, any>(semanaIds, (ids) =>
+          supabase.from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", ids),
+        );
 
-        const embarqueIds = Array.from(new Set((semanas ?? []).map((s: any) => s.embarque_id)));
-        const { data: embarques, error: embErr } = embarqueIds.length
-          ? await supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", embarqueIds)
-          : { data: [], error: null };
-        if (embErr) throw embErr;
+        const embarqueIds = Array.from(new Set(semanas.map((s: any) => s.embarque_id)));
+        const embarques = await selectInChunks<any, any>(embarqueIds, (ids) =>
+          supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", ids),
+        );
 
-        const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
-        const { data: colaboradores, error: colErr } = colabIds.length
-          ? await supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", colabIds)
-          : { data: [], error: null };
-        if (colErr) throw colErr;
+        const colabIds = Array.from(new Set(embarques.map((e: any) => e.colaborador_id).filter(Boolean)));
+        const colaboradores = await selectInChunks<any, any>(colabIds, (ids) =>
+          supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", ids),
+        );
 
-        const semanaById = new Map<string, any>((semanas ?? []).map((s: any) => [s.id, s]));
-        const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
-        const nomeById = new Map<string, string>((colaboradores ?? []).map((c: any) => [c.id, c.nome]));
+        const semanaById = new Map<string, any>(semanas.map((s: any) => [s.id, s]));
+        const embarqueById = new Map<string, any>(embarques.map((e: any) => [e.id, e]));
+        const nomeById = new Map<string, string>(colaboradores.map((c: any) => [c.id, c.nome]));
 
         novasCopias = diasOrigem
           .filter((d: any) => !existentes.has(d.id))
@@ -830,11 +828,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
       const copiasCandidatas = [...(copiasData ?? []), ...novasCopias];
       const colaboradorIds = Array.from(new Set(copiasCandidatas.map((d: any) => d.colaborador_id).filter(Boolean)));
-      const { data: colaboradoresAtivos, error: ativosErr } = colaboradorIds.length
-        ? await supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", colaboradorIds)
-        : { data: [], error: null };
-      if (ativosErr) throw ativosErr;
-      const activeIds = new Set((colaboradoresAtivos ?? []).map((c: any) => c.id));
+      const colaboradoresAtivos = await selectInChunks<any, any>(colaboradorIds, (ids) =>
+        supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", ids),
+      );
+      const activeIds = new Set(colaboradoresAtivos.map((c: any) => c.id));
       const todasAsCopias = copiasCandidatas.filter((d: any) => activeIds.has(d.colaborador_id));
 
       const diasComColaborador: TimesheetDiaComColaborador[] = todasAsCopias
@@ -884,7 +881,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // Rate é buscado por Cliente+Embarcação+Função (bate com a planilha mestre de rates da
   // usuária) — não varia por BSP, então filtra só por cliente/embarcação aqui e deixa o
   // cruzamento de função (com fallback de nível) por conta de findRate (bmRateEngine.ts).
-  const { data: rates = EMPTY_RATES_BM, isFetching: carregandoRates } = useQuery({
+  const { data: rates = EMPTY_RATES_BM, isFetching: carregandoRates, error: erroRates } = useQuery({
     queryKey: ["bm-rates", cab.client, cab.vessel],
     enabled: headerCompleto,
     queryFn: async () => {
@@ -918,6 +915,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   });
 
   const carregandoMo = carregandoDias || carregandoRates;
+  const erroMaoDeObra = erroDias ?? erroRates;
 
   const maoDeObraCalculada = useMemo(
     () => (headerCompleto ? aggregateMaoDeObra(diasComOverrides, rates, cab.client, cab.vessel) : []),
@@ -1023,6 +1021,15 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
   const salvarBm = useMutation({
     mutationFn: async (targetStatus: "draft" | "pending_pm") => {
+      if (erroMaoDeObra) {
+        throw new Error("Não foi possível carregar todas as horas do Timesheet. Recarregue os dados antes de gerar o BM.");
+      }
+      if (carregandoMo) {
+        throw new Error("As horas do Timesheet ainda estão sendo carregadas. Aguarde antes de gerar o BM.");
+      }
+      if (!linesMo.length) {
+        throw new Error("Nenhuma hora foi encontrada para este BSP e período. O BM vazio não foi salvo.");
+      }
       const payload = {
         numero_bm: cab.numeroBm.trim() || null,
         client_id: clientIdAtual,
@@ -1112,7 +1119,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     onError: (e: any) => notify.error(e.message || "Erro ao salvar o BM."),
   });
 
-  const podeAvancarStep0 = headerCompleto;
+  const podeAvancarStep0 = headerCompleto && !erroMaoDeObra && linesMo.length > 0;
   const podeEnviarAprovacao = headerCompleto && linesMo.length > 0 && (!hasRateMissing || cienteRatesFaltando);
 
   if (savedBm) {
@@ -1138,6 +1145,21 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           </span>
         ))}
       </div>
+
+      {erroMaoDeObra && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <p className="font-medium">As horas do Timesheet não foram carregadas.</p>
+          <p className="mt-1 text-xs">
+            O BM não poderá ser gerado vazio. Tente novamente; se o erro continuar, informe o suporte.
+          </p>
+        </div>
+      )}
+
+      {headerCompleto && !carregandoMo && !erroMaoDeObra && linesMo.length === 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          Nenhuma hora foi encontrada para o BSP e período selecionados. O BM vazio não poderá ser gerado.
+        </div>
+      )}
 
       {step === 0 && (
         <div className="space-y-3">
