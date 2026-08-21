@@ -312,34 +312,24 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange, compact = 
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
   return (
+    <div className="space-y-1.5">
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="outline" role="combobox"
           className={compact
             ? "h-8 w-full justify-between px-2 text-xs font-normal"
-            : "h-auto min-h-11 w-full justify-between py-2 text-base font-normal"}
+            : "h-11 w-full justify-between py-2 text-base font-normal"}
         >
           {selected.length === 0 ? (
             <span className="text-muted-foreground">{compact ? "Todos" : "Selecionar colaborador(es)"}</span>
-          ) : compact ? (
-            <span className="truncate">{selected.length === 1 ? selected[0].nome : `${selected.length} selecionados`}</span>
           ) : (
-            <div className="flex flex-wrap gap-1">
-              {selected.map((c) => (
-                <span key={c.id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs">
-                  {c.nome}
-                  {/* pointer-events-auto! sobrescreve o [&_svg]:pointer-events-none do Button
-                      (que existe pra ícone decorativo não roubar clique do botão) — aqui o
-                      ícone É a ação, precisa realmente ser clicável por cima do botão. */}
-                  <X className="pointer-events-auto! h-3 w-3 cursor-pointer" onClick={(e) => { e.stopPropagation(); toggle(c.id); }} />
-                </span>
-              ))}
-            </div>
+            <span className="truncate">{selected.length === 1 ? selected[0].nome : `${selected.length} selecionados`}</span>
           )}
           <ChevronsUpDown className={cn("shrink-0 opacity-50", compact ? "ml-1 h-3.5 w-3.5" : "ml-2 h-4 w-4")} />
         </Button>
       </PopoverTrigger>
+
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
           <CommandInput placeholder="Buscar por nome ou matrícula..." />
@@ -371,7 +361,26 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange, compact = 
         </Command>
       </PopoverContent>
     </Popover>
+    {!compact && selected.length > 0 && (
+      <div className="flex flex-wrap gap-1">
+        {selected.map((c) => (
+          <span key={c.id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs">
+            {c.nome}
+            <button
+              type="button"
+              aria-label={`Remover ${c.nome}`}
+              onClick={() => toggle(c.id)}
+              className="rounded p-0.5 hover:bg-background hover:text-destructive"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+    )}
+    </div>
   );
+
 }
 
 // Combobox de seleção ÚNICA com busca — usado pro BSP do formulário "Lançar período
