@@ -171,6 +171,16 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
     return m;
   }, [dates, dayGrid, codesByColaborador]);
 
+  const totalMobilizacao = useMemo(
+    () => Array.from(mobilizacaoPorData.values()).reduce((a, b) => a + b, 0),
+    [mobilizacaoPorData],
+  );
+  const totalDemobilizacao = useMemo(
+    () => Array.from(demobilizacaoPorData.values()).reduce((a, b) => a + b, 0),
+    [demobilizacaoPorData],
+  );
+
+
   return (
     <div className="bm-print-area">
     <div className="bm-print-scale-inner space-y-6">
@@ -325,14 +335,17 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                 <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Mobilização</TableCell>
                 <TableCell /><TableCell />
                 {dates.map((d) => <TableCell key={d} className="text-center text-[10px]">{mobilizacaoPorData.get(d) || ""}</TableCell>)}
-                <TableCell colSpan={5} />
+                <TableCell colSpan={5} className="text-right text-[10px] text-muted-foreground">Total</TableCell>
+                <TableCell className="text-xs font-semibold">{totalMobilizacao}</TableCell>
               </TableRow>
               <TableRow className="bg-muted/30">
                 <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Demobilização</TableCell>
                 <TableCell /><TableCell />
                 {dates.map((d) => <TableCell key={d} className="text-center text-[10px]">{demobilizacaoPorData.get(d) || ""}</TableCell>)}
-                <TableCell colSpan={5} />
+                <TableCell colSpan={5} className="text-right text-[10px] text-muted-foreground">Total</TableCell>
+                <TableCell className="text-xs font-semibold">{totalDemobilizacao}</TableCell>
               </TableRow>
+
             </TableBody>
           </Table>
         </div>
