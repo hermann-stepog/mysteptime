@@ -187,6 +187,25 @@ const CATEGORIA_LABEL: Record<MobDesmobCategoria, string> = {
   transporte: "Transporte", hotel: "Hotel", outros: "Outros",
 };
 
+// O campo "bsp" do lançamento já vem como "código,unidade" (ex.: "BEP 25-1315,PCH-1") — é
+// assim que a planilha de custos importada guarda os dois juntos num campo só, sem coluna de
+// unidade separada. Lançamento manual (sem vírgula) cai no grupo "Sem unidade".
+function parseBspUnidade(bsp: string): { codigo: string; unidade: string } {
+  const partes = (bsp ?? "").split(",");
+  if (partes.length < 2) return { codigo: (bsp ?? "").trim(), unidade: "Sem unidade" };
+  return { codigo: partes[0].trim(), unidade: partes.slice(1).join(",").trim() || "Sem unidade" };
+}
+
+// Pré-preenche a busca de BM do diálogo "Aplicar ao BM" com a unidade do BSP daquele cartão —
+// a lista de BMs do Smartsheet (SmartsheetBm.vessel) já entra nesse mesmo filtro de busca, então
+// isso já chega filtrado, sem precisar procurar na lista inteira. Sem unidade reconhecível
+// (lançamento manual, sem vírgula), volta pra busca vazia — mostra tudo, como antes.
+function buscaInicialParaBsp(bsp: string | null): string {
+  if (!bsp) return "";
+  const { unidade } = parseBspUnidade(bsp);
+  return unidade === "Sem unidade" ? "" : unidade;
+}
+
 interface NovoCusto {
   nome: string; bsp: string; data: string; qtd: string; valor: string;
   markup: string; notes: string; categoria: MobDesmobCategoria;
@@ -211,6 +230,10 @@ export function MobDesmobTab() {
   // Filtro por período (data do lançamento) — só afeta a visualização/aplicação em lote.
   const [dataDe, setDataDe] = useState("");
   const [dataAte, setDataAte] = useState("");
+  // Filtro por Unidade/BSP — só entra em ação a partir da 3ª letra digitada, pra não filtrar
+  // tudo fora com 1-2 caracteres ainda incompletos.
+  const [filtroUnidade, setFiltroUnidade] = useState("");
+  const [filtroBsp, setFiltroBsp] = useState("");
   // Seleção individual de lançamentos pendentes (ids) — "Aplicar ao BM" de um BSP aplica só
   // os marcados aqui; se nada estiver marcado naquele BSP, cai no comportamento antigo
   // (aplica todos os pendentes do grupo).
@@ -501,10 +524,20 @@ export function MobDesmobTab() {
   });
 
   // Agrupamento por BSP — cada BSP vira um cartão com seus custos de transporte e hotel.
-  const custosFiltrados = useMemo(
-    () => custos.filter((c) => (!dataDe || (c.data ?? "") >= dataDe) && (!dataAte || (c.data ?? "") <= dataAte)),
-    [custos, dataDe, dataAte],
-  );
+  const custosFiltrados = useMemo(() => {
+    const qUnidade = filtroUnidade.trim().length >= 3 ? norm(filtroUnidade) : "";
+    const qBsp = filtroBsp.trim().length >= 3 ? norm(filtroBsp) : "";
+    return custos.filter((c) => {
+      if (dataDe && (c.data ?? "") < dataDe) return false;
+      if (dataAte && (c.data ?? "") > dataAte) return false;
+      if (qUnidade || qBsp) {
+        const { codigo, unidade } = parseBspUnidade(c.bsp);
+        if (qUnidade && !norm(unidade).includes(qUnidade)) return false;
+        if (qBsp && !norm(codigo).includes(qBsp)) return false;
+      }
+      return true;
+    });
+  }, [custos, dataDe, dataAte, filtroUnidade, filtroBsp]);
 
   const grupos = useMemo(() => {
     const map = new Map<string, BmMobDesmobCost[]>();
@@ -539,6 +572,26 @@ export function MobDesmobTab() {
         };
       });
   }, [custosFiltrados, markupsAplicados]);
+
+  // Agrupa os cartões de BSP (acima) por Unidade — cada BSP só pertence a uma unidade
+  // (ver parseBspUnidade), então isso é só reorganizar o que já existe, sem recalcular nada.
+  const gruposPorUnidade = useMemo(() => {
+    const map = new Map<string, typeof grupos>();
+    for (const g of grupos) {
+      const { unidade } = parseBspUnidade(g.bsp);
+      const arr = map.get(unidade) ?? [];
+      arr.push(g);
+      map.set(unidade, arr);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+      .map(([unidade, gruposDaUnidade]) => ({
+        unidade,
+        grupos: gruposDaUnidade,
+        total: round2(gruposDaUnidade.reduce((a, g) => a + g.total, 0)),
+        totalPendente: round2(gruposDaUnidade.reduce((a, g) => a + g.totalPendente, 0)),
+      }));
+  }, [grupos]);
 
   const importar = useMutation({
     mutationFn: async (file: File) => {
@@ -802,8 +855,22 @@ export function MobDesmobTab() {
             <Label className="text-xs">Até</Label>
             <Input type="date" className="h-8 w-[150px] text-xs" value={dataAte} onChange={(e) => setDataAte(e.target.value)} />
           </div>
-          {(dataDe || dataAte) && (
-            <Button size="sm" variant="ghost" onClick={() => { setDataDe(""); setDataAte(""); }}>Limpar</Button>
+          <div>
+            <Label className="text-xs">Unidade</Label>
+            <Input
+              className="h-8 w-[180px] text-xs" placeholder="Digite 3+ letras..."
+              value={filtroUnidade} onChange={(e) => setFiltroUnidade(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">BSP</Label>
+            <Input
+              className="h-8 w-[180px] text-xs" placeholder="Digite 3+ letras..."
+              value={filtroBsp} onChange={(e) => setFiltroBsp(e.target.value)}
+            />
+          </div>
+          {(dataDe || dataAte || filtroUnidade || filtroBsp) && (
+            <Button size="sm" variant="ghost" onClick={() => { setDataDe(""); setDataAte(""); setFiltroUnidade(""); setFiltroBsp(""); }}>Limpar</Button>
           )}
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
@@ -878,8 +945,17 @@ export function MobDesmobTab() {
         </Card>
       )}
 
-      <div className="grid gap-3 md:grid-cols-2">
-        {grupos.map((g) => {
+      {gruposPorUnidade.map((u) => (
+        <div key={u.unidade} className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">{u.unidade}</h3>
+            <span className="text-xs text-muted-foreground">
+              Total: <strong>{fmtMoney(u.total)}</strong>
+              {u.totalPendente > 0 && <> · Pendente: <strong>{fmtMoney(u.totalPendente)}</strong></>}
+            </span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {u.grupos.map((g) => {
           const aberto = !!abertos[g.bsp];
           return (
             <Card key={g.bsp} className="p-4 space-y-3 transition-colors hover:border-primary/40">
@@ -1135,8 +1211,10 @@ export function MobDesmobTab() {
               </div>
             </Card>
           );
-        })}
-      </div>
+            })}
+          </div>
+        </div>
+      ))}
 
       <Dialog
         open={!!notaSemNumeroId}
@@ -1240,7 +1318,7 @@ export function MobDesmobTab() {
                     });
                     setAplicarBsp(markupBsp);
                     setBmSelecionado(null);
-                    setBusca("");
+                    setBusca(buscaInicialParaBsp(markupBsp));
                     setMarkupBsp(null);
                   }}
                 >
@@ -1302,7 +1380,7 @@ export function MobDesmobTab() {
                       });
                       setAplicarBsp(markupBsp);
                       setBmSelecionado(null);
-                      setBusca("");
+                      setBusca(buscaInicialParaBsp(markupBsp));
                       setMarkupBsp(null);
                     }}
                   >
