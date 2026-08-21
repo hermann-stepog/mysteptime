@@ -4,6 +4,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // consistência com o resto do módulo de BM.
 const supabase: any = supabaseTyped;
 import { addDaysStr } from "@/lib/timesheetOffshore";
+import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
 
 // Sigla exibida no calendário do BM — replica a nomenclatura do backup de invoice em Excel
 // que a Step já usa hoje. "P"/"MEC" marcam só o 1º dia de um bloco de Embarque/Embarque
@@ -57,13 +58,13 @@ export function computeDayCodes(dias: DiaEvento[]): Map<string, DayCode | null> 
 }
 
 // Fonte única: a cópia em bm_timesheet_dias (aba "Timesheets" do módulo de BM), filtrada por
-// BSP — mesma correção já aplicada em admin/bm.tsx (Step 1) e bmRateEngine.ts. O BSP do
-// Cabeçalho vem do Smartsheet ("SAQUAREMA - CDS") e nunca bate exato com o nome canônico de
-// timesheet_embarques.unidade_operacional, então filtrar por embarcação aqui sempre voltava
-// vazio e o calendário da folha de rosto ficava sem nenhum dia colorido.
+// BSP — usa o mesmo normalizeBmBspKey (bmUnitResolver.ts) já usado no assistente de geração
+// (admin/bm.tsx), que trata variação de espaço/hífen/prefixo no código do BSP ("25-1031" vs
+// "25 - 1031" vs "BSP 25-1031" etc.). Antes essa tela tinha sua própria comparação mais fraca
+// (só removia um prefixo alfabético do início), o que fazia dias de embarque de gente com BSP
+// gravado num formato levemente diferente sumirem do calendário da capa sem erro nenhum.
 export async function fetchBmDayGrid(bsp: string, periodStart: string, periodEnd: string): Promise<ColaboradorDayGrid[]> {
-  const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^[a-z]+[\s-]*/i, "").trim().toLowerCase();
-  const bspAlvo = normalizarBsp(bsp);
+  const bspAlvo = normalizeBmBspKey(bsp);
   if (!bspAlvo) return [];
 
   const { data: copiasData, error: copiasErr } = await supabase
@@ -74,7 +75,7 @@ export async function fetchBmDayGrid(bsp: string, periodStart: string, periodEnd
 
   const porColaborador = new Map<string, ColaboradorDayGrid>();
   (copiasData ?? [])
-    .filter((d: any) => d.colaborador_id && normalizarBsp(d.bsp) === bspAlvo)
+    .filter((d: any) => d.colaborador_id && normalizeBmBspKey(d.bsp) === bspAlvo)
     .forEach((d: any) => {
       const colaboradorId = d.colaborador_id;
       if (!porColaborador.has(colaboradorId)) {
