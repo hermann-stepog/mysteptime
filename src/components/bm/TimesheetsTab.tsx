@@ -17,6 +17,7 @@ import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/tim
 import { cn } from "@/lib/utils";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
 import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
+import { mergeBmTimesheetSource } from "@/lib/bmTimesheetSync";
 
 // Cópia dos dias do Timesheet Offshore dentro do BM. Tudo o que é editado aqui vive só em
 // bm_timesheet_dias — nunca volta pro timesheet_dias original.
@@ -222,25 +223,23 @@ export function TimesheetsTab() {
     },
   });
 
-  // Copia automaticamente os dias do período que ainda não existem no BM. Nunca sobrescreve
-  // linhas já copiadas — o que a Medição ajustou fica intacto.
+  // Copia dias novos e sincroniza mudanças posteriores da origem, preservando somente os
+  // campos que realmente foram editados na Medição.
   const importar = useMutation({
-    mutationFn: async (faltantes: any[]) => {
-      // Deduplica por source_dia_id e usa upsert com ignoreDuplicates para evitar 409
-      // quando a cópia automática dispara mais de uma vez em paralelo.
+    mutationFn: async (pendentes: any[]) => {
       const vistos = new Set<string>();
-      const rows = faltantes
-        .filter((d) => {
-          const key = String(d.source_dia_id ?? "");
+      const rows = pendentes
+        .filter((item) => {
+          const key = String(item.row?.source_dia_id ?? "");
           if (!key || vistos.has(key)) return false;
           vistos.add(key);
           return true;
         })
-        .map((d) => ({ ...d, original: d }));
+        .map((item) => item.row);
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await supabase
           .from("bm_timesheet_dias")
-          .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id", ignoreDuplicates: true });
+          .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id" });
         if (error) throw error;
       }
       return rows.length;
@@ -251,18 +250,20 @@ export function TimesheetsTab() {
     onError: (e: any) => notify.error(e.message),
   });
 
-  const faltantes = useMemo(() => {
+  const pendentesSincronizacao = useMemo(() => {
     if (!origem.length) return [];
-    const existentes = new Set(copias.map((c) => c.source_dia_id).filter(Boolean) as string[]);
-    return origem.filter((d: any) => !existentes.has(d.source_dia_id));
+    const existentes = new Map(copias.map((c) => [c.source_dia_id, c]));
+    return origem
+      .map((source: any) => mergeBmTimesheetSource(source, existentes.get(source.source_dia_id) as any))
+      .filter((item) => item.changed);
   }, [origem, copias]);
 
   useEffect(() => {
     if (!periodoValido || carregandoOrigem || carregandoCopias) return;
-    if (faltantes.length === 0 || importar.isPending) return;
-    importar.mutate(faltantes);
+    if (pendentesSincronizacao.length === 0 || importar.isPending) return;
+    importar.mutate(pendentesSincronizacao);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [faltantes, periodoValido, carregandoOrigem, carregandoCopias]);
+  }, [pendentesSincronizacao, periodoValido, carregandoOrigem, carregandoCopias]);
 
   const salvar = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Partial<Record<CampoCopia, unknown>> }) => {

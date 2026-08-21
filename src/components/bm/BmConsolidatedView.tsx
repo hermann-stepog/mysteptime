@@ -46,7 +46,7 @@ interface BmTimesheetCoverViewProps {
 export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps) {
   const qc = useQueryClient();
   // "project_name" guarda o BSP (ver comentário em admin/bm.tsx) — não a embarcação.
-  const { data: dayGrid = [] } = useQuery({
+  const { data: dayGrid = [], error: dayGridError } = useQuery({
     queryKey: ["bm-day-grid", bm.project_name, bm.period_start, bm.period_end],
     queryFn: () => fetchBmDayGrid(bm.project_name ?? "", bm.period_start, bm.period_end),
   });
@@ -195,6 +195,12 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
           <p>{fmt(bm.period_start)} – {fmt(bm.period_end)}{bm.po_number ? ` · PO ${bm.po_number}` : ""}</p>
         </div>
       </div>
+
+      {dayGridError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive print:hidden">
+          Não foi possível carregar as horas detalhadas do Timesheet. Esta capa não representa os dados completos.
+        </div>
+      )}
 
       {/* Observações internas — nunca sai no PDF/impressão, só pra quem está revisando o BM aqui. */}
       <div className="print:hidden space-y-1">

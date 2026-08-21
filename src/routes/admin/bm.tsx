@@ -48,6 +48,7 @@ import {
   selectBmRateGroup,
 } from "@/lib/bmUnitResolver";
 import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
+import { mergeBmTimesheetSource } from "@/lib/bmTimesheetSync";
 
 interface BmFlowRowOption {
   client: string;
@@ -744,7 +745,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       const copiasData = await selectAllPagesSequential<any>((from, to) =>
         supabase
           .from("bm_timesheet_dias")
-          .select("id, source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
+          .select("*")
           .gte("data", cab.periodStart)
           .lte("data", cab.periodEnd)
           .order("data")
@@ -756,7 +757,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       // "Timesheets" — sem isso, gerar um BM pra um período nunca visitado lá vinha vazio.
       // Replica aqui o mesmo import automático que a aba faz (TimesheetsTab.tsx), mas já
       // filtrado por este BSP, pra sempre garantir a cópia antes de agregar Mão de Obra.
-      const existentes = new Set((copiasData ?? []).map((c: any) => c.source_dia_id).filter(Boolean));
+      const copiaBySourceId = new Map(copiasData.map((c: any) => [c.source_dia_id, c]));
 
       const diasOrigem = await selectAllPagesSequential<any>((from, to) =>
         supabase
@@ -769,7 +770,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           .range(from, to),
       );
 
-      let novasCopias: any[] = [];
+      let copiasSincronizadas: any[] = [];
       if (diasOrigem.length) {
         const semanaIds = Array.from(new Set(diasOrigem.map((d: any) => d.semana_id)));
         const semanas = await selectInChunks<any, any>(semanaIds, (ids) =>
@@ -790,8 +791,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
         const embarqueById = new Map<string, any>(embarques.map((e: any) => [e.id, e]));
         const nomeById = new Map<string, string>(colaboradores.map((c: any) => [c.id, c.nome]));
 
-        novasCopias = diasOrigem
-          .filter((d: any) => !existentes.has(d.id))
+        const origensDoBsp = diasOrigem
           .flatMap((d: any) => {
             const semana = semanaById.get(d.semana_id);
             const embarque = semana ? embarqueById.get(semana.embarque_id) : null;
@@ -815,18 +815,28 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           // até alguém abrir a aba Timesheets (ou gerar um BM) pro BSP correspondente.
           .filter((d: any) => normalizeBmBspKey(d.bsp) === bspAlvo);
 
-        if (novasCopias.length) {
-          const rows = novasCopias.map((d) => ({ ...d, original: d }));
+        const sincronizacoes = origensDoBsp.map((source: any) =>
+          mergeBmTimesheetSource(source, copiaBySourceId.get(source.source_dia_id)),
+        );
+        const rows = sincronizacoes.filter((item) => item.changed).map((item) => item.row);
+        if (rows.length) {
           for (let i = 0; i < rows.length; i += 500) {
             const { error: upsertErr } = await supabase
-              .from("bm_timesheet_dias")
-              .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id", ignoreDuplicates: true });
+              .from("bm_timesheet_dias").upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id" });
             if (upsertErr) throw upsertErr;
           }
         }
+        copiasSincronizadas = sincronizacoes.map((item, index) => ({
+          ...(copiaBySourceId.get(origensDoBsp[index].source_dia_id) ?? {}),
+          ...item.row,
+        }));
       }
 
-      const copiasCandidatas = [...(copiasData ?? []), ...novasCopias];
+      const idsSincronizados = new Set(copiasSincronizadas.map((c: any) => c.source_dia_id));
+      const copiasCandidatas = [
+        ...copiasData.filter((c: any) => !idsSincronizados.has(c.source_dia_id)),
+        ...copiasSincronizadas,
+      ];
       const colaboradorIds = Array.from(new Set(copiasCandidatas.map((d: any) => d.colaborador_id).filter(Boolean)));
       const colaboradoresAtivos = await selectInChunks<any, any>(colaboradorIds, (ids) =>
         supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", ids),
@@ -1111,6 +1121,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     },
     onSuccess: ({ bm, savedMo, savedLogistica, targetStatus }) => {
       qc.invalidateQueries({ queryKey: ["bm-historico"] });
+      qc.invalidateQueries({ queryKey: ["bm-day-grid"] });
       notify.success(targetStatus === "pending_pm" ? "BM enviado para aprovação do PM." : "Rascunho salvo.");
       setSavedBm(bm);
       setSavedLinesMo(savedMo);

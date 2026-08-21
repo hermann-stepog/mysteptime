@@ -48,8 +48,10 @@ describe("paginação das horas usadas pelo BM", () => {
   it.each([
     "src/routes/admin/bm.tsx",
     "src/components/bm/TimesheetsTab.tsx",
+    "src/lib/bmDayGrid.ts",
   ])("não limita a cópia do BM às primeiras 1.000 linhas em %s", (file) => {
     const code = source(file);
+    expect(code).toContain("selectAllPagesSequential");
     expect(code).toMatch(/from\("bm_timesheet_dias"\)[\s\S]*?\.order\([\s\S]*?\.order\("id"\)[\s\S]*?\.range\(from, to\)/);
   });
 });

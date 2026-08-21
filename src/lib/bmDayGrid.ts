@@ -5,6 +5,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 const supabase: any = supabaseTyped;
 import { addDaysStr } from "@/lib/timesheetOffshore";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
+import { selectAllPagesSequential } from "@/lib/supabasePaginate";
 
 // Sigla exibida no calendário do BM — replica a nomenclatura do backup de invoice em Excel
 // que a Step já usa hoje. "P"/"MEC" marcam só o 1º dia de um bloco de Embarque/Embarque
@@ -67,14 +68,16 @@ export async function fetchBmDayGrid(bsp: string, periodStart: string, periodEnd
   const bspAlvo = normalizeBmBspKey(bsp);
   if (!bspAlvo) return [];
 
-  const { data: copiasData, error: copiasErr } = await supabase
-    .from("bm_timesheet_dias")
-    .select("colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
-    .gte("data", periodStart).lte("data", periodEnd);
-  if (copiasErr) throw copiasErr;
+  const copiasData = await selectAllPagesSequential<any>((from, to) =>
+    supabase
+      .from("bm_timesheet_dias")
+      .select("id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
+      .gte("data", periodStart).lte("data", periodEnd)
+      .order("data").order("id").range(from, to),
+  );
 
   const porColaborador = new Map<string, ColaboradorDayGrid>();
-  (copiasData ?? [])
+  copiasData
     .filter((d: any) => d.colaborador_id && normalizeBmBspKey(d.bsp) === bspAlvo)
     .forEach((d: any) => {
       const colaboradorId = d.colaborador_id;
