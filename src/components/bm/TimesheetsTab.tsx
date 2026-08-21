@@ -74,10 +74,15 @@ function ultimoDiaDoMes(): string {
 // o BSP confunde mais do que ajuda. Todo BSP de verdade neste sistema tem pelo menos um
 // dígito (25-906, BSP 25-1031 etc.); nome de unidade nunca tem — um jeito simples e seguro
 // de distinguir os dois sem precisar reconhecer cada nome de unidade um por um.
+// Além disso, o mesmo BSP chega gravado em formatos diferentes ("25-1031", "BSP 25-1031",
+// "BSP - 25-1031"). Normalizamos com normalizeBmBspKey (mesma regra do assistente de geração)
+// e exibimos sempre no padrão "BSP - <código>", para que tudo caia num cartão único.
 function bspLabelDaLinha(c: { bsp: string | null; unidade_operacional: string | null }): string {
   const bsp = c.bsp?.trim();
   if (!bsp || !/\d/.test(bsp)) return "Sem BSP";
-  return bsp;
+  const codigo = normalizeBmBspKey(bsp);
+  if (!codigo) return "Sem BSP";
+  return `BSP - ${codigo}`;
 }
 
 function numOrNull(v: string): number | null {
