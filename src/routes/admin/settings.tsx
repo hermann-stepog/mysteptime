@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { notify } from "@/lib/notify";
-import { Plus, Trash2, Pencil, KeyRound, UserPlus } from "lucide-react";
+import { Plus, Trash2, Pencil, KeyRound, UserPlus, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
@@ -307,52 +307,80 @@ function Projects() {
   );
 }
 
-function CreateUserDialog({ onClose }: { onClose: () => void }) {
+// Formulário fixo ao lado da lista (em vez de modal) — mesmo cadastro de sempre
+// (adminCreateUser/ROLE_OPTIONS), só reorganizado visualmente.
+function NewUserForm() {
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState("pending");
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!email.trim()) throw new Error("Informe o e-mail.");
       if (!fullName.trim()) throw new Error("Informe o nome.");
+      if (!email.trim()) throw new Error("Informe o e-mail.");
       if (password.length < 8) throw new Error("A senha precisa ter pelo menos 8 caracteres.");
+      if (password !== confirmPassword) throw new Error("As senhas não conferem.");
       await adminCreateUser({ data: { email: email.trim(), password, fullName: fullName.trim(), role: role as any } });
     },
     onSuccess: () => {
       notify.success("Usuário criado.");
       qc.invalidateQueries({ queryKey: ["users-with-roles"] });
-      onClose();
+      setEmail(""); setPassword(""); setConfirmPassword(""); setFullName(""); setRole("pending");
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao criar usuário."),
   });
 
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Criar usuário</DialogTitle></DialogHeader>
-        <div className="grid gap-3">
-          <div><Label>Nome</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
-          <div><Label>E-mail</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-          <div><Label>Senha inicial</Label><Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 8 caracteres" /></div>
-          <div>
-            <Label>Papel</Label>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+    <Card className="p-5 space-y-3 h-fit">
+      <h3 className="font-semibold">Novo usuário</h3>
+      <div>
+        <Label>Nome</Label>
+        <Input placeholder="Nome completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+      </div>
+      <div>
+        <Label>E-mail</Label>
+        <Input type="email" placeholder="pessoa@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      <div>
+        <Label>Senha</Label>
+        <div className="relative">
+          <Input
+            type={showPassword ? "text" : "password"} placeholder="Pelo menos 8 caracteres"
+            className="pr-9" value={password} onChange={(e) => setPassword(e.target.value)}
+          />
+          <button
+            type="button" onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => create.mutate()} loading={create.isPending}>Criar</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <div>
+        <Label>Confirmar senha</Label>
+        <Input
+          type={showPassword ? "text" : "password"} placeholder="Repita a senha"
+          value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+      </div>
+      <div>
+        <Label>Papel</Label>
+        <Select value={role} onValueChange={setRole}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <Button className="w-full" onClick={() => create.mutate()} loading={create.isPending}>
+        <UserPlus className="mr-2 h-4 w-4" />Cadastrar usuário
+      </Button>
+    </Card>
   );
 }
 
@@ -388,7 +416,6 @@ function ResetPasswordDialog({ userId, userLabel, onClose }: { userId: string; u
 
 function Users() {
   const qc = useQueryClient();
-  const [showCreate, setShowCreate] = useState(false);
   const [resetTarget, setResetTarget] = useState<{ id: string; label: string } | null>(null);
   const { data, isLoading } = useQuery({
     queryKey: ["users-with-roles"],
@@ -409,55 +436,57 @@ function Users() {
 
   if (isLoading) {
     return (
-      <Card className="p-5 space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+        <Card className="p-5 space-y-3">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" />
+        </Card>
+        <Card className="p-5 space-y-4">
           <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-8 w-36" />
-        </div>
-        <Table>
-          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
-          <TableSkeleton rows={6} cols={4} />
-        </Table>
-      </Card>
+          <Table>
+            <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+            <TableSkeleton rows={6} cols={4} />
+          </Table>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
-      <div className="flex items-center justify-between">
+    <div className="grid gap-4 lg:grid-cols-[320px_1fr] animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <NewUserForm />
+      <Card className="p-5">
         <h3 className="font-semibold">Usuários &amp; papéis</h3>
-        <Button size="sm" onClick={() => setShowCreate(true)}><UserPlus className="mr-2 h-4 w-4" />Criar usuário</Button>
-      </div>
-      <Table className="mt-4">
-        <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
-        <TableBody>
-          {(data ?? []).map((u: any) => (
-            <TableRow key={u.id}>
-              <TableCell>{u.full_name ?? "—"}</TableCell><TableCell>{u.email}</TableCell>
-              <TableCell>
-                <Select value={u.role} onValueChange={(v) => setRole(u.id, v, u.roleId)}>
-                  <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </TableCell>
-              <TableCell className="text-right">
-                <Button
-                  variant="ghost" size="sm"
-                  onClick={() => setResetTarget({ id: u.id, label: u.full_name ?? u.email })}
-                >
-                  <KeyRound className="mr-1.5 h-3.5 w-3.5" />Redefinir senha
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      {showCreate && <CreateUserDialog onClose={() => setShowCreate(false)} />}
+        <Table className="mt-4">
+          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {(data ?? []).map((u: any) => (
+              <TableRow key={u.id}>
+                <TableCell>{u.full_name ?? "—"}</TableCell><TableCell>{u.email}</TableCell>
+                <TableCell>
+                  <Select value={u.role} onValueChange={(v) => setRole(u.id, v, u.roleId)}>
+                    <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setResetTarget({ id: u.id, label: u.full_name ?? u.email })}
+                  >
+                    <KeyRound className="mr-1.5 h-3.5 w-3.5" />Redefinir senha
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
       {resetTarget && (
         <ResetPasswordDialog userId={resetTarget.id} userLabel={resetTarget.label} onClose={() => setResetTarget(null)} />
       )}
-    </Card>
+    </div>
   );
 }

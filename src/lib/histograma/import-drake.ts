@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import { ORIGEM_PROGRAMADO, addDays, normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador } from "@/lib/histogramaNovo";
+import { ORIGEM_PROGRAMADO, addDays, todayStr, normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador } from "@/lib/histogramaNovo";
 import { ensureTimesheetParaPeriodo } from "@/lib/timesheetAutoGen";
 import { selectAllPages } from "@/lib/supabasePaginate";
 
@@ -335,6 +335,13 @@ export async function importDrakeEmbarkation(
   // confiança nos dados.
   await limparProgramadosSuperadosPorEmbarqueReal(supabase);
 
+  // Programado cuja data já passou e nunca virou embarque real (se tivesse virado, a limpeza
+  // acima já teria apagado) — decisão da usuária: um "Programado" vencido simplesmente some,
+  // sem precisar de confirmação/exclusão manual em Lançamentos. Nunca perde dado de horas
+  // porque um Programado nunca gera timesheet (ver exclusão de ORIGEM_PROGRAMADO em
+  // timesheet-offshore.tsx).
+  await limparProgramadosExpirados(supabase);
+
   // Gera o timesheet (semanas + dias) automaticamente pra cada período de embarque
   // importado — sem isso o colaborador não tem onde lançar as horas até alguém criar o
   // embarque manualmente. periodo_id fica null de propósito: o Drake sempre apaga e
@@ -512,6 +519,37 @@ async function limparProgramadosSuperadosPorEmbarqueReal(supabase: SupabaseClien
       return (reaisPorColaborador.get(p.colaborador_id) ?? [])
         .some((r) => r.data_fim >= p.data_inicio && r.data_inicio <= fimConsiderado);
     })
+    .map((p) => p.id);
+  if (!idsParaApagar.length) return;
+
+  for (let i = 0; i < idsParaApagar.length; i += 500) {
+    const lote = idsParaApagar.slice(i, i + 500);
+    const { error: unlinkErr } = await supabase
+      .from("timesheet_embarques")
+      .update({ periodo_id: null })
+      .in("periodo_id", lote);
+    if (unlinkErr) throw unlinkErr;
+    const { error: delErr } = await supabase.from("hist_novo_periodos").delete().in("id", lote);
+    if (delErr) throw delErr;
+  }
+}
+
+// Programado (mesmo par de tipos da função acima: "P" origem=manual, 1º dia; ou "E"
+// origem=programado, continuação) cuja data_fim já passou — se tivesse virado embarque real,
+// limparProgramadosSuperadosPorEmbarqueReal (chamada logo antes) já teria apagado. O que
+// sobra aqui é só quem nunca embarcou de verdade na data programada: decisão da usuária, esse
+// Programado vencido simplesmente some, sem exigir confirmação/exclusão manual em Lançamentos.
+async function limparProgramadosExpirados(supabase: SupabaseClient): Promise<void> {
+  const hoje = todayStr();
+  const programados = await selectAllPages<{ id: string; tipo: string; origem: string | null; data_fim: string }>((from, to) =>
+    supabase.from("hist_novo_periodos").select("id, tipo, origem, data_fim")
+      .in("origem", ["manual", ORIGEM_PROGRAMADO])
+      .order("id").range(from, to),
+  );
+
+  const idsParaApagar = programados
+    .filter((p) => (p.tipo === "P" && p.origem === "manual") || (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO))
+    .filter((p) => p.data_fim < hoje)
     .map((p) => p.id);
   if (!idsParaApagar.length) return;
 

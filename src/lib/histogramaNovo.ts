@@ -122,15 +122,32 @@ export const DRAKE_DATA_CUTOFF = "2026-01-01";
 
 // Colaboradores que embarcam de fato (têm ao menos um período tipo="E" confirmado, não só
 // "Programado") — é o critério real de "é offshore", usado pra não deixar gente de escritório/
-// onshore entrar em telas que só fazem sentido pra quem embarca (importação "Na Base",
-// Simulação de disponibilidade em Nomeações). Diferente de "tem qualquer período" (usado no
-// Dashboard pra decidir quem está "ativo" no mês), que deixa passar onshore com férias/atestado
-// lançado — não é um teste de offshore, só de atividade recente.
+// onshore entrar em telas que só fazem sentido pra quem embarca (Simulação de disponibilidade
+// em Nomeações). Diferente de "tem qualquer período" (usado no Dashboard pra decidir quem está
+// "ativo" no mês), que deixa passar onshore com férias/atestado lançado — não é um teste de
+// offshore, só de atividade recente.
 export function getColaboradoresComEmbarque(periodos: HistNovoPeriodo[]): Set<string> {
   const s = new Set<string>();
   periodos.forEach((p) => {
     if (p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO) s.add(p.colaborador_id);
   });
+  return s;
+}
+
+// Regra mais estrita: só quem já teve MAIS DE UM embarque confirmado (2+ períodos tipo="E",
+// mesma exclusão de "Programado" acima) — usada onde um único embarque isolado ainda não deve
+// contar como "efetivo offshore de verdade" (Dashboard do Histograma Offshore e importação da
+// planilha "Na Base"). Não usada em Nomeações — lá o critério continua sendo o de cima (1+),
+// de propósito.
+export function getColaboradoresComMultiploEmbarque(periodos: HistNovoPeriodo[]): Set<string> {
+  const contagem = new Map<string, number>();
+  periodos.forEach((p) => {
+    if (p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO) {
+      contagem.set(p.colaborador_id, (contagem.get(p.colaborador_id) ?? 0) + 1);
+    }
+  });
+  const s = new Set<string>();
+  contagem.forEach((n, id) => { if (n > 1) s.add(id); });
   return s;
 }
 
@@ -551,8 +568,13 @@ export function toOldBucket(status: ComputedStatus): OldBucket {
       return "FE";
     case "TE":
       return "TE";
-    case "AT":
+    // Desembarque em Dia Não Útil é só um jeito de mostrar que o desembarque caiu num
+    // sábado/domingo — o colaborador entra de folga em seguida (folga já conta como ocupado,
+    // ver "F" acima), então esse dia de transição também conta como ocupado, não como fora de
+    // ocupação. Mesmo raciocínio de "DES" (desembarque em dia útil, ver isOcupadoBucket).
     case "DDN":
+      return "FO";
+    case "AT":
       return "IND";
     default:
       return "OTHER";
@@ -570,10 +592,12 @@ export function pobBucket(result: DayStatusResult): OldBucket {
 
 // Quem tem a vaga "ocupada" no ciclo de rotação pra fins da Taxa de Ocupação — embarcado
 // (E, já cobre Dobra/Folga Indenizada via toOldBucket), Folga de embarque (FO), Trabalho
-// Externo (TE), Programado (P) e Na Base (BASE, trabalhando na base em vez de offshore). O
-// resto (Standby, Férias, Atestado, Desembarque em Dia Não Útil etc.) é quem sobra pro lado
-// "fora da ocupação".
-export const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P" || b === "BASE";
+// Externo (TE), Programado (P), Na Base (BASE, trabalhando na base em vez de offshore) e
+// Desembarque (D) — se o colaborador está desembarcando é porque em seguida ele entra de
+// folga (já ocupado), então o próprio dia da desembarque também é ocupado, não uma vaga
+// livre (decisão explícita da usuária). Só sobra pro lado "fora da ocupação" quem realmente
+// não tem vaga reservada em nenhuma unidade: Standby, Férias e Atestado.
+export const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P" || b === "BASE" || b === "D";
 
 export interface HistoricoOcupacaoColaborador {
   colaboradorId: string;

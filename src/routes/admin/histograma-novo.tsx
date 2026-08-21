@@ -43,7 +43,7 @@ import {
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade,
   toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
-  calcularHistoricoOcupacaoColaborador,
+  calcularHistoricoOcupacaoColaborador, getColaboradoresComMultiploEmbarque,
   type OldBucket,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
   type HistoricoOcupacaoColaborador,
@@ -324,7 +324,10 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange, compact = 
               {selected.map((c) => (
                 <span key={c.id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs">
                   {c.nome}
-                  <X className="h-3 w-3 cursor-pointer" onClick={(e) => { e.stopPropagation(); toggle(c.id); }} />
+                  {/* pointer-events-auto! sobrescreve o [&_svg]:pointer-events-none do Button
+                      (que existe pra ícone decorativo não roubar clique do botão) — aqui o
+                      ícone É a ação, precisa realmente ser clicável por cima do botão. */}
+                  <X className="pointer-events-auto! h-3 w-3 cursor-pointer" onClick={(e) => { e.stopPropagation(); toggle(c.id); }} />
                 </span>
               ))}
             </div>
@@ -341,7 +344,13 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange, compact = 
               {colaboradores.map((c) => {
                 const isSelected = value.includes(c.id);
                 return (
-                  <CommandItem key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => toggle(c.id)}>
+                  <CommandItem
+                    key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => toggle(c.id)}
+                    // Sem o destaque azul/branco de hover do cmdk aqui — o "x"/check já deixa
+                    // claro quem está marcado, e a lista some assim que fecha o popover, então
+                    // deselecionar já não exige reabri-la (o "x" no chip acima cobre isso).
+                    className="data-[selected=true]:bg-transparent data-[selected=true]:text-foreground"
+                  >
                     {isSelected ? (
                       <X className="mr-2 h-4 w-4 shrink-0 text-destructive" />
                     ) : (
@@ -352,6 +361,53 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange, compact = 
                   </CommandItem>
                 );
               })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Combobox de seleção ÚNICA com busca — usado pro BSP do formulário "Lançar período
+// manualmente": a lista vem de bspOptionsForUnidade (BSPs já vistos nos dados do Drake), com
+// campo de busca pra digitar os primeiros números e achar rápido em vez de rolar a lista
+// inteira. "Outro (digitar)..." no fim preserva o fallback manual de antes, pra BSP novo que
+// ainda não apareceu em nenhum período sincronizado.
+function BspCombobox({ options, value, onChange, onManual }: {
+  options: string[]; value: string; onChange: (v: string) => void; onManual: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="h-11 w-full justify-between px-3 text-base font-normal">
+          {value ? <span className="truncate">{value}</span> : <span className="text-muted-foreground">Selecione o BSP</span>}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Digitar o número do BSP..." />
+          <CommandList>
+            <CommandEmpty>Nenhum BSP encontrado.</CommandEmpty>
+            <CommandGroup>
+              {options.map((b) => (
+                <CommandItem
+                  key={b} value={b} onSelect={() => { onChange(b); setOpen(false); }}
+                  className="data-[selected=true]:bg-transparent data-[selected=true]:text-foreground"
+                >
+                  <Check className={cn("mr-2 h-4 w-4 shrink-0", value === b ? "opacity-100" : "opacity-0")} />
+                  {b}
+                </CommandItem>
+              ))}
+              <CommandItem
+                value="__outro__" onSelect={() => { onManual(); setOpen(false); }}
+                className="data-[selected=true]:bg-transparent data-[selected=true]:text-foreground"
+              >
+                <Check className="mr-2 h-4 w-4 shrink-0 opacity-0" />
+                Outro (digitar)...
+              </CommandItem>
             </CommandGroup>
           </CommandList>
         </Command>
@@ -674,8 +730,10 @@ const EVENTO_FILTER_DESEMBARQUE = "__desembarque__";
 
 // Opções do filtro de Evento (multi-seleção) — todos os TipoPeriodo + o sentinela de
 // Desembarque, na mesma ordem que já aparecia no Select de tipo único.
+// "BASE" nunca aparece na lista de Lançamentos (ver filtrosComuns) — sem sentido oferecer
+// como opção de filtro aqui, já que selecionar sempre voltaria vazio.
 const EVENTO_FILTRO_OPTIONS: { value: string; label: string }[] = [
-  ...TIPO_ORDER.map((t) => ({ value: t, label: `${displayAbbr(t)} — ${TIPO_LABEL[t]}` })),
+  ...TIPO_ORDER.filter((t) => t !== "BASE").map((t) => ({ value: t, label: `${displayAbbr(t)} — ${TIPO_LABEL[t]}` })),
   { value: EVENTO_FILTER_DESEMBARQUE, label: "DES — Desembarque" },
 ];
 
@@ -683,6 +741,16 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   const qc = useQueryClient();
 
   const colaboradorById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
+
+  // Só entra nas listas de seleção (novo lançamento, filtro da tabela, edição) quem já teve
+  // MAIS DE UM embarque confirmado — mesma regra do Dashboard e da importação "Na Base" (ver
+  // getColaboradoresComMultiploEmbarque). Não afeta colaboradorById acima: um lançamento já
+  // existente de alguém fora dessa regra continua aparecendo normalmente na tabela, só não dá
+  // pra escolher essa pessoa de novo nos seletores.
+  const colaboradoresComMultiploEmbarque = useMemo(() => {
+    const ids = getColaboradoresComMultiploEmbarque(periodos);
+    return colaboradores.filter((c) => ids.has(c.id));
+  }, [colaboradores, periodos]);
 
   // Unidades operacionais já existentes nos períodos importados (Drake) ou lançados manualmente —
   // usadas como opções da lista suspensa, pra evitar erro de digitação/divergência de nome.
@@ -700,8 +768,8 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   // Funções já existentes nos colaboradores — opções da lista suspensa multi-seleção do
   // filtro de Função (mesmo padrão de unidadesExistentes acima).
   const funcoesExistentes = useMemo(
-    () => Array.from(new Set(colaboradores.map((c) => c.funcao || c.funcao_operacao).filter((f): f is string => !!f))).sort(),
-    [colaboradores],
+    () => Array.from(new Set(colaboradoresComMultiploEmbarque.map((c) => c.funcao || c.funcao_operacao).filter((f): f is string => !!f))).sort(),
+    [colaboradoresComMultiploEmbarque],
   );
 
   // Última folga (mais recente até hoje) de cada colaborador — usada nas colunas "Início
@@ -721,11 +789,14 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     return m;
   }, [periodos]);
 
-  const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "E" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+  const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "P" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
   // BSP em lista quando a unidade escolhida já tem BSP conhecido (evita erro de digitação);
   // "Outro" volta pro campo livre pra um BSP novo que ainda não apareceu nessa unidade.
   const [formBspManual, setFormBspManual] = useState(false);
-  const formBspOptions = useMemo(() => bspOptionsForUnidade(periodos, form.unidade_operacional), [periodos, form.unidade_operacional]);
+  // Sem Unidade escolhida ainda, mostra todos os BSPs já vistos no Drake (sentinela "all")
+  // em vez de lista vazia — deixa buscar o BSP primeiro e preencher a Unidade depois, se
+  // preferir nessa ordem.
+  const formBspOptions = useMemo(() => bspOptionsForUnidade(periodos, form.unidade_operacional || "all"), [periodos, form.unidade_operacional]);
   // Os campos de filtro só valem depois de clicar em "Buscar" — os "*Input" guardam o que o
   // usuário está digitando/selecionando, e os "filter*" guardam o que realmente filtra a tabela.
   const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
@@ -794,7 +865,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       // carregado.
       qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => (old ? [...novos, ...old] : novos));
       notify.success(novos.length > 1 ? "Períodos lançados" : "Período lançado");
-      setForm({ colaboradorIds: [], tipo: "E", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+      setForm({ colaboradorIds: [], tipo: "P", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
       setFormBspManual(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -874,6 +945,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     const tiposNormaisSelecionados = filterTipo.filter((t) => t !== EVENTO_FILTER_DESEMBARQUE);
 
     const filtrosComuns = (p: HistNovoPeriodo) =>
+      // "BASE" só existe pro Dashboard — nunca aparece em Lançamentos, nem filtrando por ele
+      // explicitamente (decisão da usuária).
+      p.tipo !== "BASE" &&
       (filterColaborador.length === 0 || filterColaborador.includes(p.colaborador_id)) &&
       (filterUnidade.length === 0 || (p.unidade_operacional != null && filterUnidade.includes(p.unidade_operacional))) &&
       (filterBsp.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && filterBsp.includes(b); })()) &&
@@ -990,15 +1064,18 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           <div className="flex flex-1 flex-col justify-between gap-4">
             <div>
               <Label className="text-xs">Colaborador(es)</Label>
-              <ColaboradoresMultiCombobox colaboradores={colaboradores} value={form.colaboradorIds} onChange={(ids) => setForm({ ...form, colaboradorIds: ids })} />
+              <ColaboradoresMultiCombobox colaboradores={colaboradoresComMultiploEmbarque} value={form.colaboradorIds} onChange={(ids) => setForm({ ...form, colaboradorIds: ids })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Tipo</Label>
+                {/* Só "Programado" por hora — decisão explícita da usuária, restrita a este
+                    formulário de lançamento manual (o select de edição de período existente,
+                    mais abaixo, continua com a lista completa). */}
                 <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo, ...(v === "P" ? { data_fim: form.data_inicio } : {}) })}>
                   <SelectTrigger className="h-11 text-base"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
+                    <SelectItem value="P">{displayAbbr("P")} — {TIPO_LABEL.P}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1016,13 +1093,11 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <div>
                 <Label className="text-xs">BSP</Label>
                 {formBspOptions.length > 0 && !formBspManual ? (
-                  <Select value={form.bsp} onValueChange={(v) => v === "__outro__" ? setFormBspManual(true) : setForm({ ...form, bsp: v })}>
-                    <SelectTrigger className="h-11 text-base"><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
-                    <SelectContent>
-                      {formBspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-                      <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <BspCombobox
+                    options={formBspOptions} value={form.bsp}
+                    onChange={(v) => setForm({ ...form, bsp: v })}
+                    onManual={() => setFormBspManual(true)}
+                  />
                 ) : (
                   <Input className="h-11 text-base" value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
                 )}
@@ -1055,7 +1130,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
           <div className="space-y-0.5 w-56">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <ColaboradoresMultiCombobox colaboradores={colaboradores} value={colaboradorInput} onChange={setColaboradorInput} compact />
+            <ColaboradoresMultiCombobox colaboradores={colaboradoresComMultiploEmbarque} value={colaboradorInput} onChange={setColaboradorInput} compact />
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Evento</Label>
@@ -1194,7 +1269,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             <div className="grid gap-3">
               <div>
                 <Label className="text-xs">Colaborador</Label>
-                <ColaboradorCombobox colaboradores={colaboradores} value={editing.colaborador_id} onChange={(id) => setEditing({ ...editing, colaborador_id: id })} />
+                <ColaboradorCombobox colaboradores={colaboradoresComMultiploEmbarque} value={editing.colaborador_id} onChange={(id) => setEditing({ ...editing, colaborador_id: id })} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1346,6 +1421,9 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const [year, setYear] = useState(new Date().getFullYear());
   const [selectedColaborador, setSelectedColaborador] = useState("");
   const [statusFilter, setStatusFilter] = useState<ComputedStatus[]>([]);
+  // Nem "P" (Programado) nem "BASE" aparecem nessa aba (ver periodosByColaborador) — sem
+  // sentido oferecer os dois na legenda/filtro de Status daqui, já que nunca teriam resultado.
+  const statusOrderHistograma = useMemo(() => STATUS_ORDER.filter((s) => s !== "P" && s !== "BASE"), []);
   const [unidadeFilter, setUnidadeFilter] = useState<string[]>([]);
   const [bspFilter, setBspFilter] = useState<string[]>([]);
   const [funcaoFilter, setFuncaoFilter] = useState<string[]>([]);
@@ -1408,9 +1486,18 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const yearDates = useMemo(() => buildYearDates(year), [year]);
   const yearMonthGroups = useMemo(() => groupDatesByMonth(yearDates), [yearDates]);
 
+  // "Programado" não entra no grid do Histograma — só existe pra Lançamentos e Dashboard
+  // (decisão da usuária). "BASE" só existe pro Dashboard — não entra aqui nem em Lançamentos
+  // (outra decisão explícita da usuária). Filtra aqui, na fonte, antes de agrupar por
+  // colaborador: sem esses períodos nos dados que essa aba usa, computeDayStatus (sem tocar
+  // na função em si, que continua igual pros outros consumidores) simplesmente cai no próximo
+  // status válido pro dia — Standby, Folga etc. — como se eles não existissem aqui.
   const periodosByColaborador = useMemo(() => {
     const m = new Map<string, HistNovoPeriodo[]>();
     periodos.forEach((p) => {
+      if (p.tipo === "P" && p.origem === "manual") return;
+      if (p.tipo === "E" && p.origem === ORIGEM_PROGRAMADO) return;
+      if (p.tipo === "BASE") return;
       if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
       m.get(p.colaborador_id)!.push(p);
     });
@@ -1508,7 +1595,7 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
             <div className="space-y-0.5 w-44">
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
               <EventoMultiCombobox
-                options={STATUS_ORDER.map((s) => ({ value: s, label: `${displayAbbr(s)} — ${STATUS_LABEL[s]}` }))}
+                options={statusOrderHistograma.map((s) => ({ value: s, label: `${displayAbbr(s)} — ${STATUS_LABEL[s]}` }))}
                 value={statusFilter} onChange={(v) => setStatusFilter(v as ComputedStatus[])}
               />
             </div>
@@ -1531,7 +1618,7 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
 
 
         <div className="ml-auto flex flex-wrap gap-1.5">
-          {STATUS_ORDER.map((s) => {
+          {statusOrderHistograma.map((s) => {
             const active = statusFilter.includes(s);
             return (
               <button
@@ -1926,6 +2013,15 @@ function DashboardTab({ colaboradores, periodos }: {
 }) {
   const today = todayStr();
   const anoAtual = new Date().getFullYear();
+  // Só entra nesta aba quem já teve MAIS DE UM embarque confirmado — um único embarque
+  // isolado ainda não conta como "efetivo offshore de verdade" aqui (mesma regra aplicada na
+  // importação da planilha "Na Base"; ver getColaboradoresComMultiploEmbarque). Histograma e
+  // Lançamentos continuam recebendo a lista cheia via props — esse filtro é local só ao
+  // Dashboard.
+  const colaboradoresComMultiploEmbarque = useMemo(() => {
+    const ids = getColaboradoresComMultiploEmbarque(periodos);
+    return colaboradores.filter((c) => ids.has(c.id));
+  }, [colaboradores, periodos]);
   // O filtro nasce sempre fixado em hoje (De=Até=hoje) — assim os cartões, a rosquinha e
   // tudo mais partem sempre do mesmo dia de referência, sem divergir entre "foto de hoje" e
   // "total do período". Continua editável pra ela investigar um dia específico do passado
@@ -1955,7 +2051,7 @@ function DashboardTab({ colaboradores, periodos }: {
   // Colaborador(es) escolhido(s) no filtro (se houver) + só quem já teve período na(s)
   // unidade(s)/BSP(s) escolhidos (se houver) — antes de aplicar o recorte de "ativo no
   // período" abaixo.
-  const colaboradoresFiltrados = useMemo(() => colaboradores.filter((c) => {
+  const colaboradoresFiltrados = useMemo(() => colaboradoresComMultiploEmbarque.filter((c) => {
     if (filterColaborador.length && !filterColaborador.includes(c.id)) return false;
     if (filterUnidade.length) {
       const ps = periodosByColaborador.get(c.id) ?? [];
@@ -1966,7 +2062,7 @@ function DashboardTab({ colaboradores, periodos }: {
       if (!ps.some((p) => { const b = bspDoPeriodo(p); return b && filterBsp.includes(b); })) return false;
     }
     return true;
-  }), [colaboradores, periodosByColaborador, filterColaborador, filterUnidade, filterBsp]);
+  }), [colaboradoresComMultiploEmbarque, periodosByColaborador, filterColaborador, filterUnidade, filterBsp]);
 
   // "Ativo" sempre olha o MÊS INTEIRO de dataInicio/dataFim, não o intervalo exato escolhido
   // no filtro — se ela estreitar De/Até pra um único dia (ex.: só hoje), um colaborador que
@@ -2306,7 +2402,7 @@ function DashboardTab({ colaboradores, periodos }: {
           </div>
           <div className="space-y-0.5 w-56">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <ColaboradoresMultiCombobox colaboradores={colaboradores} value={filterColaborador} onChange={setFilterColaborador} compact />
+            <ColaboradoresMultiCombobox colaboradores={colaboradoresComMultiploEmbarque} value={filterColaborador} onChange={setFilterColaborador} compact />
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
@@ -2379,9 +2475,9 @@ function DashboardTab({ colaboradores, periodos }: {
             <PopoverContent className="w-80 space-y-2 text-xs" align="start">
               <p>
                 <span className="font-semibold" style={{ color: DASH_COLORS.navy }}>Ocupado</span> (fatia azul): Embarcado, Dobra, Folga
-                Indenizada, Folga de Embarque, Trabalho Externo, Programado e Na Base — vaga comprometida no ciclo de rotação, mesmo
-                quando a pessoa não está fisicamente a bordo naquele dia (folga do ciclo, mobilização já lançada, ou trabalhando na
-                base em vez de offshore).
+                Indenizada, Folga de Embarque, Trabalho Externo, Programado, Na Base e Desembarque — vaga comprometida no ciclo de
+                rotação, mesmo quando a pessoa não está fisicamente a bordo naquele dia (folga do ciclo, mobilização já lançada,
+                trabalhando na base em vez de offshore, ou desembarcando — que já entra de folga em seguida).
               </p>
               <p>
                 <span className="font-semibold" style={{ color: "#c2410c" }}>Fora da ocupação</span> (fatia laranja): Standby (Aguardando
