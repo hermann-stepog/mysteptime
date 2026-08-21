@@ -361,7 +361,26 @@ function ColaboradoresMultiCombobox({ colaboradores, value, onChange, compact = 
         </Command>
       </PopoverContent>
     </Popover>
+    {!compact && selected.length > 0 && (
+      <div className="flex flex-wrap gap-1">
+        {selected.map((c) => (
+          <span key={c.id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs">
+            {c.nome}
+            <button
+              type="button"
+              aria-label={`Remover ${c.nome}`}
+              onClick={() => toggle(c.id)}
+              className="rounded p-0.5 hover:bg-background hover:text-destructive"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+    )}
+    </div>
   );
+
 }
 
 // Combobox de seleção ÚNICA com busca — usado pro BSP do formulário "Lançar período
