@@ -85,7 +85,7 @@ export function MultiSortableHead<
         className,
       )}
       onClick={() => onSort(column)}
-      title="1st click: asc | 2nd: desc | 3rd: remove"
+      title="1º clique: crescente | 2º: decrescente | 3º: remover critério"
     >
       <span className="inline-flex items-center gap-1">
         {label}
@@ -118,46 +118,31 @@ export function useMultiTableSort<
   >([]);
 
   const toggleSort = (column: Column) => {
-    setSortRules((current) => {
-      const index = current.findIndex(
-        (rule) => rule.column === column,
-      );
-
-      // Not selected yet: append as next priority.
-      if (index === -1) {
-        return [
-          ...current,
-          {
-            column,
-            direction: "asc",
-          },
-        ];
-      }
-
-      const currentRule = current[index];
-
-      // ASC -> DESC.
-      if (currentRule.direction === "asc") {
-        const next = [...current];
-
-        next[index] = {
-          ...currentRule,
-          direction: "desc",
-        };
-
-        return next;
-      }
-
-      // DESC -> remove from sort priority.
-      return current.filter(
-        (_, ruleIndex) =>
-          ruleIndex !== index,
-      );
-    });
+    setSortRules((current) => nextMultiSortRules(current, column));
   };
+
+  const clearSort = () => setSortRules([]);
 
   return {
     sortRules,
     toggleSort,
+    clearSort,
   };
+}
+
+export function nextMultiSortRules<Column extends string>(
+  current: MultiSortRule<Column>[],
+  column: Column,
+): MultiSortRule<Column>[] {
+  const index = current.findIndex((rule) => rule.column === column);
+  if (index === -1) return [...current, { column, direction: "asc" }];
+
+  const currentRule = current[index];
+  if (currentRule.direction === "asc") {
+    const next = [...current];
+    next[index] = { ...currentRule, direction: "desc" };
+    return next;
+  }
+
+  return current.filter((_, ruleIndex) => ruleIndex !== index);
 }

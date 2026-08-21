@@ -24,7 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FadeInView, FadeInRow } from "@/components/FadeInView";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
-import { SortableHead, useTableSort } from "@/components/SortableTableHead";
+import { MultiSortableHead, SortableHead, useMultiTableSort, useTableSort } from "@/components/SortableTableHead";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
   PieChart, Pie, Cell,
@@ -734,7 +734,7 @@ export async function generateRelatorioHeadcountMultiplo(periodos: { inicio: str
 
 // ─── Lançamentos tab ─────────────────────────────────────────────────────────
 
-type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias";
+type LancamentosSortColumn = "colaborador" | "funcao" | "evento" | "unidade" | "bsp" | "inicio" | "fim" | "dias" | "inicio_folga" | "fim_folga";
 
 // Valor sentinela do filtro de Evento pra "Desembarque" — não é um TipoPeriodo de verdade (nunca
 // é lançado, sempre calculado a partir do fim de um período "E", igual ao Histograma computa DES),
@@ -838,9 +838,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     setFilterAte(ateInput);
   };
   const [editing, setEditing] = useState<HistNovoPeriodo | null>(null);
-  // Ordenação clicável no cabeçalho — aplicada só nos períodos já filtrados na tela; sem
-  // coluna escolhida, mantém a ordem padrão (data de início, mais antiga primeiro).
-  const { sortColumn, sortDirection, toggleSort } = useTableSort<LancamentosSortColumn>();
+  // Cada clique numa coluna nova acrescenta um critério, sem apagar os anteriores. O número
+  // exibido no cabeçalho informa a prioridade; clicar de novo alterna asc/desc e o 3º remove.
+  const { sortRules, toggleSort, clearSort } = useMultiTableSort<LancamentosSortColumn>();
 
   const createPeriodo = useMutation({
     mutationFn: async (colaboradorIds: string[]) => {
@@ -1028,33 +1028,39 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       : [];
 
     return [...linhasNormais, ...linhasDesembarque].sort((a, b) => {
-      if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
-      const dir = sortDirection === "asc" ? 1 : -1;
-      switch (sortColumn) {
-        case "colaborador":
-          return dir * (colaboradorById.get(a.colaborador_id)?.nome ?? "").localeCompare(colaboradorById.get(b.colaborador_id)?.nome ?? "");
-        case "funcao": {
-          const fa = colaboradorById.get(a.colaborador_id);
-          const fb = colaboradorById.get(b.colaborador_id);
-          return dir * (fa?.funcao || fa?.funcao_operacao || "").localeCompare(fb?.funcao || fb?.funcao_operacao || "");
+      for (const rule of sortRules) {
+        const dir = rule.direction === "asc" ? 1 : -1;
+        let comparison = 0;
+        switch (rule.column) {
+          case "colaborador":
+            comparison = (colaboradorById.get(a.colaborador_id)?.nome ?? "").localeCompare(colaboradorById.get(b.colaborador_id)?.nome ?? "");
+            break;
+          case "funcao": {
+            const fa = colaboradorById.get(a.colaborador_id);
+            const fb = colaboradorById.get(b.colaborador_id);
+            comparison = (fa?.funcao || fa?.funcao_operacao || "").localeCompare(fb?.funcao || fb?.funcao_operacao || "");
+            break;
+          }
+          case "evento": comparison = a.tipo.localeCompare(b.tipo); break;
+          case "unidade": comparison = (a.unidade_operacional ?? "").localeCompare(b.unidade_operacional ?? ""); break;
+          case "bsp": comparison = (bspDoPeriodo(a) ?? "").localeCompare(bspDoPeriodo(b) ?? ""); break;
+          case "inicio": comparison = a.data_inicio.localeCompare(b.data_inicio); break;
+          case "fim": comparison = a.data_fim.localeCompare(b.data_fim); break;
+          case "dias": comparison = (a.dias ?? 0) - (b.dias ?? 0); break;
+          case "inicio_folga":
+            comparison = (ultimaFolgaPorColaborador.get(a.colaborador_id)?.data_inicio ?? "")
+              .localeCompare(ultimaFolgaPorColaborador.get(b.colaborador_id)?.data_inicio ?? "");
+            break;
+          case "fim_folga":
+            comparison = (ultimaFolgaPorColaborador.get(a.colaborador_id)?.data_fim ?? "")
+              .localeCompare(ultimaFolgaPorColaborador.get(b.colaborador_id)?.data_fim ?? "");
+            break;
         }
-        case "evento":
-          return dir * a.tipo.localeCompare(b.tipo);
-        case "unidade":
-          return dir * (a.unidade_operacional ?? "").localeCompare(b.unidade_operacional ?? "");
-        case "bsp":
-          return dir * (bspDoPeriodo(a) ?? "").localeCompare(bspDoPeriodo(b) ?? "");
-        case "inicio":
-          return dir * a.data_inicio.localeCompare(b.data_inicio);
-        case "fim":
-          return dir * a.data_fim.localeCompare(b.data_fim);
-        case "dias":
-          return dir * ((a.dias ?? 0) - (b.dias ?? 0));
-        default:
-          return 0;
+        if (comparison !== 0) return dir * comparison;
       }
+      return a.data_inicio.localeCompare(b.data_inicio) || a.id.localeCompare(b.id);
     });
-  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
+  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, ultimaFolgaPorColaborador, sortRules]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
   // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
@@ -1208,21 +1214,30 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             <span className="font-bold">{filteredPeriodos.length}</span>
             <span className="text-muted-foreground">lançamento(s)</span>
           </div>
+          {sortRules.length > 0 && (
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={clearSort}>
+              <X className="mr-1 h-3.5 w-3.5" />Limpar ordenação
+            </Button>
+          )}
         </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          Ordenação acumulativa: clique nos cabeçalhos na prioridade desejada. Os números mostram a ordem dos critérios.
+        </p>
 
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Colaborador" column="colaborador" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Evento" column="evento" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Início" column="inicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Fim" column="fim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Dias" column="dias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <TableHead>Início Folga</TableHead>
-              <TableHead>Fim Folga</TableHead>
+              <MultiSortableHead label="Colaborador" column="colaborador" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Função" column="funcao" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Evento" column="evento" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Unidade" column="unidade" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="BSP" column="bsp" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Início" column="inicio" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Fim" column="fim" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Dias" column="dias" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Início Folga" column="inicio_folga" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Fim Folga" column="fim_folga" sortRules={sortRules} onSort={toggleSort} />
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
