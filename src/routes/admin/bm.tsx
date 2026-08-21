@@ -36,6 +36,7 @@ import { normalizarBsp } from "@/lib/bmDayGrid";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
+import { AplicarCustoMobDesmobDialog } from "@/components/bm/AplicarCustoMobDesmobDialog";
 import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
@@ -353,6 +354,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
   // na aba Logística Mob/Desmob.
   const [logisticaManual, setLogisticaManual] = useState(0);
+  const [adicionarCustoOpen, setAdicionarCustoOpen] = useState(false);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
@@ -1455,9 +1457,18 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
           )}
 
           <div className="rounded-md border p-3">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-xs font-semibold">Logística Mob/Desmob aplicada ao BSP</span>
-              <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]"
+                  disabled={!cab.bsp}
+                  onClick={() => setAdicionarCustoOpen(true)}
+                >
+                  <Plus className="mr-1 h-3 w-3" />Adicionar custo
+                </Button>
+                <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <div>
@@ -1495,6 +1506,11 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               </p>
             </div>
           </div>
+
+          <AplicarCustoMobDesmobDialog
+            open={adicionarCustoOpen} onOpenChange={setAdicionarCustoOpen}
+            bsp={cab.bsp} bmNumber={numeroBmAtual}
+          />
 
 
         </div>
