@@ -37,6 +37,7 @@ export interface RunSingleApiReportOptions {
   signalRSession: DrakeSignalRSession;
   /** Permite auditorias/sincronizações cobrirem uma data futura explícita. */
   periodNow?: Date;
+  period?: { startDate: string; endDate: string };
 }
 
 type HttpResult = Pick<DrakeHttpResult, "status" | "contentType" | "json" | "text"> & {
@@ -740,7 +741,12 @@ export async function runSingleApiReport(
   try {
     await validateQueryDefinition(request, report);
 
-    const prepared = buildReportParameters(report, env.DRAKE_TIMEZONE, options.periodNow);
+    const prepared = buildReportParameters(
+      report,
+      env.DRAKE_TIMEZONE,
+      options.periodNow,
+      options.period,
+    );
     const preparedMeta = {
       names: prepared.parameters.map((item) => item.name),
       count: prepared.parameters.length,

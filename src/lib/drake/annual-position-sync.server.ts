@@ -4,6 +4,7 @@ import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import {
   fetchDrakeWorkers,
   fetchAnnualPositionsForWorkers,
+  filterAnnualPositionsByWindow,
 } from "./worker-annual-position-api.server";
 import {
   buildAnnualPositionSnapshot,
@@ -21,6 +22,7 @@ import { filterWorkersAlreadyInHistogram } from "./annual-position-eligibility";
 import {
   buildEmbarkationReportIndex,
   resolveEmbarkationReportRow,
+  sanitizeDrakeBsp,
 } from "./annual-position-embarkation";
 
 export interface AnnualPositionSyncProgress {
@@ -43,7 +45,10 @@ export interface AnnualPositionSyncHooks {
   onWorkerProgress?: (progress: AnnualPositionSyncProgress) => void | Promise<void>;
   onPositionsLoaded?: () => void | Promise<void>;
   onBeforeDatabaseSync?: () => void | Promise<void>;
+  onTimesheetSyncProgress?: (progress: AnnualPositionSyncProgress) => void | Promise<void>;
 }
+
+const TIMESHEET_WORKER_CONCURRENCY = 8;
 
 export async function synchronizeCurrentDrakeAnnualPositions(
   db: SupabaseClient,
@@ -53,6 +58,7 @@ export async function synchronizeCurrentDrakeAnnualPositions(
   embarkationRows: EmbarkationSourceRow[],
   hooks: AnnualPositionSyncHooks = {},
   asOfDate?: string,
+  endDate = `${year}-12-31`,
 ): Promise<AnnualPositionSyncResult> {
   const activeWorkers = await fetchDrakeWorkers(http);
 
@@ -72,13 +78,30 @@ export async function synchronizeCurrentDrakeAnnualPositions(
   const workers = filterWorkersAlreadyInHistogram(activeWorkers, histogramWorkerKeys);
 
   await hooks.onWorkersLoaded?.(workers.length);
-  const annualPositions = await fetchAnnualPositionsForWorkers(
-    http,
-    workers,
-    year,
-    (completedWorkers, totalWorkers) =>
-      hooks.onWorkerProgress?.({ completedWorkers, totalWorkers }),
-  );
+  const endYear = Number(endDate.slice(0, 4));
+  const years = Array.from({ length: endYear - year + 1 }, (_, index) => year + index);
+  const annualByWorkerId = new Map<
+    string,
+    Awaited<ReturnType<typeof fetchAnnualPositionsForWorkers>>[number]
+  >();
+  for (const [yearIndex, targetYear] of years.entries()) {
+    const annualForYear = await fetchAnnualPositionsForWorkers(
+      http,
+      workers,
+      targetYear,
+      (completedWorkers, totalWorkers) =>
+        hooks.onWorkerProgress?.({
+          completedWorkers: yearIndex * totalWorkers + completedWorkers,
+          totalWorkers: totalWorkers * years.length,
+        }),
+    );
+    for (const annual of annualForYear) {
+      const existing = annualByWorkerId.get(annual.worker.id);
+      if (existing) existing.positions.push(...annual.positions);
+      else annualByWorkerId.set(annual.worker.id, { ...annual, positions: [...annual.positions] });
+    }
+  }
+  const annualPositions = [...annualByWorkerId.values()];
   await hooks.onPositionsLoaded?.();
   const embarkationIndex = buildEmbarkationReportIndex(embarkationRows);
 
@@ -89,7 +112,10 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     empresa: worker.companyName,
     funcao: worker.jobDescription,
     funcaoOperacao: worker.payrollJobName,
-    positions: positions.map((position) => {
+    // Um dia de lookahead impede que o último E visível do recorte mensal vire
+    // desembarque quando a sequência continua no dia seguinte.
+    positions: filterAnnualPositionsByWindow(positions, cutoffDate, addIsoDay(endDate, 1))
+      .map((position) => {
       const detailsUnit = optionalString(position.Details?.Uop);
       const isEmbarkationDay = ["E", "D"].includes(position.OccurrenceAcronym.trim().toUpperCase());
       const reportRow = isEmbarkationDay
@@ -108,9 +134,12 @@ export async function synchronizeCurrentDrakeAnnualPositions(
         unidadeOperacional: normalizeUnidadeOperacional(
           reportRow?.unidade_operacional ?? detailsUnit,
         ),
-        centroDeCusto: reportRow?.centro_de_custo ?? null,
+        centroDeCusto: sanitizeDrakeBsp(
+          reportRow?.centro_de_custo ?? null,
+          reportRow?.unidade_operacional ?? detailsUnit,
+        ),
       };
-    }),
+      }),
   }));
   // Varre TODAS as ocorrências antes de qualquer gravação.
   // Assim, uma única execução revela o catálogo completo do Drake.
@@ -168,11 +197,14 @@ export async function synchronizeCurrentDrakeAnnualPositions(
 
   const result = await importAnnualPositionSnapshot(db, snapshot, {
     startDate: cutoffDate,
-    endDate: `${year}-12-31`,
+    endDate,
   });
 
   const workerByKey = new Map(snapshot.workers.map((worker) => [worker.workerKey, worker]));
-  const timesheetPlans = buildDrakeTimesheetPlans(snapshot);
+  const timesheetPlans = buildDrakeTimesheetPlans(snapshot, {
+    startDate: cutoffDate,
+    endDate,
+  });
 
   if (asOfDate) {
     await removeExpiredProgrammingPeriods(
@@ -187,33 +219,38 @@ export async function synchronizeCurrentDrakeAnnualPositions(
       }),
     );
   }
-  for (const plan of timesheetPlans) {
-    const worker = workerByKey.get(plan.workerKey);
-    if (!worker) {
-      throw new Error("O Drake devolveu um timesheet sem colaborador correspondente.");
-    }
-    const collaboratorId = result.collaboratorIdByWorkerKey.get(plan.workerKey);
-    if (!collaboratorId) continue;
-    const linkedPeriod = result.insertedPeriods.find(
-      (period) =>
-        period.workerKey === plan.workerKey &&
-        period.dataInicio <= plan.dataInicio &&
-        period.dataFim >= plan.dataInicio &&
-        (period.tipo === "E" || period.tipo === "DB"),
-    );
+  await runPlansGroupedByWorker(
+    timesheetPlans,
+    async (plan) => {
+      const worker = workerByKey.get(plan.workerKey);
+      if (!worker) {
+        throw new Error("O Drake devolveu um timesheet sem colaborador correspondente.");
+      }
+      const collaboratorId = result.collaboratorIdByWorkerKey.get(plan.workerKey);
+      if (!collaboratorId) return;
+      const linkedPeriod = result.insertedPeriods.find(
+        (period) =>
+          period.workerKey === plan.workerKey &&
+          period.dataInicio <= plan.dataInicio &&
+          period.dataFim >= plan.dataInicio &&
+          (period.tipo === "E" || period.tipo === "DB"),
+      );
 
-    await createTimesheetForNewPeriodIfAbsent(db, {
-      colaboradorId: collaboratorId,
-      periodoId: linkedPeriod?.id ?? null,
-      sourceEventKey: plan.sourceEventKey,
-      unidadeOperacional: plan.unidadeOperacional,
-      bsp: plan.centroDeCusto,
-      funcaoEmbarque: worker.funcao || worker.funcaoOperacao || "—",
-      dataInicio: plan.dataInicio,
-      dataFim: plan.dataFim,
-      sourceDays: plan.days,
-    });
-  }
+      await createTimesheetForNewPeriodIfAbsent(db, {
+        colaboradorId: collaboratorId,
+        periodoId: linkedPeriod?.id ?? null,
+        sourceEventKey: plan.sourceEventKey,
+        unidadeOperacional: plan.unidadeOperacional,
+        bsp: plan.centroDeCusto,
+        funcaoEmbarque: worker.funcao || worker.funcaoOperacao || "—",
+        dataInicio: plan.dataInicio,
+        dataFim: plan.dataFim,
+        sourceDays: plan.days,
+        syncWindow: { startDate: cutoffDate, endDate },
+      });
+    },
+    hooks.onTimesheetSyncProgress,
+  );
 
   return {
     createdWorkers: result.createdWorkers,
@@ -224,6 +261,51 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     skippedExistingDays: result.skippedExistingDays,
     processedWorkers: workers.length,
   };
+}
+
+/**
+ * Mantém os embarques da mesma pessoa em ordem para evitar corrida entre períodos,
+ * mas permite que colaboradores independentes sejam sincronizados em paralelo.
+ */
+export async function runPlansGroupedByWorker<T extends { workerKey: string }>(
+  plans: T[],
+  processPlan: (plan: T) => Promise<void>,
+  onWorkerProgress?: (progress: AnnualPositionSyncProgress) => void | Promise<void>,
+  concurrency = TIMESHEET_WORKER_CONCURRENCY,
+): Promise<void> {
+  const groups = new Map<string, T[]>();
+  for (const plan of plans) {
+    const workerPlans = groups.get(plan.workerKey) ?? [];
+    workerPlans.push(plan);
+    groups.set(plan.workerKey, workerPlans);
+  }
+  const workerGroups = [...groups.values()];
+  if (workerGroups.length === 0) return;
+
+  let cursor = 0;
+  let completedWorkers = 0;
+  async function runWorkerGroup(): Promise<void> {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= workerGroups.length) return;
+      for (const plan of workerGroups[index]) {
+        await processPlan(plan);
+      }
+      completedWorkers += 1;
+      await onWorkerProgress?.({
+        completedWorkers,
+        totalWorkers: workerGroups.length,
+      });
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, concurrency), workerGroups.length) },
+      () => runWorkerGroup(),
+    ),
+  );
 }
 
 /**

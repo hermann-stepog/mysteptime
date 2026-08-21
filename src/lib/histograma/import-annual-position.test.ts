@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildWorkerKey } from "./drake-snapshot";
 import {
   importAnnualPositionSnapshot,
+  buildOutOfWindowAutomaticResiduals,
   mapExistingAnnualWorkers,
   partitionAnnualPositionExistingPeriods,
   planAppendOnlyPeriods,
@@ -20,6 +21,7 @@ function existing(patch: Partial<ExistingProtectedPeriod> = {}): ExistingProtect
     data_inicio: "2026-08-06",
     data_fim: "2026-08-10",
     origem: "manual",
+    bsp: null,
     ...patch,
   };
 }
@@ -43,6 +45,25 @@ function desired(patch: Partial<DesiredDatabasePeriod> = {}): DesiredDatabasePer
 }
 
 describe("importação autoritativa da ficha anual", () => {
+  it("preserva os trechos automáticos que ficam fora da atualização mensal", () => {
+    const residuals = buildOutOfWindowAutomaticResiduals(
+      [
+        existing({
+          origem: "drake",
+          data_inicio: "2026-07-20",
+          data_fim: "2026-10-10",
+          drake_event_key: "evento-longo",
+        }),
+      ],
+      { startDate: "2026-08-01", endDate: "2026-09-30" },
+    );
+
+    expect(residuals.map((row) => [row.data_inicio, row.data_fim])).toEqual([
+      ["2026-07-20", "2026-07-31"],
+      ["2026-10-01", "2026-10-10"],
+    ]);
+  });
+
   it("valida sobreposição antes de qualquer acesso ao banco", async () => {
     const from = vi.fn(() => {
       throw new Error("o banco não deveria ser acessado");
@@ -353,12 +374,47 @@ describe("importação autoritativa da ficha anual", () => {
       data_inicio: row.data_inicio,
       data_fim: row.data_fim,
       origem: row.origem,
+      bsp: row.bsp,
+      drake_event_key: row.drake_event_key,
     }));
 
     const second = planAppendOnlyPeriods(stored, [desired()]);
     expect(second.inserts).toHaveLength(1);
     expect(second.inserts[0]?.row.drake_event_key).toBe(first.inserts[0]?.row.drake_event_key);
     expect(second.skippedExistingDays).toBe(0);
+  });
+
+  it("preserva a BSP preenchida manualmente ao sincronizar novamente o mesmo evento Drake", () => {
+    const first = planAppendOnlyPeriods([], [desired({ centro_de_custo: null })]);
+    const previous = existing({
+      origem: "drake",
+      centro_de_custo: null,
+      bsp: "BSP CORRIGIDA NO MYSTEPTIME",
+      drake_event_key: first.inserts[0]!.row.drake_event_key,
+    });
+
+    const second = planAppendOnlyPeriods([previous], [desired({ centro_de_custo: null })]);
+
+    expect(second.inserts[0]!.row.bsp).toBe("BSP CORRIGIDA NO MYSTEPTIME");
+  });
+
+  it("preserva a BSP manual quando o recorte mensal altera a chave do evento", () => {
+    const previous = existing({
+      origem: "drake",
+      tipo: "E",
+      data_inicio: "2026-07-25",
+      data_fim: "2026-08-10",
+      bsp: "BSP MANUAL",
+      drake_event_key: "chave-anual",
+    });
+    const monthly = desired({
+      tipo: "E",
+      data_inicio: "2026-08-01",
+      data_fim: "2026-08-10",
+      centro_de_custo: null,
+    });
+
+    expect(planAppendOnlyPeriods([previous], [monthly]).inserts[0]!.row.bsp).toBe("BSP MANUAL");
   });
 
   it("não usa período de outro colaborador para bloquear o novo", () => {

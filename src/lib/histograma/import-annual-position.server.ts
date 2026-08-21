@@ -47,6 +47,7 @@ export interface ExistingProtectedPeriod {
   colaborador_id: string;
   unidade_operacional: string | null;
   centro_de_custo: string | null;
+  bsp: string | null;
   tipo: string;
   data_inicio: string;
   data_fim: string;
@@ -60,7 +61,7 @@ export interface DesiredDatabasePeriod {
   colaborador_id: string;
   unidade_operacional: string | null;
   centro_de_custo: string | null;
-  bsp: null;
+  bsp: string | null;
   tipo: string;
   data_inicio: string;
   data_fim: string;
@@ -133,7 +134,7 @@ export async function importAnnualPositionSnapshot(
   const { replaceableAutomatic, protectedExisting } =
     partitionAnnualPositionExistingPeriods(existing);
 
-  const plan = planAppendOnlyPeriods(protectedExisting, desired);
+  const plan = planAppendOnlyPeriods(existing, desired);
   const synchronizedEventKeys = new Set(plan.inserts.map(({ row }) => row.drake_event_key));
   const staleAutomatic = selectStaleAutomaticPeriods(replaceableAutomatic, synchronizedEventKeys);
 
@@ -191,6 +192,14 @@ export async function importAnnualPositionSnapshot(
   // periodo_id já é opcional e o sistema também resolve embarques por sobreposição de datas.
   const oldAutomaticIds = staleAutomatic.map((period) => period.id);
 
+  const residuals = buildOutOfWindowAutomaticResiduals(staleAutomatic, window);
+  for (const batch of chunk(residuals, 400)) {
+    const { error } = await db
+      .from("hist_novo_periodos")
+      .upsert(batch, { onConflict: "drake_event_key" });
+    if (error) throw error;
+  }
+
   await unlinkTimesheetsFromPeriodIds(db, oldAutomaticIds);
   await deleteHistogramPeriodsByIds(db, oldAutomaticIds);
 
@@ -211,17 +220,50 @@ export async function importAnnualPositionSnapshot(
  * porém não retiram, dividem nem substituem dias da fonte autoritativa.
  */
 export function planAppendOnlyPeriods(
-  _existing: ExistingProtectedPeriod[],
+  existing: ExistingProtectedPeriod[],
   desired: DesiredDatabasePeriod[],
 ): AnnualPositionAppendPlan {
   const inserts: PlannedInsert[] = [];
+  const manualBspByEventKey = new Map(
+    existing
+      .filter(
+        (period) =>
+          (period.origem ?? "").trim().toLowerCase() === "drake" &&
+          period.drake_event_key &&
+          period.bsp?.trim(),
+      )
+      .map((period) => [period.drake_event_key!, period.bsp!.trim()]),
+  );
 
   for (const target of [...desired].sort(compareDesiredPeriods)) {
     const eventKey = segmentEventKey(target.eventKey, target.data_inicio, target.data_fim);
+    const overlappingManualBsps = new Set(
+      existing
+        .filter(
+          (period) =>
+            (period.origem ?? "").trim().toLowerCase() === "drake" &&
+            period.colaborador_id === target.colaborador_id &&
+            period.tipo === target.tipo &&
+            normalized(period.unidade_operacional) === normalized(target.unidade_operacional) &&
+            period.data_fim >= target.data_inicio &&
+            period.data_inicio <= target.data_fim &&
+            period.bsp?.trim(),
+        )
+        .map((period) => period.bsp!.trim()),
+    );
+    if (overlappingManualBsps.size > 1) {
+      throw new Error(
+        `Há BSPs manuais conflitantes no período Drake de ${target.data_inicio} a ${target.data_fim}.`,
+      );
+    }
     const row: DesiredDatabasePeriod = {
       ...target,
       eventKey,
       drake_event_key: eventKey,
+      bsp:
+        manualBspByEventKey.get(eventKey) ??
+        overlappingManualBsps.values().next().value ??
+        target.bsp,
     };
     inserts.push({ eventKey, workerKey: row.workerKey, row });
   }
@@ -361,6 +403,49 @@ export function selectStaleAutomaticPeriods(
   );
 }
 
+export function buildOutOfWindowAutomaticResiduals(
+  periods: ExistingProtectedPeriod[],
+  window: AnnualPositionImportWindow,
+) {
+  const residuals: Array<{
+    colaborador_id: string;
+    unidade_operacional: string | null;
+    centro_de_custo: string | null;
+    bsp: string | null;
+    tipo: string;
+    data_inicio: string;
+    data_fim: string;
+    dias: number;
+    origem: string | null;
+    drake_event_key: string;
+  }> = [];
+
+  for (const period of periods) {
+    const ranges: DateInterval[] = [];
+    if (period.data_inicio < window.startDate) {
+      ranges.push({ startDate: period.data_inicio, endDate: addIsoDay(window.startDate, -1) });
+    }
+    if (period.data_fim > window.endDate) {
+      ranges.push({ startDate: addIsoDay(window.endDate, 1), endDate: period.data_fim });
+    }
+    for (const range of ranges) {
+      residuals.push({
+        colaborador_id: period.colaborador_id,
+        unidade_operacional: period.unidade_operacional,
+        centro_de_custo: period.centro_de_custo,
+        bsp: period.bsp,
+        tipo: period.tipo,
+        data_inicio: range.startDate,
+        data_fim: range.endDate,
+        dias: inclusiveDays(range.startDate, range.endDate),
+        origem: period.origem,
+        drake_event_key: `${period.drake_event_key ?? period.id}|FORA-DO-RECORTE:${range.startDate}:${range.endDate}`,
+      });
+    }
+  }
+  return residuals;
+}
+
 async function unlinkTimesheetsFromPeriodIds(
   db: SupabaseClient,
   periodIds: string[],
@@ -394,7 +479,7 @@ async function loadProtectedExistingPeriods(
       db
         .from("hist_novo_periodos")
         .select(
-          "id, colaborador_id, unidade_operacional, centro_de_custo, tipo, data_inicio, data_fim, origem, drake_event_key",
+          "id, colaborador_id, unidade_operacional, centro_de_custo, bsp, tipo, data_inicio, data_fim, origem, drake_event_key",
         )
         .in("colaborador_id", ids)
         .gte("data_fim", window.startDate)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEmbarkationCycles,
+  bspDoPeriodo,
   computeDayStatus,
   displayAbbr,
   type HistNovoPeriodo,
@@ -29,6 +30,16 @@ function periodo(
 }
 
 describe("fidelidade absoluta da Ficha Anual do Drake", () => {
+  it("prioriza a BSP corrigida no Mysteptime sobre o valor bruto do Drake", () => {
+    const corrigido = {
+      ...periodo("E", "2026-04-01", "2026-04-01"),
+      centro_de_custo: "BSP DO DRAKE",
+      bsp: "BSP CORRIGIDA",
+    };
+
+    expect(bspDoPeriodo(corrigido)).toBe("BSP CORRIGIDA");
+  });
+
   it("mantém H como H mesmo quando existe embarque logo depois", () => {
     const hotel = periodo("HTL", "2026-04-15", "2026-04-15", "hotel");
     const embarque = periodo("E", "2026-04-16", "2026-04-18", "embarque");

@@ -36,6 +36,15 @@ describe("DrakeUpdateCard — UI e streaming", () => {
     expect(source).toMatch(/consumeDrakeNdjsonStream/);
   });
 
+  it("oferece atualização completa com confirmação e atualização mensal direta", () => {
+    expect(source).toContain("Atualizar todo o histograma");
+    expect(source).toContain("Atualizar mês atual");
+    expect(source).toContain("current-and-next-month");
+    expect(source).toMatch(/<AlertDialog\b/);
+    expect(source).toContain("pode demorar vários minutos");
+    expect(source).toMatch(/JSON\.stringify\(\{ accessToken, scope \}\)/);
+  });
+
   it("erro tecnico de path e mapeado para mensagem controlada no card", () => {
     expect(source).toMatch(/isInternalPathLeak/);
     expect(source).toMatch(/Não foi possível preparar os arquivos temporários da atualização/);
@@ -46,6 +55,12 @@ describe("DrakeUpdateCard — UI e streaming", () => {
     expect(source).toMatch(/hist-novo-colaboradores/);
     expect(source).toMatch(/hist-novo-periodos/);
     expect(source).toMatch(/Dados atualizados com sucesso/);
+  });
+
+  it("mostra os contadores reais da ficha anual em vez do zero de cadastro", () => {
+    expect(source).toMatch(/annualPositionWorkers.*colaboradores do Drake processados/s);
+    expect(source).toMatch(/annualPositionEvents.*períodos do histograma sincronizados/s);
+    expect(source).toMatch(/removedStaleEvents.*períodos automáticos antigos substituídos/s);
   });
 
   it("nao importa undici, playwright nem server-only", () => {

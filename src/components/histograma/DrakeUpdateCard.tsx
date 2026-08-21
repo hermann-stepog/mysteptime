@@ -6,6 +6,16 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { notify } from "@/lib/notify";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +24,7 @@ import {
   type DrakeProgressEvent,
   type DrakeReportStatus,
   type DrakeUpdateResult,
+  type DrakeUpdateScope,
 } from "@/lib/drake/update-types";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
@@ -92,6 +103,8 @@ export function DrakeUpdateCard() {
   const [result, setResult] = useState<DrakeUpdateResult | null>(null);
   const [buttonLabel, setButtonLabel] = useState<"idle" | "running" | "done">("idle");
   const [showProgress, setShowProgress] = useState(false);
+  const [activeScope, setActiveScope] = useState<DrakeUpdateScope | null>(null);
+  const [confirmFullOpen, setConfirmFullOpen] = useState(false);
 
   const [importandoBase, setImportandoBase] = useState(false);
   const [baseResult, setBaseResult] = useState<BaseImportResult | null>(null);
@@ -109,15 +122,6 @@ export function DrakeUpdateCard() {
 
   if (!canUpdate) return null;
 
-  const label =
-    buttonLabel === "running" || isRunning
-      ? "Atualizando..."
-      : buttonLabel === "done"
-        ? "Dados atualizados"
-        : error
-          ? "Tentar novamente"
-          : "Atualizar dados";
-
   const disabled = isRunning || buttonLabel === "done";
 
   const applyEvent = (event: DrakeProgressEvent) => {
@@ -131,6 +135,7 @@ export function DrakeUpdateCard() {
 
     if (event.type === "error") {
       setIsRunning(false);
+      setActiveScope(null);
       setButtonLabel("idle");
       setError(messageFromErrorPayload(event));
       setMessage(null);
@@ -143,6 +148,7 @@ export function DrakeUpdateCard() {
 
     if (event.type === "completed") {
       setIsRunning(false);
+      setActiveScope(null);
       setError(null);
       setProgress(100);
       setMessage("Dados atualizados com sucesso.");
@@ -159,7 +165,7 @@ export function DrakeUpdateCard() {
     }
   };
 
-  const handleClick = async () => {
+  const handleClick = async (scope: DrakeUpdateScope) => {
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
@@ -167,6 +173,7 @@ export function DrakeUpdateCard() {
     setError(null);
     setResult(null);
     setIsRunning(true);
+    setActiveScope(scope);
     setShowProgress(true);
     setProgress(0);
     setMessage("Preparando atualização...");
@@ -189,7 +196,7 @@ export function DrakeUpdateCard() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ accessToken }),
+        body: JSON.stringify({ accessToken, scope }),
       });
 
       if (response.status === 409) {
@@ -216,6 +223,7 @@ export function DrakeUpdateCard() {
         ? "Não foi possível preparar os arquivos temporários da atualização."
         : raw;
       setIsRunning(false);
+      setActiveScope(null);
       setButtonLabel("idle");
       setError(msg);
       setMessage(null);
@@ -390,15 +398,35 @@ export function DrakeUpdateCard() {
               <Button
                 variant="outline"
                 disabled={disabled}
-                loading={isRunning}
-                onClick={() => void handleClick()}
-                aria-label="Buscar e atualizar dados pelo Drake"
+                loading={isRunning && activeScope === "full"}
+                onClick={() => setConfirmFullOpen(true)}
+                aria-label="Atualizar todo o histograma pelo Drake"
               >
-                <RefreshCw className={cn("mr-2 h-4 w-4", isRunning && "animate-spin")} />
-                {label}
+                <RefreshCw className={cn("mr-2 h-4 w-4", isRunning && activeScope === "full" && "animate-spin")} />
+                {isRunning && activeScope === "full" ? "Atualizando..." : "Atualizar todo o histograma"}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Buscar e atualizar dados pelo Drake</TooltipContent>
+            <TooltipContent>Atualiza o ano inteiro com os dados do Drake</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={disabled}
+                loading={isRunning && activeScope === "current-and-next-month"}
+                onClick={() => void handleClick("current-and-next-month")}
+                aria-label="Atualizar mês atual e mês seguinte pelo Drake"
+              >
+                <RefreshCw className={cn("mr-2 h-4 w-4", isRunning && activeScope === "current-and-next-month" && "animate-spin")} />
+                {isRunning && activeScope === "current-and-next-month"
+                  ? "Atualizando..."
+                  : "Atualizar mês atual"}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Atualiza somente o mês atual e o mês seguinte</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -430,6 +458,29 @@ export function DrakeUpdateCard() {
           </Tooltip>
         </TooltipProvider>
       </div>
+
+      <AlertDialog open={confirmFullOpen} onOpenChange={setConfirmFullOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Atualizar todo o histograma?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Todo o histograma do ano vigente será atualizado com os dados do Drake. Esse
+              processo consulta todos os colaboradores e pode demorar vários minutos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmFullOpen(false);
+                void handleClick("full");
+              }}
+            >
+              Aceitar e atualizar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
@@ -497,11 +548,19 @@ export function DrakeUpdateCard() {
           {buttonLabel === "done" && result && (
             <div className="space-y-0.5 text-xs text-muted-foreground">
               <p className="font-medium text-foreground">Resumo:</p>
-              {(result.created != null || result.updated != null) && (
+              {result.annualPositionWorkers != null ? (
+                <p>{result.annualPositionWorkers} colaboradores do Drake processados</p>
+              ) : (result.created != null || result.updated != null) && (
                 <p>
                   {(result.created ?? 0) + (result.updated ?? 0)} colaboradores atualizados
                   {` (${result.created ?? 0} criados, ${result.updated ?? 0} atualizados)`}
                 </p>
+              )}
+              {result.annualPositionEvents != null && (
+                <p>{result.annualPositionEvents} períodos do histograma sincronizados</p>
+              )}
+              {result.removedStaleEvents != null && result.removedStaleEvents > 0 && (
+                <p>{result.removedStaleEvents} períodos automáticos antigos substituídos</p>
               )}
               {result.embarkationEvents != null && (
                 <p>{result.embarkationEvents} embarques processados</p>

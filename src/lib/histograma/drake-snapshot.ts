@@ -19,6 +19,8 @@ export interface DrakePeriodSnapshotRow {
   dataFim: string;
   dias: number | null;
   sourceEventName: string;
+  /** DES/DDN criado a partir do último E, e não uma ocorrência independente do Drake. */
+  derivedFromEmbarkation?: boolean;
 }
 
 export interface DrakeHistogramSnapshot {
@@ -72,7 +74,7 @@ export interface AnnualPositionDayRow {
 
 export interface DrakeTimesheetPlanDay {
   data: string;
-  evento: "Embarque" | "Dobra";
+  evento: "Embarque" | "Dobra" | "Desembarque";
   bsp: string | null;
 }
 
@@ -89,6 +91,11 @@ export interface DrakeTimesheetPlan {
 export interface AnnualPositionSnapshotOptions {
   /** P só representa programação futura; hoje e passado nunca entram no espelho. */
   asOfDate?: string;
+}
+
+export interface DrakeTimesheetPlanWindow {
+  startDate: string;
+  endDate: string;
 }
 
 export function buildEmbarkationSnapshot(rows: EmbarkationSourceRow[]): DrakeHistogramSnapshot {
@@ -192,16 +199,31 @@ export function buildAnnualPositionSnapshot(
 
   for (const row of consolidatedRows) {
     const workerKey = buildWorkerKey(row.empresa, row.matricula);
-    const days = [...row.positions].sort((left, right) => left.date.localeCompare(right.date));
+    const days = [...row.positions]
+      .sort((left, right) => left.date.localeCompare(right.date))
+      .map((day) => ({
+        day,
+        tipo: mapAnnualPositionType(
+          day.occurrenceAcronym,
+          day.occurrenceDescription,
+          day.occurrenceType,
+        ),
+      }));
     let current: DrakePeriodSnapshotRow | null = null;
 
-    for (const day of days) {
+    for (const [index, typedDay] of days.entries()) {
+      const { day } = typedDay;
       assertPeriod(day.date, day.date, day.occurrenceDescription, workerKey);
-      const tipo = mapAnnualPositionType(
-        day.occurrenceAcronym,
-        day.occurrenceDescription,
-        day.occurrenceType,
-      );
+      const next = days[index + 1];
+      const closesEmbarkationSequence =
+        typedDay.tipo === "E" &&
+        next != null &&
+        addIsoDay(day.date, 1) === next.day.date &&
+        next.tipo !== "E" &&
+        next.tipo !== "DB";
+      const tipo = closesEmbarkationSequence
+        ? disembarkationTypeForDate(day.date)
+        : typedDay.tipo;
       if (tipo === "P" && options.asOfDate && day.date <= options.asOfDate) {
         current = null;
         continue;
@@ -236,7 +258,12 @@ export function buildAnnualPositionSnapshot(
         dataInicio: day.date,
         dataFim: day.date,
         dias: 1,
-        sourceEventName: day.occurrenceDescription,
+        sourceEventName: closesEmbarkationSequence
+          ? tipo === "DDN"
+            ? "DESEMBARQUE EM DIA NÃO ÚTIL"
+            : "DESEMBARQUE"
+          : day.occurrenceDescription,
+        derivedFromEmbarkation: closesEmbarkationSequence || undefined,
       };
       periods.push(current);
     }
@@ -255,16 +282,30 @@ export function buildAnnualPositionSnapshot(
  */
 export function buildDrakeTimesheetPlans(
   snapshot: DrakeHistogramSnapshot,
+  window?: DrakeTimesheetPlanWindow,
 ): DrakeTimesheetPlan[] {
   const sourceDays = snapshot.periods
-    .filter((period) => period.tipo === "E" || period.tipo === "DB")
+    .filter(
+      (period) =>
+        period.tipo === "E" ||
+        period.tipo === "DB" ||
+        ((period.tipo === "DES" || period.tipo === "DDN") &&
+          period.derivedFromEmbarkation === true),
+    )
     .flatMap((period) =>
-      datesInRange(period.dataInicio, period.dataFim).map((data) => ({
+      datesInRange(period.dataInicio, period.dataFim)
+        .filter((data) => !window || (data >= window.startDate && data <= window.endDate))
+        .map((data) => ({
         workerKey: period.workerKey,
         unidadeOperacional: normalizedNullable(period.unidadeOperacional),
         centroDeCusto: normalizedNullable(period.centroDeCusto),
         data,
-        evento: period.tipo === "DB" ? ("Dobra" as const) : ("Embarque" as const),
+        evento:
+          period.tipo === "DB"
+            ? ("Dobra" as const)
+            : period.tipo === "DES" || period.tipo === "DDN"
+              ? ("Desembarque" as const)
+              : ("Embarque" as const),
       })),
     )
     .sort(
@@ -317,6 +358,32 @@ export function buildDrakeTimesheetPlans(
   }
 
   return plans;
+}
+
+/** Classifica a data real de desembarque segundo o calendário operacional informado. */
+export function disembarkationTypeForDate(date: string): "DES" | "DDN" {
+  const [year, month, day] = date.split("-").map(Number);
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+  const weekday = utcDate.getUTCDay();
+  if (weekday === 0 || weekday === 6) return "DDN";
+
+  const fixedHoliday = new Set([
+    "01-01",
+    "04-21",
+    "05-01",
+    "09-07",
+    "11-02",
+    "11-15",
+    "12-25",
+  ]).has(`${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+  if (fixedHoliday) return "DDN";
+
+  if (month === 8) {
+    const augustFirstWeekday = new Date(Date.UTC(year, 7, 1)).getUTCDay();
+    const firstFriday = 1 + ((5 - augustFirstWeekday + 7) % 7);
+    if (day === firstFriday + 7) return "DDN";
+  }
+  return "DES";
 }
 
 interface AnnualPositionWorkerGroup {

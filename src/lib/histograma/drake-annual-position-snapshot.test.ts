@@ -3,6 +3,7 @@ import {
   buildAnnualPositionSnapshot,
   buildDrakeTimesheetPlans,
   catalogAnnualPositionOccurrences,
+  disembarkationTypeForDate,
   mapAnnualPositionType,
   type AnnualPositionWorkerRow,
 } from "./drake-snapshot";
@@ -32,21 +33,79 @@ describe("ficha anual de posição do Drake", () => {
 
     expect(snapshot.source).toBe("drake");
     expect(snapshot.workers).toHaveLength(1);
-    expect(snapshot.periods).toHaveLength(2);
+    expect(snapshot.periods).toHaveLength(3);
     expect(snapshot.periods[0]).toMatchObject({
       tipo: "E",
       dataInicio: "2026-04-01",
-      dataFim: "2026-04-02",
+      dataFim: "2026-04-01",
       unidadeOperacional: "RAIA",
       centroDeCusto: "BSP 26-100",
-      dias: 2,
+      dias: 1,
     });
     expect(snapshot.periods[1]).toMatchObject({
+      tipo: "DES",
+      dataInicio: "2026-04-02",
+      dataFim: "2026-04-02",
+      dias: 1,
+    });
+    expect(snapshot.periods[2]).toMatchObject({
       tipo: "F",
       dataInicio: "2026-04-03",
       dataFim: "2026-04-04",
       dias: 2,
     });
+  });
+
+  it("transforma o último E em DES nos dias úteis e DDN em fins de semana e feriados", () => {
+    expect(disembarkationTypeForDate("2026-04-02")).toBe("DES");
+    expect(disembarkationTypeForDate("2026-04-04")).toBe("DDN");
+    for (const holiday of [
+      "2026-01-01",
+      "2026-04-21",
+      "2026-05-01",
+      "2026-09-07",
+      "2026-11-02",
+      "2026-11-15",
+      "2026-12-25",
+    ]) {
+      expect(disembarkationTypeForDate(holiday)).toBe("DDN");
+    }
+    expect(disembarkationTypeForDate("2026-08-14")).toBe("DDN");
+    expect(disembarkationTypeForDate("2025-08-08")).toBe("DDN");
+    expect(disembarkationTypeForDate("2026-08-07")).toBe("DES");
+  });
+
+  it("não inventa desembarque no limite do recorte sem conhecer o dia seguinte", () => {
+    const snapshot = buildAnnualPositionSnapshot([
+      worker([
+        day("2026-09-29", "E", "EMBARQUE", "RAIA", "BSP A"),
+        day("2026-09-30", "E", "EMBARQUE", "RAIA", "BSP A"),
+      ]),
+    ]);
+
+    expect(snapshot.periods).toHaveLength(1);
+    expect(snapshot.periods[0]).toMatchObject({
+      tipo: "E",
+      dataInicio: "2026-09-29",
+      dataFim: "2026-09-30",
+    });
+  });
+
+  it("usa o dia seguinte só como lookahead e não o inclui no timesheet mensal", () => {
+    const snapshot = buildAnnualPositionSnapshot([
+      worker([
+        day("2026-09-30", "E", "EMBARQUE", "RAIA", "BSP A"),
+        day("2026-10-01", "E", "EMBARQUE", "RAIA", "BSP A"),
+        day("2026-10-02", "F", "FOLGA", null, null),
+      ]),
+    ]);
+
+    const plans = buildDrakeTimesheetPlans(snapshot, {
+      startDate: "2026-08-01",
+      endDate: "2026-09-30",
+    });
+    expect(plans).toHaveLength(1);
+    expect(plans[0].days.map((item) => item.data)).toEqual(["2026-09-30"]);
   });
 
   it("remove P de hoje e do passado, mantendo somente programação futura", () => {
@@ -90,7 +149,7 @@ describe("ficha anual de posição do Drake", () => {
       days: [
         { data: "2026-04-01", evento: "Embarque", bsp: "BSP 26-100" },
         { data: "2026-04-02", evento: "Dobra", bsp: "BSP 26-100" },
-        { data: "2026-04-03", evento: "Embarque", bsp: "BSP 26-100" },
+        { data: "2026-04-03", evento: "Desembarque", bsp: "BSP 26-100" },
       ],
     });
   });

@@ -38,6 +38,14 @@ export interface DrakeWorkerAnnualPosition {
   positions: DrakeAnnualPositionRow[];
 }
 
+export function filterAnnualPositionsByWindow(
+  positions: DrakeAnnualPositionRow[],
+  startDate: string,
+  endDate: string,
+): DrakeAnnualPositionRow[] {
+  return positions.filter((position) => position.Date >= startDate && position.Date <= endDate);
+}
+
 interface WorkerDashboardResponse {
   count: number;
   page: number;
@@ -66,9 +74,20 @@ export async function fetchDrakeWorkers(http: DrakeHttpClient): Promise<DrakeWor
     );
   }
 
-  // A ficha anual só interessa ao Histograma para colaboradores ativos.
-  // O filtro acontece antes das chamadas individuais de GetPositionsByYear.
-  const activeItems = items.filter((worker) => normalize(worker.status) === "ATIVO");
+  // A ficha anual só interessa ao Histograma para colaboradores inequivocamente ativos.
+  // O Drake pode devolver mais de um cadastro para a mesma empresa+matrícula. Se qualquer
+  // um deles estiver inativo, não arriscamos importar a pessoa usando outro cadastro antigo
+  // que ainda apareça como ativo no dashboard.
+  const inactiveWorkerKeys = new Set(
+    items
+      .filter((worker) => normalize(worker.status) !== "ATIVO")
+      .map(workerIdentityKey),
+  );
+  const activeItems = items.filter(
+    (worker) =>
+      normalize(worker.status) === "ATIVO" &&
+      !inactiveWorkerKeys.has(workerIdentityKey(worker)),
+  );
   if (activeItems.length === 0) {
     throw new Error("O Drake não devolveu nenhum colaborador ativo. O banco não foi alterado.");
   }
@@ -98,6 +117,10 @@ export async function fetchDrakeWorkers(http: DrakeHttpClient): Promise<DrakeWor
     );
   }
   return workers.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function workerIdentityKey(worker: DrakeWorkerDashboardRow): string {
+  return `${normalize(worker.companyName)}|${normalize(worker.registration)}`;
 }
 
 export async function fetchAnnualPositionsForWorkers(

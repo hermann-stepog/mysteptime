@@ -25,7 +25,7 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload, History } from "lucide-react";
 import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspDoPeriodo, bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
   STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas, type StatusEntrega,
@@ -405,7 +405,7 @@ export async function generateRelatorioMedicao(
     // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
     // (mesmo conceito de BSP, só que vindo do relatório Drake).
     const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
-    const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
+    const bsp = embarque.bsp || (periodo ? bspDoPeriodo(periodo) : null) || "—";
     const chave = `${colaborador.id}::${bsp}`;
     if (!porChave.has(chave)) {
       porChave.set(chave, {
@@ -1458,17 +1458,26 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
   const salvar = useMutation({
     mutationFn: async () => {
       if (!embarque) return;
+      const bsp = f.bsp.trim() || null;
       const { error } = await supabase.from("timesheet_embarques").update({
         unidade_operacional: f.unidade_operacional.trim() || null,
-        bsp: f.bsp.trim() || null,
+        bsp,
         funcao_embarque: f.funcao_embarque,
         data_inicio_embarque: f.data_inicio,
         data_fim_embarque: f.data_fim,
       }).eq("id", embarque.id);
       if (error) throw error;
+      if (embarque.periodo_id) {
+        const { error: periodError } = await supabase
+          .from("hist_novo_periodos")
+          .update({ bsp })
+          .eq("id", embarque.periodo_id);
+        if (periodError) throw periodError;
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       notify.success("Embarque atualizado");
       onOpenChange(false);
     },
@@ -2114,10 +2123,18 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     mutationFn: async (valor: string | null) => {
       const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarque.id);
       if (error) throw error;
+      if (embarque.periodo_id) {
+        const { error: periodError } = await supabase
+          .from("hist_novo_periodos")
+          .update({ bsp: valor })
+          .eq("id", embarque.periodo_id);
+        if (periodError) throw periodError;
+      }
     },
     onSuccess: (_data, valor) => {
       if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       notify.success("BSP do embarque atualizado");
       setEditandoBsp(false);
       setBspEditManual(false);
@@ -2556,7 +2573,7 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
       // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
       // (mesmo conceito de BSP, só que vindo do relatório Drake).
       const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
-      const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
+      const bsp = embarque.bsp || (periodo ? bspDoPeriodo(periodo) : null) || "—";
       if (bspFiltro !== "all" && bsp !== bspFiltro) return;
       const chave = `${colaborador.id}::${bsp}`;
       if (!porChave.has(chave)) {

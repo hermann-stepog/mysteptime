@@ -15,6 +15,11 @@ export interface PreparedReportPeriod {
   parameters: DrakeExecutionParameter[];
 }
 
+export interface ApiReportWindow {
+  startDate: string;
+  endDate: string;
+}
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -88,8 +93,20 @@ export function buildReportParameters(
   report: DrakeApiReportDefinition,
   timeZone: string,
   now = new Date(),
+  window?: ApiReportWindow,
 ): PreparedReportPeriod {
-  const period = getApiPeriodDates(timeZone, now);
+  const defaultPeriod = getApiPeriodDates(timeZone, now);
+  const period = window
+    ? {
+        human: {
+          startDate: apiDateToHuman(window.startDate),
+          endDate: apiDateToHuman(window.endDate),
+          year: Number(window.startDate.slice(0, 4)),
+        },
+        apiStartDate: window.startDate,
+        apiEndDate: window.endDate,
+      }
+    : defaultPeriod;
   const parameters = report.parameterTemplate.map(cloneParameter);
 
   let startFound = false;
@@ -127,4 +144,10 @@ export function buildReportParameters(
     timeZone,
     parameters,
   };
+}
+
+function apiDateToHuman(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new Error(`Data de relatório inválida: ${value}.`);
+  return `${match[3]}/${match[2]}/${match[1]}`;
 }

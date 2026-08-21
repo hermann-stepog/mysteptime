@@ -222,7 +222,9 @@ export function getColaboradoresComEmbarque(periodos: HistNovoPeriodo[]): Set<st
 // BSP "de verdade" de um período — vem de `centro_de_custo` (Drake) ou `bsp` (lançamento manual
 // em LancamentosTab), nunca os dois ao mesmo tempo dependendo da origem do registro.
 export function bspDoPeriodo(p: HistNovoPeriodo): string | null {
-  return p.centro_de_custo || p.bsp;
+  // `centro_de_custo` é o valor bruto do Drake; `bsp` é a correção manual feita
+  // no Mysteptime e, quando preenchida, precisa prevalecer inclusive nos relatórios.
+  return p.bsp || p.centro_de_custo;
 }
 
 // Apelidos conhecidos de unidade operacional que na prática são o mesmo lugar, só grafados
@@ -513,7 +515,8 @@ function daysBetween(a: string, b: string): number {
   return Math.round((new Date(by, bm - 1, bd).getTime() - new Date(ay, am - 1, ad).getTime()) / 86400000);
 }
 
-// realmente sábado/domingo (não temos calendário de feriados no app).
+// DES/DDN explícitos são produzidos pela importação da Ficha Anual usando o
+// calendário operacional (fim de semana, feriados fixos e 2ª sexta de agosto).
 
 export interface DayStatusResult {
   status: ComputedStatus;
@@ -532,9 +535,9 @@ export interface DayStatusResult {
 //   - Dobra: a partir do 15º dia consecutivo dentro do MESMO período de Embarcado.
 //   - Folga Indenizada: quando o colaborador embarca (E) num dia que também está
 //     marcado como Folga (F) — nesse caso vence Folga Indenizada, não Embarcado/Dobra.
-//   - Desembarque: o Drake trata o último dia do embarque (data_fim) ainda como "Embarcado" —
-//     não existe um status próprio de desembarque lá. Pra bater com o Drake, o último dia do
-//     embarque aqui também é "E"; "Desembarque" vira só o 1º dia de Folga logo em seguida.
+//   - Desembarque: na importação Drake, o último E confirmado antes da saída do embarque
+//     já é persistido como DES em dia útil ou DDN em fim de semana/feriado. A derivação
+//     legada pelo primeiro dia de folga permanece apenas para períodos antigos/manuais.
 // O Drake às vezes exporta o embarque ainda em aberto (sem desembarque confirmado) com uma
 // data de término "placeholder" bem distante no futuro (ex.: mais de 1 ano à frente), em vez
 // de deixar em branco. Um embarque legítimo não passa disso na prática (P99 de duração real

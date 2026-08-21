@@ -1,5 +1,7 @@
 /** Tipos compartilhados do fluxo Drake (sem Node/Playwright). */
 
+export type { DrakeUpdateScope } from "./update-scope";
+
 export const DRAKE_UPDATE_STAGES = [
   "queued",
   "validating-session",
@@ -134,6 +136,7 @@ export const DRAKE_STAGE_MESSAGE: Record<DrakeUpdateStage, string> = {
 };
 
 export interface DrakeUpdateResult {
+  scope?: import("./update-scope").DrakeUpdateScope;
   created?: number;
   updated?: number;
   embarkationEvents?: number;

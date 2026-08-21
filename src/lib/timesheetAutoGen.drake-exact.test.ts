@@ -3,12 +3,14 @@ import {
   createTimesheetForNewPeriodIfAbsent,
   gerarSemanasEDias,
   hasUserTimesheetContent,
+  planTimesheetConsolidation,
+  resolveTimesheetBsp,
   type ExistingDrakeTimesheetDay,
 } from "./timesheetAutoGen";
 
 interface SourceDay {
   data: string;
-  evento: "Embarque" | "Dobra";
+  evento: "Embarque" | "Dobra" | "Desembarque";
   bsp: string | null;
 }
 
@@ -57,6 +59,12 @@ const gerarComDiasExatos = gerarSemanasEDias as unknown as (
 ) => Promise<void>;
 
 describe("geração do timesheet a partir da Ficha Anual do Drake", () => {
+  it("limpa unidade clonada como BSP e preserva somente uma correção manual válida", () => {
+    expect(resolveTimesheetBsp(null, "UNIT", "UNIT")).toBeNull();
+    expect(resolveTimesheetBsp(null, "BSP MANUAL", "UNIT")).toBe("BSP MANUAL");
+    expect(resolveTimesheetBsp("BSP DRAKE", "BSP MANUAL", "UNIT")).toBe("BSP DRAKE");
+  });
+
   it("persiste somente as datas existentes no Drake, sem completar a semana", async () => {
     const { db, insertedDays } = captureInsertedDays();
     const sourceDays = Array.from({ length: 20 }, (_, index) => ({
@@ -132,13 +140,16 @@ describe("adoção de timesheet legado pelo Drake", () => {
     expect(hasUserTimesheetContent({ ...blankLegacyDay, horas_normais: 8 })).toBe(true);
   });
 
-  it("remove uma data extra fora do Drake sem interromper a sincronização", async () => {
+  it("preserva conteúdo manual fora do Drake sem interromper a sincronização", async () => {
     const deletedIds: string[] = [];
+    const embarkationUpdates: Array<Record<string, unknown>> = [];
+    const dayUpdates: Array<Record<string, unknown>> = [];
     const desiredDay: ExistingDrakeTimesheetDay = {
       ...blankLegacyDay,
       id: "day-2026-08-11",
       data: "2026-08-11",
       evento: "Embarque",
+      bsp: "BSP CORRIGIDA NO MYSTEPTIME",
       descricao_tarefa: null,
     };
     const extraDay: ExistingDrakeTimesheetDay = {
@@ -152,11 +163,17 @@ describe("adoção de timesheet legado pelo Drake", () => {
           return {
             select: vi.fn(() => ({
               eq: vi.fn(() => ({
-                maybeSingle: vi.fn(async () => ({ data: { id: "embarque-1" }, error: null })),
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "embarque-1", bsp: "BSP CORRIGIDA NO MYSTEPTIME" },
+                  error: null,
+                })),
               })),
             })),
-            update: vi.fn(() => ({
-              eq: vi.fn(async () => ({ error: null })),
+            update: vi.fn((values: Record<string, unknown>) => ({
+              eq: vi.fn(async () => {
+                embarkationUpdates.push(values);
+                return { error: null };
+              }),
             })),
           };
         }
@@ -187,7 +204,12 @@ describe("adoção de timesheet legado pelo Drake", () => {
                 return { error: null };
               }),
             })),
-            update: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) })),
+            update: vi.fn((values: Record<string, unknown>) => ({
+              eq: vi.fn(async () => {
+                dayUpdates.push(values);
+                return { error: null };
+              }),
+            })),
             insert: vi.fn(async () => ({ error: null })),
           };
         }
@@ -207,6 +229,142 @@ describe("adoção de timesheet legado pelo Drake", () => {
       sourceDays: [{ data: "2026-08-11", evento: "Embarque", bsp: null }],
     });
 
-    expect(deletedIds).toEqual(["day-2026-08-10"]);
+    expect(deletedIds).toEqual([]);
+    expect(embarkationUpdates.at(-1)).toMatchObject({ bsp: "BSP CORRIGIDA NO MYSTEPTIME" });
+    expect(dayUpdates).toEqual([]);
+  });
+
+  it("consolida duplicados automáticos sem interromper a atualização", () => {
+    const candidates = [
+      {
+        id: "automatic-short",
+        source_event_key: null,
+        unidade_operacional: "UNIT",
+        bsp: null,
+        data_inicio_embarque: "2026-08-10",
+        data_fim_embarque: "2026-08-20",
+      },
+      {
+        id: "automatic-complete",
+        source_event_key: "DRAKE-OLD",
+        unidade_operacional: "UNIT",
+        bsp: null,
+        data_inicio_embarque: "2026-08-10",
+        data_fim_embarque: "2026-08-25",
+      },
+    ];
+
+    expect(
+      planTimesheetConsolidation(
+        candidates,
+        new Set(),
+        "2026-08-10",
+        "2026-08-25",
+        new Map([
+          ["automatic-short", new Set(["2026-08-10", "2026-08-11"])],
+          ["automatic-complete", new Set(["2026-08-10", "2026-08-11", "2026-08-12"])],
+        ]),
+        new Set(["2026-08-10", "2026-08-11", "2026-08-12"]),
+      ),
+    ).toEqual({
+      canonical: candidates[1],
+      automaticDuplicateIds: ["automatic-short"],
+    });
+  });
+
+  it("não remove outra viagem só porque o cabeçalho dela está sobreposto", () => {
+    const candidates = [
+      {
+        id: "current-trip",
+        source_event_key: "DRAKE-CURRENT",
+        unidade_operacional: "UNIT",
+        bsp: null,
+        data_inicio_embarque: "2026-08-10",
+        data_fim_embarque: "2026-08-20",
+      },
+      {
+        id: "other-trip",
+        source_event_key: "DRAKE-OTHER",
+        unidade_operacional: "UNIT",
+        bsp: null,
+        data_inicio_embarque: "2026-08-15",
+        data_fim_embarque: "2026-08-30",
+      },
+    ];
+
+    const plan = planTimesheetConsolidation(
+      candidates,
+      new Set(),
+      "2026-08-10",
+      "2026-08-20",
+      new Map([
+        ["current-trip", new Set(["2026-08-10", "2026-08-11"])],
+        ["other-trip", new Set(["2026-08-25"])],
+      ]),
+      new Set(["2026-08-10", "2026-08-11"]),
+    );
+
+    expect(plan.canonical.id).toBe("current-trip");
+    expect(plan.automaticDuplicateIds).toEqual([]);
+  });
+
+  it("preserva o único timesheet com conteúdo manual ao consolidar", () => {
+    const candidates = [
+      {
+        id: "manual",
+        source_event_key: null,
+        unidade_operacional: "UNIT",
+        bsp: "BSP MANUAL",
+        data_inicio_embarque: "2026-08-11",
+        data_fim_embarque: "2026-08-12",
+      },
+      {
+        id: "automatic",
+        source_event_key: "DRAKE-OLD",
+        unidade_operacional: "UNIT",
+        bsp: null,
+        data_inicio_embarque: "2026-08-01",
+        data_fim_embarque: "2026-08-31",
+      },
+    ];
+
+    expect(
+      planTimesheetConsolidation(
+        candidates,
+        new Set(["manual"]),
+        "2026-08-01",
+        "2026-08-31",
+      ).canonical.id,
+    ).toBe("manual");
+  });
+
+  it("não interrompe a atualização só porque dois cabeçalhos têm conteúdo manual", () => {
+    const candidates = [
+      {
+        id: "manual-1",
+        source_event_key: null,
+        unidade_operacional: "UNIT",
+        bsp: null,
+        data_inicio_embarque: "2026-08-01",
+        data_fim_embarque: "2026-08-15",
+      },
+      {
+        id: "manual-2",
+        source_event_key: null,
+        unidade_operacional: "UNIT",
+        bsp: null,
+        data_inicio_embarque: "2026-08-10",
+        data_fim_embarque: "2026-08-25",
+      },
+    ];
+
+    expect(
+      planTimesheetConsolidation(
+        candidates,
+        new Set(["manual-1", "manual-2"]),
+        "2026-08-10",
+        "2026-08-15",
+      ).automaticDuplicateIds,
+    ).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import {
   DRAKE_STAGE_MESSAGE,
   DRAKE_UPDATE_IN_PROGRESS,
   type DrakeProgressEvent,
+  type DrakeUpdateScope,
 } from "@/lib/drake/update-types";
 
 export const Route = createFileRoute("/api/integrations/drake/update")({
@@ -28,13 +29,20 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
         }
 
         let accessToken = "";
+        let scope: DrakeUpdateScope = "full";
         try {
           const authHeader = request.headers.get("authorization") ?? "";
           const bearer = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? "";
           const body = (await request.json().catch(() => ({}))) as {
             accessToken?: string;
+            scope?: string;
           };
           accessToken = (body.accessToken ?? bearer).trim();
+          if (body.scope === "full" || body.scope === "current-and-next-month") {
+            scope = body.scope;
+          } else if (body.scope != null) {
+            throw new Error("Escopo inválido.");
+          }
         } catch {
           releaseDrakeUpdateLock();
           return Response.json({ message: "Requisição inválida." }, { status: 400 });
@@ -101,6 +109,7 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
                     acquireLock: false,
                     triggeredBy: developmentBypass ? null : userId,
                     triggeredByLabel,
+                    scope,
                   });
 
                   await send({

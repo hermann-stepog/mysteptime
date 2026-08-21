@@ -841,23 +841,30 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         throw new Error("Programado só pode existir em uma data futura.");
       }
       const dias = Math.round((new Date(p.data_fim).getTime() - new Date(p.data_inicio).getTime()) / 86400000) + 1;
+      const bsp = p.bsp?.trim() || null;
       const { data, error } = await supabase.from("hist_novo_periodos").update({
         colaborador_id: p.colaborador_id,
         tipo: p.tipo,
         unidade_operacional: p.unidade_operacional,
         centro_de_custo: p.centro_de_custo,
-        bsp: p.bsp,
+        bsp,
         data_inicio: p.data_inicio,
         data_fim: p.data_fim,
         dias: dias > 0 ? dias : null,
       }).eq("id", p.id).select("*").single();
       if (error) throw error;
+      const { error: timesheetError } = await supabase
+        .from("timesheet_embarques")
+        .update({ bsp })
+        .eq("periodo_id", p.id);
+      if (timesheetError) throw timesheetError;
       return data as HistNovoPeriodo;
     },
     onSuccess: (atualizado) => {
       // Mesmo motivo do createPeriodo acima: atualiza só essa linha no cache em vez de
       // reconsultar as ~5 mil linhas inteiras.
       qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => old?.map((p) => (p.id === atualizado.id ? atualizado : p)) ?? old);
+      qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
       notify.success("Período atualizado");
       setEditing(null);
     },

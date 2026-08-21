@@ -147,8 +147,13 @@ describe("updateDrakeData ficha anual", () => {
   it("emite progresso e sincroniza um único snapshot anual", async () => {
     vi.resetModules();
 
-    const events: Array<{ stage: string; embarkationStatus: string; availabilityStatus: string }> =
-      [];
+    const events: Array<{
+      stage: string;
+      embarkationStatus: string;
+      availabilityStatus: string;
+      progress: number;
+      message: string;
+    }> = [];
     const synchronizeAnnual = vi
       .fn()
       .mockImplementation(async (_db, _http, _year, _cutoffDate, _embarkationRows, hooks) => {
@@ -156,6 +161,7 @@ describe("updateDrakeData ficha anual", () => {
         await hooks.onWorkerProgress({ completedWorkers: 10, totalWorkers: 10 });
         await hooks.onPositionsLoaded();
         await hooks.onBeforeDatabaseSync();
+        await hooks.onTimesheetSyncProgress({ completedWorkers: 10, totalWorkers: 10 });
         return {
           createdWorkers: 1,
           updatedWorkers: 9,
@@ -210,6 +216,8 @@ describe("updateDrakeData ficha anual", () => {
           stage: String(ev.stage),
           embarkationStatus: ev.embarkationStatus,
           availabilityStatus: ev.availabilityStatus,
+          progress: ev.progress,
+          message: ev.message,
         });
       },
       { triggeredBy: null, triggeredByLabel: "test" },
@@ -222,6 +230,14 @@ describe("updateDrakeData ficha anual", () => {
     expect(result.skipped).toBe(4);
     expect(events.some((e) => e.stage === "loading-annual-positions")).toBe(true);
     expect(events.some((e) => e.stage === "synchronizing-annual-position")).toBe(true);
+    expect(
+      events.some(
+        (e) =>
+          e.stage === "synchronizing-annual-position" &&
+          e.progress === 97 &&
+          /10\/10 colaboradores/.test(e.message),
+      ),
+    ).toBe(true);
     const completed = events.find((e) => e.stage === "annual-position-completed");
     expect(completed?.embarkationStatus).toBe("completed");
     expect(completed?.availabilityStatus).toBe("completed");

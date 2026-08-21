@@ -16,6 +16,7 @@ import {
   type DrakeProgressCallback,
   type DrakeProgressEvent,
   type DrakeUpdateResult,
+  type DrakeUpdateScope,
   type DrakeUpdateTrigger,
 } from "./update-types";
 
@@ -35,6 +36,7 @@ export type RunDrakeUpdateOptions = {
    * Default true.
    */
   acquireLock?: boolean;
+  scope?: DrakeUpdateScope;
 };
 
 function defaultScheduledProgress(event: DrakeProgressEvent): void {
@@ -86,10 +88,15 @@ export async function runDrakeUpdate(
       trigger: options.trigger,
       stage: "queued",
     });
-    return await updateDrakeData(options.db, onProgress, {
-      triggeredBy: options.triggeredBy ?? null,
-      triggeredByLabel: options.triggeredByLabel ?? TRIGGER_LABEL[options.trigger],
-    });
+    return await updateDrakeData(
+      options.db,
+      onProgress,
+      {
+        triggeredBy: options.triggeredBy ?? null,
+        triggeredByLabel: options.triggeredByLabel ?? TRIGGER_LABEL[options.trigger],
+      },
+      options.scope ?? "full",
+    );
   } finally {
     if (lockHeld) {
       releaseDrakeUpdateLock();

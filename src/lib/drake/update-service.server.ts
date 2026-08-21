@@ -20,7 +20,7 @@ import {
   patchDrakeLogContext,
   runWithDrakeLogContext,
 } from "./logger";
-import { getApiPeriodDates } from "./report-parameter-builder";
+import { getDrakeUpdateWindow, type DrakeUpdateScope } from "./update-scope";
 import type { DrakeHttpClient } from "./http/drake-http-client.types.server";
 import { sanitizeError } from "./sanitize-error.server";
 import { synchronizeCurrentDrakeAnnualPositions } from "./annual-position-sync.server";
@@ -54,14 +54,15 @@ export async function updateDrakeData(
   db: DbClient,
   onProgress: DrakeProgressCallback,
   trigger: DrakeUpdateTrigger,
+  scope: DrakeUpdateScope = "full",
 ): Promise<DrakeUpdateResult> {
   const existing = getDrakeLogContext();
   const executionId = existing?.executionId ?? createExecutionId();
   const startedAtMs = existing?.startedAtMs ?? Date.now();
 
-  if (existing) return updateDrakeDataInner(db, onProgress, startedAtMs, trigger);
+  if (existing) return updateDrakeDataInner(db, onProgress, startedAtMs, trigger, scope);
   return runWithDrakeLogContext({ executionId, startedAtMs, stage: "queued", progress: 0 }, () =>
-    updateDrakeDataInner(db, onProgress, startedAtMs, trigger),
+    updateDrakeDataInner(db, onProgress, startedAtMs, trigger, scope),
   );
 }
 
@@ -70,6 +71,7 @@ async function updateDrakeDataInner(
   onProgress: DrakeProgressCallback,
   startedAtMs: number,
   trigger: DrakeUpdateTrigger,
+  scope: DrakeUpdateScope,
 ): Promise<DrakeUpdateResult> {
   let apiContext: DrakeHttpClient | null = null;
   let renewedOnce = false;
@@ -136,17 +138,15 @@ async function updateDrakeDataInner(
     await emit("queued");
     await authenticate(false);
 
-    const period = getApiPeriodDates(env.DRAKE_TIMEZONE);
-    const year = Number(period.apiStartDate.slice(0, 4));
+    const period = getDrakeUpdateWindow(scope, env.DRAKE_TIMEZONE);
+    const year = Number(period.startDate.slice(0, 4));
     await emit("preparing-period", { status: "processing" });
     const embarkationRows = await withSessionRetry(async (ctx) => {
       const signalR = await openDrakeSignalRSession(ctx);
       try {
         const report = await runSingleApiReport(ctx, API_REPORT_1, {
           signalRSession: signalR,
-          // A Ficha Anual contém programações futuras. O relatório precisa
-          // cobrir o mesmo ano inteiro para também resolver o BSP desses dias.
-          periodNow: new Date(Date.UTC(year, 11, 31, 12)),
+          period: { startDate: period.startDate, endDate: period.endDate },
         });
         return parseDrakeWorkbook(report.buffer);
       } finally {
@@ -157,12 +157,13 @@ async function updateDrakeDataInner(
 
     const syncStarted = Date.now();
     let lastEmittedWorkerProgress = -1;
+    let lastEmittedTimesheetProgress = -1;
     const summary = await withSessionRetry((ctx) =>
       synchronizeCurrentDrakeAnnualPositions(
         db,
         ctx,
         year,
-        period.apiStartDate,
+        period.startDate,
         embarkationRows,
         {
           onWorkersLoaded: async (totalWorkers) => {
@@ -187,8 +188,25 @@ async function updateDrakeDataInner(
           onBeforeDatabaseSync: async () => {
             await emit("synchronizing-annual-position", { status: "importing" });
           },
+          onTimesheetSyncProgress: async ({ completedWorkers, totalWorkers }) => {
+            const progress = Math.min(
+              97,
+              92 + Math.floor((completedWorkers / totalWorkers) * 5),
+            );
+            if (
+              progress === lastEmittedTimesheetProgress &&
+              completedWorkers < totalWorkers
+            ) return;
+            lastEmittedTimesheetProgress = progress;
+            await emit("synchronizing-annual-position", {
+              status: "importing",
+              progress,
+              message: `Sincronizando timesheets (${completedWorkers}/${totalWorkers} colaboradores)...`,
+            });
+          },
         },
-        period.apiEndDate,
+        period.asOfDate,
+        period.endDate,
       ),
     );
 
@@ -196,6 +214,7 @@ async function updateDrakeDataInner(
     await emit("finalizing", { status: "completed" });
 
     const result: DrakeUpdateResult = {
+      scope,
       created: summary.createdWorkers,
       updated: summary.updatedWorkers,
       annualPositionEvents: summary.synchronizedEvents,

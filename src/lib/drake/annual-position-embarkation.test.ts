@@ -3,6 +3,7 @@ import { buildWorkerKey, type EmbarkationSourceRow } from "@/lib/histograma/drak
 import {
   buildEmbarkationReportIndex,
   resolveEmbarkationReportRow,
+  sanitizeDrakeBsp,
 } from "./annual-position-embarkation";
 
 function reportRow(patch: Partial<EmbarkationSourceRow> = {}): EmbarkationSourceRow {
@@ -42,6 +43,12 @@ describe("BSP do relatório oficial de embarque Drake", () => {
       resolveEmbarkationReportRow(index, buildWorkerKey("STEP", "100"), "2026-08-05", "PARATY")
         .centro_de_custo,
     ).toBeNull();
+  });
+
+  it("descarta BSP que é apenas o nome da própria unidade copiado no Drake", () => {
+    expect(sanitizeDrakeBsp("  fpsa - cidade de saquarema ", "SAQUAREMA")).toBeNull();
+    expect(sanitizeDrakeBsp("PARATY", "PARATY")).toBeNull();
+    expect(sanitizeDrakeBsp("BSP 26-001", "PARATY")).toBe("BSP 26-001");
   });
 
   it("interrompe diante de BSPs conflitantes para o mesmo dia", () => {

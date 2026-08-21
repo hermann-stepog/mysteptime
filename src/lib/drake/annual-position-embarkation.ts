@@ -37,7 +37,10 @@ export function resolveEmbarkationReportRow(
 
   const distinctValues = new Set(
     unitMatches.map((row) =>
-      JSON.stringify([normalizedUnitKey(row.unidade_operacional), normalize(row.centro_de_custo)]),
+      JSON.stringify([
+        normalizedUnitKey(row.unidade_operacional),
+        normalize(sanitizeDrakeBsp(row.centro_de_custo, row.unidade_operacional)),
+      ]),
     ),
   );
   if (distinctValues.size > 1) {
@@ -47,6 +50,20 @@ export function resolveEmbarkationReportRow(
   }
 
   return unitMatches[0]!;
+}
+
+/**
+ * O relatório de embarque aceita texto livre e há registros em que a unidade foi
+ * copiada para a coluna BSP. Esse valor não identifica um contrato e deve chegar
+ * vazio ao Mysteptime para ser corrigido manualmente.
+ */
+export function sanitizeDrakeBsp(
+  value: string | null,
+  unidadeOperacional: string | null,
+): string | null {
+  const bsp = value?.trim() || null;
+  if (!bsp) return null;
+  return normalizedUnitKey(bsp) === normalizedUnitKey(unidadeOperacional) ? null : bsp;
 }
 
 function normalizedUnitKey(value: string | null): string {
