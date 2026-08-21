@@ -47,6 +47,7 @@ import {
   resolveBmRateClientNames,
   selectBmRateGroup,
 } from "@/lib/bmUnitResolver";
+import { selectAllPages } from "@/lib/supabasePaginate";
 
 interface BmFlowRowOption {
   client: string;
@@ -740,11 +741,16 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     queryFn: async () => {
       const bspAlvo = normalizeBmBspKey(cab.bsp);
 
-      const { data: copiasData, error: copiasErr } = await supabase
-        .from("bm_timesheet_dias")
-        .select("source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
-        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
-      if (copiasErr) throw copiasErr;
+      const copiasData = await selectAllPages<any>((from, to) =>
+        supabase
+          .from("bm_timesheet_dias")
+          .select("id, source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
+          .gte("data", cab.periodStart)
+          .lte("data", cab.periodEnd)
+          .order("data")
+          .order("id")
+          .range(from, to),
+      );
 
       // A cópia (bm_timesheet_dias) só existe pros períodos que alguém já abriu na aba
       // "Timesheets" — sem isso, gerar um BM pra um período nunca visitado lá vinha vazio.
@@ -752,14 +758,19 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       // filtrado por este BSP, pra sempre garantir a cópia antes de agregar Mão de Obra.
       const existentes = new Set((copiasData ?? []).map((c: any) => c.source_dia_id).filter(Boolean));
 
-      const { data: diasOrigem, error: diasErr } = await supabase
-        .from("timesheet_dias")
-        .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
-        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
-      if (diasErr) throw diasErr;
+      const diasOrigem = await selectAllPages<any>((from, to) =>
+        supabase
+          .from("timesheet_dias")
+          .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
+          .gte("data", cab.periodStart)
+          .lte("data", cab.periodEnd)
+          .order("data")
+          .order("id")
+          .range(from, to),
+      );
 
       let novasCopias: any[] = [];
-      if (diasOrigem?.length) {
+      if (diasOrigem.length) {
         const semanaIds = Array.from(new Set(diasOrigem.map((d: any) => d.semana_id)));
         const { data: semanas, error: semErr } = await supabase
           .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);

@@ -16,6 +16,7 @@ import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "luc
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
+import { selectAllPages } from "@/lib/supabasePaginate";
 
 // Cópia dos dias do Timesheet Offshore dentro do BM. Tudo o que é editado aqui vive só em
 // bm_timesheet_dias — nunca volta pro timesheet_dias original.
@@ -116,12 +117,17 @@ export function TimesheetsTab() {
     queryKey: ["bm-ts-origem", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const { data: dias, error } = await supabase
-        .from("timesheet_dias")
-        .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
-        .gte("data", de).lte("data", ate);
-      if (error) throw error;
-      if (!dias?.length) return [];
+      const dias = await selectAllPages<any>((from, to) =>
+        supabase
+          .from("timesheet_dias")
+          .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
+          .gte("data", de)
+          .lte("data", ate)
+          .order("data")
+          .order("id")
+          .range(from, to),
+      );
+      if (!dias.length) return [];
 
       const semanaIds = Array.from(new Set(dias.map((d: any) => d.semana_id)));
       const { data: semanas, error: semErr } = await supabase
@@ -179,11 +185,17 @@ export function TimesheetsTab() {
     queryKey: ["bm-ts-copias", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bm_timesheet_dias").select("*").gte("data", de).lte("data", ate)
-        .order("colaborador_nome").order("data");
-      if (error) throw error;
-      const rows = (data ?? []) as BmTimesheetDia[];
+      const rows = await selectAllPages<BmTimesheetDia>((from, to) =>
+        supabase
+          .from("bm_timesheet_dias")
+          .select("*")
+          .gte("data", de)
+          .lte("data", ate)
+          .order("colaborador_nome")
+          .order("data")
+          .order("id")
+          .range(from, to),
+      );
       const colaboradorIds = Array.from(new Set(rows.map((row) => row.colaborador_id).filter(Boolean))) as string[];
       const { data: ativos, error: ativosError } = colaboradorIds.length
         ? await supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", colaboradorIds)
