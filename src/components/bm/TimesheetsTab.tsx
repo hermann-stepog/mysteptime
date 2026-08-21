@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
+import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
 
 // Cópia dos dias do Timesheet Offshore dentro do BM. Tudo o que é editado aqui vive só em
 // bm_timesheet_dias — nunca volta pro timesheet_dias original.
