@@ -56,13 +56,26 @@ export function computeDayCodes(dias: DiaEvento[]): Map<string, DayCode | null> 
   return codes;
 }
 
+// Compara BSP ignorando diferenças de formatação que não mudam o BSP de verdade: prefixo
+// alfabético solto ("BSP ", "SBP-"), e qualquer espaço/hífen/travessão/ponto usado como
+// separador interno ("25-1031" vs "25 - 1031" vs "25–1031" vs "25.1031" — todos viram
+// "251031"). Só afeta a COMPARAÇÃO em tempo de leitura; nunca reescreve o texto gravado no
+// banco nem o que aparece na coluna "BSP" da tela — decisão explícita da usuária, depois de
+// um caso em que um hífen digitado diferente escondia os dias de embarque de um colaborador
+// inteiro da Medição sem dar erro nenhum.
+export function normalizarBsp(s: string | null | undefined): string {
+  return (s ?? "")
+    .replace(/^[a-z]+[\s-]*/i, "")
+    .replace(/[\s\-–—.]/g, "")
+    .toLowerCase();
+}
+
 // Fonte única: a cópia em bm_timesheet_dias (aba "Timesheets" do módulo de BM), filtrada por
 // BSP — mesma correção já aplicada em admin/bm.tsx (Step 1) e bmRateEngine.ts. O BSP do
 // Cabeçalho vem do Smartsheet ("SAQUAREMA - CDS") e nunca bate exato com o nome canônico de
 // timesheet_embarques.unidade_operacional, então filtrar por embarcação aqui sempre voltava
 // vazio e o calendário da folha de rosto ficava sem nenhum dia colorido.
 export async function fetchBmDayGrid(bsp: string, periodStart: string, periodEnd: string): Promise<ColaboradorDayGrid[]> {
-  const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^[a-z]+[\s-]*/i, "").trim().toLowerCase();
   const bspAlvo = normalizarBsp(bsp);
   if (!bspAlvo) return [];
 

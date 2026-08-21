@@ -32,6 +32,7 @@ import {
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
+import { normalizarBsp } from "@/lib/bmDayGrid";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
@@ -733,7 +734,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     queryKey: ["bm-dias", cab.bsp, cab.periodStart, cab.periodEnd],
     enabled: headerCompleto && !!cab.bsp,
     queryFn: async () => {
-      const normalizarBsp = (s: string | null | undefined) => (s ?? "").replace(/^[a-z]+[\s-]*/i, "").trim().toLowerCase();
       const bspAlvo = normalizarBsp(cab.bsp);
 
       const { data: copiasData, error: copiasErr } = await supabase
