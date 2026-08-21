@@ -285,9 +285,19 @@ export function TimesheetsTab() {
   });
 
   // ── Agrupamentos ────────────────────────────────────────────────────────────────────
-  const unidadeOptions = useMemo(
-    () => Array.from(new Set(copias.map((c) => c.unidade_operacional).filter((u): u is string => !!u))).sort(),
+  // Só entra nessa aba quem realmente teve horas lançadas naquele dia — dia copiado do
+  // Timesheet Offshore mas ainda sem hora_entrada/hora_saída preenchida (evento "Embarque"/
+  // "Dobra" nasce automático em todo dia do embarque, mesmo sem ninguém ter mexido nele) não
+  // representa trabalho de verdade a medir/faturar, só ruído. Filtro só de exibição — a cópia
+  // em bm_timesheet_dias continua tendo todos os dias, isso aqui não apaga nada.
+  const copiasComHoras = useMemo(
+    () => copias.filter((c) => numeroSeguro(c.horas_normais) > 0 || numeroSeguro(c.horas_extras) > 0),
     [copias],
+  );
+
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set(copiasComHoras.map((c) => c.unidade_operacional).filter((u): u is string => !!u))).sort(),
+    [copiasComHoras],
   );
 
   useEffect(() => {
@@ -295,8 +305,8 @@ export function TimesheetsTab() {
   }, [unidadeOptions, unidadeFiltro]);
 
   const copiasDaUnidade = useMemo(
-    () => (unidadeFiltro === "all" ? copias : copias.filter((c) => c.unidade_operacional === unidadeFiltro)),
-    [copias, unidadeFiltro],
+    () => (unidadeFiltro === "all" ? copiasComHoras : copiasComHoras.filter((c) => c.unidade_operacional === unidadeFiltro)),
+    [copiasComHoras, unidadeFiltro],
   );
 
   const bsps = useMemo(() => {
@@ -366,7 +376,7 @@ export function TimesheetsTab() {
             <Input placeholder="Buscar por nome" value={busca} onChange={(e) => setBusca(e.target.value)} className="w-56" />
           </div>
           <p className="ml-auto text-xs text-muted-foreground">
-            {carregando ? "Sincronizando cópia do Timesheet Offshore…" : `${copias.length} dia(s) copiados no período`}
+            {carregando ? "Sincronizando cópia do Timesheet Offshore…" : `${copiasComHoras.length} dia(s) com horas lançadas no período`}
           </p>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">

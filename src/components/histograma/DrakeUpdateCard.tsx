@@ -30,7 +30,7 @@ import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { decodeAppAuthMessage } from "@/lib/supabase/app-auth-errors";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import {
-  computeDayStatus, toOldBucket, STATUS_LABEL, todayStr, getColaboradoresComEmbarque,
+  computeDayStatus, toOldBucket, STATUS_LABEL, todayStr, getColaboradoresComMultiploEmbarque,
   type HistNovoColaborador, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { cn } from "@/lib/utils";
@@ -298,11 +298,12 @@ export function DrakeUpdateCard() {
         periodosPorColab.get(p.colaborador_id)!.push(p);
       });
       // O relatório de acesso da base lista todo mundo que passou pela portaria, incluindo
-      // gente de escritório/onshore que nunca embarca. "Na Base" só faz sentido pra quem tem
-      // histórico de embarque (tipo="E" confirmado, não só "Programado") — do contrário essas
-      // pessoas nunca aparecem em Folga/Standby (não têm ciclo de embarque) e o cruzamento por
-      // status simplesmente não se aplica a elas.
-      const colaboradoresQueEmbarcam = getColaboradoresComEmbarque(periodos);
+      // gente de escritório/onshore que nunca embarca (ou embarcou uma vez só, ainda sem um
+      // ciclo real estabelecido). "Na Base" só faz sentido pra quem já tem MAIS DE UM embarque
+      // confirmado (tipo="E", não só "Programado") — do contrário essas pessoas nunca aparecem
+      // em Folga/Standby (não têm ciclo de embarque) e o cruzamento por status simplesmente não
+      // se aplica a elas.
+      const colaboradoresQueEmbarcam = getColaboradoresComMultiploEmbarque(periodos);
 
       const inseridos: string[] = [];
       const ignorados: { nome: string; motivo: string }[] = [];
