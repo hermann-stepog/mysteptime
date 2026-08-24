@@ -167,7 +167,7 @@ export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Ra
     linhas.push({
       colaborador_id: colaboradorId,
       colaborador_nome: nome,
-      funcao,
+      funcao: funcaoSemNivel(funcao),
       bsp: colaboradorBsp,
       dias_embarque: diasEmbarque,
       dias_dobra: diasDobra,
