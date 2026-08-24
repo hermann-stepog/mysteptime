@@ -996,12 +996,20 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
 
   useEffect(() => {
     setLinesMo(
-      maoDeObraCalculada.map(
-        ({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) =>
-          rest,
-      ),
+      maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => {
+        const rateHotel = !standbyEnabled ? 0 : (standbyRateManual ?? rest.rate_hotel ?? 0);
+        const valorTotal = round2(
+          rest.dias_embarque * (rest.rate_embarque ?? 0) +
+          rest.dias_dobra * (rest.rate_dobra ?? 0) +
+          rest.dias_hotel * rateHotel +
+          rest.horas_extras * (rest.rate_hora_extra ?? 0) +
+          rest.horas_adicional_noturno * (rest.rate_adicional_noturno ?? 0),
+        );
+        return { ...rest, rate_hotel: rateHotel, valor_total: valorTotal };
+      }),
     );
-  }, [maoDeObraCalculada]);
+  }, [maoDeObraCalculada, standbyEnabled, standbyRateManual]);
+
 
   const hasRateMissing = linesMo.some((l) => l.rate_missing);
 
