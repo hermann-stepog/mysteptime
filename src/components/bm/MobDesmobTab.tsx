@@ -775,13 +775,15 @@ export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: stri
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-markups"] });
       const n = grupoAplicando?.pendentes.length ?? 0;
+      const alvo = bmAlvoNumero || "em geração";
       notify.success(
         aplicarBsp === TODOS
-          ? `Custos pendentes aplicados ao BM ${bmSelecionado?.bmNumber}.`
+          ? `Custos pendentes aplicados ao BM ${alvo}.`
           : grupoAplicando?.usandoSelecao
-            ? `${n} custo(s) selecionado(s) de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`
-            : `Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`,
+            ? `${n} custo(s) selecionado(s) de ${aplicarBsp} aplicados ao BM ${alvo}.`
+            : `Custos de ${aplicarBsp} aplicados ao BM ${alvo}.`,
       );
+
       setSelecionados((prev) => {
         const next = new Set(prev);
         grupoAplicando?.pendentes.forEach((c) => next.delete(c.id));
