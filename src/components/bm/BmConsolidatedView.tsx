@@ -131,7 +131,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   // ── Bloco A: Consolidado ──────────────────────────────────────────────────
   // Cada card é um recorte do mesmo valor já somado em bm_lines_mo (rate×quantidade) —
   // nenhum cálculo novo, só exposto separado por card em vez de um único total de Mão de Obra.
-  const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0), 0));
+  // Regra do Excel do cliente (aba Histogram): TOTAL da diária = Dias Emb.×Rate Embarque +
+  // Dias Dobra×Rate Dobra + Dias Emb.Canc./Hotel Pré×Rate Standby. O Standby estava fora
+  // desta soma, então o valor do BM saía menor que o total das linhas.
+  const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0) + l.dias_hotel * (l.rate_hotel ?? 0), 0));
   const overtimeNightShift = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
   // Totais do rodapé da tabela de Horas — a partir de linesMoLocal (reflete os rates editados
   // ali mesmo na folha de rosto, não só o valor original salvo em linesMo).
@@ -374,6 +377,15 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                   </TableRow>
                 );
               })}
+              <TableRow className="bg-muted/50">
+                <TableCell className="sticky left-0 bg-muted/50 text-xs font-semibold">Total diárias</TableCell>
+                <TableCell /><TableCell />
+                {dates.map((d) => <TableCell key={d} />)}
+                <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_embarque, 0))}</TableCell>
+                <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_dobra, 0))}</TableCell>
+                <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_hotel, 0))}</TableCell>
+                <TableCell className="text-xs font-semibold">{fmtMoney(workingDays)}</TableCell>
+              </TableRow>
               <TableRow className="bg-muted/30">
                 <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Mobilização</TableCell>
                 <TableCell /><TableCell />
