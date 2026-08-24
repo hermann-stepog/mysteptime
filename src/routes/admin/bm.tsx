@@ -204,11 +204,19 @@ function BmPage() {
               <TimesheetsTab />
             </TabsContent>
             <TabsContent value="timesheets-mob-desmob" className="mt-4">
-              <MobDesmobTab />
+              <MobDesmobTab bmEmGeracao={gerandoCtx} />
             </TabsContent>
-            <TabsContent value="timesheets-gerar" className="mt-4">
-              <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+            {/* forceMount: o assistente guarda cabeçalho/horas só em memória — ao pular pra aba
+                Logística Mob/Desmob e voltar, o progresso continua intacto. */}
+            <TabsContent value="timesheets-gerar" className="mt-4" forceMount hidden={moSubTab !== "timesheets-gerar"}>
+              <GerarBmWizard
+                reopenBm={reopenBm}
+                onConsumedReopen={() => setReopenBm(null)}
+                onContextChange={setGerandoCtx}
+                onIrParaLogistica={() => setMoSubTab("timesheets-mob-desmob")}
+              />
             </TabsContent>
+
           </Tabs>
         </TabsContent>
         <TabsContent value="habitat" className="mt-4">
