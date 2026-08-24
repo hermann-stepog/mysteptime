@@ -1003,6 +1003,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   // MaterialBmWizard) — não entram mais no cabeçalho/total do BM de Mão de Obra.
   const numeroBmAtual = cab.numeroBm.trim();
 
+  // Publica o BSP/BM em geração pra aba Logística Mob/Desmob aplicar direto neste BM.
+  useEffect(() => {
+    onContextChange?.(cab.bsp ? { bsp: cab.bsp, bmNumber: numeroBmAtual } : null);
+    return () => onContextChange?.(null);
+  }, [cab.bsp, numeroBmAtual]);
+
+
+
   // ── Logística Mob/Desmob (transporte e hotel) aplicada ao BSP selecionado ───────────────
   // Os custos importados na aba "Logística Mob/Desmob" são aplicados por BSP; ao selecionar
   // o BSP aqui, os totais de transporte e hotel já aplicados entram no cálculo do BM.
