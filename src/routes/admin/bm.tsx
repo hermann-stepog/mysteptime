@@ -35,7 +35,6 @@ import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
-import { AplicarCustoMobDesmobDialog } from "@/components/bm/AplicarCustoMobDesmobDialog";
 import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
@@ -142,6 +141,10 @@ function BmPage() {
   // pra sub-aba "Gerar BM" dentro de Mão de Obra Offshore — ver handleReopen abaixo.
   const [activeTab, setActiveTab] = useState("timesheets");
   const [moSubTab, setMoSubTab] = useState("timesheets-lancamentos");
+  // BSP/Nº do BM que o assistente "Gerar BM" está montando agora — enquanto existir, a aba
+  // Logística Mob/Desmob aplica direto nesse BM (sem pedir pra escolher um BM numa lista).
+  const [gerandoCtx, setGerandoCtx] = useState<{ bsp: string; bmNumber: string } | null>(null);
+
   const handleReopen = (bm: Bm) => {
     setReopenBm(bm);
     setActiveTab("timesheets");
@@ -204,11 +207,19 @@ function BmPage() {
               <TimesheetsTab />
             </TabsContent>
             <TabsContent value="timesheets-mob-desmob" className="mt-4">
-              <MobDesmobTab />
+              <MobDesmobTab bmEmGeracao={gerandoCtx} />
             </TabsContent>
-            <TabsContent value="timesheets-gerar" className="mt-4">
-              <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+            {/* forceMount: o assistente guarda cabeçalho/horas só em memória — ao pular pra aba
+                Logística Mob/Desmob e voltar, o progresso continua intacto. */}
+            <TabsContent value="timesheets-gerar" className="mt-4" forceMount hidden={moSubTab !== "timesheets-gerar"}>
+              <GerarBmWizard
+                reopenBm={reopenBm}
+                onConsumedReopen={() => setReopenBm(null)}
+                onContextChange={setGerandoCtx}
+                onIrParaLogistica={() => setMoSubTab("timesheets-mob-desmob")}
+              />
             </TabsContent>
+
           </Tabs>
         </TabsContent>
         <TabsContent value="habitat" className="mt-4">
@@ -339,7 +350,12 @@ const CATEGORIA_POR_TIPO: Record<MedicaoKey, MaterialCategoria> = {
   mob_desmob_materiais: "mob_desmob_materiais",
 };
 
-function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
+function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLogistica }: {
+  reopenBm: Bm | null;
+  onConsumedReopen: () => void;
+  onContextChange?: (ctx: { bsp: string; bmNumber: string } | null) => void;
+  onIrParaLogistica?: () => void;
+}) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
   const [cab, setCab] = useState<Cabecalho>(CABECALHO_VAZIO);
@@ -360,7 +376,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
   // na aba Logística Mob/Desmob.
   const [logisticaManual, setLogisticaManual] = useState(0);
-  const [adicionarCustoOpen, setAdicionarCustoOpen] = useState(false);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
@@ -986,6 +1001,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // MaterialBmWizard) — não entram mais no cabeçalho/total do BM de Mão de Obra.
   const numeroBmAtual = cab.numeroBm.trim();
 
+  // Publica o BSP/BM em geração pra aba Logística Mob/Desmob aplicar direto neste BM.
+  useEffect(() => {
+    onContextChange?.(cab.bsp ? { bsp: cab.bsp, bmNumber: numeroBmAtual } : null);
+    return () => onContextChange?.(null);
+  }, [cab.bsp, numeroBmAtual]);
+
+
+
   // ── Logística Mob/Desmob (transporte e hotel) aplicada ao BSP selecionado ───────────────
   // Os custos importados na aba "Logística Mob/Desmob" são aplicados por BSP; ao selecionar
   // o BSP aqui, os totais de transporte e hotel já aplicados entram no cálculo do BM.
@@ -1543,8 +1566,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 <Button
                   type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]"
                   disabled={!cab.bsp}
-                  onClick={() => setAdicionarCustoOpen(true)}
+                  onClick={() => onIrParaLogistica?.()}
                 >
+
                   <Plus className="mr-1 h-3 w-3" />Adicionar custo
                 </Button>
                 <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
@@ -1587,10 +1611,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             </div>
           </div>
 
-          <AplicarCustoMobDesmobDialog
-            open={adicionarCustoOpen} onOpenChange={setAdicionarCustoOpen}
-            bsp={cab.bsp} bmNumber={numeroBmAtual}
-          />
 
         </div>
       )}

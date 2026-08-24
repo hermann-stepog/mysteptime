@@ -217,7 +217,11 @@ const NOVO_CUSTO_VAZIO: NovoCusto = {
 const TODOS = "__todos__";
 const NOTAS_BUCKET = "bm-mob-desmob-notas";
 
-export function MobDesmobTab() {
+// bmEmGeracao: preenchido quando o usuário veio do assistente "Gerar BM" (botão "Adicionar
+// custo"). Nesse caso não faz sentido escolher um BM numa lista — o BM é o que está sendo
+// gerado; aplica direto nele e o valor (com markup, quando houver) aparece automaticamente
+// nos campos de Logística Mob/Desmob do gerador.
+export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: string; bmNumber: string } | null } = {}) {
 
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -648,7 +652,7 @@ export function MobDesmobTab() {
   const { data: bms = [], isFetching: carregandoBms, refetch: recarregarBms } = useQuery<SmartsheetBm[]>({
     queryKey: ["smartsheet-bm-list"],
     queryFn: async () => (await fetchBms()) as SmartsheetBm[],
-    enabled: !!aplicarBsp,
+    enabled: !!aplicarBsp && !bmEmGeracao,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -730,17 +734,22 @@ export function MobDesmobTab() {
     return { valorBase: grupoMarkup.totalPendente, valorFinal, valorMarkup: round2(valorFinal - grupoMarkup.totalPendente), lucro, imposto };
   }, [grupoMarkup, markupTipo, markupLucro, markupImposto]);
 
+  // Quando veio do gerador de BM, o alvo já é conhecido: o BM em geração (pode ainda não ter
+  // número escolhido — nesse caso grava sem número e o gerador soma pelo BSP mesmo assim).
+  const bmAlvoNumero = bmEmGeracao ? bmEmGeracao.bmNumber.trim() : bmSelecionado?.bmNumber ?? "";
+
   const aplicar = useMutation({
     mutationFn: async () => {
       if (!grupoAplicando) throw new Error("Selecione um BSP.");
-      if (!bmSelecionado) throw new Error("Selecione um BM.");
+      if (!bmEmGeracao && !bmSelecionado) throw new Error("Selecione um BM.");
       if (!grupoAplicando.pendentes.length) throw new Error("Nenhum custo pendente neste BSP.");
       const { error } = await supabase.from("bm_mob_desmob_costs").update({
         applied: true,
-        applied_bm_number: bmSelecionado.bmNumber,
+        applied_bm_number: bmAlvoNumero || null,
         applied_at: new Date().toISOString(),
       }).in("id", grupoAplicando.pendentes.map((c) => c.id));
       if (error) throw error;
+
 
       // Registro do markup só existe no fluxo por cartão — nunca no "Aplicar tudo ao BM".
       if (aplicarBsp !== TODOS) {
@@ -748,7 +757,7 @@ export function MobDesmobTab() {
         const valorPendenteOriginal = markupResultado?.valorPendenteOriginal ?? grupoAplicando.totalPendente;
         const { error: markupError } = await supabase.from("bm_mob_desmob_markups").insert({
           bsp: grupoAplicando.bsp,
-          applied_bm_number: bmSelecionado.bmNumber,
+          applied_bm_number: bmAlvoNumero,
           custo_ids: grupoAplicando.pendentes.map((c) => c.id),
           incluiu_markup: incluiuMarkup,
           tipo_markup: incluiuMarkup ? markupResultado?.tipoMarkup ?? null : null,
@@ -766,13 +775,15 @@ export function MobDesmobTab() {
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-markups"] });
       const n = grupoAplicando?.pendentes.length ?? 0;
+      const alvo = bmAlvoNumero || "em geração";
       notify.success(
         aplicarBsp === TODOS
-          ? `Custos pendentes aplicados ao BM ${bmSelecionado?.bmNumber}.`
+          ? `Custos pendentes aplicados ao BM ${alvo}.`
           : grupoAplicando?.usandoSelecao
-            ? `${n} custo(s) selecionado(s) de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`
-            : `Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`,
+            ? `${n} custo(s) selecionado(s) de ${aplicarBsp} aplicados ao BM ${alvo}.`
+            : `Custos de ${aplicarBsp} aplicados ao BM ${alvo}.`,
       );
+
       setSelecionados((prev) => {
         const next = new Set(prev);
         grupoAplicando?.pendentes.forEach((c) => next.delete(c.id));
@@ -1448,41 +1459,52 @@ export function MobDesmobTab() {
                 Total a enviar ao BM: <span className="font-semibold">{fmtMoney(markupResultado?.incluiuMarkup ? markupResultado.valorFinal : (grupoAplicando?.totalPendente ?? 0))}</span>
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
-              <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>
-                <RefreshCw className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <div className="max-h-72 overflow-y-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">BM</TableHead>
-                    <TableHead className="text-xs">PO</TableHead>
-                    <TableHead className="text-xs">Cliente</TableHead>
-                    <TableHead className="text-xs">Valor</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {bmsFiltrados.map((b) => (
-                    <TableRow key={b.rowId}
-                      className={`cursor-pointer ${bmSelecionado?.rowId === b.rowId ? "bg-primary/10" : ""}`}
-                      onClick={() => setBmSelecionado(b)}>
-                      <TableCell className="text-xs font-medium">{b.bmNumber}</TableCell>
-                      <TableCell className="text-xs">{b.poNumber ?? "—"}</TableCell>
-                      <TableCell className="text-xs">{b.client ?? "—"}</TableCell>
-                      <TableCell className="text-xs">{b.value != null ? fmtMoney(b.value) : "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            {bmEmGeracao ? (
+              <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                Aplicando direto no BM que está sendo gerado
+                {bmEmGeracao.bmNumber ? <> — <strong>{bmEmGeracao.bmNumber}</strong></> : " (número ainda não escolhido)"}.
+                O valor acima entra automaticamente nos campos de Logística Mob/Desmob do gerador.
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
+                  <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <div className="max-h-72 overflow-y-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">BM</TableHead>
+                        <TableHead className="text-xs">PO</TableHead>
+                        <TableHead className="text-xs">Cliente</TableHead>
+                        <TableHead className="text-xs">Valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bmsFiltrados.map((b) => (
+                        <TableRow key={b.rowId}
+                          className={`cursor-pointer ${bmSelecionado?.rowId === b.rowId ? "bg-primary/10" : ""}`}
+                          onClick={() => setBmSelecionado(b)}>
+                          <TableCell className="text-xs font-medium">{b.bmNumber}</TableCell>
+                          <TableCell className="text-xs">{b.poNumber ?? "—"}</TableCell>
+                          <TableCell className="text-xs">{b.client ?? "—"}</TableCell>
+                          <TableCell className="text-xs">{b.value != null ? fmtMoney(b.value) : "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="outline" onClick={() => { setAplicarBsp(null); setMarkupResultado(null); }}>Cancelar</Button>
-              <Button size="sm" disabled={!bmSelecionado} loading={aplicar.isPending} onClick={() => aplicar.mutate()}>
+              <Button size="sm" disabled={!bmEmGeracao && !bmSelecionado} loading={aplicar.isPending} onClick={() => aplicar.mutate()}>
                 <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar
               </Button>
+
             </div>
           </div>
         </DialogContent>
