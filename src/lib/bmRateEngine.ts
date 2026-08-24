@@ -1,4 +1,5 @@
 import type { BmLineMo } from "@/lib/bm";
+import { dedupeDiasPorData } from "@/lib/bmDayGrid";
 
 // Um dia de timesheet já enriquecido com quem é o colaborador e em que embarque/função ele
 // está — resultado do join feito no componente (timesheet_dias -> timesheet_semanas ->
@@ -88,6 +89,31 @@ function findRate(rates: Rate[], client: string, vessel: string, funcao: string)
   return candidatas.sort((a, b) => stripNivel(b.funcao).length - stripNivel(a.funcao).length)[0];
 }
 
+
+// Colapsa as linhas repetidas da mesma data (re-sincronização do timesheet): mantém um único
+// dia, com o evento mais específico (mesma regra da grade do BM) e as horas efetivas do dia
+// (a linha duplicada costuma vir zerada).
+function dedupeDiasColaborador(dias: TimesheetDiaComColaborador[]): TimesheetDiaComColaborador[] {
+  const porData = new Map<string, TimesheetDiaComColaborador[]>();
+  dias.forEach((d) => {
+    const lista = porData.get(d.data) ?? [];
+    lista.push(d);
+    porData.set(d.data, lista);
+  });
+
+  const escolhidos = dedupeDiasPorData(dias.map((d) => ({ data: d.data, evento: d.evento })));
+  return escolhidos.map((escolhido) => {
+    const linhas = porData.get(escolhido.data) ?? [];
+    const base = linhas.find((l) => l.evento === escolhido.evento) ?? linhas[0];
+    return {
+      ...base,
+      evento: escolhido.evento,
+      total_horas: Math.max(...linhas.map((l) => l.total_horas ?? 0)),
+      horas_extras: Math.max(...linhas.map((l) => l.horas_extras ?? 0)),
+      adicional_noturno: linhas.some((l) => l.adicional_noturno),
+    };
+  });
+}
 
 export type BmLineMoComputed = Omit<BmLineMo, "id" | "bm_id"> & {
   hasHoraExtraRate: boolean;
