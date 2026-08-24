@@ -254,41 +254,41 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
       </div>
 
       {/* ── Bloco A — Consolidado ── */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Resumo da medição offshore</h2>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2">
+        <div className="overflow-hidden rounded border text-xs">
           {timesheetCards.map((c) => (
-            <Card key={c.label} className="border p-3 shadow-sm">
-              <p className="text-[11px] text-muted-foreground">{c.label}</p>
-              <p className="text-sm font-semibold">{fmtMoney(c.value)}</p>
-            </Card>
+            <div key={c.label} className="flex border-b">
+              <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">{c.label}:</div>
+              <div className="w-40 px-2 py-1 text-right">{fmtMoney(c.value)}</div>
+            </div>
           ))}
-          <Card className="border bg-muted/30 p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Total Timesheet</p>
-            <p className="text-sm font-bold">{fmtMoney(currentBm)}</p>
-          </Card>
+          <div className="flex bg-muted/60 font-bold">
+            <div className="flex-1 px-2 py-1 text-center">Total:</div>
+            <div className="w-40 px-2 py-1 text-right">{fmtMoney(totalGeral)}</div>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">PO Value</p>
-            <p className="text-sm font-semibold">{bm.po_value != null ? fmtMoney(bm.po_value) : "—"}</p>
-          </Card>
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">BM Issued</p>
-            <p className="text-sm font-semibold">{bmIssued != null ? fmtMoney(bmIssued) : "—"}</p>
-          </Card>
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Current BM · Timesheet</p>
-            <p className="text-sm font-semibold">{fmtMoney(currentBm)}</p>
-          </Card>
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Balance</p>
-            <p className={`text-sm font-semibold ${balance != null && balance < 0 ? "text-destructive" : ""}`}>
+        <div className="overflow-hidden rounded border text-xs self-start">
+          <div className="flex border-b">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">PO Value:</div>
+            <div className="w-40 px-2 py-1 text-right">{bm.po_value != null ? fmtMoney(bm.po_value) : "—"}</div>
+          </div>
+          <div className="flex border-b">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">BM Issued:</div>
+            <div className="w-40 px-2 py-1 text-right">{bmIssued != null ? fmtMoney(bmIssued) : fmtMoney(0)}</div>
+          </div>
+          <div className="flex border-b">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">Current BM:</div>
+            <div className="w-40 px-2 py-1 text-right">{fmtMoney(currentBm)}</div>
+          </div>
+          <div className="flex">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">Balance:</div>
+            <div className={`w-40 px-2 py-1 text-right font-semibold ${balance != null && balance < 0 ? "text-destructive" : ""}`}>
               {balance != null ? fmtMoney(balance) : "—"}
-            </p>
-          </Card>
+            </div>
+          </div>
         </div>
       </section>
+
 
       {/* ── Bloco B — Diárias de embarque ── */}
       <section className="space-y-2">
