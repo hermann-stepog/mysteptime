@@ -734,17 +734,22 @@ export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: stri
     return { valorBase: grupoMarkup.totalPendente, valorFinal, valorMarkup: round2(valorFinal - grupoMarkup.totalPendente), lucro, imposto };
   }, [grupoMarkup, markupTipo, markupLucro, markupImposto]);
 
+  // Quando veio do gerador de BM, o alvo já é conhecido: o BM em geração (pode ainda não ter
+  // número escolhido — nesse caso grava sem número e o gerador soma pelo BSP mesmo assim).
+  const bmAlvoNumero = bmEmGeracao ? bmEmGeracao.bmNumber.trim() : bmSelecionado?.bmNumber ?? "";
+
   const aplicar = useMutation({
     mutationFn: async () => {
       if (!grupoAplicando) throw new Error("Selecione um BSP.");
-      if (!bmSelecionado) throw new Error("Selecione um BM.");
+      if (!bmEmGeracao && !bmSelecionado) throw new Error("Selecione um BM.");
       if (!grupoAplicando.pendentes.length) throw new Error("Nenhum custo pendente neste BSP.");
       const { error } = await supabase.from("bm_mob_desmob_costs").update({
         applied: true,
-        applied_bm_number: bmSelecionado.bmNumber,
+        applied_bm_number: bmAlvoNumero || null,
         applied_at: new Date().toISOString(),
       }).in("id", grupoAplicando.pendentes.map((c) => c.id));
       if (error) throw error;
+
 
       // Registro do markup só existe no fluxo por cartão — nunca no "Aplicar tudo ao BM".
       if (aplicarBsp !== TODOS) {
