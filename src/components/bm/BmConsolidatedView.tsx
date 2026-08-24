@@ -139,16 +139,27 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   const totalAdicionalNoturno = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_adicional_noturno, 0));
   const totalValorHoras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
 
+  // Demais blocos vêm do gerador (já salvos no BM) — logística com markup + manual, materiais,
+  // mob/desmob de equipe e pós-processamento — pra folha de rosto bater com o Excel do cliente.
+  const logistics = round2(
+    (bm.markup_enabled ? bm.total_logistica * (1 + (bm.markup_pct ?? 0) / 100) : bm.total_logistica) + (bm.logistica_manual ?? 0),
+  );
+  const mobDemob = round2((bm.team_mob_desmob ?? 0) + (bm.pos_processamento ?? 0));
+  const materiais = round2(bm.total_materiais ?? 0);
+
   const timesheetCards: { label: string; value: number }[] = [
-    { label: "Working days + Overstay", value: workingDays },
-    { label: "Overtime + Night Shift", value: overtimeNightShift },
+    { label: "Working days + Over Stay", value: workingDays },
+    { label: "Over Time + Night Shift", value: overtimeNightShift },
+    { label: "Mob/demob", value: mobDemob },
+    { label: "Logistics", value: logistics },
+    { label: "Material MOB / DEMOB", value: materiais },
   ];
-  // Esta folha é independente das demais medições. Logística, materiais, habitat,
-  // locações e o override do valor global continuam no gerador, mas não compõem esta capa.
-  const currentBm = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
+  const totalGeral = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
+  const currentBm = bm.valor_bm_manual != null ? round2(bm.valor_bm_manual) : totalGeral;
 
   const bmIssued = bm.po_value != null && bm.po_balance_before != null ? round2(bm.po_value - bm.po_balance_before) : null;
-  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : null;
+  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : (bm.po_value != null ? round2(bm.po_value - currentBm) : null);
+
 
   // ── Bloco B: rodapé Mobilização/Demobilização (contagem de cabeças por dia, não é valor) ──
   const mobilizacaoPorData = useMemo(() => {
@@ -184,23 +195,51 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   return (
     <div className="bm-print-area">
     <div className="bm-print-scale-inner space-y-6">
-      <div className="flex items-center justify-between border-b pb-3">
+      <div className="flex items-start justify-between border-b pb-3">
         <BrandLogo className="h-10 w-auto" />
         <div className="text-center">
           <h1 className="text-base font-semibold uppercase tracking-wide">Medição de Mão de Obra Offshore</h1>
           <p className="text-[11px] text-muted-foreground">Horas trabalhadas dos colaboradores offshore</p>
         </div>
-        <div className="text-right text-xs text-muted-foreground">
-          <p className="font-semibold text-foreground">{bm.client_name} — {bm.vessel}</p>
-          <p>{fmt(bm.period_start)} – {fmt(bm.period_end)}{bm.po_number ? ` · PO ${bm.po_number}` : ""}</p>
+        <div className="text-right text-xs">
+          <p><span className="font-semibold">Date:</span> <span className="underline">{fmt(bm.period_end)}</span></p>
         </div>
       </div>
+
+      {/* Cabeçalho no formato da planilha do cliente */}
+      <section className="grid gap-3 sm:grid-cols-2">
+        <div className="overflow-hidden rounded border text-xs">
+          <div className="flex border-b">
+            <div className="w-32 bg-muted px-2 py-1 font-semibold">CLIENT:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.client_name || "—"}</div>
+          </div>
+          <div className="flex">
+            <div className="w-32 bg-muted px-2 py-1 font-semibold">Vessel:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.vessel || "—"}</div>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded border text-xs">
+          <div className="flex border-b">
+            <div className="w-40 bg-muted px-2 py-1 font-semibold">BSP / BPP / B3D No.:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.project_name || "—"}</div>
+          </div>
+          <div className="flex border-b">
+            <div className="w-40 bg-muted px-2 py-1 font-semibold">PO Number:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.po_number || "—"}</div>
+          </div>
+          <div className="flex">
+            <div className="w-40 bg-muted px-2 py-1 font-semibold">BM:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.numero_bm || "—"}</div>
+          </div>
+        </div>
+      </section>
 
       {dayGridError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive print:hidden">
           Não foi possível carregar as horas detalhadas do Timesheet. Esta capa não representa os dados completos.
         </div>
       )}
+
 
       {/* Observações internas — nunca sai no PDF/impressão, só pra quem está revisando o BM aqui. */}
       <div className="print:hidden space-y-1">
@@ -215,41 +254,41 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
       </div>
 
       {/* ── Bloco A — Consolidado ── */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Resumo da medição offshore</h2>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2">
+        <div className="overflow-hidden rounded border text-xs">
           {timesheetCards.map((c) => (
-            <Card key={c.label} className="border p-3 shadow-sm">
-              <p className="text-[11px] text-muted-foreground">{c.label}</p>
-              <p className="text-sm font-semibold">{fmtMoney(c.value)}</p>
-            </Card>
+            <div key={c.label} className="flex border-b">
+              <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">{c.label}:</div>
+              <div className="w-40 px-2 py-1 text-right">{fmtMoney(c.value)}</div>
+            </div>
           ))}
-          <Card className="border bg-muted/30 p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Total Timesheet</p>
-            <p className="text-sm font-bold">{fmtMoney(currentBm)}</p>
-          </Card>
+          <div className="flex bg-muted/60 font-bold">
+            <div className="flex-1 px-2 py-1 text-center">Total:</div>
+            <div className="w-40 px-2 py-1 text-right">{fmtMoney(totalGeral)}</div>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">PO Value</p>
-            <p className="text-sm font-semibold">{bm.po_value != null ? fmtMoney(bm.po_value) : "—"}</p>
-          </Card>
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">BM Issued</p>
-            <p className="text-sm font-semibold">{bmIssued != null ? fmtMoney(bmIssued) : "—"}</p>
-          </Card>
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Current BM · Timesheet</p>
-            <p className="text-sm font-semibold">{fmtMoney(currentBm)}</p>
-          </Card>
-          <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Balance</p>
-            <p className={`text-sm font-semibold ${balance != null && balance < 0 ? "text-destructive" : ""}`}>
+        <div className="overflow-hidden rounded border text-xs self-start">
+          <div className="flex border-b">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">PO Value:</div>
+            <div className="w-40 px-2 py-1 text-right">{bm.po_value != null ? fmtMoney(bm.po_value) : "—"}</div>
+          </div>
+          <div className="flex border-b">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">BM Issued:</div>
+            <div className="w-40 px-2 py-1 text-right">{bmIssued != null ? fmtMoney(bmIssued) : fmtMoney(0)}</div>
+          </div>
+          <div className="flex border-b">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">Current BM:</div>
+            <div className="w-40 px-2 py-1 text-right">{fmtMoney(currentBm)}</div>
+          </div>
+          <div className="flex">
+            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">Balance:</div>
+            <div className={`w-40 px-2 py-1 text-right font-semibold ${balance != null && balance < 0 ? "text-destructive" : ""}`}>
               {balance != null ? fmtMoney(balance) : "—"}
-            </p>
-          </Card>
+            </div>
+          </div>
         </div>
       </section>
+
 
       {/* ── Bloco B — Diárias de embarque ── */}
       <section className="space-y-2">
