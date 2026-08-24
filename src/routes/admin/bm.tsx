@@ -1552,6 +1552,64 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
             <div><Label className="text-xs">Período — Até</Label><Input type="date" value={cab.periodEnd} onChange={(e) => setCab({ ...cab, periodEnd: e.target.value })} /></div>
           </div>
 
+          {/* Prévia de horas: assim que Cliente/Unidade/BSP/período estão preenchidos, as horas
+              já carregadas do Timesheet aparecem aqui, antes de avançar no assistente. */}
+          {headerCompleto && (
+            <div className="rounded-md border p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold">Horas identificadas para cobrança</span>
+                <span className="text-xs text-muted-foreground">
+                  {carregandoMo
+                    ? "Carregando..."
+                    : `${resumoHoras.length} colaborador(es) · ${fmtHoras(resumoHorasTotais.totalHoras)} h`}
+                </span>
+              </div>
+              {carregandoMo ? (
+                <p className="text-xs text-muted-foreground">Buscando horas do Timesheet para o BSP e período...</p>
+              ) : resumoHoras.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Nenhuma hora encontrada para o BSP e período selecionados.
+                </p>
+              ) : (
+                <div className="max-h-72 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-background">
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-1 pr-2 font-medium">Colaborador</th>
+                        <th className="py-1 pr-2 font-medium">Função</th>
+                        <th className="py-1 pr-2 text-right font-medium">Dias</th>
+                        <th className="py-1 pr-2 text-right font-medium">Horas totais</th>
+                        <th className="py-1 pr-2 text-right font-medium">HE</th>
+                        <th className="py-1 text-right font-medium">AN</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resumoHoras.map((r) => (
+                        <tr key={r.colaboradorId} className="border-b last:border-0">
+                          <td className="py-1 pr-2">{r.nome}</td>
+                          <td className="py-1 pr-2 text-muted-foreground">{r.funcao}</td>
+                          <td className="py-1 pr-2 text-right">{r.dias}</td>
+                          <td className="py-1 pr-2 text-right font-medium">{fmtHoras(r.totalHoras)}</td>
+                          <td className="py-1 pr-2 text-right">{fmtHoras(r.horasExtras)}</td>
+                          <td className="py-1 text-right">{r.diasAdicionalNoturno}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t font-semibold">
+                        <td className="py-1 pr-2" colSpan={2}>Total</td>
+                        <td className="py-1 pr-2 text-right">{resumoHorasTotais.dias}</td>
+                        <td className="py-1 pr-2 text-right">{fmtHoras(resumoHorasTotais.totalHoras)}</td>
+                        <td className="py-1 pr-2 text-right">{fmtHoras(resumoHorasTotais.horasExtras)}</td>
+                        <td className="py-1 text-right">{resumoHorasTotais.diasAdicionalNoturno}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {cab.poValue != null && (
             <p className="text-xs text-muted-foreground">
               PO Value: <strong>{fmtMoney(cab.poValue)}</strong>
