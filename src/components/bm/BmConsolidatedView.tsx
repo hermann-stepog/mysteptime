@@ -360,18 +360,13 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                         </TableCell>
                       );
                     })}
-                    <TableCell className="text-xs">
-                      {idsComRateFaltando.has(l.id) ? rateInput("rate_embarque") : l.rate_embarque != null ? fmtMoney(l.rate_embarque) : "—"}
-                    </TableCell>
+                    <TableCell className="text-xs">{rateInput("rate_embarque")}</TableCell>
                     <TableCell className="text-xs">{l.dias_embarque}</TableCell>
-                    <TableCell className="text-xs">
-                      {idsComRateFaltando.has(l.id) ? rateInput("rate_dobra") : l.rate_dobra != null ? fmtMoney(l.rate_dobra) : "—"}
-                    </TableCell>
+                    <TableCell className="text-xs">{rateInput("rate_dobra")}</TableCell>
                     <TableCell className="text-xs">{l.dias_dobra}</TableCell>
-                    <TableCell className="text-xs">
-                      {idsComRateFaltando.has(l.id) ? rateInput("rate_hotel") : l.rate_hotel != null ? fmtMoney(l.rate_hotel) : "—"}
-                    </TableCell>
+                    <TableCell className="text-xs">{rateInput("rate_hotel")}</TableCell>
                     <TableCell className="text-xs">{l.dias_hotel}</TableCell>
+
                     <TableCell className="text-xs font-semibold">{fmtMoney(l.valor_total)}</TableCell>
                   </TableRow>
                 );
