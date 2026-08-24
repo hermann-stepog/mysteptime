@@ -66,6 +66,12 @@ function stripNivel(s: string): string {
   return normalizar(s).replace(/\s+(i{1,3}|iv|v|n\d+)$/i, "").trim();
 }
 
+// Mesma remoção de nível, mas preservando o texto/caixa original — usada só para exibir a
+// função na folha de rosto do BM ("SOLDADOR I" -> "SOLDADOR"), sem alterar o match de rate.
+export function funcaoSemNivel(s: string): string {
+  return s.trim().replace(/\s+(i{1,3}|iv|v|n\d+)$/i, "").trim();
+}
+
 // Chave real do rate é Cliente+Embarcação+Função (bate com a planilha mestre da usuária,
 // STEP_Rates_e_BM_Automatico, aba "_Lookup") — o rate não varia por BSP, então um BSP novo
 // aberto no mesmo navio já funciona sem recadastro. BSP fica só informativo em `Rate.bsp`.
