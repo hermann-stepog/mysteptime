@@ -1459,41 +1459,52 @@ export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: stri
                 Total a enviar ao BM: <span className="font-semibold">{fmtMoney(markupResultado?.incluiuMarkup ? markupResultado.valorFinal : (grupoAplicando?.totalPendente ?? 0))}</span>
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
-              <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>
-                <RefreshCw className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <div className="max-h-72 overflow-y-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">BM</TableHead>
-                    <TableHead className="text-xs">PO</TableHead>
-                    <TableHead className="text-xs">Cliente</TableHead>
-                    <TableHead className="text-xs">Valor</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {bmsFiltrados.map((b) => (
-                    <TableRow key={b.rowId}
-                      className={`cursor-pointer ${bmSelecionado?.rowId === b.rowId ? "bg-primary/10" : ""}`}
-                      onClick={() => setBmSelecionado(b)}>
-                      <TableCell className="text-xs font-medium">{b.bmNumber}</TableCell>
-                      <TableCell className="text-xs">{b.poNumber ?? "—"}</TableCell>
-                      <TableCell className="text-xs">{b.client ?? "—"}</TableCell>
-                      <TableCell className="text-xs">{b.value != null ? fmtMoney(b.value) : "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            {bmEmGeracao ? (
+              <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                Aplicando direto no BM que está sendo gerado
+                {bmEmGeracao.bmNumber ? <> — <strong>{bmEmGeracao.bmNumber}</strong></> : " (número ainda não escolhido)"}.
+                O valor acima entra automaticamente nos campos de Logística Mob/Desmob do gerador.
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
+                  <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <div className="max-h-72 overflow-y-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">BM</TableHead>
+                        <TableHead className="text-xs">PO</TableHead>
+                        <TableHead className="text-xs">Cliente</TableHead>
+                        <TableHead className="text-xs">Valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bmsFiltrados.map((b) => (
+                        <TableRow key={b.rowId}
+                          className={`cursor-pointer ${bmSelecionado?.rowId === b.rowId ? "bg-primary/10" : ""}`}
+                          onClick={() => setBmSelecionado(b)}>
+                          <TableCell className="text-xs font-medium">{b.bmNumber}</TableCell>
+                          <TableCell className="text-xs">{b.poNumber ?? "—"}</TableCell>
+                          <TableCell className="text-xs">{b.client ?? "—"}</TableCell>
+                          <TableCell className="text-xs">{b.value != null ? fmtMoney(b.value) : "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="outline" onClick={() => { setAplicarBsp(null); setMarkupResultado(null); }}>Cancelar</Button>
-              <Button size="sm" disabled={!bmSelecionado} loading={aplicar.isPending} onClick={() => aplicar.mutate()}>
+              <Button size="sm" disabled={!bmEmGeracao && !bmSelecionado} loading={aplicar.isPending} onClick={() => aplicar.mutate()}>
                 <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar
               </Button>
+
             </div>
           </div>
         </DialogContent>
