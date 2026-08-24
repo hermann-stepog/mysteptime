@@ -43,15 +43,40 @@ const EVENTO_PRIORIDADE: Record<string, number> = {
 // "dia consecutivo" falha e todos os dias de embarque saem como "P" em vez de "E" — e o mesmo dia
 // pode aparecer duas vezes com códigos diferentes ("D" duplicado).
 export function dedupeDiasPorData(dias: DiaEvento[]): DiaEvento[] {
-  const porData = new Map<string, DiaEvento>();
+  const eventosPorData = new Map<string, DiaEvento[]>();
   for (const d of dias) {
-    const atual = porData.get(d.data);
-    if (!atual) { porData.set(d.data, d); continue; }
-    const pAtual = EVENTO_PRIORIDADE[atual.evento ?? ""] ?? 0;
-    const pNovo = EVENTO_PRIORIDADE[d.evento ?? ""] ?? 0;
-    if (pNovo > pAtual) porData.set(d.data, d);
+    const eventos = eventosPorData.get(d.data) ?? [];
+    eventos.push(d);
+    eventosPorData.set(d.data, eventos);
   }
-  return Array.from(porData.values()).sort((a, b) => a.data.localeCompare(b.data));
+
+  const datas = Array.from(eventosPorData.keys()).sort((a, b) => a.localeCompare(b));
+  const resultado: DiaEvento[] = [];
+
+  datas.forEach((data, index) => {
+    const eventos = eventosPorData.get(data) ?? [];
+    const proximaData = datas[index + 1];
+    const eventosProximaData = proximaData ? eventosPorData.get(proximaData) ?? [] : [];
+    const haDesembarqueAmanha =
+      proximaData === addDaysStr(data, 1) &&
+      eventosProximaData.some((evento) => evento.evento === "Desembarque");
+
+    // A origem pode registrar o desembarque tanto no último dia embarcado quanto no dia
+    // efetivo seguinte. Nessa sequência, apenas o último dia deve aparecer como "D".
+    const candidatos = haDesembarqueAmanha
+      ? eventos.filter((evento) => evento.evento !== "Desembarque")
+      : eventos;
+    if (candidatos.length === 0) return;
+
+    const escolhido = candidatos.reduce((atual, candidato) => {
+      const prioridadeAtual = EVENTO_PRIORIDADE[atual.evento ?? ""] ?? 0;
+      const prioridadeCandidato = EVENTO_PRIORIDADE[candidato.evento ?? ""] ?? 0;
+      return prioridadeCandidato > prioridadeAtual ? candidato : atual;
+    });
+    resultado.push(escolhido);
+  });
+
+  return resultado;
 }
 
 // Pura, sem I/O — decide o código de exibição de cada dia, considerando a sequência de
