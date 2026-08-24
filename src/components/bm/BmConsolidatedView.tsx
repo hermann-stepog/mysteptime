@@ -377,9 +377,6 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                   </TableRow>
                 );
               })}
-              <TableRow className="bg-muted/30">
-                <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Mobilização</TableCell>
-                <TableCell /><TableCell />
               <TableRow className="bg-muted/50">
                 <TableCell className="sticky left-0 bg-muted/50 text-xs font-semibold">Total diárias</TableCell>
                 <TableCell /><TableCell />
