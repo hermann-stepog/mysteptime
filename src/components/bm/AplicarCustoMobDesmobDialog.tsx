@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Percent, Car, BedDouble } from "lucide-react";
+import { Send, Percent, Car, BedDouble, ExternalLink } from "lucide-react";
 import { type BmMobDesmobCost, type TipoMarkup } from "@/lib/bm";
 
 function fmtMoney(n: number): string {
@@ -130,14 +130,29 @@ export function AplicarCustoMobDesmobDialog({ open, onOpenChange, bsp, bmNumber 
 
         {etapa === "lista" && (
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              Custos pendentes de transporte/hotel importados na aba Logística Mob/Desmob pro BSP <strong>{bsp}</strong>.
-              Marque os que quer incluir — sem marcação nenhuma, aplica todos os pendentes.
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Custos pendentes de transporte/hotel importados na aba Logística Mob/Desmob pro BSP <strong>{bsp}</strong>.
+                Marque os que quer incluir — sem marcação nenhuma, aplica todos os pendentes.
+              </p>
+              {/* Abre em nova aba (não navega aqui dentro) — o assistente só guarda o progresso
+                  na memória até "Salvar Rascunho", então trocar de aba nesta mesma janela
+                  perderia cabeçalho/horas já preenchidos. Sempre visível, tenha ou não custo
+                  pendente agora — é pra importar/lançar um novo custo lá e voltar aqui depois
+                  pra aplicar (reabrindo esse diálogo, que busca de novo na hora). */}
+              <Button
+                type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-[11px]"
+                onClick={() => window.open("/admin/bm", "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink className="mr-1 h-3 w-3" />Logística Mob/Desmob
+              </Button>
+            </div>
             {isFetching ? (
               <p className="py-6 text-center text-xs text-muted-foreground">Carregando…</p>
             ) : pendentes.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">Nenhum custo pendente pra esse BSP.</p>
+              <p className="py-6 text-center text-xs text-muted-foreground">
+                Nenhum custo pendente pra esse BSP. Use o botão "Logística Mob/Desmob" acima pra importar ou lançar um.
+              </p>
             ) : (
               <div className="max-h-72 overflow-y-auto rounded-md border">
                 <Table>
