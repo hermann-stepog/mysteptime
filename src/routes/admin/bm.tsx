@@ -371,6 +371,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   const [diasOverrides, setDiasOverrides] = useState<Record<string, DiaOverrideEdit>>({});
   const [markupEnabled, setMarkupEnabled] = useState(false);
   const [markupPct, setMarkupPct] = useState(15);
+  // Rate Standby (dias de Hotel Pré/Embarque Cancelado). Quando desligado, esses dias não são
+  // cobrados; quando ligado, pode-se sobrescrever o rate cadastrado com um valor manual por dia.
+  // O resultado entra em dias_hotel × rate_hotel, que a folha de rosto já soma às diárias.
+  const [standbyEnabled, setStandbyEnabled] = useState(true);
+  const [standbyRateManual, setStandbyRateManual] = useState<number | null>(null);
+
   // Campos simples, lançados direto no formulário (sem integração com Smartsheet) — ver
   // migration 20260805200000_bm_pos_processamento_team_mob_notes.sql.
   const [posProcessamento, setPosProcessamento] = useState(0);
