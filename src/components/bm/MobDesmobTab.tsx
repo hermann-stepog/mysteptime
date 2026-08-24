@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import * as XLSX from "xlsx";
@@ -425,8 +425,28 @@ export function MobDesmobTab() {
   const bmsFiltrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
     if (!q) return bms;
-    return bms.filter((b) => [b.bmNumber, b.poNumber, b.client, b.vessel].some((v) => (v ?? "").toLowerCase().includes(q)));
+    return bms.filter((b) => [b.bmNumber, b.poNumber, b.client, b.vessel].some((v) => String(v ?? "").toLowerCase().includes(q)));
   }, [bms, busca]);
+
+  // Pré-preenche a busca com a unidade do BSP só depois que a lista de BMs carrega e ela
+  // realmente encontra alguma coisa — a nomenclatura do Smartsheet às vezes não bate com a
+  // unidade extraída do campo "bsp" (ver parseBspUnidade), e pré-preencher sem checar isso
+  // travava a busca numa lista vazia, sem nenhum BM pra escolher e o "Aplicar" sempre
+  // desabilitado. Sem correspondência nenhuma, a busca continua vazia — mostra a lista
+  // inteira, como sempre foi antes desse atalho existir. Só tenta uma vez por abertura do
+  // diálogo (tentativaRef), pra não "puxar de volta" o texto se ela limpar a busca na mão
+  // depois de já ter carregado.
+  const tentativaAutoBuscaRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!aplicarBsp || aplicarBsp === TODOS) { tentativaAutoBuscaRef.current = null; return; }
+    if (tentativaAutoBuscaRef.current === aplicarBsp || bms.length === 0) return;
+    tentativaAutoBuscaRef.current = aplicarBsp;
+    const candidata = buscaInicialParaBsp(aplicarBsp);
+    if (!candidata) return;
+    const q = candidata.toLowerCase();
+    const bate = bms.some((b) => [b.bmNumber, b.poNumber, b.client, b.vessel].some((v) => String(v ?? "").toLowerCase().includes(q)));
+    if (bate) setBusca(candidata);
+  }, [aplicarBsp, bms]);
 
   // Pendentes de um BSP específico a considerar numa aplicação: se houver itens marcados
   // naquele BSP, só os marcados; sem marcação, cai no comportamento antigo (todos os
@@ -918,7 +938,7 @@ export function MobDesmobTab() {
                     });
                     setAplicarBsp(markupBsp);
                     setBmSelecionado(null);
-                    setBusca(buscaInicialParaBsp(markupBsp));
+                    setBusca("");
                     setMarkupBsp(null);
                   }}
                 >
@@ -980,7 +1000,7 @@ export function MobDesmobTab() {
                       });
                       setAplicarBsp(markupBsp);
                       setBmSelecionado(null);
-                      setBusca(buscaInicialParaBsp(markupBsp));
+                      setBusca("");
                       setMarkupBsp(null);
                     }}
                   >
