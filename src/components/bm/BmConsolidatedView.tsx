@@ -387,8 +387,15 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                 {dates.map((d) => <TableCell key={d} />)}
                 <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_embarque, 0))}</TableCell>
                 <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_dobra, 0))}</TableCell>
-                <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_hotel, 0))}</TableCell>
+                <TableCell /><TableCell className="text-xs">{standbyDias}</TableCell>
                 <TableCell className="text-xs font-semibold">{fmtMoney(workingDays)}</TableCell>
+              </TableRow>
+              <TableRow className="bg-muted/50">
+                <TableCell className="sticky left-0 bg-muted/50 text-xs font-semibold">Standby (dias × rate)</TableCell>
+                <TableCell /><TableCell />
+                {dates.map((d) => <TableCell key={d} />)}
+                <TableCell colSpan={5} className="text-right text-[10px] text-muted-foreground">{standbyDias} dia(s) de standby</TableCell>
+                <TableCell className="text-xs font-semibold">{fmtMoney(standbyValor)}</TableCell>
               </TableRow>
               <TableRow className="bg-muted/30">
                 <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Mobilização</TableCell>
