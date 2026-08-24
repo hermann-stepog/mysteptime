@@ -1702,15 +1702,25 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
                 : "Selecione o BSP para carregar os custos de transporte e hotel já aplicados."}
             </p>
             <div className="mt-3 border-t pt-3">
-              <Label className="text-xs">Valor manual de Logística</Label>
-              <Input
-                type="number" step="0.01" value={logisticaManual}
-                onChange={(e) => setLogisticaManual(Number(e.target.value) || 0)}
-              />
+              <Label className="text-xs">Valor Mob/Desmob</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
+                <Input
+                  className="pl-9"
+                  inputMode="decimal"
+                  value={teamMobDesmob === 0 ? "" : String(teamMobDesmob).replace(".", ",")}
+                  placeholder="0,00"
+                  onChange={(e) => {
+                    const limpo = e.target.value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
+                    setTeamMobDesmob(Number(limpo) || 0);
+                  }}
+                />
+              </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Lançamento manual, somado ao total acima e enviado pra folha de rosto do BM gerado.
+                Lançamento manual de Mob/Desmob, somado ao total e enviado pra folha de rosto do BM gerado.
               </p>
             </div>
+
           </div>
 
 
