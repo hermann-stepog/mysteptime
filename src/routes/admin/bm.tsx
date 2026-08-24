@@ -351,7 +351,12 @@ const CATEGORIA_POR_TIPO: Record<MedicaoKey, MaterialCategoria> = {
   mob_desmob_materiais: "mob_desmob_materiais",
 };
 
-function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
+function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLogistica }: {
+  reopenBm: Bm | null;
+  onConsumedReopen: () => void;
+  onContextChange?: (ctx: { bsp: string; bmNumber: string } | null) => void;
+  onIrParaLogistica?: () => void;
+}) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
   const [cab, setCab] = useState<Cabecalho>(CABECALHO_VAZIO);
