@@ -142,6 +142,10 @@ function BmPage() {
   // pra sub-aba "Gerar BM" dentro de Mão de Obra Offshore — ver handleReopen abaixo.
   const [activeTab, setActiveTab] = useState("timesheets");
   const [moSubTab, setMoSubTab] = useState("timesheets-lancamentos");
+  // BSP/Nº do BM que o assistente "Gerar BM" está montando agora — enquanto existir, a aba
+  // Logística Mob/Desmob aplica direto nesse BM (sem pedir pra escolher um BM numa lista).
+  const [gerandoCtx, setGerandoCtx] = useState<{ bsp: string; bmNumber: string } | null>(null);
+
   const handleReopen = (bm: Bm) => {
     setReopenBm(bm);
     setActiveTab("timesheets");
