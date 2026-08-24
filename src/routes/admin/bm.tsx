@@ -109,6 +109,10 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function fmtHoras(n: number): string {
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 const EVENTO_OPCOES_BM = ["Nenhum", ...EVENTOS_DIA];
 
 // Referência estável pro fallback do useQuery de diasBase abaixo — um array literal `[]`
