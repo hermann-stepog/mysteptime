@@ -139,16 +139,27 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   const totalAdicionalNoturno = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_adicional_noturno, 0));
   const totalValorHoras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
 
+  // Demais blocos vêm do gerador (já salvos no BM) — logística com markup + manual, materiais,
+  // mob/desmob de equipe e pós-processamento — pra folha de rosto bater com o Excel do cliente.
+  const logistics = round2(
+    (bm.markup_enabled ? bm.total_logistica * (1 + (bm.markup_pct ?? 0) / 100) : bm.total_logistica) + (bm.logistica_manual ?? 0),
+  );
+  const mobDemob = round2((bm.team_mob_desmob ?? 0) + (bm.pos_processamento ?? 0));
+  const materiais = round2(bm.total_materiais ?? 0);
+
   const timesheetCards: { label: string; value: number }[] = [
-    { label: "Working days + Overstay", value: workingDays },
-    { label: "Overtime + Night Shift", value: overtimeNightShift },
+    { label: "Working days + Over Stay", value: workingDays },
+    { label: "Over Time + Night Shift", value: overtimeNightShift },
+    { label: "Mob/demob", value: mobDemob },
+    { label: "Logistics", value: logistics },
+    { label: "Material MOB / DEMOB", value: materiais },
   ];
-  // Esta folha é independente das demais medições. Logística, materiais, habitat,
-  // locações e o override do valor global continuam no gerador, mas não compõem esta capa.
-  const currentBm = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
+  const totalGeral = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
+  const currentBm = bm.valor_bm_manual != null ? round2(bm.valor_bm_manual) : totalGeral;
 
   const bmIssued = bm.po_value != null && bm.po_balance_before != null ? round2(bm.po_value - bm.po_balance_before) : null;
-  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : null;
+  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : (bm.po_value != null ? round2(bm.po_value - currentBm) : null);
+
 
   // ── Bloco B: rodapé Mobilização/Demobilização (contagem de cabeças por dia, não é valor) ──
   const mobilizacaoPorData = useMemo(() => {
