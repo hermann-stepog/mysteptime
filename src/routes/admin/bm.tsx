@@ -371,6 +371,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   const [diasOverrides, setDiasOverrides] = useState<Record<string, DiaOverrideEdit>>({});
   const [markupEnabled, setMarkupEnabled] = useState(false);
   const [markupPct, setMarkupPct] = useState(15);
+  // Rate Standby (dias de Hotel Pré/Embarque Cancelado). Quando desligado, esses dias não são
+  // cobrados; quando ligado, pode-se sobrescrever o rate cadastrado com um valor manual por dia.
+  // O resultado entra em dias_hotel × rate_hotel, que a folha de rosto já soma às diárias.
+  const [standbyEnabled, setStandbyEnabled] = useState(true);
+  const [standbyRateManual, setStandbyRateManual] = useState<number | null>(null);
+
   // Campos simples, lançados direto no formulário (sem integração com Smartsheet) — ver
   // migration 20260805200000_bm_pos_processamento_team_mob_notes.sql.
   const [posProcessamento, setPosProcessamento] = useState(0);
@@ -990,12 +996,20 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
 
   useEffect(() => {
     setLinesMo(
-      maoDeObraCalculada.map(
-        ({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) =>
-          rest,
-      ),
+      maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => {
+        const rateHotel = !standbyEnabled ? 0 : (standbyRateManual ?? rest.rate_hotel ?? 0);
+        const valorTotal = round2(
+          rest.dias_embarque * (rest.rate_embarque ?? 0) +
+          rest.dias_dobra * (rest.rate_dobra ?? 0) +
+          rest.dias_hotel * rateHotel +
+          rest.horas_extras * (rest.rate_hora_extra ?? 0) +
+          rest.horas_adicional_noturno * (rest.rate_adicional_noturno ?? 0),
+        );
+        return { ...rest, rate_hotel: rateHotel, valor_total: valorTotal };
+      }),
     );
-  }, [maoDeObraCalculada]);
+  }, [maoDeObraCalculada, standbyEnabled, standbyRateManual]);
+
 
   const hasRateMissing = linesMo.some((l) => l.rate_missing);
 
@@ -1744,6 +1758,37 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
       {step === 2 && (
         <div className="space-y-2">
           {carregandoMo && <p className="text-xs text-muted-foreground">Calculando mão de obra…</p>}
+          <div className="rounded-md border bg-muted/20 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={standbyEnabled} onChange={(e) => setStandbyEnabled(e.target.checked)} />
+              Incluir rate Standby (Hotel Pré-Embarque / Embarque Cancelado)
+            </label>
+            {standbyEnabled && (
+              <div className="mt-2 max-w-xs">
+                <Label className="text-xs">Valor manual do Standby (por dia)</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
+                  <Input
+                    className="pl-9"
+                    inputMode="decimal"
+                    placeholder="Usar rate cadastrado"
+                    value={standbyRateManual == null ? "" : String(standbyRateManual).replace(".", ",")}
+                    onChange={(e) => {
+                      const bruto = e.target.value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
+                      setStandbyRateManual(bruto === "" ? null : Number(bruto) || 0);
+                    }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Em branco usa o rate cadastrado. O valor é multiplicado pelos dias de Standby e somado às diárias de embarque na folha de rosto.
+                </p>
+              </div>
+            )}
+            {!standbyEnabled && (
+              <p className="mt-1 text-[11px] text-muted-foreground">Os dias de Standby ficam zerados no BM.</p>
+            )}
+          </div>
+
           <Table>
             <TableHeader>
               <TableRow>
