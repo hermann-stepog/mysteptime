@@ -195,23 +195,51 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   return (
     <div className="bm-print-area">
     <div className="bm-print-scale-inner space-y-6">
-      <div className="flex items-center justify-between border-b pb-3">
+      <div className="flex items-start justify-between border-b pb-3">
         <BrandLogo className="h-10 w-auto" />
         <div className="text-center">
           <h1 className="text-base font-semibold uppercase tracking-wide">Medição de Mão de Obra Offshore</h1>
           <p className="text-[11px] text-muted-foreground">Horas trabalhadas dos colaboradores offshore</p>
         </div>
-        <div className="text-right text-xs text-muted-foreground">
-          <p className="font-semibold text-foreground">{bm.client_name} — {bm.vessel}</p>
-          <p>{fmt(bm.period_start)} – {fmt(bm.period_end)}{bm.po_number ? ` · PO ${bm.po_number}` : ""}</p>
+        <div className="text-right text-xs">
+          <p><span className="font-semibold">Date:</span> <span className="underline">{fmt(bm.period_end)}</span></p>
         </div>
       </div>
+
+      {/* Cabeçalho no formato da planilha do cliente */}
+      <section className="grid gap-3 sm:grid-cols-2">
+        <div className="overflow-hidden rounded border text-xs">
+          <div className="flex border-b">
+            <div className="w-32 bg-muted px-2 py-1 font-semibold">CLIENT:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.client_name || "—"}</div>
+          </div>
+          <div className="flex">
+            <div className="w-32 bg-muted px-2 py-1 font-semibold">Vessel:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.vessel || "—"}</div>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded border text-xs">
+          <div className="flex border-b">
+            <div className="w-40 bg-muted px-2 py-1 font-semibold">BSP / BPP / B3D No.:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.project_name || "—"}</div>
+          </div>
+          <div className="flex border-b">
+            <div className="w-40 bg-muted px-2 py-1 font-semibold">PO Number:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.po_number || "—"}</div>
+          </div>
+          <div className="flex">
+            <div className="w-40 bg-muted px-2 py-1 font-semibold">BM:</div>
+            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.numero_bm || "—"}</div>
+          </div>
+        </div>
+      </section>
 
       {dayGridError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive print:hidden">
           Não foi possível carregar as horas detalhadas do Timesheet. Esta capa não representa os dados completos.
         </div>
       )}
+
 
       {/* Observações internas — nunca sai no PDF/impressão, só pra quem está revisando o BM aqui. */}
       <div className="print:hidden space-y-1">
