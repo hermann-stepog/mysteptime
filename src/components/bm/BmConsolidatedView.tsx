@@ -489,7 +489,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
       <section className="flex justify-end">
         <div className="w-full rounded border bg-muted/30 p-3 sm:w-80">
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Diárias de embarque</span><span>{fmtMoney(workingDays)}</span>
+            <span>Diárias de embarque (inclui Standby)</span><span>{fmtMoney(workingDays)}</span>
+          </div>
+          <div className="flex items-center justify-between pl-3 text-[11px] text-muted-foreground">
+            <span>· Standby ({standbyDias} dia{standbyDias === 1 ? "" : "s"})</span><span>{fmtMoney(standbyValor)}</span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Horas (HE / Adicional Noturno)</span><span>{fmtMoney(totalValorHoras)}</span>
