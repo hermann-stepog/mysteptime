@@ -949,7 +949,40 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
     [diasComOverrides, rates, cab.client, cab.vessel, headerCompleto],
   );
 
-  
+  // Prévia de horas por colaborador, exibida já no passo do cabeçalho.
+  const resumoHoras = useMemo(() => {
+    const porColaborador = new Map<string, {
+      colaboradorId: string; nome: string; funcao: string;
+      dias: number; totalHoras: number; horasExtras: number; diasAdicionalNoturno: number;
+    }>();
+    for (const d of diasComOverrides) {
+      const id = d.colaborador_id ?? d.colaborador_nome;
+      const atual = porColaborador.get(id) ?? {
+        colaboradorId: id, nome: d.colaborador_nome, funcao: d.funcao_embarque ?? "—",
+        dias: 0, totalHoras: 0, horasExtras: 0, diasAdicionalNoturno: 0,
+      };
+      atual.dias += 1;
+      atual.totalHoras += Number(d.total_horas ?? 0);
+      atual.horasExtras += Number(d.horas_extras ?? 0);
+      if (d.adicional_noturno) atual.diasAdicionalNoturno += 1;
+      porColaborador.set(id, atual);
+    }
+    return Array.from(porColaborador.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [diasComOverrides]);
+
+  const resumoHorasTotais = useMemo(
+    () => resumoHoras.reduce(
+      (acc, r) => ({
+        dias: acc.dias + r.dias,
+        totalHoras: acc.totalHoras + r.totalHoras,
+        horasExtras: acc.horasExtras + r.horasExtras,
+        diasAdicionalNoturno: acc.diasAdicionalNoturno + r.diasAdicionalNoturno,
+      }),
+      { dias: 0, totalHoras: 0, horasExtras: 0, diasAdicionalNoturno: 0 },
+    ),
+    [resumoHoras],
+  );
+
 
   useEffect(() => {
     setLinesMo(
