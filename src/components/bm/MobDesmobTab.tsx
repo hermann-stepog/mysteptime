@@ -652,7 +652,7 @@ export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: stri
   const { data: bms = [], isFetching: carregandoBms, refetch: recarregarBms } = useQuery<SmartsheetBm[]>({
     queryKey: ["smartsheet-bm-list"],
     queryFn: async () => (await fetchBms()) as SmartsheetBm[],
-    enabled: !!aplicarBsp,
+    enabled: !!aplicarBsp && !bmEmGeracao,
     staleTime: 5 * 60 * 1000,
   });
 
