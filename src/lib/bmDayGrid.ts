@@ -31,10 +31,34 @@ export interface ColaboradorDayGrid {
   dias: DiaEvento[];
 }
 
+// Prioridade quando o mesmo dia tem mais de um evento (ex.: o último dia de um embarque vem
+// gravado como "Embarque" e "Desembarque" ao mesmo tempo) — vence o evento mais específico.
+const EVENTO_PRIORIDADE: Record<string, number> = {
+  "Desembarque": 100, "Dobra": 90, "Embarque Cancelado": 80, "Embarque": 70,
+  "Hotel Pré Embarque": 60, "Hotel Embarque Cancelado": 60, "Trabalho Externo": 50,
+};
+
+// A cópia em bm_timesheet_dias pode ter mais de uma linha para o mesmo colaborador no mesmo dia
+// (re-sincronizações do timesheet). Sem colapsar isso, a data se repete na sequência, o teste de
+// "dia consecutivo" falha e todos os dias de embarque saem como "P" em vez de "E" — e o mesmo dia
+// pode aparecer duas vezes com códigos diferentes ("D" duplicado).
+export function dedupeDiasPorData(dias: DiaEvento[]): DiaEvento[] {
+  const porData = new Map<string, DiaEvento>();
+  for (const d of dias) {
+    const atual = porData.get(d.data);
+    if (!atual) { porData.set(d.data, d); continue; }
+    const pAtual = EVENTO_PRIORIDADE[atual.evento ?? ""] ?? 0;
+    const pNovo = EVENTO_PRIORIDADE[d.evento ?? ""] ?? 0;
+    if (pNovo > pAtual) porData.set(d.data, d);
+  }
+  return Array.from(porData.values()).sort((a, b) => a.data.localeCompare(b.data));
+}
+
 // Pura, sem I/O — decide o código de exibição de cada dia, considerando a sequência de
 // eventos do colaborador (ordenados por data) pra saber se é o 1º dia de um bloco.
 export function computeDayCodes(dias: DiaEvento[]): Map<string, DayCode | null> {
-  const ordenados = [...dias].sort((a, b) => a.data.localeCompare(b.data));
+  const ordenados = dedupeDiasPorData(dias);
+
   const codes = new Map<string, DayCode | null>();
   let prevEvento: string | null = null;
   let prevData: string | null = null;
@@ -93,5 +117,8 @@ export async function fetchBmDayGrid(bsp: string, periodStart: string, periodEnd
       });
     });
 
-  return Array.from(porColaborador.values()).sort((a, b) => a.colaboradorNome.localeCompare(b.colaboradorNome));
+  return Array.from(porColaborador.values())
+    .map((c) => ({ ...c, dias: dedupeDiasPorData(c.dias) }))
+    .sort((a, b) => a.colaboradorNome.localeCompare(b.colaboradorNome));
+
 }
