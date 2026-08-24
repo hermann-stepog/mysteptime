@@ -107,12 +107,17 @@ export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Ra
   });
 
   const linhas: BmLineMoComputed[] = [];
-  porColaborador.forEach(({ nome, funcao, bsp: colaboradorBsp, dias: diasColab }, colaboradorId) => {
+  porColaborador.forEach(({ nome, funcao, bsp: colaboradorBsp, dias: diasBrutos }, colaboradorId) => {
+    // A cópia em bm_timesheet_dias pode ter mais de uma linha para o mesmo colaborador na mesma
+    // data (re-sincronizações do timesheet). Sem colapsar por data, o mesmo dia de embarque é
+    // contado duas vezes (ex.: 5 dias embarcados viravam 9 na folha de rosto).
+    const diasColab = dedupeDiasColaborador(diasBrutos);
     const diasEmbarque = diasColab.filter((d) => d.evento === "Embarque").length;
     const diasDobra = diasColab.filter((d) => d.evento === "Dobra").length;
     const diasHotel = diasColab.filter((d) => d.evento && EVENTOS_HOTEL.has(d.evento)).length;
     const horasExtras = round2(diasColab.reduce((acc, d) => acc + (d.horas_extras ?? 0), 0));
     const horasAdicionalNoturno = round2(diasColab.reduce((acc, d) => acc + (d.adicional_noturno ? (d.total_horas ?? 0) : 0), 0));
+
 
     const rate = findRate(rates, client, vessel, funcao);
     const rateMissing = !rate;
