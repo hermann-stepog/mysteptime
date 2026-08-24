@@ -155,7 +155,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
     { label: "Material MOB / DEMOB", value: materiais },
   ];
   const totalGeral = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
-  const currentBm = bm.valor_bm_manual != null ? round2(bm.valor_bm_manual) : totalGeral;
+  // O valor do BM é sempre a soma dos blocos da folha de rosto. `valor_bm_manual` só entra
+  // como fallback quando não há nada calculado (senão um valor antigo salvo no gerador
+  // sobrescrevia o total real — ex.: Total R$ 14.203,85 aparecendo como R$ 531,59).
+  const currentBm = totalGeral > 0 ? totalGeral : round2(bm.valor_bm_manual ?? 0);
 
   const bmIssued = bm.po_value != null && bm.po_balance_before != null ? round2(bm.po_value - bm.po_balance_before) : null;
   const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : (bm.po_value != null ? round2(bm.po_value - currentBm) : null);
