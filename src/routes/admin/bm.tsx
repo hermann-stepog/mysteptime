@@ -1758,6 +1758,37 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
       {step === 2 && (
         <div className="space-y-2">
           {carregandoMo && <p className="text-xs text-muted-foreground">Calculando mão de obra…</p>}
+          <div className="rounded-md border bg-muted/20 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={standbyEnabled} onChange={(e) => setStandbyEnabled(e.target.checked)} />
+              Incluir rate Standby (Hotel Pré-Embarque / Embarque Cancelado)
+            </label>
+            {standbyEnabled && (
+              <div className="mt-2 max-w-xs">
+                <Label className="text-xs">Valor manual do Standby (por dia)</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
+                  <Input
+                    className="pl-9"
+                    inputMode="decimal"
+                    placeholder="Usar rate cadastrado"
+                    value={standbyRateManual == null ? "" : String(standbyRateManual).replace(".", ",")}
+                    onChange={(e) => {
+                      const bruto = e.target.value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
+                      setStandbyRateManual(bruto === "" ? null : Number(bruto) || 0);
+                    }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Em branco usa o rate cadastrado. O valor é multiplicado pelos dias de Standby e somado às diárias de embarque na folha de rosto.
+                </p>
+              </div>
+            )}
+            {!standbyEnabled && (
+              <p className="mt-1 text-[11px] text-muted-foreground">Os dias de Standby ficam zerados no BM.</p>
+            )}
+          </div>
+
           <Table>
             <TableHeader>
               <TableRow>
