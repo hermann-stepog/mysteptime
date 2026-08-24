@@ -459,7 +459,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
         </div>
       </section>
 
-      {/* ── Total geral da folha (diárias + horas) ── */}
+      {/* ── Total geral da folha (tudo que foi inserido no gerador) ── */}
       <section className="flex justify-end">
         <div className="w-full rounded border bg-muted/30 p-3 sm:w-80">
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -468,6 +468,16 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Horas (HE / Adicional Noturno)</span><span>{fmtMoney(totalValorHoras)}</span>
           </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Mob/Desmob</span><span>{fmtMoney(mobDemob)}</span>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Logistics</span><span>{fmtMoney(logistics)}</span>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Material MOB / DEMOB</span><span>{fmtMoney(materiais)}</span>
+          </div>
+
           <div className="mt-2 flex items-center justify-between border-t pt-2 text-sm font-bold">
             <span>Valor total do BM</span><span>{fmtMoney(currentBm)}</span>
           </div>
