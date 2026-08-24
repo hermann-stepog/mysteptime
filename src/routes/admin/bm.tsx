@@ -35,7 +35,6 @@ import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
-import { AplicarCustoMobDesmobDialog } from "@/components/bm/AplicarCustoMobDesmobDialog";
 import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
@@ -377,7 +376,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
   // na aba Logística Mob/Desmob.
   const [logisticaManual, setLogisticaManual] = useState(0);
-  const [adicionarCustoOpen, setAdicionarCustoOpen] = useState(false);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
