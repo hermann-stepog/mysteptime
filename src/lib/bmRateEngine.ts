@@ -73,8 +73,21 @@ function findRate(rates: Rate[], client: string, vessel: string, funcao: string)
   const exato = rates.find((r) => doClienteVessel(r) && normalizar(r.funcao) === normalizar(funcao));
   if (exato) return exato;
   const funcaoBase = stripNivel(funcao);
-  return rates.find((r) => doClienteVessel(r) && stripNivel(r.funcao) === funcaoBase);
+  const porNivel = rates.find((r) => doClienteVessel(r) && stripNivel(r.funcao) === funcaoBase);
+  if (porNivel) return porNivel;
+  // Último fallback: função do timesheet vem mais específica que a cadastrada em Rates
+  // ("SUPERVISOR OFFSHORE III" x rate "SUPERVISOR"). Aceita a rate cujo nome é prefixo
+  // por palavra da função e, entre as candidatas, usa a mais específica (mais longa) —
+  // assim "SUPERVISOR - EXPAT" nunca é escolhida para um supervisor comum.
+  const alvo = funcaoBase.split(/\s+/);
+  const candidatas = rates.filter((r) => {
+    if (!doClienteVessel(r)) return false;
+    const tokens = stripNivel(r.funcao).split(/\s+/);
+    return tokens.length <= alvo.length && tokens.every((t, i) => t === alvo[i]);
+  });
+  return candidatas.sort((a, b) => stripNivel(b.funcao).length - stripNivel(a.funcao).length)[0];
 }
+
 
 export type BmLineMoComputed = Omit<BmLineMo, "id" | "bm_id"> & {
   hasHoraExtraRate: boolean;
