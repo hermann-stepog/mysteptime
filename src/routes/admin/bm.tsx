@@ -1568,8 +1568,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
                 <Button
                   type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]"
                   disabled={!cab.bsp}
-                  onClick={() => setAdicionarCustoOpen(true)}
+                  onClick={() => onIrParaLogistica?.()}
                 >
+
                   <Plus className="mr-1 h-3 w-3" />Adicionar custo
                 </Button>
                 <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
