@@ -135,6 +135,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   // Dias Dobra×Rate Dobra + Dias Emb.Canc./Hotel Pré×Rate Standby. O Standby estava fora
   // desta soma, então o valor do BM saía menor que o total das linhas.
   const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0) + l.dias_hotel * (l.rate_hotel ?? 0), 0));
+  // Standby (Hotel Pré-Embarque / Embarque Cancelado) exposto separado, mas já contido em
+  // workingDays — a folha de rosto mostra dias e valor pra deixar claro o que compõe o total.
+  const standbyDias = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_hotel, 0));
+  const standbyValor = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_hotel * (l.rate_hotel ?? 0), 0));
   const overtimeNightShift = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
   // Totais do rodapé da tabela de Horas — a partir de linesMoLocal (reflete os rates editados
   // ali mesmo na folha de rosto, não só o valor original salvo em linesMo).
