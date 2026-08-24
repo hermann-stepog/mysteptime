@@ -117,5 +117,8 @@ export async function fetchBmDayGrid(bsp: string, periodStart: string, periodEnd
       });
     });
 
-  return Array.from(porColaborador.values()).sort((a, b) => a.colaboradorNome.localeCompare(b.colaboradorNome));
+  return Array.from(porColaborador.values())
+    .map((c) => ({ ...c, dias: dedupeDiasPorData(c.dias) }))
+    .sort((a, b) => a.colaboradorNome.localeCompare(b.colaboradorNome));
+
 }
