@@ -737,6 +737,31 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
       if (!f.colaboradorId) throw new Error("Selecione um colaborador.");
       if (!f.funcao_embarque) throw new Error("Selecione a função do embarque.");
       if (!f.data_inicio || !f.data_fim) throw new Error("Informe as datas do embarque.");
+      if (f.data_fim < f.data_inicio) throw new Error("Data fim não pode ser antes da data início.");
+      // Mais de ~6 meses quase sempre é erro de digitação (ex.: ano trocado) — um embarque
+      // desse tamanho gera centenas de semanas/dias em branco silenciosamente. Não bloqueia
+      // embarque longo de verdade, só pede confirmação de que a data está certa.
+      const duracaoDias = daysBetweenStr(f.data_inicio, f.data_fim) + 1;
+      if (duracaoDias > 180) {
+        throw new Error(`Esse embarque duraria ${duracaoDias} dias — confira se a data fim (${fmt(f.data_fim)}) não foi digitada com o ano errado.`);
+      }
+      // Mesmo critério de dedup usado na sincronização do Drake (ensureTimesheetParaPeriodo) e
+      // no import de PDF: nunca criar um embarque novo pra um colaborador que já tem um
+      // sobrepondo essas datas — evita duplicar quando o Drake confirma depois um embarque já
+      // lançado aqui manualmente (foi exatamente isso que gerou os "Sem BSP" fantasma).
+      const { data: existentes, error: exErr } = await supabase
+        .from("timesheet_embarques")
+        .select("id, data_inicio_embarque, data_fim_embarque")
+        .eq("colaborador_id", f.colaboradorId);
+      if (exErr) throw exErr;
+      const sobreposto = (existentes ?? []).find(
+        (e: any) => e.data_inicio_embarque <= f.data_fim && e.data_fim_embarque >= f.data_inicio,
+      );
+      if (sobreposto) {
+        throw new Error(
+          `Esse colaborador já tem um embarque lançado de ${fmt(sobreposto.data_inicio_embarque)} a ${fmt(sobreposto.data_fim_embarque)}. Edite o embarque existente em vez de lançar um novo sobreposto.`,
+        );
+      }
       const { data, error } = await supabase.from("timesheet_embarques").insert({
         colaborador_id: f.colaboradorId,
         periodo_id: null,
