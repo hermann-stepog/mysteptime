@@ -796,6 +796,8 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
       setAplicarBsp(null);
       setBmSelecionado(null);
       setMarkupResultado(null);
+      // Veio do assistente: volta pra aba "Gerar BM" já com o valor aplicado nos campos.
+      if (bmEmGeracao) onAplicadoNoBmEmGeracao?.();
     },
 
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),

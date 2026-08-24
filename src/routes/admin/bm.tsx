@@ -207,7 +207,7 @@ function BmPage() {
               <TimesheetsTab />
             </TabsContent>
             <TabsContent value="timesheets-mob-desmob" className="mt-4">
-              <MobDesmobTab bmEmGeracao={gerandoCtx} />
+              <MobDesmobTab bmEmGeracao={gerandoCtx} onAplicadoNoBmEmGeracao={() => setMoSubTab("timesheets-gerar")} />
             </TabsContent>
             {/* forceMount: o assistente guarda cabeçalho/horas só em memória — ao pular pra aba
                 Logística Mob/Desmob e voltar, o progresso continua intacto. */}
