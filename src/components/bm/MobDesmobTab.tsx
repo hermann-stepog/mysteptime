@@ -757,7 +757,7 @@ export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: stri
         const valorPendenteOriginal = markupResultado?.valorPendenteOriginal ?? grupoAplicando.totalPendente;
         const { error: markupError } = await supabase.from("bm_mob_desmob_markups").insert({
           bsp: grupoAplicando.bsp,
-          applied_bm_number: bmSelecionado.bmNumber,
+          applied_bm_number: bmAlvoNumero,
           custo_ids: grupoAplicando.pendentes.map((c) => c.id),
           incluiu_markup: incluiuMarkup,
           tipo_markup: incluiuMarkup ? markupResultado?.tipoMarkup ?? null : null,
