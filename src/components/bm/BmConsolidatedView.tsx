@@ -135,6 +135,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   // Dias Dobra×Rate Dobra + Dias Emb.Canc./Hotel Pré×Rate Standby. O Standby estava fora
   // desta soma, então o valor do BM saía menor que o total das linhas.
   const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0) + l.dias_hotel * (l.rate_hotel ?? 0), 0));
+  // Standby (Hotel Pré-Embarque / Embarque Cancelado) exposto separado, mas já contido em
+  // workingDays — a folha de rosto mostra dias e valor pra deixar claro o que compõe o total.
+  const standbyDias = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_hotel, 0));
+  const standbyValor = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_hotel * (l.rate_hotel ?? 0), 0));
   const overtimeNightShift = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
   // Totais do rodapé da tabela de Horas — a partir de linesMoLocal (reflete os rates editados
   // ali mesmo na folha de rosto, não só o valor original salvo em linesMo).
@@ -383,8 +387,15 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                 {dates.map((d) => <TableCell key={d} />)}
                 <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_embarque, 0))}</TableCell>
                 <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_dobra, 0))}</TableCell>
-                <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_hotel, 0))}</TableCell>
+                <TableCell /><TableCell className="text-xs">{standbyDias}</TableCell>
                 <TableCell className="text-xs font-semibold">{fmtMoney(workingDays)}</TableCell>
+              </TableRow>
+              <TableRow className="bg-muted/50">
+                <TableCell className="sticky left-0 bg-muted/50 text-xs font-semibold">Standby (dias × rate)</TableCell>
+                <TableCell /><TableCell />
+                {dates.map((d) => <TableCell key={d} />)}
+                <TableCell colSpan={5} className="text-right text-[10px] text-muted-foreground">{standbyDias} dia(s) de standby</TableCell>
+                <TableCell className="text-xs font-semibold">{fmtMoney(standbyValor)}</TableCell>
               </TableRow>
               <TableRow className="bg-muted/30">
                 <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Mobilização</TableCell>
@@ -478,7 +489,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
       <section className="flex justify-end">
         <div className="w-full rounded border bg-muted/30 p-3 sm:w-80">
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Diárias de embarque</span><span>{fmtMoney(workingDays)}</span>
+            <span>Diárias de embarque (inclui Standby)</span><span>{fmtMoney(workingDays)}</span>
+          </div>
+          <div className="flex items-center justify-between pl-3 text-[11px] text-muted-foreground">
+            <span>· Standby ({standbyDias} dia{standbyDias === 1 ? "" : "s"})</span><span>{fmtMoney(standbyValor)}</span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Horas (HE / Adicional Noturno)</span><span>{fmtMoney(totalValorHoras)}</span>
