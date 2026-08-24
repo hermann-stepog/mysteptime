@@ -1137,7 +1137,11 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
         total_mob_desmob_materiais: 0,
         pos_processamento: posProcessamento,
         team_mob_desmob: teamMobDesmob,
-        logistica_manual: logisticaManual,
+        // Os custos Mob/Desmob aplicados ao BSP (transporte/hotel/outros + markup já
+        // calculado na aplicação) não vinham de cost_logs, então não entravam em
+        // total_logistica e a folha de rosto mostrava "Logistics: R$ 0,00". Vão junto do
+        // manual, que a folha soma sem reaplicar markup.
+        logistica_manual: round2(logisticaManual + mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros + mobDesmob.markup),
         valor_bm_manual: valorBmManual,
         internal_notes: internalNotes.trim() || null,
         total_geral: totalGeral,
