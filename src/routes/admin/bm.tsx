@@ -1053,12 +1053,17 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
     queryKey: ["bm-mob-desmob-aplicados", cab.bsp, numeroBmAtual],
     enabled: !!cab.bsp,
     queryFn: async () => {
+      // O BSP gravado nos custos vem da planilha com prefixo/unidade ("BSP 26-822,ESPIRITO
+      // SANTO"), enquanto o cabeçalho usa só o código ("26-822"). Comparar com o mesmo
+      // normalizador do resto do BM, em vez de igualdade literal.
+      const bspAlvo = normalizeBmBspKey(cab.bsp);
       const { data, error } = await supabase
-        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number")
-        .eq("applied", true).eq("bsp", cab.bsp);
+        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number, bsp")
+        .eq("applied", true);
       if (error) throw error;
       const acc = { transporte: 0, hotel: 0, outros: 0, markup: 0 };
-      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null; bsp: string }[]) {
+        if (normalizeBmBspKey(r.bsp) !== bspAlvo) continue;
         if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
         const k = (r.categoria in acc ? r.categoria : "outros") as "transporte" | "hotel" | "outros";
         acc[k] = round2(acc[k] + (Number(r.total_cost) || 0));
@@ -1067,9 +1072,11 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
       // pelo "Aplicar tudo ao BM". Se a tabela ainda não existir (migration não aplicada),
       // isso aqui cai em silêncio e markup fica 0, sem quebrar o resto do BM.
       const { data: markups } = await supabase
-        .from("bm_mob_desmob_markups").select("applied_bm_number, incluiu_markup, valor_markup_calculado")
-        .eq("bsp", cab.bsp).eq("incluiu_markup", true);
-      for (const m of (markups ?? []) as { applied_bm_number: string; valor_markup_calculado: number }[]) {
+        .from("bm_mob_desmob_markups").select("applied_bm_number, incluiu_markup, valor_markup_calculado, bsp")
+        .eq("incluiu_markup", true);
+      for (const m of (markups ?? []) as { applied_bm_number: string; valor_markup_calculado: number; bsp: string }[]) {
+        if (normalizeBmBspKey(m.bsp) !== bspAlvo) continue;
+
         if (numeroBmAtual && m.applied_bm_number && m.applied_bm_number !== numeroBmAtual) continue;
         acc.markup = round2(acc.markup + (Number(m.valor_markup_calculado) || 0));
       }
