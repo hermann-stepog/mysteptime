@@ -221,7 +221,11 @@ const NOTAS_BUCKET = "bm-mob-desmob-notas";
 // custo"). Nesse caso não faz sentido escolher um BM numa lista — o BM é o que está sendo
 // gerado; aplica direto nele e o valor (com markup, quando houver) aparece automaticamente
 // nos campos de Logística Mob/Desmob do gerador.
-export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: string; bmNumber: string } | null } = {}) {
+export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
+  bmEmGeracao?: { bsp: string; bmNumber: string } | null;
+  /** Chamado depois de aplicar custos vindo do assistente — devolve o usuário pra aba "Gerar BM". */
+  onAplicadoNoBmEmGeracao?: () => void;
+} = {}) {
 
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -792,6 +796,8 @@ export function MobDesmobTab({ bmEmGeracao = null }: { bmEmGeracao?: { bsp: stri
       setAplicarBsp(null);
       setBmSelecionado(null);
       setMarkupResultado(null);
+      // Veio do assistente: volta pra aba "Gerar BM" já com o valor aplicado nos campos.
+      if (bmEmGeracao) onAplicadoNoBmEmGeracao?.();
     },
 
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
