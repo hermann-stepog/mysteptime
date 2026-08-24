@@ -324,7 +324,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                 <TableHead>Rate Dobra</TableHead>
                 <TableHead>Dias Dobra</TableHead>
                 <TableHead>Rate Emb. Canc./Hotel</TableHead>
-                <TableHead>Dias Emb Canc/Hotel</TableHead>
+                <TableHead>Dias Emb Canc/Hotel/Standby</TableHead>
                 <TableHead>Total</TableHead>
               </TableRow>
             </TableHeader>
