@@ -1,4 +1,5 @@
 import type { BmLineMo } from "@/lib/bm";
+import { dedupeDiasPorData } from "@/lib/bmDayGrid";
 
 // Um dia de timesheet já enriquecido com quem é o colaborador e em que embarque/função ele
 // está — resultado do join feito no componente (timesheet_dias -> timesheet_semanas ->
@@ -89,6 +90,31 @@ function findRate(rates: Rate[], client: string, vessel: string, funcao: string)
 }
 
 
+// Colapsa as linhas repetidas da mesma data (re-sincronização do timesheet): mantém um único
+// dia, com o evento mais específico (mesma regra da grade do BM) e as horas efetivas do dia
+// (a linha duplicada costuma vir zerada).
+function dedupeDiasColaborador(dias: TimesheetDiaComColaborador[]): TimesheetDiaComColaborador[] {
+  const porData = new Map<string, TimesheetDiaComColaborador[]>();
+  dias.forEach((d) => {
+    const lista = porData.get(d.data) ?? [];
+    lista.push(d);
+    porData.set(d.data, lista);
+  });
+
+  const escolhidos = dedupeDiasPorData(dias.map((d) => ({ data: d.data, evento: d.evento })));
+  return escolhidos.map((escolhido) => {
+    const linhas = porData.get(escolhido.data) ?? [];
+    const base = linhas.find((l) => l.evento === escolhido.evento) ?? linhas[0];
+    return {
+      ...base,
+      evento: escolhido.evento,
+      total_horas: Math.max(...linhas.map((l) => l.total_horas ?? 0)),
+      horas_extras: Math.max(...linhas.map((l) => l.horas_extras ?? 0)),
+      adicional_noturno: linhas.some((l) => l.adicional_noturno),
+    };
+  });
+}
+
 export type BmLineMoComputed = Omit<BmLineMo, "id" | "bm_id"> & {
   hasHoraExtraRate: boolean;
   hasAdicionalNoturnoRate: boolean;
@@ -107,12 +133,17 @@ export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Ra
   });
 
   const linhas: BmLineMoComputed[] = [];
-  porColaborador.forEach(({ nome, funcao, bsp: colaboradorBsp, dias: diasColab }, colaboradorId) => {
+  porColaborador.forEach(({ nome, funcao, bsp: colaboradorBsp, dias: diasBrutos }, colaboradorId) => {
+    // A cópia em bm_timesheet_dias pode ter mais de uma linha para o mesmo colaborador na mesma
+    // data (re-sincronizações do timesheet). Sem colapsar por data, o mesmo dia de embarque é
+    // contado duas vezes (ex.: 5 dias embarcados viravam 9 na folha de rosto).
+    const diasColab = dedupeDiasColaborador(diasBrutos);
     const diasEmbarque = diasColab.filter((d) => d.evento === "Embarque").length;
     const diasDobra = diasColab.filter((d) => d.evento === "Dobra").length;
     const diasHotel = diasColab.filter((d) => d.evento && EVENTOS_HOTEL.has(d.evento)).length;
     const horasExtras = round2(diasColab.reduce((acc, d) => acc + (d.horas_extras ?? 0), 0));
     const horasAdicionalNoturno = round2(diasColab.reduce((acc, d) => acc + (d.adicional_noturno ? (d.total_horas ?? 0) : 0), 0));
+
 
     const rate = findRate(rates, client, vessel, funcao);
     const rateMissing = !rate;
