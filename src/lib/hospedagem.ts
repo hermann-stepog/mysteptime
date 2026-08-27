@@ -6,6 +6,8 @@ export interface HotelFornecedor {
   nome: string;
   cidade: string;
   estado: string;
+  endereco: string | null;
+  telefone: string | null;
 }
 
 export interface Hospedagem {
@@ -22,6 +24,15 @@ export interface Hospedagem {
   valor_total: number;
   motivo: string | null;
   observacoes: string | null;
+  // Campos vindos da importação da planilha de custos histórica (ver src/lib/importCustos.ts)
+  // — também editáveis pra lançamentos novos.
+  nf: string | null;
+  fornecedor: string | null;
+  cobrado: boolean | null;
+  status_lancamento: string | null;
+  faturado: boolean | null;
+  usuario_faturamento: string | null;
+  data_faturamento: string | null;
 }
 
 export function computeDiarias(checkIn: string, checkOut: string): number {
