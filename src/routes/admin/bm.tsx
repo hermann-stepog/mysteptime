@@ -162,7 +162,7 @@ function BmPage() {
         </div>
         <Card className="p-4 space-y-3">
           <Skeleton className="h-4 w-1/3" />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
@@ -1092,7 +1092,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
       {step === 0 && (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Cliente</Label>
               <Select
@@ -1181,7 +1181,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">BSP</Label>
               <Select
@@ -1261,7 +1261,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label className="text-xs">Valor Total da PO</Label>
               <Input readOnly className="bg-muted/40" value={cab.poValue != null ? fmtMoney(cab.poValue) : "—"} />
@@ -1321,13 +1321,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 </div>
               ) : (
                 <details className="relative">
+                  {/* Não trava mais atrás de ter uma PO escolhida — pode não existir PO pra
+                      esse BM (ver "PO"/"Valor Total da PO" logo acima, também sem
+                      obrigatoriedade), e mesmo assim precisa dar pra criar/escolher o número
+                      do BM. */}
                   <summary
-                    aria-disabled={!cab.poNumber}
                     className={cn(
                       "flex h-10 cursor-pointer list-none items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
                       "[&::-webkit-details-marker]:hidden",
-                      !cab.poNumber &&
-                        "pointer-events-none opacity-50",
                     )}
                   >
                     <span className="truncate">
@@ -1444,7 +1445,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><Label className="text-xs">Período — De</Label><Input type="date" value={cab.periodStart} onChange={(e) => setCab({ ...cab, periodStart: e.target.value })} /></div>
             <div><Label className="text-xs">Período — Até</Label><Input type="date" value={cab.periodEnd} onChange={(e) => setCab({ ...cab, periodEnd: e.target.value })} /></div>
           </div>
@@ -1592,7 +1593,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
 
       {step === 4 && (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <div className="space-y-1">
               <div className="flex justify-between"><span>Mão de Obra</span><span className="font-medium">{fmtMoney(totals.totalMo)}</span></div>
               <div className="flex justify-between"><span>Logística{markupEnabled ? ` (+${markupPct}%)` : ""}</span><span className="font-medium">{fmtMoney(totals.totalLogisticaComMarkup)}</span></div>
@@ -1638,7 +1639,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                   </div>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
                   <Label className="text-xs">Pós Processamento</Label>
                   <Input type="number" step="0.01" value={posProcessamento}
@@ -1935,7 +1936,7 @@ function MaterialBmWizard({ tipo }: { tipo: MedicaoKey }) {
 
   return (
     <Card className="p-4 space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <Label className="text-xs">BSP</Label>
           <Select value={bsp} onValueChange={setBsp}>

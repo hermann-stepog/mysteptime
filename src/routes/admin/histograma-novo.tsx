@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
 import { useAuth } from "@/hooks/useAuth";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FadeInView, FadeInRow } from "@/components/FadeInView";
@@ -33,7 +35,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
-  Download, BedDouble, Info, Building2,
+  Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
@@ -49,7 +51,7 @@ import {
   type HistoricoOcupacaoColaborador,
 } from "@/lib/histogramaNovo";
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
-import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
+import { UNIDADES_OPERACIONAIS_FIXAS, resolverFuncaoEmbarque } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
@@ -514,7 +516,7 @@ function EventoMultiCombobox({ options, value, onChange }: {
 // Exportação do Relatório de Embarques — usada pelo módulo de Relatórios (card "Embarques").
 // Lista todos os períodos do tipo "E" (embarcado) lançados no Histograma Offshore.
 export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: string): Promise<void> {
-  const [{ data: colaboradores, error: cErr }, periodos] = await Promise.all([
+  const [{ data: colaboradores, error: cErr }, periodos, timesheetEmbarques] = await Promise.all([
     supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<HistNovoPeriodo>((from, to) => {
       let q = supabase.from("hist_novo_periodos").select("*").eq("tipo", "E")
@@ -526,16 +528,22 @@ export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: 
       if (dataInicio) q = q.gte("data_fim", dataInicio);
       return q.range(from, to);
     }),
+    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   if (cErr) throw cErr;
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
+  const embarquesByColaboradorId = new Map<string, TimesheetEmbarque[]>();
+  timesheetEmbarques.forEach((e) => {
+    if (!embarquesByColaboradorId.has(e.colaborador_id)) embarquesByColaboradorId.set(e.colaborador_id, []);
+    embarquesByColaboradorId.get(e.colaborador_id)!.push(e);
+  });
   const rows = periodos.map((p) => {
     const c = colabById.get(p.colaborador_id);
     return {
       matricula: c?.matricula ?? "—",
       colaborador: c?.nome ?? "—",
       empresa: c?.empresa ?? "—",
-      funcao: c?.funcao || c?.funcao_operacao || "—",
+      funcao: resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, c?.funcao || c?.funcao_operacao),
       unidade_operacional: p.unidade_operacional ?? "—",
       BSP: bspDoPeriodo(p) ?? "—",
       data_inicio: p.data_inicio,
@@ -739,8 +747,23 @@ const EVENTO_FILTRO_OPTIONS: { value: string; label: string }[] = [
 
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
+  const today = todayStr();
 
   const colaboradorById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
+
+  // Função de embarque (não a cadastral) por colaborador — ver resolverFuncaoEmbarque.
+  const { data: timesheetEmbarques = [] } = useQuery({
+    queryKey: ["timesheet-embarques"],
+    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+  });
+  const embarquesByColaboradorId = useMemo(() => {
+    const m = new Map<string, TimesheetEmbarque[]>();
+    timesheetEmbarques.forEach((e) => {
+      if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []);
+      m.get(e.colaborador_id)!.push(e);
+    });
+    return m;
+  }, [timesheetEmbarques]);
 
   // Só entra nas listas de seleção (novo lançamento, filtro da tabela, edição) quem já teve
   // MAIS DE UM embarque confirmado — mesma regra do Dashboard e da importação "Na Base" (ver
@@ -768,8 +791,8 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   // Funções já existentes nos colaboradores — opções da lista suspensa multi-seleção do
   // filtro de Função (mesmo padrão de unidadesExistentes acima).
   const funcoesExistentes = useMemo(
-    () => Array.from(new Set(colaboradoresComMultiploEmbarque.map((c) => c.funcao || c.funcao_operacao).filter((f): f is string => !!f))).sort(),
-    [colaboradoresComMultiploEmbarque],
+    () => Array.from(new Set(colaboradoresComMultiploEmbarque.map((c) => resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao)))).sort(),
+    [colaboradoresComMultiploEmbarque, today, embarquesByColaboradorId],
   );
 
   // Última folga (mais recente até hoje) de cada colaborador — usada nas colunas "Início
@@ -951,7 +974,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       (filterColaborador.length === 0 || filterColaborador.includes(p.colaborador_id)) &&
       (filterUnidade.length === 0 || (p.unidade_operacional != null && filterUnidade.includes(p.unidade_operacional))) &&
       (filterBsp.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && filterBsp.includes(b); })()) &&
-      (filterFuncao.length === 0 || filterFuncao.includes(colaboradorById.get(p.colaborador_id)?.funcao || colaboradorById.get(p.colaborador_id)?.funcao_operacao || "")) &&
+      (filterFuncao.length === 0 || filterFuncao.includes(resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, colaboradorById.get(p.colaborador_id)?.funcao || colaboradorById.get(p.colaborador_id)?.funcao_operacao))) &&
       (!filterDe || p.data_fim >= filterDe) &&
       (!filterAte || p.data_inicio <= filterAte);
 
@@ -1000,7 +1023,9 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         case "funcao": {
           const fa = colaboradorById.get(a.colaborador_id);
           const fb = colaboradorById.get(b.colaborador_id);
-          return dir * (fa?.funcao || fa?.funcao_operacao || "").localeCompare(fb?.funcao || fb?.funcao_operacao || "");
+          const funcaoA = resolverFuncaoEmbarque(a.colaborador_id, a.data_inicio, embarquesByColaboradorId, fa?.funcao || fa?.funcao_operacao);
+          const funcaoB = resolverFuncaoEmbarque(b.colaborador_id, b.data_inicio, embarquesByColaboradorId, fb?.funcao || fb?.funcao_operacao);
+          return dir * funcaoA.localeCompare(funcaoB);
         }
         case "evento":
           return dir * a.tipo.localeCompare(b.tipo);
@@ -1018,7 +1043,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           return 0;
       }
     });
-  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection]);
+  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection, embarquesByColaboradorId]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
   // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
@@ -1027,7 +1052,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       const c = colaboradorById.get(p.colaborador_id);
       return {
         Colaborador: c?.nome ?? "—",
-        Função: c?.funcao || c?.funcao_operacao || "—",
+        Função: resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, c?.funcao || c?.funcao_operacao),
         Evento: p.tipo === "DES" ? `DES — ${STATUS_LABEL.DES}` : isTipoPeriodo(p.tipo) ? `${displayAbbr(p.tipo)} — ${TIPO_LABEL[p.tipo]}` : p.tipo,
         Unidade: p.unidade_operacional ?? "—",
         BSP: bspDoPeriodo(p) ?? "—",
@@ -1200,7 +1225,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               return (
                 <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{c?.funcao || c?.funcao_operacao || "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, c?.funcao || c?.funcao_operacao)}</TableCell>
                   <TableCell>
                     {isDesembarqueVirtual ? (
                       <span
@@ -1440,12 +1465,6 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
     [periodos, unidadeFilter, unidadeCanonMap],
   );
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeFilter.length ? unidadesCruasFiltro : []), [periodos, unidadeFilter, unidadesCruasFiltro]);
-  // "funcao" é a função de embarque do colaborador (a que bate com os rates cadastrados);
-  // "funcao_operacao" é só usada como reserva pra quem não tem funcao preenchida.
-  const funcaoOptions = useMemo(
-    () => Array.from(new Set(colaboradores.map((c) => c.funcao || c.funcao_operacao).filter((f): f is string => !!f))).sort(),
-    [colaboradores],
-  );
 
   // Indicador de timesheet físico recebido (verde escuro) vs. embarcado com timesheet pendente
   // (verde claro) nas células "E" — ver Timesheet Offshore.
@@ -1482,6 +1501,12 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   }, [timesheetSemanas]);
 
   const today = todayStr();
+  // Função de embarque de hoje (com reserva pra função cadastral, quando não há embarque
+  // cobrindo hoje — ver resolverFuncaoEmbarque) — não mais a função cadastral direto.
+  const funcaoOptions = useMemo(
+    () => Array.from(new Set(colaboradores.map((c) => resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao)))).sort(),
+    [colaboradores, today, embarquesByColaboradorId],
+  );
   const gridDates = useMemo(() => (gridDe && gridAte && gridDe <= gridAte ? generateDateRange(gridDe, gridAte) : []), [gridDe, gridAte]);
   const yearDates = useMemo(() => buildYearDates(year), [year]);
   const yearMonthGroups = useMemo(() => groupDatesByMonth(yearDates), [yearDates]);
@@ -1527,7 +1552,7 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   const visibleColaboradores = useMemo(() => {
     if (unidadeFilter.length === 0 && bspFilter.length === 0 && funcaoFilter.length === 0) return statusFiltered;
     return statusFiltered.filter((c) => {
-      if (funcaoFilter.length && !funcaoFilter.includes(c.funcao || c.funcao_operacao || "")) return false;
+      if (funcaoFilter.length && !funcaoFilter.includes(resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao))) return false;
       if (unidadeFilter.length === 0 && bspFilter.length === 0) return true;
       return (periodosByColaborador.get(c.id) ?? []).some((p) =>
         (unidadeFilter.length === 0 || unidadeFilter.includes(canonUnidade(p.unidade_operacional, unidadeCanonMap) ?? "")) &&
@@ -1535,7 +1560,7 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
         p.data_fim >= gridDe && p.data_inicio <= gridAte,
       );
     });
-  }, [statusFiltered, unidadeFilter, bspFilter, funcaoFilter, periodosByColaborador, gridDe, gridAte, unidadeCanonMap]);
+  }, [statusFiltered, unidadeFilter, bspFilter, funcaoFilter, periodosByColaborador, gridDe, gridAte, unidadeCanonMap, today, embarquesByColaboradorId]);
 
   // Conta pessoas únicas por nome (evita contar duas vezes cadastros duplicados do mesmo colaborador).
   const visibleCount = useMemo(
@@ -1760,6 +1785,17 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
     });
   }, [colaboradores, periodosByColaborador, sortColumn, sortDirection, today]);
 
+  // Abaixo de 1280px um mês inteiro de colunas (~30 × 26px) não cabe sem rolar. Nesse caso,
+  // pagina a janela de dias visíveis (setas anterior/próximo) em vez de mostrar tudo — o
+  // intervalo De/Até do filtro continua controlando os dados, isso só recorta o que aparece.
+  const isBelowXl = useMediaQuery("(max-width: 1279.98px)");
+  const WINDOW_SIZE = 14;
+  const [windowOffset, setWindowOffset] = useState(0);
+  useEffect(() => setWindowOffset(0), [dates]);
+  const maxOffset = Math.max(0, dates.length - WINDOW_SIZE);
+  const clampedOffset = Math.min(windowOffset, maxOffset);
+  const visibleDates = isBelowXl ? dates.slice(clampedOffset, clampedOffset + WINDOW_SIZE) : dates;
+
   if (dates.length === 0) {
     return <div className="py-10 text-center text-sm text-muted-foreground">Selecione um intervalo De/Até válido.</div>;
   }
@@ -1767,7 +1803,28 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
     sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
   ) : <ChevronsUpDown className="h-3 w-3 opacity-40" />;
   return (
-    <div className="rounded-lg border border-border overflow-auto max-h-[70vh]">
+    <div className="space-y-1.5">
+      {isBelowXl && dates.length > WINDOW_SIZE && (
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <Button
+            variant="outline" size="sm" className="h-7 px-2" disabled={clampedOffset === 0}
+            onClick={() => setWindowOffset(Math.max(0, clampedOffset - WINDOW_SIZE))}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />Anterior
+          </Button>
+          <span>
+            {fmtDiaCurto(visibleDates[0])} – {fmtDiaCurto(visibleDates[visibleDates.length - 1])}
+            {" · "}{clampedOffset + 1}–{clampedOffset + visibleDates.length} de {dates.length} dias
+          </span>
+          <Button
+            variant="outline" size="sm" className="h-7 px-2" disabled={clampedOffset >= maxOffset}
+            onClick={() => setWindowOffset(Math.min(maxOffset, clampedOffset + WINDOW_SIZE))}
+          >
+            Próximo<ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+      <div className="rounded-lg border border-border overflow-auto max-h-[70vh]">
       <table className="min-w-max border-collapse text-[10px]">
         <thead className="sticky top-0 z-20">
           <tr>
@@ -1783,7 +1840,7 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
             >
               <span className="inline-flex items-center gap-1">Unidade{sortIcon("unidade")}</span>
             </th>
-            {dates.map((d) => (
+            {visibleDates.map((d) => (
               <th
                 key={d}
                 className="border border-border px-0 py-1 text-center font-normal min-w-[26px] bg-muted"
@@ -1803,7 +1860,7 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
               <FadeInRow key={c.id} className="hover:bg-muted/40" delay={Math.min(i, 20) * 0.01}>
                 <td className="sticky left-0 z-10 bg-background border border-border px-2 py-0.5 font-medium truncate max-w-[160px]">{c.nome}</td>
                 <td className="sticky left-[160px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate max-w-[90px]">{unidadeAtual ?? "—"}</td>
-                {dates.map((d) => {
+                {visibleDates.map((d) => {
                   const result = computeDayStatus(cPeriodos, d);
                   const color = resolveEColor(result, d, embarqueByPeriodoId, semanasByEmbarqueId);
                   const title = `${c.nome} · ${d} · ${getComputedLabel(result)}${detalheEmbarqueTooltip(result, d, embarquesByColaboradorId)}`;
@@ -1822,10 +1879,11 @@ function GeralGrid({ colaboradores, periodosByColaborador, dates, today, embarqu
             );
           })}
           {colaboradores.length === 0 && (
-            <tr><td colSpan={2 + dates.length}><EmptyState icon={Users} title="Nenhum colaborador com período neste intervalo" /></td></tr>
+            <tr><td colSpan={2 + visibleDates.length}><EmptyState icon={Users} title="Nenhum colaborador com período neste intervalo" /></td></tr>
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -1904,7 +1962,8 @@ function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasBy
   const maxDays = 31;
   const dayNumbers = Array.from({ length: maxDays }, (_, i) => i + 1);
   return (
-    <div className="rounded-lg border border-border overflow-auto max-h-[70vh]">
+    <>
+    <div className="hidden rounded-lg border border-border overflow-auto max-h-[70vh] lg:block">
       <table className="min-w-max border-collapse text-xs">
         <thead className="sticky top-0 z-10">
           <tr>
@@ -1940,6 +1999,37 @@ function ColaboradorGrid({ periodos, monthGroups, embarqueByPeriodoId, semanasBy
         </tbody>
       </table>
     </div>
+
+    {/* Abaixo de 1024px, 31 colunas fixas de 26px não cabem sem rolar — vira acordeão por
+        mês, com os dias em chips que quebram linha (flex-wrap), nunca precisando de rolagem. */}
+    <Accordion type="multiple" className="rounded-lg border border-border lg:hidden">
+      {monthGroups.map((m) => (
+        <AccordionItem key={m.key} value={m.key} className="border-b px-3 last:border-b-0">
+          <AccordionTrigger className="text-sm">{m.label}</AccordionTrigger>
+          <AccordionContent>
+            <div className="flex flex-wrap gap-1">
+              {m.days.map((date, idx) => {
+                if (!date) return null;
+                const result = computeDayStatus(periodos, date);
+                const color = resolveEColor(result, date, embarqueByPeriodoId, semanasByEmbarqueId);
+                const title = `${date} · ${getComputedLabel(result)}${detalheEmbarqueTooltip(result, date, embarquesByColaboradorId)}`;
+                return (
+                  <div
+                    key={idx} title={title}
+                    className="flex h-9 w-9 flex-col items-center justify-center rounded text-[10px] font-bold"
+                    style={{ backgroundColor: color, color: getContrastText(color) }}
+                  >
+                    <span className="text-[8px] font-normal opacity-70">{idx + 1}</span>
+                    {displayAbbr(result.status)}
+                  </div>
+                );
+              })}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
+    </>
   );
 }
 
@@ -2022,6 +2112,21 @@ function DashboardTab({ colaboradores, periodos }: {
     const ids = getColaboradoresComMultiploEmbarque(periodos);
     return colaboradores.filter((c) => ids.has(c.id));
   }, [colaboradores, periodos]);
+
+  // Função de embarque (não a cadastral) por colaborador na data de referência do retrato
+  // (pobReferenceDate, mais abaixo) — ver resolverFuncaoEmbarque.
+  const { data: timesheetEmbarques = [] } = useQuery({
+    queryKey: ["timesheet-embarques"],
+    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+  });
+  const embarquesByColaboradorId = useMemo(() => {
+    const m = new Map<string, TimesheetEmbarque[]>();
+    timesheetEmbarques.forEach((e) => {
+      if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []);
+      m.get(e.colaborador_id)!.push(e);
+    });
+    return m;
+  }, [timesheetEmbarques]);
   // O filtro nasce sempre fixado em hoje (De=Até=hoje) — assim os cartões, a rosquinha e
   // tudo mais partem sempre do mesmo dia de referência, sem divergir entre "foto de hoje" e
   // "total do período". Continua editável pra ela investigar um dia específico do passado
@@ -2268,7 +2373,7 @@ function DashboardTab({ colaboradores, periodos }: {
       if (!u) return;
       if (!m[u]) m[u] = { total: 0, porFuncao: {} };
       m[u].total++;
-      const fn = c.funcao || c.funcao_operacao || "—";
+      const fn = resolverFuncaoEmbarque(c.id, pobReferenceDate, embarquesByColaboradorId, c.funcao || c.funcao_operacao);
       if (!m[u].porFuncao[fn]) m[u].porFuncao[fn] = { count: 0, nomes: [] };
       m[u].porFuncao[fn].count++;
       // Só primeiro + último nome no tooltip — nome completo fica grande demais pra caber.
@@ -2283,7 +2388,7 @@ function DashboardTab({ colaboradores, periodos }: {
           .sort((a, b) => b.count - a.count),
       }))
       .sort((a, b) => b.Embarcado - a.Embarcado);
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, embarquesByColaboradorId]);
 
   const funcaoColor = useMemo(() => {
     const todasFuncoes = Array.from(new Set(byUnitStatus.flatMap((u) => u.porFuncao.map((f) => f.funcao))));

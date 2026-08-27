@@ -2383,7 +2383,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
         </div>
       </div>
 
-      <div className="overflow-x-auto" onKeyDownCapture={focusNextOnEnter}>
+      <div className="hidden overflow-x-auto xl:block" onKeyDownCapture={focusNextOnEnter}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -2494,6 +2494,113 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
             {draft.length === 0 && <EmptyStateRow colSpan={10} icon={Clock} title="Nenhum dia nessa semana" />}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Abaixo de 1280px a tabela de 10 colunas fixas não cabe sem rolar —
+          mesmos campos/handlers do draft, só reorganizados em cartão por dia. */}
+      <div className="space-y-3 xl:hidden" onKeyDownCapture={focusNextOnEnter}>
+        {draft.map((d) => (
+          <Card key={d.id} className="space-y-2 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">{diaLabelCurto(d)}</span>
+              <span className="text-xs font-semibold">Total: {d.total_horas ?? 0}h</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2 space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Evento</Label>
+                <Select
+                  value={d.evento ?? "Nenhum"} disabled={readOnly}
+                  onValueChange={(v) => {
+                    if (v === "Nenhum") { editarCampo(d.id, { evento: null, bsp: null }); return; }
+                    editarCampo(d.id, { evento: v });
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{EVENTO_OPCOES.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label className="text-[10px] text-muted-foreground">BSP</Label>
+                {bspOptions.length > 1 && !bspManualIds.has(d.id) ? (
+                  <Select
+                    value={d.bsp ?? "__nenhum__"} disabled={readOnly}
+                    onValueChange={(v) => {
+                      if (v === "__outro__") { setBspManualIds((prev) => new Set(prev).add(d.id)); return; }
+                      editarCampo(d.id, { bsp: v === "__nenhum__" ? null : v });
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      className="h-8 text-xs" disabled={readOnly} placeholder="BSP novo"
+                      value={bspManualValores[d.id] ?? d.bsp ?? ""}
+                      onChange={(e) => setBspManualValores((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") adicionarBspExtra(d.id, bspManualValores[d.id] ?? ""); }}
+                    />
+                    {!readOnly && (bspManualValores[d.id] ?? "").trim() && (
+                      <Button
+                        type="button" size="sm" variant="ghost" className="h-8 shrink-0 px-1.5 text-xs"
+                        title="Adicionar esse BSP à lista" onClick={() => adicionarBspExtra(d.id, bspManualValores[d.id] ?? "")}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Entrada</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_entrada ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Saída</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_saida ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Horas Normais</Label>
+                <Input
+                  type="number" step="0.5" className="h-8 text-sm font-medium" disabled={readOnly}
+                  value={d.horas_normais ?? ""} onChange={(e) => editarCampo(d.id, { horas_normais: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Horas Extras</Label>
+                <Input
+                  type="number" step="0.5" className="h-8 text-sm font-medium" disabled={readOnly}
+                  value={d.horas_extras ?? ""} onChange={(e) => editarCampo(d.id, { horas_extras: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">HE Entrada</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_entrada_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada_extra: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">HE Saída</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_saida_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida_extra: e.target.value })}
+                />
+              </div>
+            </div>
+          </Card>
+        ))}
+        {draft.length === 0 && <EmptyState icon={Clock} title="Nenhum dia nessa semana" />}
       </div>
 
       <div className="flex justify-end gap-4 border-t pt-3 text-sm font-semibold">

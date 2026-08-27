@@ -6,6 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // bm_mob_desmob_costs ainda não está no types.ts gerado — mesmo padrão das outras tabelas de BM.
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -811,7 +812,7 @@ export function MobDesmobTab() {
               </div>
 
               {aberto && (
-                <div className="overflow-x-auto">
+                <div className="hidden overflow-x-auto xl:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -874,6 +875,55 @@ export function MobDesmobTab() {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+
+              {/* Abaixo de 1280px, 11 colunas fixas não cabem sem rolar — vira cartão por
+                  lançamento, com os mesmos dados/ações (seleção, exclusão). */}
+              {aberto && (
+                <div className="space-y-2 xl:hidden">
+                  {g.itens.map((c) => (
+                    <Card key={c.id} className={cn("space-y-2 p-3", c.applied && "opacity-70")}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2">
+                          {!c.applied && (
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={selecionados.has(c.id)}
+                              onCheckedChange={() => toggleSelecionado(c.id)}
+                            />
+                          )}
+                          <div>
+                            <p className="text-xs font-medium">{c.nome}</p>
+                            <p className="text-[10px] text-muted-foreground">{CATEGORIA_LABEL[c.categoria] ?? c.categoria} · {fmt(c.data)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold">{fmtMoney(c.total_cost)}</span>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            title="Excluir" onClick={() => excluirCusto.mutate(c.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Qtd</p>
+                          <p>{c.qtd}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Valor unit.</p>
+                          <p>{fmtMoney(c.valor)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Markup</p>
+                          <p>{c.markup == null ? "—" : fmtMoney(c.markup)}</p>
+                        </div>
+                      </div>
+                      {c.notes && <p className="text-xs text-muted-foreground">Notes: {c.notes}</p>}
+                      <p className="text-xs text-muted-foreground">BM: {c.applied_bm_number ?? "—"}</p>
+                    </Card>
+                  ))}
                 </div>
               )}
 

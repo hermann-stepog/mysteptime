@@ -18,6 +18,20 @@ export interface TimesheetEmbarque {
   criado_em: string;
 }
 
+// Função de embarque efetiva de um colaborador numa data: usa o timesheet_embarques (Drake)
+// que cobre essa data (sobreposição de data_inicio_embarque/data_fim_embarque, não periodo_id
+// — o Drake normalmente não vincula esse id de propósito); sem embarque cobrindo a data (ex.:
+// Folga/Disponível, sem embarque em curso), cai pra função cadastral do colaborador — nunca
+// fica em branco à toa. Compartilhada entre Histograma e Nomeações (Equipes Embarcadas).
+export function resolverFuncaoEmbarque(
+  colaboradorId: string, date: string, embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>,
+  funcaoCadastral: string | null | undefined,
+): string {
+  const embarque = (embarquesByColaboradorId.get(colaboradorId) ?? [])
+    .find((e) => date >= e.data_inicio_embarque && date <= e.data_fim_embarque);
+  return embarque?.funcao_embarque || funcaoCadastral || "—";
+}
+
 export interface TimesheetSemana {
   id: string;
   embarque_id: string;

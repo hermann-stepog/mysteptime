@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // bm_timesheet_dias ainda não existe no schema gerado (types.ts) — mesmo padrão já usado nas
@@ -12,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
-import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "lucide-react";
+import { CalendarRange, CheckCircle2, ChevronRight, Download, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +93,95 @@ function numeroSeguro(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+interface RelatorioMedicaoRow {
+  colaborador: string;
+  funcao: string;
+  unidade: string;
+  bsp: string;
+  periodoInicio: string;
+  periodoFim: string;
+  diasPreenchidos: number;
+  horasNormais: number;
+  horasExtras: number;
+  totalHoras: number;
+  medido: boolean;
+}
+
+function proximoDia(data: string): string {
+  const [ano, mes, dia] = data.split("-").map(Number);
+  const value = new Date(ano, mes - 1, dia);
+  value.setDate(value.getDate() + 1);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+// Uma linha por período contínuo efetivamente preenchido. Se houver uma lacuna entre dois
+// dias do mesmo colaborador/BSP, o relatório cria dois períodos em vez de sugerir que houve
+// trabalho nos dias sem lançamento.
+function montarLinhasRelatorioMedicao(
+  dias: BmTimesheetDia[],
+  colaboradoresJaMedidos: Set<string>,
+): RelatorioMedicaoRow[] {
+  const grupos = new Map<string, BmTimesheetDia[]>();
+  dias.forEach((dia) => {
+    const key = [dia.colaborador_id ?? dia.colaborador_nome, dia.funcao ?? "", dia.unidade_operacional ?? "", bspLabelDaLinha(dia)].join("||");
+    grupos.set(key, [...(grupos.get(key) ?? []), dia]);
+  });
+
+  const rows: RelatorioMedicaoRow[] = [];
+  grupos.forEach((items) => {
+    const ordenados = [...items].sort((a, b) => a.data.localeCompare(b.data));
+    let trecho: BmTimesheetDia[] = [];
+    const concluirTrecho = () => {
+      if (!trecho.length) return;
+      const primeiro = trecho[0];
+      const ultimo = trecho[trecho.length - 1];
+      rows.push({
+        colaborador: primeiro.colaborador_nome,
+        funcao: primeiro.funcao || "—",
+        unidade: primeiro.unidade_operacional || "—",
+        bsp: bspLabelDaLinha(primeiro),
+        periodoInicio: primeiro.data,
+        periodoFim: ultimo.data,
+        diasPreenchidos: trecho.length,
+        horasNormais: trecho.reduce((total, dia) => total + numeroSeguro(dia.horas_normais), 0),
+        horasExtras: trecho.reduce((total, dia) => total + numeroSeguro(dia.horas_extras), 0),
+        totalHoras: trecho.reduce((total, dia) => total + numeroSeguro(dia.total_horas), 0),
+        medido: !!primeiro.colaborador_id && colaboradoresJaMedidos.has(primeiro.colaborador_id),
+      });
+      trecho = [];
+    };
+    ordenados.forEach((dia) => {
+      if (trecho.length && dia.data !== proximoDia(trecho[trecho.length - 1].data)) concluirTrecho();
+      trecho.push(dia);
+    });
+    concluirTrecho();
+  });
+  return rows.sort((a, b) => a.colaborador.localeCompare(b.colaborador, "pt-BR") || a.periodoInicio.localeCompare(b.periodoInicio));
+}
+
+function baixarRelatorioMedicao(rows: RelatorioMedicaoRow[], de: string, ate: string): void {
+  const header = ["Colaborador", "Função", "Unidade", "BSP", "Início", "Fim", "Dias preenchidos", "Horas normais", "Horas extras", "Total de horas"];
+  const criarAba = (items: RelatorioMedicaoRow[], titulo: string) => {
+    const values = [
+      ["STEP Oil & Gas"],
+      [`${titulo} — ${fmtData(de)} a ${fmtData(ate)}`],
+      [],
+      header,
+      ...items.map((item) => [item.colaborador, item.funcao, item.unidade, item.bsp, fmtData(item.periodoInicio), fmtData(item.periodoFim),
+        item.diasPreenchidos, item.horasNormais, item.horasExtras, item.totalHoras]),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(values);
+    sheet["!cols"] = [{ wch: 32 }, { wch: 24 }, { wch: 30 }, { wch: 18 }, { wch: 13 }, { wch: 13 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+    sheet["!autofilter"] = { ref: `A4:J${Math.max(4, values.length)}` };
+    sheet["!freeze"] = { xSplit: 0, ySplit: 4 };
+    return sheet;
+  };
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, criarAba(rows.filter((row) => row.medido), "Colaboradores já medidos"), "Já medidos");
+  XLSX.utils.book_append_sheet(workbook, criarAba(rows.filter((row) => !row.medido), "Colaboradores ainda não medidos"), "Não medidos");
+  XLSX.writeFile(workbook, `Relatorio_Status_Medicao_${de}_a_${ate}.xlsx`);
 }
 
 export function TimesheetsTab() {
@@ -301,6 +391,12 @@ export function TimesheetsTab() {
     [copiasComHoras, unidadeFiltro],
   );
 
+  const linhasRelatorio = useMemo(() => {
+    const termo = busca.trim().toLocaleLowerCase("pt-BR");
+    const dias = copiasDaUnidade.filter((dia) => !termo || dia.colaborador_nome.toLocaleLowerCase("pt-BR").includes(termo));
+    return montarLinhasRelatorioMedicao(dias, colaboradoresJaMedidos);
+  }, [copiasDaUnidade, colaboradoresJaMedidos, busca]);
+
   const bsps = useMemo(() => {
     const map = new Map<string, { bsp: string | null; colaboradores: Set<string>; dias: number }>();
     for (const c of copiasDaUnidade) {
@@ -367,6 +463,17 @@ export function TimesheetsTab() {
             <Label className="text-xs">Colaborador</Label>
             <Input placeholder="Buscar por nome" value={busca} onChange={(e) => setBusca(e.target.value)} className="w-56" />
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!periodoValido || carregando || linhasRelatorio.length === 0}
+            onClick={() => {
+              baixarRelatorioMedicao(linhasRelatorio, de, ate);
+              notify.success("Relatório de medição baixado.");
+            }}
+          >
+            <Download className="mr-2 h-4 w-4" /> Baixar relatório de medição
+          </Button>
           <p className="ml-auto text-xs text-muted-foreground">
             {carregando ? "Sincronizando cópia do Timesheet Offshore…" : `${copiasComHoras.length} dia(s) com horas lançadas no período`}
           </p>

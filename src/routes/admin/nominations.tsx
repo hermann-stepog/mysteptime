@@ -14,7 +14,7 @@ import {
   columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador,
 } from "@/lib/nominations";
 import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyQualityRejection } from "@/lib/nominationEmails";
-import { matchesNameSearch } from "@/lib/utils";
+import { cn, matchesNameSearch } from "@/lib/utils";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { Card } from "@/components/ui/card";
@@ -37,6 +37,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
+  ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -48,11 +49,14 @@ import { pageTitle } from "@/lib/pageTitle";
 import {
   generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
   displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, bspOptionsForUnidade,
-  getColaboradoresComEmbarque,
+  getColaboradoresComEmbarque, bspDoPeriodo, normalizeUnidadeOperacional,
   type ComputedStatus, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
+import { normalizarBsp } from "@/lib/bmDayGrid";
+import { resolverFuncaoEmbarque, type TimesheetEmbarque } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
+import { clienteDaUnidade } from "@/lib/clientes";
 
 export const Route = createFileRoute("/admin/nominations")({ head: () => pageTitle("Nomeações"), component: NominationsPage });
 
@@ -787,7 +791,7 @@ function ManageDialog({
 
           {/* ── Detalhes ── */}
           <TabsContent value="detalhes" className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
               {nomination.pm_name && (
                 <div><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{nomination.pm_name}</span></div>
@@ -1439,7 +1443,10 @@ function KanbanBoard({
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 pb-2">
+      {/* Board com N colunas de min-w-[300px]+ facilmente passa de 1500px — sem isso a página
+          estourava horizontalmente em telas mais estreitas. Kanban com rolagem horizontal é
+          um padrão de UX aceito mesmo em tablet (diferente de uma tabela de dados). */}
+      <div className="flex gap-3 overflow-x-auto pb-2">
         {KANBAN_COLUMNS.map((c, i) =>
           c.id === "equipe_formada" ? (
             <EquipeFormadaColumn key={c.id} nominations={byColumn.get(c.id) ?? []} onOpen={onOpen} index={i} />
@@ -1475,13 +1482,6 @@ function KanbanBoard({
 // Férias/Folga/Atestado/Trabalho Externo/Hotel/Programado no meio cai em "outro" e por isso
 // deixa de ser contado como disponível (era o bug relatado: afastado aparecia como disponível).
 type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
-type SimStatus = "disponivel" | "embarcado" | "desembarca";
-
-const SIM_STATUS_LABEL: Record<SimStatus, string> = {
-  disponivel: "Disponível",
-  embarcado: "Embarcado",
-  desembarca: "Desembarca",
-};
 
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
@@ -1513,10 +1513,17 @@ function SimulacaoTab({
   const [periodoDe, setPeriodoDe] = useState(hoje);
   const [periodoAte, setPeriodoAte] = useState(() => defaultSimEnd(hoje));
   const [filterFuncao, setFilterFuncao] = useState("all");
-  const [filterStatus, setFilterStatus] = useState<SimStatus | "all">("all");
   const [searchNome, setSearchNome] = useState("");
-  // Só pra visualização/simulação nessa tela — nunca grava em nenhuma tabela.
-  const [funcaoOverride, setFuncaoOverride] = useState<Record<string, string>>({});
+  // Cascata "Disponíveis por função" — tudo começa aberto (mesmo padrão da aba Equipes
+  // Embarcadas); o set guarda só as funções recolhidas.
+  const [collapsedFuncoes, setCollapsedFuncoes] = useState<Set<string>>(new Set());
+  const toggleFuncaoCollapsed = (funcao: string) => {
+    setCollapsedFuncoes((current) => {
+      const next = new Set(current);
+      if (next.has(funcao)) next.delete(funcao); else next.add(funcao);
+      return next;
+    });
+  };
 
   const qc = useQueryClient();
   const { data: focusNominees = [] } = useNominees(focusNomination?.id);
@@ -1564,17 +1571,19 @@ function SimulacaoTab({
     },
   });
 
-  // Todos os períodos (Embarque, Férias, Folga, Atestado, etc.) de todos os colaboradores —
-  // mesma tabela/critério de corte (DRAKE_DATA_CUTOFF) já usados no Histograma Offshore.
+  // Períodos autoritativos da operação (relatórios Drake de Embarque/Disponibilidade e
+  // programações). BASE é deliberadamente excluído: esse tipo vem de uma planilha externa de
+  // acesso à base e não pode alterar a disponibilidade exibida nesta simulação do Drake.
   // Não dá pra filtrar só pelo período exibido: o cálculo de Desembarque olha o dia seguinte
   // ao fim de um embarque, que pode cair fora da janela filtrada.
   const { data: periodosTodos = [] } = useQuery<HistNovoPeriodo[]>({
-    queryKey: ["sim-periodos-todos"],
+    queryKey: ["sim-periodos-drake-sem-base"],
     queryFn: () =>
       selectAllPages<HistNovoPeriodo>((from, to) =>
         supabase
           .from("hist_novo_periodos")
           .select("*")
+          .neq("tipo", "BASE")
           .gte("data_fim", DRAKE_DATA_CUTOFF)
           .order("data_inicio")
           .range(from, to),
@@ -1604,6 +1613,8 @@ function SimulacaoTab({
   const periodosPorColaborador = useMemo(() => {
     const m = new Map<string, HistNovoPeriodo[]>();
     periodosTodos.forEach((p) => {
+      // Defesa adicional para dados que possam permanecer em cache durante uma atualização.
+      if (p.tipo === "BASE") return;
       if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
       m.get(p.colaborador_id)!.push(p);
     });
@@ -1643,8 +1654,9 @@ function SimulacaoTab({
       .map((c) => {
         const periodos = periodosPorColaborador.get(c.id) ?? [];
         const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
-        const funcaoPadrao = funcoesAno[0] || c.funcao_operacao || c.funcao || "—";
-        const funcao = funcaoOverride[c.id] ?? funcaoPadrao;
+        // Função fixa (cadastral) agrupa por fora, na árvore — as funções que ele já embarcou
+        // (funcoesAno, histórico real por embarque) aparecem por dentro, junto do nome.
+        const funcao = c.funcao || c.funcao_operacao || funcoesAno[0] || "—";
         const statusPorDia = dates.map((d) => computeDayStatus(periodos, d));
         const codigos = statusPorDia.map((r) => r.status);
         const temDesembarque = codigos.includes("DES");
@@ -1656,46 +1668,53 @@ function SimulacaoTab({
       .filter((l) => filterFuncao === "all" || l.funcao === filterFuncao)
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, colaboradoresOffshore, periodosPorColaborador, funcoesAnoPorColaborador, dates, funcaoOverride, filterFuncao, searchNome]);
-
-  // Grid principal ainda respeita o filtro de Status; os cartões por função abaixo, não —
-  // eles precisam mostrar a disponibilidade de TODO mundo daquela função, senão filtrar por
-  // "Embarcado" zeraria a lista de disponíveis em todos os cartões.
-  const linhas = useMemo(
-    () => linhasBase.filter((l) => filterStatus === "all" || l.bucket === filterStatus),
-    [linhasBase, filterStatus],
-  );
-
-  const cardCounts = useMemo(() => ({
-    disponiveis: linhas.filter((l) => l.bucket === "disponivel").length,
-    embarcados: linhas.filter((l) => l.bucket === "embarcado").length,
-    desembarcam: linhas.filter((l) => l.bucket === "desembarca").length,
-  }), [linhas]);
+  }, [colaboradores, colaboradoresOffshore, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
   // quem está de férias/folga/atestado/etc. (bucket "outro"), não só quem está embarcado.
   const funcaoCards = useMemo(() => {
-    const m = new Map<string, { total: number; disponiveis: string[] }>();
+    const m = new Map<string, { total: number; disponiveis: typeof linhasBase }>();
     linhasBase.forEach((l) => {
       if (!m.has(l.funcao)) m.set(l.funcao, { total: 0, disponiveis: [] });
       const g = m.get(l.funcao)!;
       g.total++;
-      if (l.bucket === "disponivel") g.disponiveis.push(l.colaborador.nome);
+      if (l.bucket === "disponivel") g.disponiveis.push(l);
     });
     return Array.from(m.entries())
-      .map(([funcao, v]) => ({ funcao, total: v.total, disponiveis: v.disponiveis.sort() }))
+      .map(([funcao, v]) => ({ funcao, total: v.total, disponiveis: v.disponiveis.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome)) }))
       .sort((a, b) => b.disponiveis.length - a.disponiveis.length || a.funcao.localeCompare(b.funcao));
   }, [linhasBase]);
 
-  // Legenda dinâmica — só os status que realmente aparecem na grade filtrada, na ordem em que
-  // o motor do Histograma já prioriza (STB/E/DES primeiro, cobre os 3 status "de negócio").
-  const legendaStatus = useMemo(() => {
-    const presentes = new Set<ComputedStatus>();
-    linhas.forEach((l) => l.statusPorDia.forEach((r) => presentes.add(r.status)));
+  // Quantos por cada status, numa data de referência única (hoje, se estiver dentro do
+  // período filtrado; senão o primeiro dia do período) — cruza com TODOS (linhasBase), mesmo
+  // critério dos cartões por função acima, pra não zerar com o filtro de Status ativo.
+  const statusReferenceDate = dates.length === 0 ? hoje : dates.includes(hoje) ? hoje : dates[0];
+  const statusGroups = useMemo(() => {
+    const idx = dates.indexOf(statusReferenceDate);
+    if (idx < 0) return [];
+    const m = new Map<ComputedStatus, typeof linhasBase>();
+    linhasBase.forEach((l) => {
+      const s = l.statusPorDia[idx]?.status;
+      if (!s) return;
+      if (!m.has(s)) m.set(s, []);
+      m.get(s)!.push(l);
+    });
     const ordem: ComputedStatus[] = ["STB", "E", "DES", "DB", "FI", "F", "FE", "AT", "TE", "HTL", "DDN", "P"];
-    return ordem.filter((s) => presentes.has(s));
-  }, [linhas]);
+    return ordem
+      .filter((s) => (m.get(s)?.length ?? 0) > 0)
+      .map((s) => ({ status: s, pessoas: (m.get(s) ?? []).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome)) }));
+  }, [linhasBase, dates, statusReferenceDate]);
+  // "Por status" começa recolhido (ao contrário da cascata de função) — Standby sozinho já
+  // passa de 80 pessoas, não faz sentido abrir tudo de cara.
+  const [expandedStatuses, setExpandedStatuses] = useState<Set<ComputedStatus>>(new Set());
+  const toggleStatusExpanded = (status: ComputedStatus) => {
+    setExpandedStatuses((current) => {
+      const next = new Set(current);
+      if (next.has(status)) next.delete(status); else next.add(status);
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -1740,134 +1759,118 @@ function SimulacaoTab({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-0.5 w-44">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
-          <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as SimStatus | "all")}>
-            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos</SelectItem>
-              <SelectItem value="disponivel" className="text-xs">Disponível</SelectItem>
-              <SelectItem value="embarcado" className="text-xs">Embarcado</SelectItem>
-              <SelectItem value="desembarca" className="text-xs">Desembarca</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">Disponíveis no período</p>
-          <p className="mt-1 text-2xl font-semibold">{cardCounts.disponiveis}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">Embarcados no período</p>
-          <p className="mt-1 text-2xl font-semibold">{cardCounts.embarcados}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">Desembarcam no período</p>
-          <p className="mt-1 text-2xl font-semibold">{cardCounts.desembarcam}</p>
-        </Card>
-      </div>
-
-      <div className="flex flex-wrap gap-3 text-xs">
-        {legendaStatus.map((s) => (
-          <span key={s} className="flex items-center gap-1.5">
-            <span
-              className="flex h-5 min-w-5 items-center justify-center rounded-sm border px-1 text-[10px] font-bold"
-              style={{ backgroundColor: STATUS_COLOR[s], color: getContrastText(STATUS_COLOR[s]) }}
-            >
-              {displayAbbr(s)}
-            </span>
-            {STATUS_LABEL[s]}
-          </span>
-        ))}
-      </div>
-
-      <div className="max-h-[70vh] overflow-auto rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="sticky left-0 top-0 z-20 w-56 bg-background">Colaborador</TableHead>
-              {dates.map((d) => (
-                <TableHead key={d} className="sticky top-0 z-10 bg-background text-center text-[10px] whitespace-nowrap">
-                  {weekdayAbbr(d)} {d.slice(8, 10)}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {linhas.map((l) => (
-              <TableRow key={l.colaborador.id}>
-                <TableCell className="sticky left-0 z-10 bg-background align-top">
-                  <p className="text-sm font-medium">{l.colaborador.nome}</p>
-                  {l.funcoesAno.length > 1 ? (
-                    <Select
-                      value={l.funcao}
-                      onValueChange={(v) => setFuncaoOverride((prev) => ({ ...prev, [l.colaborador.id]: v }))}
-                    >
-                      <SelectTrigger className="mt-1 h-6 w-48 text-[10px]"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {l.funcoesAno.map((f) => <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="text-[10px] text-muted-foreground">{l.funcao}</p>
-                  )}
-                  {focusNomination && (
-                    focusNomineeIds.has(l.colaborador.id) ? (
-                      <span className="mt-1 flex items-center gap-1 text-[10px] font-medium text-green-700">
-                        <Check className="h-3 w-3" /> Adicionado
-                      </span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="mt-1 h-6 px-2 text-[10px]"
-                        loading={addNominee.isPending && addNominee.variables?.id === l.colaborador.id}
-                        onClick={() => addNominee.mutate({ id: l.colaborador.id, nome: l.colaborador.nome })}
-                      >
-                        <UserPlus className="mr-1 h-3 w-3" /> Adicionar
-                      </Button>
-                    )
-                  )}
-                </TableCell>
-                {l.statusPorDia.map((r, i) => {
-                  const bg = getComputedColor(r);
-                  return (
-                    <TableCell key={dates[i]} className="p-0 text-center" style={{ backgroundColor: bg }} title={getComputedLabel(r)}>
-                      <div className="flex h-10 items-center justify-center text-xs font-bold" style={{ color: getContrastText(bg) }}>
-                        {displayAbbr(r.status)}
-                      </div>
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-            ))}
-            {linhas.length === 0 && <EmptyStateRow colSpan={dates.length + 1} icon={User} title="Nenhum colaborador encontrado" />}
-          </TableBody>
-        </Table>
       </div>
 
       <div>
-        <p className="mb-2 text-sm font-medium">Disponíveis por função</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {funcaoCards.map((f) => (
-            <Card key={f.funcao} className="p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">{f.funcao}</p>
-                <Badge variant="secondary" className="text-xs">{f.disponiveis.length} / {f.total}</Badge>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Por status {statusReferenceDate === hoje ? "(hoje)" : `(em ${fmtDate(statusReferenceDate)})`}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {statusGroups.map(({ status, pessoas }) => {
+            const aberto = expandedStatuses.has(status);
+            return (
+              <div key={status} className={cn("rounded-md border text-xs", aberto && "w-full")}>
+                <button
+                  type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left"
+                  aria-expanded={aberto} onClick={() => toggleStatusExpanded(status)}
+                >
+                  <span
+                    className="flex h-5 min-w-5 items-center justify-center rounded-sm px-1 text-[10px] font-bold"
+                    style={{ backgroundColor: STATUS_COLOR[status], color: getContrastText(STATUS_COLOR[status]) }}
+                  >
+                    {displayAbbr(status)}
+                  </span>
+                  <span className="text-muted-foreground">{STATUS_LABEL[status]}</span>
+                  <span className="font-semibold">{pessoas.length}</span>
+                  {aberto ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                </button>
+                {aberto && (
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-2 divide-y border-t px-2.5 py-2 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
+                    {pessoas.map((l) => (
+                      <div key={l.colaborador.id} className="pt-2 first:pt-0 sm:pt-0">
+                        <p className="font-medium text-foreground">{l.colaborador.nome}</p>
+                        <p className="text-muted-foreground">{l.funcao}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {f.disponiveis.length > 0 ? (
-                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-                  {f.disponiveis.map((nome) => <li key={nome}>{nome}</li>)}
-                </ul>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground/70">Nenhum disponível</p>
-              )}
-            </Card>
-          ))}
-          {funcaoCards.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma função encontrada.</p>}
+            );
+          })}
+          {statusGroups.length === 0 && <p className="text-xs text-muted-foreground">Nenhum status encontrado.</p>}
         </div>
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Disponíveis por função</p>
+          <Button
+            type="button" size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-muted-foreground"
+            onClick={() => setCollapsedFuncoes(
+              collapsedFuncoes.size < funcaoCards.length ? new Set(funcaoCards.map((f) => f.funcao)) : new Set(),
+            )}
+          >
+            {collapsedFuncoes.size < funcaoCards.length ? (
+              <><ChevronsDownUp className="mr-1 h-3.5 w-3.5" />Recolher tudo</>
+            ) : (
+              <><ChevronsUpDown className="mr-1 h-3.5 w-3.5" />Expandir tudo</>
+            )}
+          </Button>
+        </div>
+        <Card className="overflow-hidden">
+          {funcaoCards.map((f) => {
+            const aberto = !collapsedFuncoes.has(f.funcao);
+            return (
+              <div key={f.funcao} className="border-b last:border-b-0">
+                <button
+                  type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                  aria-expanded={aberto} onClick={() => toggleFuncaoCollapsed(f.funcao)}
+                >
+                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                    {aberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                    <Layers3 className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="truncate">{f.funcao}</span>
+                  </span>
+                  <Badge variant="secondary" className="shrink-0 text-xs">{f.disponiveis.length} / {f.total}</Badge>
+                </button>
+                {aberto && (
+                  f.disponiveis.length > 0 ? (
+                    <div className="divide-y">
+                      {f.disponiveis.map((l) => (
+                        <div key={l.colaborador.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{l.colaborador.nome}</p>
+                            {l.funcoesAno.length > 0 && (
+                              <p className="text-xs text-muted-foreground">Já embarcou como: {l.funcoesAno.join(", ")}</p>
+                            )}
+                          </div>
+                          {focusNomination && (
+                            focusNomineeIds.has(l.colaborador.id) ? (
+                              <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-green-700">
+                                <Check className="h-3 w-3" /> Adicionado
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs"
+                                loading={addNominee.isPending && addNominee.variables?.id === l.colaborador.id}
+                                onClick={() => addNominee.mutate({ id: l.colaborador.id, nome: l.colaborador.nome })}
+                              >
+                                <UserPlus className="mr-1 h-3 w-3" /> Adicionar
+                              </Button>
+                            )
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="py-3 pl-11 pr-4 text-xs text-muted-foreground/70">Nenhum disponível</p>
+                  )
+                )}
+              </div>
+            );
+          })}
+          {funcaoCards.length === 0 && <p className="p-4 text-xs text-muted-foreground">Nenhuma função encontrada.</p>}
+        </Card>
       </div>
     </div>
   );
@@ -1936,6 +1939,380 @@ function AptidaoCard({ nomination, highlighted }: { nomination: Nomination; high
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+
+type NominationBspGroup = { name: string; nominations: Nomination[] };
+type NominationUnitGroup = { name: string; bsps: NominationBspGroup[]; nominations: Nomination[] };
+type NominationClientGroup = { name: string; units: NominationUnitGroup[]; nominations: Nomination[] };
+type DrakeEmbarkedWorker = {
+  id: string;
+  nome: string;
+  funcao: string | null;
+  empresa: string | null;
+};
+type BmClientRelation = { client_name: string; vessel: string; project_name: string | null };
+
+function hierarchyKey(value: string | null | undefined): string {
+  return value?.trim().toLocaleUpperCase("pt-BR") ?? "";
+}
+
+// Normaliza unidade (apelidos conhecidos do Drake, ver normalizeUnidadeOperacional) e BSP
+// (mesmo normalizarBsp usado em bmDayGrid.ts, que ignora prefixo/hífen/espaço) antes de
+// comparar — sem isso, uma grafia levemente diferente entre o texto salvo na nomeação e o
+// período do Drake ("Bravo" vs "BRAVO", "26-535-02" vs "26 - 535 - 02") faz a equipe embarcada
+// nunca "casar" com a nomeação certa e sumir pra debaixo de "Cliente não identificado".
+function drakeAssignmentKey(unit: string | null | undefined, bsp: string | null | undefined): string {
+  return `${hierarchyKey(normalizeUnidadeOperacional(unit))}::${normalizarBsp(bsp)}`;
+}
+
+// Dias entre duas datas YYYY-MM-DD (positivo = "data" ainda não chegou; negativo = já passou).
+function diasAteData(data: string, referencia: string): number {
+  const parse = (s: string) => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
+  return Math.round((parse(data) - parse(referencia)) / 86400000);
+}
+
+function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
+  nominations: Nomination[];
+  nomineesByNomination: Map<string, NominationNominee[]>;
+  onOpen: (nomination: Nomination) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  // Tudo começa aberto, como solicitado. Os sets guardam somente os itens recolhidos.
+  const [collapsedClients, setCollapsedClients] = useState<Set<string>>(new Set());
+  const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
+  const [collapsedBsps, setCollapsedBsps] = useState<Set<string>>(new Set());
+  const today = todayStr();
+  const teamReferenceDate = periodStart || periodEnd || today;
+
+  const toggleCollapsed = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const { data: currentDrakePeriods = [], isLoading: isLoadingDrake } = useQuery<HistNovoPeriodo[]>({
+    queryKey: ["nominations-drake-teams-by-date", teamReferenceDate],
+    queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) =>
+      supabase.from("hist_novo_periodos").select("*")
+        .eq("tipo", "E").lte("data_inicio", teamReferenceDate).gte("data_fim", teamReferenceDate)
+        .order("data_inicio").range(from, to),
+    ),
+  });
+
+  const { data: bmClientRelations = [] } = useQuery<BmClientRelation[]>({
+    queryKey: ["nominations-bm-client-relations"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("bms")
+        .select("client_name, vessel, project_name").order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as BmClientRelation[];
+    },
+  });
+
+  const currentDrakeWorkerIds = useMemo(() => Array.from(new Set(
+    currentDrakePeriods.filter((period) => period.origem !== "programado").map((period) => period.colaborador_id),
+  )).sort(), [currentDrakePeriods]);
+
+  const { data: currentDrakeWorkers = [] } = useQuery<DrakeEmbarkedWorker[]>({
+    queryKey: ["nominations-current-drake-workers", currentDrakeWorkerIds],
+    enabled: currentDrakeWorkerIds.length > 0,
+    queryFn: async () => {
+      const batches: DrakeEmbarkedWorker[] = [];
+      for (let index = 0; index < currentDrakeWorkerIds.length; index += 200) {
+        const ids = currentDrakeWorkerIds.slice(index, index + 200);
+        const { data, error } = await supabase.from("hist_novo_colaboradores")
+          .select("id, nome, funcao, empresa").in("id", ids).order("nome");
+        if (error) throw error;
+        batches.push(...((data ?? []) as DrakeEmbarkedWorker[]));
+      }
+      return batches;
+    },
+  });
+
+  // Função de embarque (Drake, ver resolverFuncaoEmbarque) — não a cadastral de
+  // hist_novo_colaboradores acima, que pode não bater com a função real desse embarque.
+  const { data: timesheetEmbarques = [] } = useQuery({
+    queryKey: ["timesheet-embarques"],
+    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+  });
+  const embarquesByColaboradorId = useMemo(() => {
+    const m = new Map<string, TimesheetEmbarque[]>();
+    timesheetEmbarques.forEach((e) => {
+      if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []);
+      m.get(e.colaborador_id)!.push(e);
+    });
+    return m;
+  }, [timesheetEmbarques]);
+
+  const drakeWorkersByAssignment = useMemo(() => {
+    const workerById = new Map(currentDrakeWorkers.map((worker) => [worker.id, worker]));
+    const result = new Map<string, { worker: DrakeEmbarkedWorker; period: HistNovoPeriodo }[]>();
+    currentDrakePeriods.forEach((period) => {
+      if (period.origem === "programado") return;
+      const worker = workerById.get(period.colaborador_id);
+      if (!worker) return;
+      // Sem cair fora da lista quando o período não tem BSP preenchido — antes isso descartava
+      // o embarcado por inteiro, silenciosamente, sem nem entrar no grupo de pendência.
+      const bsp = bspDoPeriodo(period)?.trim() || "BSP não informado";
+      const key = drakeAssignmentKey(period.unidade_operacional, bsp);
+      if (!result.has(key)) result.set(key, []);
+      if (!result.get(key)!.some((item) => item.worker.id === worker.id)) result.get(key)!.push({ worker, period });
+    });
+    result.forEach((items) => items.sort((a, b) => a.worker.nome.localeCompare(b.worker.nome, "pt-BR")));
+    return result;
+  }, [currentDrakePeriods, currentDrakeWorkers]);
+
+  const visibleNominations = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("pt-BR");
+    return nominations.filter((nomination) => {
+      if (periodStart || periodEnd) {
+        if (!nomination.period_start || !nomination.period_end) return false;
+        // Sobreposição de períodos: basta ao menos um dia da nomeação estar dentro do filtro.
+        if (periodStart && nomination.period_end < periodStart) return false;
+        if (periodEnd && nomination.period_start > periodEnd) return false;
+      }
+      if (!query) return true;
+      const nominees = nomineesByNomination.get(nomination.id) ?? [];
+      return [nomination.client, nomination.bsp, nomination.funcao, nomination.project,
+        nomination.pm_name, ...nominees.map((nominee) => nominee.colaborador_nome)]
+        .some((value) => value?.toLocaleLowerCase("pt-BR").includes(query));
+    });
+  }, [nominations, nomineesByNomination, search, periodStart, periodEnd]);
+
+  const groups = useMemo<NominationClientGroup[]>(() => {
+    const clients = new Map<string, Map<string, Map<string, Nomination[]>>>();
+    const ensureBsp = (client: string, unit: string, bsp: string): Nomination[] => {
+      if (!clients.has(client)) clients.set(client, new Map());
+      const units = clients.get(client)!;
+      if (!units.has(unit)) units.set(unit, new Map());
+      const bsps = units.get(unit)!;
+      if (!bsps.has(bsp)) bsps.set(bsp, []);
+      return bsps.get(bsp)!;
+    };
+    visibleNominations.forEach((nomination) => {
+      const unit = nomination.unidade?.trim() || "Unidade não informada";
+      // O vínculo confirmado por unidade é prioritário também para nomeações antigas que
+      // tenham sido salvas sem cliente ou com cliente divergente.
+      const client = clienteDaUnidade(unit) ?? (nomination.client?.trim() || "Cliente não informado");
+      const bsp = nomination.bsp?.trim() || "BSP não informado";
+      ensureBsp(client, unit, bsp).push(nomination);
+    });
+    // O Drake não possui coluna de cliente. A associação é recuperada das nomeações que já
+    // relacionam aquele BSP a um cliente. BSPs ainda não conhecidos continuam visíveis num
+    // grupo de pendência, em vez de serem descartados silenciosamente.
+    const bspRelation = new Map<string, { client: string; bsp: string }>();
+    const unitRelation = new Map<string, { client: string; unit: string }>();
+    bmClientRelations.forEach((bm) => {
+      const client = bm.client_name?.trim();
+      const unit = bm.vessel?.trim();
+      const bsp = bm.project_name?.trim();
+      if (client && unit && !unitRelation.has(hierarchyKey(unit))) unitRelation.set(hierarchyKey(unit), { client, unit });
+      if (client && bsp && !bspRelation.has(hierarchyKey(bsp))) bspRelation.set(hierarchyKey(bsp), { client, bsp });
+    });
+    nominations.forEach((nomination) => {
+      const bsp = nomination.bsp?.trim();
+      const unit = nomination.unidade?.trim();
+      const client = nomination.client?.trim() || "Cliente não informado";
+      if (unit) unitRelation.set(hierarchyKey(unit), { client, unit });
+      if (bsp) bspRelation.set(hierarchyKey(bsp), {
+        client,
+        bsp,
+      });
+    });
+    const query = search.trim().toLocaleLowerCase("pt-BR");
+    drakeWorkersByAssignment.forEach((drakeTeam) => {
+      const rawUnit = drakeTeam[0].period.unidade_operacional?.trim() || "Unidade não informada";
+      const rawBsp = bspDoPeriodo(drakeTeam[0].period)?.trim() || "BSP não informado";
+      const bspRelationFound = bspRelation.get(hierarchyKey(rawBsp));
+      const unitRelationFound = unitRelation.get(hierarchyKey(rawUnit));
+      const client = clienteDaUnidade(rawUnit) ?? bspRelationFound?.client ?? unitRelationFound?.client ?? "Cliente não identificado";
+      const unit = unitRelationFound?.unit ?? rawUnit;
+      const bsp = bspRelationFound?.bsp ?? rawBsp;
+      const matchesDrakeSearch = !query || client.toLocaleLowerCase("pt-BR").includes(query)
+        || unit.toLocaleLowerCase("pt-BR").includes(query)
+        || bsp.toLocaleLowerCase("pt-BR").includes(query)
+        || drakeTeam.some(({ worker }) => worker.nome.toLocaleLowerCase("pt-BR").includes(query));
+      if (!matchesDrakeSearch) return;
+      ensureBsp(client, unit, bsp);
+    });
+    return [...clients.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([name, units]) => {
+      const unitGroups = [...units.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([unitName, bsps]) => {
+        const bspGroups = [...bsps.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([bspName, items]) => ({
+          name: bspName,
+          nominations: [...items].sort((a, b) => (a.period_start ?? a.created_at).localeCompare(b.period_start ?? b.created_at)),
+        }));
+        return { name: unitName, bsps: bspGroups, nominations: bspGroups.flatMap((bsp) => bsp.nominations) };
+      });
+      return { name, units: unitGroups, nominations: unitGroups.flatMap((unit) => unit.nominations) };
+    });
+  }, [visibleNominations, nominations, bmClientRelations, drakeWorkersByAssignment, search]);
+
+  const totalPositions = (items: Nomination[]) => items.reduce((sum, item) => sum + (item.quantidade || 1), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input placeholder="Buscar cliente, BSP, função ou profissional..." value={search}
+          onChange={(event) => setSearch(event.target.value)} className="h-8 max-w-sm text-sm" />
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor="cascade-period-start" className="text-xs text-muted-foreground">De</Label>
+          <Input id="cascade-period-start" type="date" value={periodStart}
+            onChange={(event) => setPeriodStart(event.target.value)} className="h-8 w-auto text-sm" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor="cascade-period-end" className="text-xs text-muted-foreground">Até</Label>
+          <Input id="cascade-period-end" type="date" min={periodStart || undefined} value={periodEnd}
+            onChange={(event) => setPeriodEnd(event.target.value)} className="h-8 w-auto text-sm" />
+        </div>
+        {(periodStart || periodEnd) && (
+          <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => { setPeriodStart(""); setPeriodEnd(""); }}>
+            <X className="mr-1.5 h-3.5 w-3.5" /> Limpar período
+          </Button>
+        )}
+        <Button
+          type="button" size="sm" variant="ghost" className="h-8 ml-auto text-muted-foreground"
+          onClick={() => {
+            const tudoAberto = collapsedClients.size === 0 && collapsedUnits.size === 0 && collapsedBsps.size === 0;
+            if (tudoAberto) {
+              setCollapsedClients(new Set(groups.map((c) => c.name)));
+              setCollapsedUnits(new Set(groups.flatMap((c) => c.units.map((u) => `${c.name}::${u.name}`))));
+              setCollapsedBsps(new Set(groups.flatMap((c) => c.units.flatMap((u) => u.bsps.map((b) => `${c.name}::${u.name}::${b.name}`)))));
+            } else {
+              setCollapsedClients(new Set()); setCollapsedUnits(new Set()); setCollapsedBsps(new Set());
+            }
+          }}
+        >
+          {collapsedClients.size === 0 && collapsedUnits.size === 0 && collapsedBsps.size === 0 ? (
+            <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+          ) : (
+            <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+          )}
+        </Button>
+      </div>
+
+      <Card className="overflow-x-auto">
+        <div className="min-w-[980px]">
+        {groups.length === 0 ? (
+          <EmptyState icon={Layers3} title="Nenhuma nomeação encontrada" description="Ajuste a busca ou o período selecionado." />
+        ) : groups.map((client) => {
+          const clientOpen = !collapsedClients.has(client.name);
+          return <div key={client.name} className="border-b last:border-b-0">
+            <div className="flex w-full items-center bg-slate-50 px-4 py-3 text-left">
+              <span className="flex min-w-0 items-center gap-2 font-semibold">
+                <button type="button" className="rounded p-0.5 hover:bg-slate-200" aria-label={clientOpen ? `Recolher ${client.name}` : `Abrir ${client.name}`}
+                  aria-expanded={clientOpen} onClick={() => toggleCollapsed(setCollapsedClients, client.name)}>
+                  {clientOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+                <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{client.name}</span>
+              </span>
+            </div>
+            {clientOpen && client.units.map((unit) => {
+              const unitKey = `${client.name}::${unit.name}`;
+              const unitOpen = !collapsedUnits.has(unitKey);
+              return <div key={unitKey}>
+                <div className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t bg-sky-50/60 px-4 py-2.5 text-left max-md:flex max-md:justify-between">
+                  <span className="flex min-w-0 items-center gap-2 pl-7 font-semibold text-sky-950">
+                    <button type="button" className="rounded p-0.5 hover:bg-sky-100" aria-label={unitOpen ? `Recolher ${unit.name}` : `Abrir ${unit.name}`}
+                      aria-expanded={unitOpen} onClick={() => toggleCollapsed(setCollapsedUnits, unitKey)}>
+                      {unitOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </button>
+                    <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{unit.name}</span>
+                    <span className="text-xs font-normal text-muted-foreground">({unit.bsps.length} BSP)</span>
+                  </span>
+                  <span className="text-center text-sm font-medium max-md:hidden">{totalPositions(unit.nominations)}</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span>
+                </div>
+              {unitOpen && unit.bsps.map((bsp) => {
+              const bspKey = `${unitKey}::${bsp.name}`;
+              const bspOpen = !collapsedBsps.has(bspKey);
+              const drakeTeam = drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name)) ?? [];
+              // Próxima troca de turma do BSP = desembarque mais próximo entre os embarcados —
+              // é o próximo dia em que ALGUÉM daquele BSP precisa ser rendido.
+              const proximaTrocaData = drakeTeam.length
+                ? drakeTeam.reduce((min, t) => (t.period.data_fim < min ? t.period.data_fim : min), drakeTeam[0].period.data_fim)
+                : null;
+              const diasProximaTroca = proximaTrocaData ? diasAteData(proximaTrocaData, today) : null;
+              const trocaUrgente = diasProximaTroca != null && diasProximaTroca <= 3;
+              return <div key={bspKey}>
+                <div className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t bg-white px-4 py-2.5 text-left max-md:flex max-md:justify-between">
+                  <span className="flex min-w-0 flex-wrap items-center gap-2 pl-14 font-medium">
+                    <button type="button" className="rounded p-0.5 hover:bg-muted" aria-label={bspOpen ? `Recolher ${bsp.name}` : `Abrir ${bsp.name}`}
+                      aria-expanded={bspOpen} onClick={() => toggleCollapsed(setCollapsedBsps, bspKey)}>
+                      {bspOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </button>
+                    <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{bsp.name}</span>
+                    <span className="text-xs font-normal text-muted-foreground">({bsp.nominations.length})</span>
+                    {drakeTeam.length > 0 && <Badge className="bg-emerald-100 font-normal text-emerald-800 hover:bg-emerald-100">{drakeTeam.length} embarcado(s) em {fmtDate(teamReferenceDate)}</Badge>}
+                    {proximaTrocaData && (
+                      <Badge
+                        className={cn(
+                          "font-normal",
+                          trocaUrgente ? "bg-amber-100 text-amber-900 hover:bg-amber-100" : "bg-slate-100 text-slate-700 hover:bg-slate-100",
+                        )}
+                        title={trocaUrgente ? `Faltam ${diasProximaTroca} dia(s) — troca de turma próxima` : undefined}
+                      >
+                        {trocaUrgente && <AlertTriangle className="mr-1 h-3 w-3" />}
+                        Próxima Troca de Turma: {fmtDate(proximaTrocaData)}
+                      </Badge>
+                    )}
+                  </span>
+                  <span className="text-center text-sm font-medium max-md:hidden">{totalPositions(bsp.nominations)}</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span>
+                </div>
+                {bspOpen && <div className="border-t bg-emerald-50/40 px-4 py-3 pl-[4.5rem]">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                    <User className="h-3.5 w-3.5" /> Equipe embarcada em {fmtDate(teamReferenceDate)}
+                  </div>
+                  {isLoadingDrake ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando equipe atual...</div>
+                  ) : drakeTeam.length > 0 ? (
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                      {drakeTeam.map(({ worker, period }) => (
+                        <div key={worker.id} className="rounded-md border border-emerald-200 bg-white px-3 py-2">
+                          <p className="text-sm font-medium">{worker.nome}</p>
+                          <p className="text-xs text-muted-foreground">{resolverFuncaoEmbarque(worker.id, teamReferenceDate, embarquesByColaboradorId, worker.funcao)}</p>
+                          <p className="mt-1 text-xs text-emerald-700">Embarcado desde {fmtDate(period.data_inicio)} · previsto até {fmtDate(period.data_fim)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Nenhum profissional consta como embarcado em {fmtDate(teamReferenceDate)} neste BSP.</p>
+                  )}
+                </div>}
+                {bspOpen && bsp.nominations.map((nomination) => {
+                  const team = (nomineesByNomination.get(nomination.id) ?? [])
+                    .filter((item) => item.is_active && item.technical_selected_at);
+                  return <button key={nomination.id} type="button" onClick={() => onOpen(nomination)}
+                    className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t px-4 py-3 text-left transition-colors hover:bg-primary/5 max-md:block">
+                    <span className="min-w-0 pl-[4.5rem] max-md:pl-9">
+                      <span className="flex items-center gap-2 text-sm font-medium"><span className="truncate">{nomination.funcao}</span>
+                        {nomination.sequence_number != null && <span className="text-xs font-normal text-muted-foreground">#{String(nomination.sequence_number).padStart(3, "0")}</span>}
+                      </span>
+                      {(nomination.project || nomination.pm_name) && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{nomination.project || nomination.pm_name}</span>}
+                    </span>
+                    <span className="text-center text-sm max-md:ml-9 max-md:mt-1 max-md:block max-md:text-left">{nomination.quantidade || 1}</span>
+                    <span className="text-xs text-muted-foreground max-md:ml-9 max-md:mt-1 max-md:block">
+                      {nomination.period_start && nomination.period_end ? `${fmtDate(nomination.period_start)} – ${fmtDate(nomination.period_end)}` : "Não informado"}
+                    </span>
+                    <span className="flex flex-wrap gap-1.5 max-md:ml-9 max-md:mt-2">
+                      {team.length ? team.map((item) => <Badge key={item.id} variant="secondary" className="font-normal">{item.colaborador_nome}</Badge>)
+                        : <span className="text-xs text-muted-foreground">Equipe ainda não definida</span>}
+                    </span>
+                    <span className="max-md:ml-9 max-md:mt-2 max-md:block"><StatusBadge status={nomination.current_status} /></span>
+                  </button>;
+                })}
+              </div>;
+            })}
+              </div>;
+            })}
+          </div>;
+        })}
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 function NominationsPage() {
   const [selected, setSelected]       = useState<Nomination | null>(null);
@@ -2035,6 +2412,9 @@ function NominationsPage() {
         <TabsList>
           <TabsTrigger value="simulacao">Simulação</TabsTrigger>
           <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+          <TabsTrigger value="clientes">
+            <Building2 className="mr-1.5 h-3.5 w-3.5" /> Equipes Embarcadas
+          </TabsTrigger>
           <TabsTrigger value="aptidao">
             <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
           </TabsTrigger>
@@ -2086,6 +2466,14 @@ function NominationsPage() {
               />
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="clientes" className="pt-4">
+          <ClientCascadeView
+            nominations={nominations}
+            nomineesByNomination={nomineesByNomination}
+            onOpen={setSelected}
+          />
         </TabsContent>
 
         {/* ── Aptidão ── */}

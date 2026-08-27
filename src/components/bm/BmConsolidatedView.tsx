@@ -246,7 +246,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
             </span>
           ))}
         </div>
-        <div className="overflow-x-auto rounded border">
+        <div className="overflow-x-auto rounded border screen-lt-xl:hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -336,12 +336,93 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
             </TableBody>
           </Table>
         </div>
+
+        {/* Abaixo de 1280px a tabela (colunas por dia + 8 colunas de resumo) não cabe sem
+            rolar — vira um cartão por colaborador. Nunca aparece na impressão: a variante
+            "screen-lt-xl" só existe em @media screen, então em @media print (bm-print-area)
+            fica sempre "hidden", igual antes desta mudança. */}
+        <div className="hidden space-y-2 screen-lt-xl:block print:hidden">
+          {linesMoLocal.map((l) => {
+            const codes = codesByColaborador.get(l.colaborador_id ?? "");
+            const rateField = (campo: "rate_embarque" | "rate_dobra" | "rate_hotel") =>
+              idsComRateFaltando.has(l.id) ? (
+                <Input
+                  type="number" step="0.01" placeholder="Rate"
+                  className="h-7 w-20 text-xs"
+                  defaultValue={l[campo] ?? ""}
+                  onBlur={(e) => {
+                    const valor = e.target.value.trim() === "" ? null : Number(e.target.value);
+                    if (valor === l[campo]) return;
+                    salvarRate.mutate({ linha: l, campo, valor });
+                  }}
+                />
+              ) : (
+                <span>{l[campo] != null ? fmtMoney(l[campo]!) : "—"}</span>
+              );
+            return (
+              <Card key={l.id} className="space-y-2 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-1">
+                  <span className="text-sm font-medium">
+                    {l.colaborador_nome}
+                    {l.rate_missing && (
+                      <span className="ml-1.5 inline-flex items-center gap-1 rounded bg-warning/15 px-1 py-0.5 text-[10px] text-warning-foreground">
+                        <AlertTriangle className="h-3 w-3" />Rate não cadastrado
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs font-semibold">{fmtMoney(l.valor_total)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">{l.funcao} · BSP {l.bsp ?? "—"}</div>
+                <div className="flex flex-wrap gap-1">
+                  {dates.map((d) => {
+                    const code = codes?.get(d);
+                    if (!code) return null;
+                    return (
+                      <span
+                        key={d} title={fmt(d)}
+                        className="flex h-5 min-w-5 items-center justify-center rounded px-1 text-[9px] font-bold"
+                        style={{ backgroundColor: DAY_COLOR[code], color: getContrastText(DAY_COLOR[code]) }}
+                      >
+                        {code}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Rate Emb. · {l.dias_embarque}d</p>
+                    {rateField("rate_embarque")}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Rate Dobra · {l.dias_dobra}d</p>
+                    {rateField("rate_dobra")}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Rate Emb.Canc/Hotel · {l.dias_hotel}d</p>
+                    {rateField("rate_hotel")}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+          {(() => {
+            const mob = dates.filter((d) => (mobilizacaoPorData.get(d) || 0) > 0);
+            const demob = dates.filter((d) => (demobilizacaoPorData.get(d) || 0) > 0);
+            if (!mob.length && !demob.length) return null;
+            return (
+              <div className="space-y-1 rounded border bg-muted/30 p-2 text-xs">
+                {mob.length > 0 && <p><strong>Mobilização:</strong> {mob.map((d) => `${fmt(d)} (${mobilizacaoPorData.get(d)})`).join(", ")}</p>}
+                {demob.length > 0 && <p><strong>Demobilização:</strong> {demob.map((d) => `${fmt(d)} (${demobilizacaoPorData.get(d)})`).join(", ")}</p>}
+              </div>
+            );
+          })()}
+        </div>
       </section>
 
       {/* ── Bloco C — Horas (HE / Adicional Noturno) ── */}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Horas (HE / Adicional Noturno)</h2>
-        <div className="overflow-x-auto rounded border">
+        <div className="overflow-x-auto rounded border screen-lt-xl:hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -403,6 +484,61 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
               </TableRow>
             </TableBody>
           </Table>
+        </div>
+
+        <div className="hidden space-y-2 screen-lt-xl:block print:hidden">
+          {linesMoLocal.map((l) => {
+            const diasData = diasByColaboradorData.get(l.colaborador_id ?? "");
+            const valorHoras = round2(l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0));
+            return (
+              <Card key={l.id} className="space-y-2 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{l.colaborador_nome}</span>
+                  <span className="text-xs font-semibold">{fmtMoney(valorHoras)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">{l.funcao}</div>
+                <div className="flex flex-wrap gap-1 text-[10px]">
+                  {dates.map((d) => {
+                    const dia = diasData?.get(d);
+                    const an = dia?.adicional_noturno ? (dia.total_horas ?? 0) : 0;
+                    const he = dia?.horas_extras ?? 0;
+                    if (!he && !an) return null;
+                    const texto = [he ? `HE ${he}h` : "", an ? `AN ${an}h` : ""].filter(Boolean).join(" / ");
+                    return <span key={d} className="rounded bg-muted px-1.5 py-0.5">{d.slice(8, 10)}: {texto}</span>;
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Horas Extras · Rate Overtime</p>
+                    <div className="flex items-center gap-1">
+                      <span>{l.horas_extras ? `${l.horas_extras}h` : "0h"}</span>
+                      <Input
+                        type="number" step="0.01" className="h-7 w-20 text-xs"
+                        value={l.rate_hora_extra ?? ""}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_hora_extra: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_hora_extra", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Adic. Noturno · Rate Night Shift</p>
+                    <div className="flex items-center gap-1">
+                      <span>{l.horas_adicional_noturno ? `${l.horas_adicional_noturno}h` : "0h"}</span>
+                      <Input
+                        type="number" step="0.01" className="h-7 w-20 text-xs"
+                        value={l.rate_adicional_noturno ?? ""}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_adicional_noturno: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_adicional_noturno", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+          <div className="rounded border bg-muted/30 p-2 text-xs font-semibold">
+            Total — Horas Extras: {totalHorasExtras}h · Adicional Noturno: {totalAdicionalNoturno}h · Valor: {fmtMoney(totalValorHoras)}
+          </div>
         </div>
       </section>
 
