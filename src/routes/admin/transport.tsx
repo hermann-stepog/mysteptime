@@ -15,8 +15,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2, Check, ChevronsUpDown } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2, Check, ChevronsUpDown, ChevronsDownUp, Upload, AlertTriangle, Building2, Ship, Layers3, Wallet } from "lucide-react";
+import { parsePlanilhaCustos, parseCustoBRL, parseDataBR, parseUnidadeBsp, splitNomes, parseBooleanoSN, parseBooleanoSimNao, type LinhaCustoBruta } from "@/lib/importCustos";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { notify } from "@/lib/notify";
 import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
 import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
@@ -24,7 +25,8 @@ import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSel
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CLIENTES } from "@/lib/clientes";
+import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
+import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { cn, matchesNameSearch } from "@/lib/utils";
@@ -74,6 +76,15 @@ type Trip = {
   custo: number | null;
   custo_2: number | null;
   custo_3: number | null;
+  // Campos vindos da importação da planilha de custos histórica (ver src/lib/importCustos.ts)
+  // — também editáveis pra lançamentos novos.
+  nf: string | null;
+  motivo: string | null;
+  cobrado: boolean | null;
+  status_lancamento: string | null;
+  faturado: boolean | null;
+  usuario_faturamento: string | null;
+  data_faturamento: string | null;
   tags: { tag_id: string }[];
   collabs: { collaborator_id: string }[];
   materials: { material_id: string; quantidade: number | null }[];
@@ -410,6 +421,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     notes: string;
     tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
     custo: string; custo_2: string; custo_3: string;
+    nf: string; motivo: string; cobrado: boolean; status_lancamento: string; faturado: boolean; usuario_faturamento: string; data_faturamento: string;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -427,6 +439,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       custo: t.custo != null ? String(t.custo) : "",
       custo_2: t.custo_2 != null ? String(t.custo_2) : "",
       custo_3: t.custo_3 != null ? String(t.custo_3) : "",
+      nf: t.nf ?? "", motivo: t.motivo ?? "", cobrado: t.cobrado ?? false,
+      status_lancamento: t.status_lancamento ?? "", faturado: t.faturado ?? false,
+      usuario_faturamento: t.usuario_faturamento ?? "", data_faturamento: t.data_faturamento ?? "",
       tag_ids: t.tags.map((x) => x.tag_id),
       collab_ids: t.collabs.map((x) => x.collaborator_id),
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
@@ -442,6 +457,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       cliente: "", cliente_2: "", cliente_3: "",
       unidade: "", status: "em_andamento",
       custo: "", custo_2: "", custo_3: "",
+      nf: "", motivo: "", cobrado: false, status_lancamento: "", faturado: false, usuario_faturamento: "", data_faturamento: "",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
@@ -473,6 +489,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         custo_2: f.custo_2.trim() ? Number(f.custo_2.trim()) : null,
         custo_3: f.custo_3.trim() ? Number(f.custo_3.trim()) : null,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
+        nf: f.nf.trim() || null, motivo: f.motivo.trim() || null, cobrado: f.cobrado,
+        status_lancamento: f.status_lancamento.trim() || null, faturado: f.faturado,
+        usuario_faturamento: f.usuario_faturamento.trim() || null, data_faturamento: f.data_faturamento || null,
       };
       let id = f.id;
       if (id) {
@@ -654,6 +673,32 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
           <div><Label>Observações</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} /></div>
 
+          {/* Campos de faturamento/custo — vieram da importação da planilha histórica, mas
+              seguem editáveis pra lançamentos novos também. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div><Label>Motivo</Label><Input value={f.motivo} onChange={(e) => setF({ ...f, motivo: e.target.value })} /></div>
+            <div><Label>NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div><Label>Status Lanç.</Label><Input value={f.status_lancamento} onChange={(e) => setF({ ...f, status_lancamento: e.target.value })} placeholder="Ex.: Definitivo" /></div>
+            <div className="flex items-end gap-2 pb-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={f.cobrado} onChange={(e) => setF({ ...f, cobrado: e.target.checked })} />
+                Cobrado do cliente
+              </label>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="flex items-end gap-2 pb-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={f.faturado} onChange={(e) => setF({ ...f, faturado: e.target.checked })} />
+                Faturado
+              </label>
+            </div>
+            <div><Label>Usuário Faturamento</Label><Input value={f.usuario_faturamento} onChange={(e) => setF({ ...f, usuario_faturamento: e.target.value })} /></div>
+            <div><Label>Data Faturamento</Label><Input type="date" value={f.data_faturamento} onChange={(e) => setF({ ...f, data_faturamento: e.target.value })} /></div>
+          </div>
+
           <div>
             <Label>Status</Label>
             <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v as TripStatus })}>
@@ -673,6 +718,552 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Importação da planilha de custos histórica (aba "Transporte") ──────────────────────────
+// Uma linha da planilha = uma viagem (Trip); Transporte já suporta múltiplos colaboradores
+// por viagem via transport_trip_collaborators, então os nomes da coluna Funcionário viram
+// vínculos da MESMA viagem, sem duplicar linha (diferente de Hospedagem/Passagens).
+interface ParsedTransporteRow {
+  payload: Record<string, unknown> | null;
+  colaboradorIds: string[];
+  nomesNaoEncontrados: string[];
+  erro: string | null;
+  data: string; fornecedor: string; custo: number | null; funcionarios: string;
+  // Preenchidos depois de casar com os cartões já existentes (ver acharCartaoExistente) — null
+  // até essa etapa rodar.
+  acao?: "cria" | "atualiza" | "sem_mudanca";
+  tripIdExistente?: string;
+  camposParaAtualizar?: Record<string, unknown>;
+}
+
+// Campos de custo que a importação pode completar num cartão já existente — nunca mexe em
+// origem/destino/tipo/bsp/unidade/carro/observações/colaboradores, que já foram preenchidos
+// manualmente por quem criou o cartão.
+const CAMPOS_CUSTO_ATUALIZAVEIS = ["nf", "motivo", "cobrado", "status_lancamento", "faturado", "usuario_faturamento", "data_faturamento", "custo"] as const;
+
+function vazio(v: unknown): boolean {
+  return v === null || v === undefined || v === "";
+}
+
+function buildTransportRow(l: LinhaCustoBruta, collabByName: Map<string, Collaborator>): ParsedTransporteRow {
+  const data = parseDataBR(l.data);
+  const custo = parseCustoBRL(l.custo);
+  const base = { data: l.data, fornecedor: l.fornecedor, custo, funcionarios: l.funcionario };
+  if (!data) return { payload: null, colaboradorIds: [], nomesNaoEncontrados: [], erro: "Data inválida", ...base };
+  if (custo == null) return { payload: null, colaboradorIds: [], nomesNaoEncontrados: [], erro: "Custo inválido", ...base };
+
+  const { unidade, bsp } = parseUnidadeBsp(l.projeto);
+  const nomes = splitNomes(l.funcionario);
+  const colaboradorIds: string[] = [];
+  const nomesNaoEncontrados: string[] = [];
+  nomes.forEach((n) => {
+    const c = collabByName.get(n.trim().toUpperCase());
+    if (c) colaboradorIds.push(c.id); else nomesNaoEncontrados.push(n);
+  });
+
+  // "CARAPEBUS X MACAE" → origem/destino; sem esse padrão, fica "Não informado" nos dois
+  // (o texto completo continua em notes, nada se perde).
+  const obsMatch = l.observacao.match(/^(.+?)\s+[Xx]\s+(.+)$/);
+  const origin = obsMatch ? obsMatch[1].trim() : "Não informado";
+  const destination = obsMatch ? obsMatch[2].trim() : "Não informado";
+
+  const notes = [
+    l.tipoApontamento,
+    l.observacao,
+    nomesNaoEncontrados.length ? `Colaborador(es) não localizado(s): ${nomesNaoEncontrados.join(", ")}` : null,
+  ].filter(Boolean).join(" — ") || null;
+
+  const payload = {
+    car_number: l.fornecedor.trim() || "Não informado",
+    column_id: null,
+    scheduled_at: `${data}T12:00:00.000Z`,
+    origin, destination,
+    origens_extras: [], destinos_extras: [],
+    notes,
+    tipo: "pessoas",
+    bsp, bsp_2: null, bsp_3: null,
+    cliente: null, cliente_2: null, cliente_3: null,
+    unidade,
+    status: "realizado", realizado: true, cancelado: false,
+    custo, custo_2: null, custo_3: null,
+    nf: l.nf.trim() || null, motivo: l.motivo.trim() || null, cobrado: parseBooleanoSN(l.cobrado),
+    status_lancamento: l.statusLancamento.trim() || null, faturado: parseBooleanoSimNao(l.faturado),
+    usuario_faturamento: l.usuarioFaturamento.trim() || null, data_faturamento: parseDataBR(l.dataFaturamento),
+  };
+  return { payload, colaboradorIds, nomesNaoEncontrados, erro: null, ...base };
+}
+
+function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const { data: collaborators = [] } = useCollaboratorsQuery();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<ParsedTransporteRow[] | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  const collabByName = useMemo(() => {
+    const m = new Map<string, Collaborator>();
+    collaborators.forEach((c) => m.set(c.full_name.trim().toUpperCase(), c));
+    return m;
+  }, [collaborators]);
+
+  const onFile = async (file: File) => {
+    const buf = await file.arrayBuffer();
+    const linhas = parsePlanilhaCustos(buf, "Transporte");
+    if (linhas.length === 0) { notify.error('Nenhuma linha encontrada na aba "Transporte" da planilha.'); return; }
+    const rows = linhas.map((l) => buildTransportRow(l, collabByName));
+    const validasIniciais = rows.filter((r) => !r.erro && r.payload);
+    if (validasIniciais.length === 0) { setPreview(rows); return; }
+
+    // Transporte já tem cartões criados manualmente, muitos deles já com bastante coisa
+    // preenchida (tags, materiais, observações) — antes de criar cartão novo, procura se já
+    // existe um pra essa data+colaborador e só completa os campos de custo que ainda estiverem
+    // vazios nele, sem tocar em mais nada (decisão confirmada com a usuária).
+    const datas = validasIniciais.map((r) => String(r.payload!.scheduled_at).slice(0, 10));
+    const minData = datas.reduce((a, b) => (a < b ? a : b));
+    const maxData = datas.reduce((a, b) => (a > b ? a : b));
+
+    const { data: existentes, error } = await supabase
+      .from("transport_trips")
+      .select("id, scheduled_at, nf, motivo, cobrado, status_lancamento, faturado, usuario_faturamento, data_faturamento, custo, collabs:transport_trip_collaborators(collaborator_id)")
+      .gte("scheduled_at", `${minData}T00:00:00.000Z`)
+      .lte("scheduled_at", `${maxData}T23:59:59.999Z`);
+    if (error) { notify.error(error.message); return; }
+
+    const porDataColaborador = new Map<string, any>();
+    (existentes ?? []).forEach((t: any) => {
+      const dia = String(t.scheduled_at).slice(0, 10);
+      (t.collabs ?? []).forEach((c: any) => {
+        const key = `${dia}::${c.collaborator_id}`;
+        if (!porDataColaborador.has(key)) porDataColaborador.set(key, t);
+      });
+    });
+
+    const enriquecidas = rows.map((r): ParsedTransporteRow => {
+      if (r.erro || !r.payload) return r;
+      const dia = String(r.payload.scheduled_at).slice(0, 10);
+      const match = r.colaboradorIds.map((cid) => porDataColaborador.get(`${dia}::${cid}`)).find((t) => t);
+      if (!match) return { ...r, acao: "cria" };
+      const camposParaAtualizar: Record<string, unknown> = {};
+      CAMPOS_CUSTO_ATUALIZAVEIS.forEach((campo) => {
+        if (vazio(match[campo]) && !vazio((r.payload as Record<string, unknown>)[campo])) {
+          camposParaAtualizar[campo] = (r.payload as Record<string, unknown>)[campo];
+        }
+      });
+      const temMudanca = Object.keys(camposParaAtualizar).length > 0;
+      return { ...r, acao: temMudanca ? "atualiza" : "sem_mudanca", tripIdExistente: match.id, camposParaAtualizar };
+    });
+    setPreview(enriquecidas);
+  };
+
+  const validas = preview?.filter((p) => !p.erro) ?? [];
+  const invalidas = preview?.filter((p) => p.erro) ?? [];
+  const nomesNaoEncontradosUnicos = Array.from(new Set(validas.flatMap((p) => p.nomesNaoEncontrados))).sort();
+  const paraCriar = validas.filter((p) => p.acao === "cria");
+  const paraAtualizar = validas.filter((p) => p.acao === "atualiza");
+  const semMudanca = validas.filter((p) => p.acao === "sem_mudanca");
+
+  const importar = useMutation({
+    mutationFn: async () => {
+      const total = paraCriar.length + paraAtualizar.length;
+      const BATCH = 500;
+      for (let i = 0; i < paraCriar.length; i += BATCH) {
+        const lote = paraCriar.slice(i, i + BATCH);
+        const { data, error } = await supabase.from("transport_trips").insert(lote.map((r) => r.payload)).select("id");
+        if (error) throw error;
+        const collabRows: { trip_id: string; collaborator_id: string }[] = [];
+        (data ?? []).forEach((row: { id: string }, idx: number) => {
+          lote[idx].colaboradorIds.forEach((cid) => collabRows.push({ trip_id: row.id, collaborator_id: cid }));
+        });
+        if (collabRows.length) {
+          const { error: ce } = await supabase.from("transport_trip_collaborators").insert(collabRows);
+          if (ce) throw ce;
+        }
+        setProgress({ done: Math.min(i + BATCH, paraCriar.length), total });
+      }
+      for (let i = 0; i < paraAtualizar.length; i++) {
+        const r = paraAtualizar[i];
+        const { error } = await supabase.from("transport_trips").update(r.camposParaAtualizar).eq("id", r.tripIdExistente);
+        if (error) throw error;
+        setProgress({ done: paraCriar.length + i + 1, total });
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transport_trips"] });
+      notify.success(
+        `${paraCriar.length} cartão(ões) novo(s), ${paraAtualizar.length} completado(s)`
+        + (semMudanca.length ? `, ${semMudanca.length} já estavam completos.` : "."),
+      );
+      setPreview(null); setProgress(null); onOpenChange(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!importar.isPending) { onOpenChange(o); if (!o) { setPreview(null); setProgress(null); } } }}>
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Importar planilha de custos — Transporte</DialogTitle></DialogHeader>
+        {!preview ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Selecione o arquivo "Relatorio_Custos_Stepup..." — cada linha da aba "Transporte" primeiro tenta
+              completar um cartão já existente (mesma data + colaborador); só cria cartão novo quando não encontra nenhum.
+            </p>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+            <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Escolher arquivo</Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Linhas na planilha</p><p className="text-xl font-semibold">{preview.length}</p></Card>
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Cartões novos</p><p className="text-xl font-semibold text-success">{paraCriar.length}</p></Card>
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Cartões completados</p><p className="text-xl font-semibold text-sky-600">{paraAtualizar.length}</p></Card>
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Já completos</p><p className="text-xl font-semibold text-muted-foreground">{semMudanca.length}</p></Card>
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Com erro</p><p className="text-xl font-semibold text-destructive">{invalidas.length}</p></Card>
+            </div>
+            {nomesNaoEncontradosUnicos.length > 0 && (
+              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
+                <p className="mb-1 flex items-center gap-1.5 font-medium text-warning-foreground"><AlertTriangle className="h-3.5 w-3.5" />{nomesNaoEncontradosUnicos.length} nome(s) não encontrado(s) em Colaboradores (a viagem é importada mesmo assim, com o nome guardado nas observações)</p>
+                <p className="text-muted-foreground">{nomesNaoEncontradosUnicos.join(", ")}</p>
+              </div>
+            )}
+            {invalidas.length > 0 && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                {invalidas.length} linha(s) não serão importadas (data ou custo inválido) — revise a planilha se o número parecer alto.
+              </div>
+            )}
+            <div className="max-h-[40vh] overflow-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow><TableHead>Data</TableHead><TableHead>Fornecedor</TableHead><TableHead>Funcionário(s)</TableHead><TableHead>Custo</TableHead><TableHead>Situação</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {preview.slice(0, 200).map((p, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="text-xs">{p.data}</TableCell>
+                      <TableCell className="text-xs">{p.fornecedor}</TableCell>
+                      <TableCell className="text-xs">{p.funcionarios}</TableCell>
+                      <TableCell className="text-xs">{p.custo != null ? fmtMoney(p.custo) : "—"}</TableCell>
+                      <TableCell className="text-xs">
+                        {p.erro ? <span className="text-destructive">{p.erro}</span>
+                          : p.acao === "cria" ? <span className="text-success">Cria cartão novo</span>
+                          : p.acao === "atualiza" ? <span className="text-sky-600">Completa cartão existente</span>
+                          : <span className="text-muted-foreground">Cartão já completo</span>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {preview.length > 200 && <p className="p-2 text-center text-xs text-muted-foreground">Mostrando as primeiras 200 de {preview.length} linhas — a importação processa todas.</p>}
+            </div>
+            {progress && <p className="text-xs text-muted-foreground">Importando {progress.done}/{progress.total}...</p>}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setPreview(null)} disabled={importar.isPending}>Escolher outro arquivo</Button>
+              <Button onClick={() => importar.mutate()} loading={importar.isPending} disabled={paraCriar.length + paraAtualizar.length === 0}>
+                Confirmar importação ({paraCriar.length + paraAtualizar.length})
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Aba "Custos" — cascata Cliente → Unidade → BSP, mesmo formato da aba Lançamentos de
+// Hospedagem (src/routes/admin/hospedagem.tsx). Uma viagem pode ter até 3 BSPs/clientes/custos
+// (bsp/bsp_2/bsp_3) — cada um vira uma "perna" própria na árvore, com o valor já rateado que o
+// próprio custo/custo_2/custo_3 representa (não soma custoTotal em mais de um lugar).
+type PernaCusto = { trip: Trip; bsp: string; cliente: string; custo: number };
+type TripsSortColumn = "data" | "carro" | "unidade" | "bsp" | "custo" | "status";
+
+function buildPernas(trips: Trip[]): PernaCusto[] {
+  const pernas: PernaCusto[] = [];
+  trips.forEach((t) => {
+    const slots: [string | null, string | null, number | null][] = [
+      [t.bsp, t.cliente, t.custo], [t.bsp_2, t.cliente_2, t.custo_2], [t.bsp_3, t.cliente_3, t.custo_3],
+    ];
+    const preenchidos = slots.filter(([bsp, , custo]) => bsp || custo != null);
+    if (preenchidos.length === 0) {
+      pernas.push({ trip: t, bsp: "Não informado", cliente: t.cliente ?? clienteDaUnidade(t.unidade) ?? t.unidade ?? "Base", custo: custoTotal(t) ?? 0 });
+      return;
+    }
+    preenchidos.forEach(([bsp, cliente, custo]) => {
+      pernas.push({
+        trip: t, bsp: bsp?.trim() || "Não informado",
+        cliente: cliente ?? clienteDaUnidade(t.unidade) ?? t.unidade ?? "Base",
+        custo: custo ?? 0,
+      });
+    });
+  });
+  return pernas;
+}
+
+function CustosTab({ trips }: { trips: Trip[] }) {
+  const [periodoDe, setPeriodoDe] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
+  const [periodoAte, setPeriodoAte] = useState(() => new Date().toISOString().slice(0, 10));
+  const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
+  const [importOpen, setImportOpen] = useState(false);
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<TripsSortColumn>();
+
+  const filtradas = useMemo(() => trips.filter((t) => {
+    const dia = t.scheduled_at.slice(0, 10);
+    return (!periodoDe || dia >= periodoDe) && (!periodoAte || dia <= periodoAte) &&
+      (filterUnidade === "all" || t.unidade === filterUnidade) &&
+      (filterBsp === "all" || [t.bsp, t.bsp_2, t.bsp_3].includes(filterBsp));
+  }), [trips, periodoDe, periodoAte, filterUnidade, filterBsp]);
+
+  const ordenadas = useMemo(() => [...filtradas].sort((a, b) => {
+    if (!sortColumn) return b.scheduled_at.localeCompare(a.scheduled_at);
+    const dir = sortDirection === "asc" ? 1 : -1;
+    switch (sortColumn) {
+      case "data": return dir * a.scheduled_at.localeCompare(b.scheduled_at);
+      case "carro": return dir * compareCarNumber(a.car_number, b.car_number);
+      case "unidade": return dir * (a.unidade ?? "").localeCompare(b.unidade ?? "");
+      case "bsp": return dir * (a.bsp ?? "").localeCompare(b.bsp ?? "");
+      case "custo": return dir * ((custoTotal(a) ?? 0) - (custoTotal(b) ?? 0));
+      case "status": return dir * a.status.localeCompare(b.status);
+      default: return 0;
+    }
+  }), [filtradas, sortColumn, sortDirection]);
+
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set(trips.map((t) => t.unidade).filter((u): u is string => !!u))).sort(),
+    [trips],
+  );
+  const bspOptions = useMemo(
+    () => Array.from(new Set(trips.flatMap((t) => [t.bsp, t.bsp_2, t.bsp_3]).filter((b): b is string => !!b))).sort(),
+    [trips],
+  );
+
+  const consolidado = useMemo(() => {
+    const porCliente = new Map<string, Map<string, Map<string, PernaCusto[]>>>();
+    buildPernas(filtradas).forEach((p) => {
+      if (!porCliente.has(p.cliente)) porCliente.set(p.cliente, new Map());
+      const porUnidade = porCliente.get(p.cliente)!;
+      const unidade = p.trip.unidade ?? "Sem unidade";
+      if (!porUnidade.has(unidade)) porUnidade.set(unidade, new Map());
+      const porBsp = porUnidade.get(unidade)!;
+      if (!porBsp.has(p.bsp)) porBsp.set(p.bsp, []);
+      porBsp.get(p.bsp)!.push(p);
+    });
+    return Array.from(porCliente.entries())
+      .map(([cliente, porUnidade]) => {
+        const unidades = Array.from(porUnidade.entries())
+          .map(([unidade, porBsp]) => {
+            const bsps = Array.from(porBsp.entries())
+              .map(([bsp, pernas]) => ({
+                bsp, total: pernas.reduce((a, p) => a + p.custo, 0),
+                itens: [...pernas].sort((a, b) => b.trip.scheduled_at.localeCompare(a.trip.scheduled_at)),
+              }))
+              .sort((a, b) => b.total - a.total);
+            return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
+          })
+          .sort((a, b) => b.total - a.total);
+        return { cliente, total: unidades.reduce((a, u) => a + u.total, 0), unidades };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [filtradas]);
+  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
+  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
+  const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
+  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
+            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
+            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
+            <Select value={filterUnidade} onValueChange={setFilterUnidade}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {consolidado.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex justify-end">
+            <Button
+              type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+              onClick={() => {
+                const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
+                if (tudoAberto) {
+                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
+                  setCollapsedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
+                } else {
+                  setCollapsedClientes(new Set()); setCollapsedUnidades(new Set());
+                }
+              }}
+            >
+              {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
+                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+              ) : (
+                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+              )}
+            </Button>
+          </div>
+          <Card className="overflow-hidden">
+            {consolidado.map((c) => {
+              const clienteAberto = !collapsedClientes.has(c.cliente);
+              return (
+                <div key={c.cliente} className="border-b last:border-b-0">
+                  <button
+                    type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                    aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                  >
+                    <span className="flex min-w-0 items-center gap-2 font-semibold">
+                      {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                      <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{c.cliente}</span>
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold">{fmtMoney(c.total)}</span>
+                  </button>
+                  {clienteAberto && c.unidades.map((u) => {
+                    const unidadeKey = `${c.cliente}::${u.unidade}`;
+                    const unidadeAberta = !collapsedUnidades.has(unidadeKey);
+                    return (
+                      <div key={unidadeKey}>
+                        <button
+                          type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
+                          aria-expanded={unidadeAberta} onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
+                        >
+                          <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
+                            {unidadeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                            <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{u.unidade}</span>
+                            {u.bsps.some((b) => b.bsp !== "Não informado") && (
+                              <span className="text-xs font-normal text-muted-foreground">({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)</span>
+                            )}
+                          </span>
+                          <span className="shrink-0 text-sm font-medium">{fmtMoney(u.total)}</span>
+                        </button>
+                        {unidadeAberta && u.bsps.map((b) => {
+                          if (b.bsp === "Não informado") {
+                            return (
+                              <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
+                                {b.itens.map((p) => (
+                                  <div key={`${p.trip.id}-${p.bsp}`} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                    <div className="min-w-0">
+                                      <p className="truncate font-medium">{p.trip.car_number}</p>
+                                      <p className="text-muted-foreground">{fmtDate(p.trip.scheduled_at)} · {p.trip.origin} → {p.trip.destination}{p.trip.motivo ? ` · ${p.trip.motivo}` : ""}</p>
+                                    </div>
+                                    <span className="shrink-0 font-semibold">{fmtMoney(p.custo)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          const bspKey = `${unidadeKey}::${b.bsp}`;
+                          const bspAberto = expandedBsps.has(bspKey);
+                          return (
+                            <div key={bspKey}>
+                              <button
+                                type="button" className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
+                                aria-expanded={bspAberto} onClick={() => toggleSet(setExpandedBsps, bspKey)}
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  {bspAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                                  <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{b.bsp}</span>
+                                  <span className="text-xs font-normal text-muted-foreground">({b.itens.length})</span>
+                                </span>
+                                <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
+                              </button>
+                              {bspAberto && (
+                                <div className="divide-y border-t bg-emerald-50/40 pl-20">
+                                  {b.itens.map((p) => (
+                                    <div key={`${p.trip.id}-${p.bsp}`} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                      <div className="min-w-0">
+                                        <p className="truncate font-medium">{p.trip.car_number}</p>
+                                        <p className="text-muted-foreground">{fmtDate(p.trip.scheduled_at)} · {p.trip.origin} → {p.trip.destination}{p.trip.motivo ? ` · ${p.trip.motivo}` : ""}</p>
+                                      </div>
+                                      <span className="shrink-0 font-semibold">{fmtMoney(p.custo)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </Card>
+        </div>
+      )}
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortableHead label="Data" column="data" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Carro/Fornecedor" column="carro" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead>NF</TableHead>
+              <TableHead>Motivo</TableHead>
+              <SortableHead label="Custo" column="custo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {ordenadas.length === 0 ? (
+              <EmptyStateRow colSpan={8} icon={Wallet} title="Nenhum custo encontrado no período" />
+            ) : ordenadas.map((t) => (
+              <TableRow key={t.id}>
+                <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
+                <TableCell>{t.car_number}</TableCell>
+                <TableCell>{t.unidade ?? "—"}</TableCell>
+                <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
+                <TableCell>{t.nf ?? "—"}</TableCell>
+                <TableCell>{t.motivo ?? "—"}</TableCell>
+                <TableCell className="text-right font-medium">{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>
+                <TableCell>{STATUS_LABEL[t.status]}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <ImportCustosTransporteDialog open={importOpen} onOpenChange={setImportOpen} />
+    </div>
   );
 }
 
@@ -716,6 +1307,7 @@ function TransportPage() {
   const [editing, setEditing] = useState<Trip | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [instanceKey, setInstanceKey] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
 
   const qc = useQueryClient();
   const setStatus = useMutation({
@@ -778,8 +1370,9 @@ function TransportPage() {
           <h1 className="text-2xl font-semibold">Transporte &amp; Rotas</h1>
           {!isVisitante && <p className="text-sm text-muted-foreground">Kanban de viagens, programação do dia, quadro detalhado e linha do tempo.</p>}
         </div>
-        {!isVisitante && tab !== "solicitacoes" && (
+        {!isVisitante && tab !== "solicitacoes" && tab !== "custos" && (
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="mr-2 h-4 w-4" />Importar planilha de custos</Button>
             <Button onClick={() => openEdit(null)}><Plus className="mr-2 h-4 w-4" />Nova viagem</Button>
           </div>
         )}
@@ -795,6 +1388,7 @@ function TransportPage() {
               <TabsTrigger value="detail">Quadro Detalhado</TabsTrigger>
               <TabsTrigger value="timeline">Linha do Tempo</TabsTrigger>
               <TabsTrigger value="kpi">Dashboard KPI</TabsTrigger>
+              <TabsTrigger value="custos">Custos</TabsTrigger>
             </>
           )}
         </TabsList>
@@ -817,9 +1411,13 @@ function TransportPage() {
         <TabsContent value="kpi" className="mt-4">
           <KpiDashboard trips={allTrips} tags={tags} tagsById={tagsById} />
         </TabsContent>
+        <TabsContent value="custos" className="mt-4">
+          <CustosTab trips={allTrips} />
+        </TabsContent>
       </Tabs>
 
       <TripDialog key={instanceKey} trip={editing} columns={cols} open={dialogOpen} onOpenChange={setDialogOpen} />
+      <ImportCustosTransporteDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
@@ -955,7 +1553,7 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
             <Label className="text-xs">Solicitante *</Label>
             <Input placeholder="Nome do solicitante" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs">Setor *</Label>
               <Input placeholder="Ex.: Operações" value={setor} onChange={(e) => setSetor(e.target.value)} />
@@ -969,7 +1567,7 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
             <Label className="text-xs">Data / Hora de programação *</Label>
             <Input type="datetime-local" value={dataHora} onChange={(e) => setDataHora(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs">Origem</Label>
               <Input placeholder="Ex.: Macaé" value={origem} onChange={(e) => setOrigem(e.target.value)} />
@@ -1350,17 +1948,17 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
             <TableRow>
               <TableHead>Data</TableHead>
               <TableHead>Carro</TableHead>
-              <TableHead>Tipo</TableHead>
+              <TableHead className="hidden md:table-cell">Tipo</TableHead>
               <TableHead>Cliente</TableHead>
-              <TableHead>BSP</TableHead>
-              <TableHead>Etiquetas</TableHead>
-              <TableHead>Horário</TableHead>
-              <TableHead>Origem</TableHead>
-              <TableHead>Destino</TableHead>
-              <TableHead>Pessoas/Materiais</TableHead>
+              <TableHead className="hidden md:table-cell">BSP</TableHead>
+              <TableHead className="hidden xl:table-cell">Etiquetas</TableHead>
+              <TableHead className="hidden lg:table-cell">Horário</TableHead>
+              <TableHead className="hidden lg:table-cell">Origem</TableHead>
+              <TableHead className="hidden lg:table-cell">Destino</TableHead>
+              <TableHead className="hidden xl:table-cell">Pessoas/Materiais</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Custo</TableHead>
-              <TableHead className="w-[1%]"></TableHead>
+              <TableHead className="hidden w-[1%] xl:table-cell"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1368,21 +1966,21 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <TableRow key={t.id} className="cursor-pointer" onClick={() => onEdit(t)}>
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
                 <TableCell>{t.car_number}</TableCell>
-                <TableCell>{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
+                <TableCell className="hidden md:table-cell">{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
                 <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
-                <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
-                <TableCell><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
-                <TableCell>{t.departure_time ? t.departure_time.slice(0, 5) : "—"}</TableCell>
-                <TableCell>{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
-                <TableCell>{[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
-                <TableCell className="max-w-[200px] truncate">
+                <TableCell className="hidden md:table-cell">{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
+                <TableCell className="hidden xl:table-cell"><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
+                <TableCell className="hidden lg:table-cell">{t.departure_time ? t.departure_time.slice(0, 5) : "—"}</TableCell>
+                <TableCell className="hidden lg:table-cell">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
+                <TableCell className="hidden lg:table-cell">{[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
+                <TableCell className="hidden max-w-[200px] truncate xl:table-cell">
                   {t.tipo === "pessoas"
                     ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
                     : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
                 <TableCell>{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
+                <TableCell className="hidden xl:table-cell" onClick={(e) => e.stopPropagation()}>
                   {onDuplicate && (
                     <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
                       <Copy className="mr-1 h-3 w-3" />Duplicar
