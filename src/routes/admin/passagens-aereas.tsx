@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import { matchesNameSearch } from "@/lib/utils";
@@ -23,13 +23,29 @@ import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NomeUsuarioField, MotivoField } from "@/components/LogisticaFormFields";
-import { Plane, Plus, Pencil, Trash2, BedDouble } from "lucide-react";
+import {
+  Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle, ArrowDownToLine, ArrowUpFromLine,
+  Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
+} from "lucide-react";
+import { clienteDaUnidade } from "@/lib/clientes";
+import {
+  parsePlanilhaCustos, parseCustoBRL, parseDataBR, parseUnidadeBsp, splitNomes,
+  parseBooleanoSN, parseBooleanoSimNao, parseCheckOutDeObservacao, type LinhaCustoBruta,
+} from "@/lib/importCustos";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notify } from "@/lib/notify";
 import { pageTitle } from "@/lib/pageTitle";
+import { cn } from "@/lib/utils";
 import { selectAllPages } from "@/lib/supabasePaginate";
-import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, todayStr, addDays, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
-import { TIPOS_PASSAGEM, STATUS_PASSAGEM, type PassagemAerea } from "@/lib/passagensAereas";
+import {
+  TIPOS_PASSAGEM, STATUS_PASSAGEM, STATUS_FLUXO_ORDER, STATUS_FLUXO_LABEL, STATUS_FLUXO_COLOR,
+  STATUS_FLUXO_RESPONSAVEL, STATUS_FLUXO_PROXIMA_ACAO,
+  type PassagemAerea, type PassagemOpcao, type PassagemStatusHistory, type StatusFluxo,
+} from "@/lib/passagensAereas";
+import { notifyPassagemStageAdvance } from "@/lib/passagemEmails";
+import { useAuth } from "@/hooks/useAuth";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 
 export const Route = createFileRoute("/admin/passagens-aereas")({ head: () => pageTitle("Passagens Aéreas"), component: PassagensAereasPage });
@@ -58,6 +74,9 @@ function usePassagensQuery() {
     queryFn: () => selectAllPages<PassagemAerea>((from, to) =>
       supabase.from("passagens_aereas").select("*").order("data_ida", { ascending: false }).order("id").range(from, to),
     ),
+    // Mesmo padrão de atualização automática do Transporte (SolicitacoesTab) — sem Realtime,
+    // só uma checagem periódica, pra tela do fluxo de aprovação não ficar parada.
+    refetchInterval: 10000,
   });
 }
 
@@ -70,11 +89,12 @@ function usePeriodosEQuery() {
   });
 }
 
+interface ColaboradorBasico { id: string; nome: string; funcao: string | null; funcao_operacao: string | null; }
 function useColaboradoresQuery() {
-  return useQuery<{ id: string; nome: string }[]>({
+  return useQuery<ColaboradorBasico[]>({
     queryKey: ["hist-novo-colaboradores"],
-    queryFn: () => selectAllPages<{ id: string; nome: string }>((from, to) =>
-      supabase.from("hist_novo_colaboradores").select("id, nome").order("nome").range(from, to),
+    queryFn: () => selectAllPages<ColaboradorBasico>((from, to) =>
+      supabase.from("hist_novo_colaboradores").select("id, nome, funcao, funcao_operacao").order("nome").range(from, to),
     ),
   });
 }
@@ -83,6 +103,7 @@ const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", companhiaAerea: "", origem: "", destino: "",
   dataIda: "", dataVolta: "", tipo: "Ida e Volta", valor: "", status: "Confirmada",
   motivo: "", motivoCancelamento: "", observacoes: "",
+  solicitante: "", solicitanteEmail: "", internacional: false,
 };
 
 // ─── Dialog: Nova passagem / Editar ─────────────────────────────────────────
@@ -101,6 +122,8 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       dataIda: editing.data_ida, dataVolta: editing.data_volta ?? "", tipo: editing.tipo,
       valor: String(editing.valor), status: editing.status, motivo: editing.motivo ?? "",
       motivoCancelamento: editing.motivo_cancelamento ?? "", observacoes: editing.observacoes ?? "",
+      solicitante: editing.solicitante ?? "", solicitanteEmail: editing.solicitante_email ?? "",
+      internacional: editing.internacional ?? false,
     });
     setBound(editing.id);
   }
@@ -123,12 +146,16 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
         status: f.status, motivo: f.motivo.trim() || null,
         motivo_cancelamento: f.status === "Cancelada" ? (f.motivoCancelamento.trim() || null) : null,
         observacoes: f.observacoes.trim() || null,
+        solicitante: f.solicitante.trim() || null, solicitante_email: f.solicitanteEmail.trim() || null,
+        internacional: f.internacional,
       };
       if (editing) {
         const { error } = await supabase.from("passagens_aereas").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("passagens_aereas").insert(payload);
+        // Solicitação nova sempre entra no início do fluxo — status_fluxo default do banco
+        // ("emitida") é só pra registro histórico lançado direto, não pra quem passa por aqui.
+        const { error } = await supabase.from("passagens_aereas").insert({ ...payload, status_fluxo: "solicitada" });
         if (error) throw error;
       }
     },
@@ -145,7 +172,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>{editing ? "Editar passagem" : "Nova passagem"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Unidade</Label>
               <Select value={f.unidade} onValueChange={(v) => setF({ ...f, unidade: v, bsp: "" })}>
@@ -161,11 +188,25 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               </Select>
             </div>
           </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="text-xs">Solicitante</Label>
+              <Input value={f.solicitante} onChange={(e) => setF({ ...f, solicitante: e.target.value })} placeholder="Quem está pedindo" />
+            </div>
+            <div>
+              <Label className="text-xs">E-mail do solicitante (opcional)</Label>
+              <Input type="email" value={f.solicitanteEmail} onChange={(e) => setF({ ...f, solicitanteEmail: e.target.value })} placeholder="Pra avisar a cada etapa" />
+            </div>
+          </div>
           <div>
-            <Label className="text-xs">Nome do usuário</Label>
+            <Label className="text-xs">Colaborador (quem vai viajar)</Label>
             <NomeUsuarioField value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })} colaboradores={colaboradores} />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={f.internacional} onChange={(e) => setF({ ...f, internacional: e.target.checked })} />
+            Viagem internacional (entra no Relatório de Viagens)
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label className="text-xs">Companhia aérea</Label>
               <Input value={f.companhiaAerea} onChange={(e) => setF({ ...f, companhiaAerea: e.target.value })} />
@@ -179,7 +220,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               <Input value={f.destino} onChange={(e) => setF({ ...f, destino: e.target.value })} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Data de ida</Label>
               <Input type="date" value={f.dataIda} onChange={(e) => setF({ ...f, dataIda: e.target.value })} />
@@ -189,7 +230,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               <Input type="date" value={f.dataVolta} onChange={(e) => setF({ ...f, dataVolta: e.target.value })} />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label className="text-xs">Tipo</Label>
               <Select value={f.tipo} onValueChange={(v) => setF({ ...f, tipo: v })}>
@@ -232,10 +273,804 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
   );
 }
 
+// ─── Dialog: Gerenciar fluxo da solicitação ─────────────────────────────────
+function useOpcoesQuery(passagemId: string | null) {
+  return useQuery<PassagemOpcao[]>({
+    queryKey: ["passagem-opcoes", passagemId],
+    enabled: !!passagemId,
+    queryFn: () => selectAllPages<PassagemOpcao>((from, to) =>
+      supabase.from("passagem_opcoes").select("*").eq("passagem_id", passagemId).order("numero").range(from, to),
+    ),
+  });
+}
+
+function useHistoricoQuery(passagemId: string | null) {
+  return useQuery<PassagemStatusHistory[]>({
+    queryKey: ["passagem-historico", passagemId],
+    enabled: !!passagemId,
+    queryFn: () => selectAllPages<PassagemStatusHistory>((from, to) =>
+      supabase.from("passagem_status_history").select("*").eq("passagem_id", passagemId).order("changed_at", { ascending: false }).range(from, to),
+    ),
+  });
+}
+
+const OPCAO_VAZIA = { companhia: "", voo: "", dataHoraIda: "", bagagem: "", valor: "", valorAlteracao: "" };
+
+// Card comparativo de opção de voo — usado tanto pra só exibir quanto (durante "aguardando
+// aprovação") como alvo clicável de seleção, pra não duplicar a mesma opção em duas listas
+// diferentes (lista + rádio) como antes.
+function OpcaoCard({ o, selecionavel, selecionada, onSelect, onDelete }: {
+  o: PassagemOpcao; selecionavel?: boolean; selecionada?: boolean;
+  onSelect?: () => void; onDelete?: () => void;
+}) {
+  return (
+    <div
+      onClick={selecionavel ? onSelect : undefined}
+      className={cn(
+        "relative flex flex-col gap-1 rounded-lg border p-3 pr-8 text-xs transition-colors",
+        selecionavel && "cursor-pointer hover:border-primary/50",
+        selecionada && "border-primary bg-primary/5 ring-1 ring-primary",
+      )}
+    >
+      {selecionada && (
+        <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+          <Check className="h-3 w-3" />
+        </span>
+      )}
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Opção {o.numero}</span>
+      <span className="text-sm font-semibold">{o.companhia || "Companhia não informada"}{o.voo && ` · ${o.voo}`}</span>
+      {o.data_hora_ida && (
+        <span className="text-muted-foreground">
+          {new Date(o.data_hora_ida).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+        </span>
+      )}
+      {o.bagagem && <span className="text-muted-foreground">Bagagem: {o.bagagem}</span>}
+      <span className="mt-1 text-base font-bold text-foreground">{o.valor != null ? fmtMoney(o.valor) : "—"}</span>
+      {o.valor_alteracao != null && <span className="text-muted-foreground">Alteração: {fmtMoney(o.valor_alteracao)}</span>}
+      {onDelete && (
+        <Button
+          variant="ghost" size="icon" className="absolute bottom-1 right-1 h-6 w-6"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        >
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function GerenciarFluxoDialog({ passagem, open, onOpenChange }: {
+  passagem: PassagemAerea | null; open: boolean; onOpenChange: (o: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const { profile } = useAuth();
+  const displayName = profile?.full_name || profile?.email || "Usuário";
+  const passagemId = passagem?.id ?? null;
+
+  const { data: opcoes = [] } = useOpcoesQuery(passagemId);
+  const { data: historico = [] } = useHistoricoQuery(passagemId);
+
+  const [textoAgencia, setTextoAgencia] = useState("");
+  const [novaOpcao, setNovaOpcao] = useState(OPCAO_VAZIA);
+  const [opcaoSelecionada, setOpcaoSelecionada] = useState<string>("");
+  const [comentario, setComentario] = useState("");
+  const [precoConfirmado, setPrecoConfirmado] = useState(true);
+  const [diferencaPreco, setDiferencaPreco] = useState("");
+  const [bound, setBound] = useState<string | null>(null);
+
+  if (open && passagem && bound !== passagem.id) {
+    setTextoAgencia(passagem.opcoes_texto_agencia ?? "");
+    setOpcaoSelecionada(passagem.opcao_escolhida_id ?? "");
+    setComentario(""); setPrecoConfirmado(true); setDiferencaPreco(""); setNovaOpcao(OPCAO_VAZIA);
+    setBound(passagem.id);
+  }
+  if (!open && bound !== null) setBound(null);
+
+  const salvarTexto = useMutation({
+    mutationFn: async () => {
+      if (!passagem) return;
+      const { error } = await supabase.from("passagens_aereas").update({ opcoes_texto_agencia: textoAgencia.trim() || null }).eq("id", passagem.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["passagens-aereas"] }),
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const adicionarOpcao = useMutation({
+    mutationFn: async () => {
+      if (!passagem) return;
+      const { error } = await supabase.from("passagem_opcoes").insert({
+        passagem_id: passagem.id, numero: opcoes.length + 1,
+        companhia: novaOpcao.companhia.trim() || null, voo: novaOpcao.voo.trim() || null,
+        data_hora_ida: novaOpcao.dataHoraIda || null, bagagem: novaOpcao.bagagem.trim() || null,
+        valor: novaOpcao.valor ? Number(novaOpcao.valor) : null,
+        valor_alteracao: novaOpcao.valorAlteracao ? Number(novaOpcao.valorAlteracao) : null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["passagem-opcoes", passagemId] });
+      setNovaOpcao(OPCAO_VAZIA);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const excluirOpcao = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("passagem_opcoes").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["passagem-opcoes", passagemId] }),
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const avancar = useMutation({
+    mutationFn: async ({ novoStatus, extra, notes }: { novoStatus: StatusFluxo; extra?: Record<string, unknown>; notes?: string }) => {
+      if (!passagem) return;
+      const { error } = await supabase.from("passagens_aereas").update({ status_fluxo: novoStatus, ...extra }).eq("id", passagem.id);
+      if (error) throw error;
+      const { error: he } = await supabase.from("passagem_status_history").insert({
+        passagem_id: passagem.id, status: novoStatus, changed_by_name: displayName, notes: notes || null,
+      });
+      if (he) throw he;
+      await notifyPassagemStageAdvance({ ...passagem, ...extra, status_fluxo: novoStatus } as PassagemAerea, novoStatus, notes);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
+      qc.invalidateQueries({ queryKey: ["passagem-historico", passagemId] });
+      notify.success("Etapa atualizada");
+      setComentario("");
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  if (!passagem) return null;
+  const status = passagem.status_fluxo;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Solicitação — {passagem.nome_usuario}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            {passagem.unidade} · BSP {passagem.bsp} · {passagem.origem ?? "—"} → {passagem.destino ?? "—"}
+            {passagem.data_ida && ` · ${fmt(passagem.data_ida)}`}
+          </p>
+
+          {/* Barra de etapas — stepper com conector, etapas concluídas marcadas com check */}
+          <div className="flex items-start">
+            {STATUS_FLUXO_ORDER.map((s, i) => {
+              const idxAtual = STATUS_FLUXO_ORDER.indexOf(status);
+              const idxEsta = i;
+              const atual = idxEsta === idxAtual;
+              const passada = idxEsta < idxAtual;
+              return (
+                <div key={s} className="flex flex-1 flex-col items-center last:flex-none">
+                  <div className="flex w-full items-center">
+                    <div
+                      className={cn(
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                        atual ? `${STATUS_FLUXO_COLOR[s].bg} ${STATUS_FLUXO_COLOR[s].text} ring-2 ring-offset-1 ring-current`
+                          : passada ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground/60",
+                      )}
+                    >
+                      {passada ? <Check className="h-3 w-3" /> : i + 1}
+                    </div>
+                    {i < STATUS_FLUXO_ORDER.length - 1 && (
+                      <div className={cn("mx-1 h-0.5 flex-1", passada ? "bg-emerald-600" : "bg-muted")} />
+                    )}
+                  </div>
+                  <span className={cn("mt-1 max-w-16 text-center text-[10px] leading-tight", atual ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                    {STATUS_FLUXO_LABEL[s]}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {status !== "concluida" && (
+            <p className="text-xs text-muted-foreground">
+              Responsável agora: <strong className="text-foreground">{STATUS_FLUXO_RESPONSAVEL[status]}</strong>
+              {" · "}Próxima ação: {STATUS_FLUXO_PROXIMA_ACAO[status]}
+            </p>
+          )}
+
+          {/* Opções da agência */}
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Opções da agência</p>
+            <div>
+              <Label className="text-xs">Texto colado (e-mail/WhatsApp) — fica guardado do jeito que veio</Label>
+              <Textarea rows={4} value={textoAgencia} onChange={(e) => setTextoAgencia(e.target.value)} onBlur={() => salvarTexto.mutate()} placeholder="Cole aqui o texto recebido da agência..." />
+            </div>
+
+            {opcoes.length > 0 && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {opcoes.map((o) => (
+                  <OpcaoCard
+                    key={o.id} o={o}
+                    selecionavel={status === "aguardando_aprovacao"}
+                    selecionada={opcaoSelecionada === o.id}
+                    onSelect={() => setOpcaoSelecionada(o.id)}
+                    onDelete={status === "solicitada" || status === "cotacao_recebida" ? () => excluirOpcao.mutate(o.id) : undefined}
+                  />
+                ))}
+              </div>
+            )}
+
+            {(status === "solicitada" || status === "cotacao_recebida") && (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <Input className="h-8 text-xs" placeholder="Companhia" value={novaOpcao.companhia} onChange={(e) => setNovaOpcao({ ...novaOpcao, companhia: e.target.value })} />
+                <Input className="h-8 text-xs" placeholder="Voo" value={novaOpcao.voo} onChange={(e) => setNovaOpcao({ ...novaOpcao, voo: e.target.value })} />
+                <Input className="h-8 text-xs" type="datetime-local" value={novaOpcao.dataHoraIda} onChange={(e) => setNovaOpcao({ ...novaOpcao, dataHoraIda: e.target.value })} />
+                <Input className="h-8 text-xs" placeholder="Bagagem" value={novaOpcao.bagagem} onChange={(e) => setNovaOpcao({ ...novaOpcao, bagagem: e.target.value })} />
+                <Input className="h-8 text-xs" type="number" step="0.01" placeholder="Valor" value={novaOpcao.valor} onChange={(e) => setNovaOpcao({ ...novaOpcao, valor: e.target.value })} />
+                <Input className="h-8 text-xs" type="number" step="0.01" placeholder="Valor de alteração" value={novaOpcao.valorAlteracao} onChange={(e) => setNovaOpcao({ ...novaOpcao, valorAlteracao: e.target.value })} />
+                <Button size="sm" variant="outline" className="col-span-2 sm:col-span-3" onClick={() => adicionarOpcao.mutate()} loading={adicionarOpcao.isPending}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar opção
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Ações por etapa */}
+          {status === "solicitada" && (
+            <Button size="sm" disabled={opcoes.length === 0} onClick={() => avancar.mutate({ novoStatus: "cotacao_recebida" })} loading={avancar.isPending}>
+              Marcar cotação recebida
+            </Button>
+          )}
+
+          {status === "cotacao_recebida" && (
+            <Button size="sm" disabled={opcoes.length === 0} onClick={() => avancar.mutate({ novoStatus: "aguardando_aprovacao" })} loading={avancar.isPending}>
+              Enviar para aprovação
+            </Button>
+          )}
+
+          {status === "aguardando_aprovacao" && (
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aprovação do solicitante</p>
+              <p className="text-xs text-muted-foreground">Clique numa opção acima pra selecioná-la.</p>
+              <Textarea rows={2} placeholder="Comentário (opcional)" value={comentario} onChange={(e) => setComentario(e.target.value)} />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm" disabled={!opcaoSelecionada}
+                  onClick={() => avancar.mutate({ novoStatus: "aguardando_revalidacao", extra: { opcao_escolhida_id: opcaoSelecionada, aprovado_por: displayName, aprovado_em: new Date().toISOString(), comentario_aprovacao: comentario.trim() || null }, notes: comentario })}
+                >
+                  Aprovar opção selecionada
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => avancar.mutate({ novoStatus: "cotacao_recebida", notes: comentario || "Rejeitada pelo solicitante" })}>
+                  Rejeitar
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => avancar.mutate({ novoStatus: "cotacao_recebida", notes: comentario || "Solicitante pediu novas opções" })}>
+                  Pedir novas opções
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {status === "aguardando_revalidacao" && (
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Revalidação com a agência</p>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={precoConfirmado} onChange={(e) => setPrecoConfirmado(e.target.checked)} />
+                Valor e disponibilidade confirmados, sem alteração
+              </label>
+              {!precoConfirmado && (
+                <div className="w-40">
+                  <Label className="text-xs">Diferença de preço</Label>
+                  <Input type="number" step="0.01" value={diferencaPreco} onChange={(e) => setDiferencaPreco(e.target.value)} />
+                </div>
+              )}
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (precoConfirmado) {
+                    avancar.mutate({ novoStatus: "aguardando_emissao", extra: { revalidado_por: displayName, revalidado_em: new Date().toISOString(), diferenca_preco: 0 } });
+                  } else {
+                    avancar.mutate({
+                      novoStatus: "aguardando_aprovacao",
+                      extra: { revalidado_por: displayName, revalidado_em: new Date().toISOString(), diferenca_preco: Number(diferencaPreco) || 0 },
+                      notes: `Preço aumentou em ${fmtMoney(Number(diferencaPreco) || 0)} — nova aprovação necessária`,
+                    });
+                  }
+                }}
+                loading={avancar.isPending}
+              >
+                Confirmar revalidação
+              </Button>
+            </div>
+          )}
+
+          {status === "aguardando_emissao" && (
+            <Button size="sm" onClick={() => avancar.mutate({ novoStatus: "emitida" })} loading={avancar.isPending}>
+              Marcar emitida
+            </Button>
+          )}
+
+          {status === "emitida" && (
+            <Button size="sm" variant="outline" onClick={() => avancar.mutate({ novoStatus: "concluida" })} loading={avancar.isPending}>
+              Concluir viagem
+            </Button>
+          )}
+
+          {/* Histórico */}
+          {historico.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Histórico</p>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                {historico.map((h) => (
+                  <div key={h.id}>
+                    {new Date(h.changed_at).toLocaleString("pt-BR")} · <strong>{h.changed_by_name}</strong> → {STATUS_FLUXO_LABEL[h.status]}
+                    {h.notes && ` — ${h.notes}`}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Aba "Próximas Viagens" ─────────────────────────────────────────────────
+const JANELA_PROXIMOS_DIAS = 7;
+type Direcao = "ida" | "volta";
+interface ItemViagem { passagem: PassagemAerea; direcao: Direcao; data: string; }
+
+// Ainda não emitida e faltam ≤3 dias pra data de ida — mesmo limiar já usado nesta sessão
+// pro alerta de "troca de turma" em Nomeações.
+function temAlerta(item: ItemViagem, hoje: string): boolean {
+  if (item.direcao !== "ida") return false;
+  if (item.passagem.status_fluxo === "emitida" || item.passagem.status_fluxo === "concluida") return false;
+  return item.data <= addDays(hoje, 3);
+}
+
+function ItemViagemRow({ item, hoje }: { item: ItemViagem; hoje: string }) {
+  const p = item.passagem;
+  const alerta = temAlerta(item, hoje);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cn("flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded text-[9px] font-bold text-white", item.direcao === "ida" ? "bg-emerald-600" : "bg-orange-500")}>
+          <span>{item.data.slice(8, 10)}/{item.data.slice(5, 7)}</span>
+        </span>
+        <div className="min-w-0">
+          <p className="truncate font-medium">{p.nome_usuario}</p>
+          <p className="truncate text-muted-foreground">{p.unidade} · BSP {p.bsp} · {p.origem ?? "—"} → {p.destino ?? "—"}</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          {item.direcao === "ida" ? <ArrowUpFromLine className="h-3 w-3 text-emerald-600" /> : <ArrowDownToLine className="h-3 w-3 text-orange-600" />}
+          {item.direcao === "ida" ? "Ida" : "Volta"}
+        </span>
+        <span>{p.companhia_aerea ?? "—"}</span>
+        <span className={`rounded px-1.5 py-0.5 font-medium ${STATUS_FLUXO_COLOR[p.status_fluxo].bg} ${STATUS_FLUXO_COLOR[p.status_fluxo].text}`}>{STATUS_FLUXO_LABEL[p.status_fluxo]}</span>
+        {alerta && (
+          <span title="Viagem próxima, ainda sem emissão">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SecaoViagens({ titulo, itens, hoje }: { titulo: string; itens: ItemViagem[]; hoje: string }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titulo} ({itens.length})</p>
+      {itens.length === 0 ? (
+        <p className="py-2 text-xs text-muted-foreground/70">Nada por aqui.</p>
+      ) : (
+        <div className="space-y-1.5">{itens.map((item, i) => <ItemViagemRow key={`${item.passagem.id}-${item.direcao}-${i}`} item={item} hoje={hoje} />)}</div>
+      )}
+    </div>
+  );
+}
+
+function ProximasViagensTab({ passagens, unidadeOptions, periodosE }: {
+  passagens: PassagemAerea[]; unidadeOptions: string[]; periodosE: HistNovoPeriodo[];
+}) {
+  const [filterColaborador, setFilterColaborador] = useState("all");
+  const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
+  const [filterDirecao, setFilterDirecao] = useState<"all" | Direcao>("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | StatusFluxo>("all");
+  const [periodoDe, setPeriodoDe] = useState("");
+  const [periodoAte, setPeriodoAte] = useState("");
+
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
+  const nomesVistos = useMemo(() => Array.from(new Set(passagens.map((p) => p.nome_usuario))).sort(), [passagens]);
+
+  const filtradas = useMemo(() => passagens.filter((p) =>
+    (filterColaborador === "all" || p.nome_usuario === filterColaborador) &&
+    (filterUnidade === "all" || p.unidade === filterUnidade) &&
+    (filterBsp === "all" || p.bsp === filterBsp) &&
+    (filterStatus === "all" || p.status_fluxo === filterStatus) &&
+    (!periodoDe || (p.data_volta ?? p.data_ida) >= periodoDe) &&
+    (!periodoAte || p.data_ida <= periodoAte),
+  ), [passagens, filterColaborador, filterUnidade, filterBsp, filterStatus, periodoDe, periodoAte]);
+
+  const hoje = todayStr();
+  const limite7 = addDays(hoje, JANELA_PROXIMOS_DIAS);
+
+  const itens = useMemo(() => {
+    const arr: ItemViagem[] = [];
+    filtradas.forEach((p) => {
+      if (filterDirecao !== "volta") arr.push({ passagem: p, direcao: "ida", data: p.data_ida });
+      if (p.data_volta && filterDirecao !== "ida") arr.push({ passagem: p, direcao: "volta", data: p.data_volta });
+    });
+    return arr.sort((a, b) => a.data.localeCompare(b.data));
+  }, [filtradas, filterDirecao]);
+
+  const saindoHoje = itens.filter((i) => i.direcao === "ida" && i.data === hoje);
+  const chegandoHoje = itens.filter((i) => i.direcao === "volta" && i.data === hoje);
+  const proximos7 = itens.filter((i) => i.data > hoje && i.data <= limite7);
+  const programadasItens = useMemo(() => {
+    const arr: ItemViagem[] = [];
+    filtradas.filter((p) => p.status_fluxo !== "emitida" && p.status_fluxo !== "concluida").forEach((p) => {
+      arr.push({ passagem: p, direcao: "ida", data: p.data_ida });
+    });
+    return arr.sort((a, b) => a.data.localeCompare(b.data));
+  }, [filtradas]);
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
+            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
+            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+            <Select value={filterColaborador} onValueChange={setFilterColaborador}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {nomesVistos.map((n) => <SelectItem key={n} value={n} className="text-xs">{n}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
+            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-32">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Partida/Chegada</Label>
+            <Select value={filterDirecao} onValueChange={(v) => setFilterDirecao(v as "all" | Direcao)}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Ambos</SelectItem>
+                <SelectItem value="ida" className="text-xs">Só ida</SelectItem>
+                <SelectItem value="volta" className="text-xs">Só volta</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
+            <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as "all" | StatusFluxo)}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {STATUS_FLUXO_ORDER.map((s) => <SelectItem key={s} value={s} className="text-xs">{STATUS_FLUXO_LABEL[s]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </Card>
+
+      <SecaoViagens titulo="Saindo hoje" itens={saindoHoje} hoje={hoje} />
+      <SecaoViagens titulo="Chegando hoje" itens={chegandoHoje} hoje={hoje} />
+      <SecaoViagens titulo={`Próximos ${JANELA_PROXIMOS_DIAS} dias`} itens={proximos7} hoje={hoje} />
+      <SecaoViagens titulo="Programadas (ainda não emitidas)" itens={programadasItens} hoje={hoje} />
+    </div>
+  );
+}
+
+// ─── Aba "Relatório de Viagens Internacionais" ──────────────────────────────
+// Nunca inventa/duplica dado do Drake — função vem de hist_novo_colaboradores (mesmo campo já
+// usado em todo o resto do sistema); "internacional" é decidido na própria solicitação (ver
+// checkbox no formulário), não inferido; chegada/saída/retorno vêm só das PRÓPRIAS passagens
+// marcadas como internacionais.
+type StatusInternacional = "no_brasil" | "fora" | "chegando" | "saindo" | "sem_retorno";
+const STATUS_INTERNACIONAL_LABEL: Record<StatusInternacional, string> = {
+  no_brasil: "No Brasil", fora: "Fora do Brasil", chegando: "Chegando", saindo: "Saindo",
+  sem_retorno: "Sem retorno programado",
+};
+const STATUS_INTERNACIONAL_COLOR: Record<StatusInternacional, string> = {
+  no_brasil: "bg-emerald-100 text-emerald-800", fora: "bg-slate-200 text-slate-700",
+  chegando: "bg-sky-100 text-sky-800", saindo: "bg-amber-100 text-amber-800",
+  sem_retorno: "bg-red-100 text-red-800",
+};
+
+interface PessoaInternacional {
+  nome: string; funcao: string | null; unidade: string; bsp: string;
+  ultimaChegada: string | null; proximaSaida: string | null; proximoRetorno: string | null;
+  status: StatusInternacional; passagens: PassagemAerea[];
+}
+
+function computeStatusInternacional(passagens: PassagemAerea[], hoje: string): Pick<PessoaInternacional, "status" | "ultimaChegada" | "proximaSaida" | "proximoRetorno"> {
+  const emCurso = passagens.find((p) => p.data_ida <= hoje && (!p.data_volta || p.data_volta >= hoje));
+  const futuras = [...passagens].filter((p) => p.data_ida > hoje).sort((a, b) => a.data_ida.localeCompare(b.data_ida));
+  const passadas = [...passagens].filter((p) => p.data_volta && p.data_volta < hoje).sort((a, b) => (b.data_volta as string).localeCompare(a.data_volta as string));
+
+  const ultimaChegada = passadas[0]?.data_volta ?? null;
+  const proximaViagem = futuras[0] ?? null;
+  const proximaSaida = proximaViagem?.data_ida ?? null;
+  const proximoRetorno = proximaViagem?.data_volta ?? null;
+
+  let status: StatusInternacional;
+  if (emCurso) {
+    if (!emCurso.data_volta) status = "sem_retorno";
+    else if (emCurso.data_volta <= addDays(hoje, 3)) status = "chegando";
+    else status = "fora";
+  } else if (proximaViagem && proximaViagem.data_ida <= addDays(hoje, 3)) {
+    status = "saindo";
+  } else {
+    status = "no_brasil";
+  }
+  return { status, ultimaChegada, proximaSaida, proximoRetorno };
+}
+
+function RelatorioInternacionalTab({ passagens, colaboradores }: { passagens: PassagemAerea[]; colaboradores: ColaboradorBasico[] }) {
+  const [expandido, setExpandido] = useState<Set<StatusInternacional>>(new Set());
+  const toggle = (s: StatusInternacional) => setExpandido((cur) => { const n = new Set(cur); if (n.has(s)) n.delete(s); else n.add(s); return n; });
+
+  const funcaoPorNome = useMemo(() => {
+    const m = new Map<string, string | null>();
+    colaboradores.forEach((c) => m.set(c.nome.trim().toUpperCase(), c.funcao || c.funcao_operacao || null));
+    return m;
+  }, [colaboradores]);
+
+  const hoje = todayStr();
+  const pessoas = useMemo<PessoaInternacional[]>(() => {
+    const porNome = new Map<string, PassagemAerea[]>();
+    passagens.filter((p) => p.internacional).forEach((p) => {
+      const key = p.nome_usuario.trim().toUpperCase();
+      if (!porNome.has(key)) porNome.set(key, []);
+      porNome.get(key)!.push(p);
+    });
+    return Array.from(porNome.values()).map((lista) => {
+      const maisRecente = [...lista].sort((a, b) => b.data_ida.localeCompare(a.data_ida))[0];
+      const { status, ultimaChegada, proximaSaida, proximoRetorno } = computeStatusInternacional(lista, hoje);
+      return {
+        nome: maisRecente.nome_usuario, funcao: funcaoPorNome.get(maisRecente.nome_usuario.trim().toUpperCase()) ?? null,
+        unidade: maisRecente.unidade, bsp: maisRecente.bsp,
+        ultimaChegada, proximaSaida, proximoRetorno, status, passagens: lista,
+      };
+    }).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [passagens, funcaoPorNome, hoje]);
+
+  const porStatus = (STATUS_ORDER_INTERNACIONAL).map((s) => ({ status: s, pessoas: pessoas.filter((p) => p.status === s) }));
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Controle de quem está chegando/saindo do Brasil, baseado nas passagens marcadas como internacionais.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {porStatus.map(({ status, pessoas: lista }) => {
+          const aberto = expandido.has(status);
+          return (
+            <div key={status} className={cn("rounded-md border text-xs", aberto && "w-full")}>
+              <button type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left" onClick={() => toggle(status)}>
+                <span className={`rounded px-1.5 py-0.5 font-medium ${STATUS_INTERNACIONAL_COLOR[status]}`}>{STATUS_INTERNACIONAL_LABEL[status]}</span>
+                <span className="font-semibold">{lista.length}</span>
+              </button>
+              {aberto && (
+                <div className="grid grid-cols-1 gap-x-4 gap-y-2 border-t px-2.5 py-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {lista.length === 0 ? (
+                    <p className="text-muted-foreground">Ninguém nesse status.</p>
+                  ) : lista.map((p) => (
+                    <div key={p.nome} className="rounded border p-2">
+                      <p className="font-medium text-foreground">{p.nome}</p>
+                      <p className="text-muted-foreground">{p.funcao ?? "Função não informada"}</p>
+                      <p className="text-muted-foreground">{p.unidade} · BSP {p.bsp}</p>
+                      <p className="mt-1 text-muted-foreground">
+                        {p.ultimaChegada && `Última chegada: ${fmt(p.ultimaChegada)}`}
+                        {p.proximaSaida && ` · Próxima saída: ${fmt(p.proximaSaida)}`}
+                        {p.proximoRetorno && ` · Retorno: ${fmt(p.proximoRetorno)}`}
+                        {!p.ultimaChegada && !p.proximaSaida && !p.proximoRetorno && "Sem histórico de datas"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {pessoas.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma viagem internacional lançada ainda.</p>}
+      </div>
+    </div>
+  );
+}
+const STATUS_ORDER_INTERNACIONAL: StatusInternacional[] = ["chegando", "saindo", "fora", "sem_retorno", "no_brasil"];
+
+// ─── Importação da planilha de custos histórica (aba "Passagens Aéreas") ───────────────────
+// Mesma planilha "Relatorio_Custos_Stepup_2026_por_modulo.xlsx" já usada em Transporte/
+// Hospedagem — nome exato da aba ainda não confirmado, tenta as variações mais prováveis.
+const PASSAGENS_SHEET_NAMES = ["Passagens Aéreas", "Passagem Aérea", "Passagens", "Aéreo"];
+
+interface ParsedPassagemRow {
+  payload: Record<string, unknown> | null;
+  erro: string | null;
+  nome: string; data: string; custo: number | null;
+}
+
+function buildPassagemRows(l: LinhaCustoBruta): ParsedPassagemRow[] {
+  const dataIda = parseDataBR(l.data);
+  const valor = parseCustoBRL(l.custo);
+  const nomes = splitNomes(l.funcionario);
+  if (!dataIda) return [{ payload: null, erro: "Data inválida", nome: l.funcionario, data: l.data, custo: valor }];
+  if (valor == null) return [{ payload: null, erro: "Valor inválido", nome: l.funcionario, data: l.data, custo: valor }];
+  if (nomes.length === 0) return [{ payload: null, erro: "Sem nome de colaborador", nome: "", data: l.data, custo: valor }];
+
+  const { unidade, bsp } = parseUnidadeBsp(l.projeto);
+  // "CARAPEBUS X MACAE" → origem/destino, igual ao mesmo padrão usado em Transporte — aqui os
+  // dois campos são opcionais de verdade (coluna aceita nulo), então sem esse padrão fica
+  // vazio mesmo, não força um "Não informado".
+  const obsMatch = l.observacao.match(/^(.+?)\s+[Xx]\s+(.+)$/);
+  const origem = obsMatch ? obsMatch[1].trim() : null;
+  const destino = obsMatch ? obsMatch[2].trim() : null;
+  // "PERIODO: 04 A 06/02" / "04/02 A 06/02" → data de volta (mesma lógica de
+  // parseCheckOutDeObservacao usada em Hospedagem, reaproveitada aqui pro mesmo formato).
+  const dataVolta = parseCheckOutDeObservacao(l.observacao, dataIda);
+  const observacoes = [l.tipoApontamento, l.observacao].filter(Boolean).join(" — ") || null;
+
+  return nomes.map((nome) => ({
+    payload: {
+      unidade, bsp: bsp || "Não informado", nome_usuario: nome,
+      companhia_aerea: l.fornecedor.trim() || null,
+      origem, destino,
+      data_ida: dataIda, data_volta: dataVolta,
+      tipo: dataVolta ? "Ida e Volta" : "Ida",
+      valor, status: "Confirmada", motivo: l.motivo.trim() || null,
+      motivo_cancelamento: null, observacoes,
+      solicitante: null, solicitante_email: null, internacional: false, status_fluxo: "emitida",
+      nf: l.nf.trim() || null, cobrado: parseBooleanoSN(l.cobrado),
+      status_lancamento: l.statusLancamento.trim() || null, faturado: parseBooleanoSimNao(l.faturado),
+      usuario_faturamento: l.usuarioFaturamento.trim() || null, data_faturamento: parseDataBR(l.dataFaturamento),
+    },
+    erro: null, nome, data: l.data, custo: valor,
+  }));
+}
+
+function ImportCustosPassagensDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<ParsedPassagemRow[] | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [abaUsada, setAbaUsada] = useState<string | null>(null);
+
+  const onFile = async (file: File) => {
+    const buf = await file.arrayBuffer();
+    let linhas: LinhaCustoBruta[] = [];
+    let aba: string | null = null;
+    for (const nome of PASSAGENS_SHEET_NAMES) {
+      const tentativa = parsePlanilhaCustos(buf, nome);
+      if (tentativa.length > 0) { linhas = tentativa; aba = nome; break; }
+    }
+    if (linhas.length === 0) {
+      notify.error(`Nenhuma linha encontrada — tentei as abas: ${PASSAGENS_SHEET_NAMES.join(", ")}. Me diga o nome exato da aba se for diferente.`);
+      return;
+    }
+    setAbaUsada(aba);
+    setPreview(linhas.flatMap((l) => buildPassagemRows(l)));
+  };
+
+  const validas = preview?.filter((p) => !p.erro && p.payload) ?? [];
+  const invalidas = preview?.filter((p) => p.erro) ?? [];
+
+  const importar = useMutation({
+    mutationFn: async () => {
+      const BATCH = 500;
+      for (let i = 0; i < validas.length; i += BATCH) {
+        const lote = validas.slice(i, i + BATCH);
+        const { error } = await supabase.from("passagens_aereas").insert(lote.map((r) => r.payload));
+        if (error) throw error;
+        setProgress({ done: Math.min(i + BATCH, validas.length), total: validas.length });
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
+      notify.success(`${validas.length} passagem(ns) importada(s).`);
+      setPreview(null); setProgress(null); setAbaUsada(null); onOpenChange(false);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!importar.isPending) { onOpenChange(o); if (!o) { setPreview(null); setProgress(null); setAbaUsada(null); } } }}>
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Importar planilha de custos — Passagens Aéreas</DialogTitle></DialogHeader>
+        {!preview ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Selecione o arquivo "Relatorio_Custos_Stepup..." — os dados viram registros já "Emitidos"
+              (histórico, não passam pelo fluxo de solicitação/aprovação).
+            </p>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+            <Button variant="outline" onClick={() => fileRef.current?.click()}><Plus className="mr-2 h-4 w-4" />Escolher arquivo</Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {abaUsada && <p className="text-xs text-muted-foreground">Lendo a aba "{abaUsada}" da planilha.</p>}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Linhas geradas</p><p className="text-xl font-semibold">{preview.length}</p></Card>
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Válidas</p><p className="text-xl font-semibold text-success">{validas.length}</p></Card>
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Com erro</p><p className="text-xl font-semibold text-destructive">{invalidas.length}</p></Card>
+              <Card className="p-3"><p className="text-xs text-muted-foreground">Custo total</p><p className="text-xl font-semibold">{fmtMoney(validas.reduce((a, p) => a + (p.custo ?? 0), 0))}</p></Card>
+            </div>
+            {invalidas.length > 0 && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                {invalidas.length} linha(s) não serão importadas — revise a planilha se o número parecer alto.
+              </div>
+            )}
+            <div className="max-h-[40vh] overflow-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow><TableHead>Data</TableHead><TableHead>Nome</TableHead><TableHead>Custo</TableHead><TableHead>Situação</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {preview.slice(0, 200).map((p, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="text-xs">{p.data}</TableCell>
+                      <TableCell className="text-xs">{p.nome}</TableCell>
+                      <TableCell className="text-xs">{p.custo != null ? fmtMoney(p.custo) : "—"}</TableCell>
+                      <TableCell className="text-xs">{p.erro ? <span className="text-destructive">{p.erro}</span> : "OK"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {preview.length > 200 && <p className="p-2 text-center text-xs text-muted-foreground">Mostrando as primeiras 200 de {preview.length} linhas — a importação processa todas.</p>}
+            </div>
+            {progress && <p className="text-xs text-muted-foreground">Importando {progress.done}/{progress.total}...</p>}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { setPreview(null); setAbaUsada(null); }} disabled={importar.isPending}>Escolher outro arquivo</Button>
+              <Button onClick={() => importar.mutate()} loading={importar.isPending} disabled={validas.length === 0}>
+                Confirmar importação ({validas.length})
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Página ─────────────────────────────────────────────────────────────────
 function PassagensAereasPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { role } = useAuth();
+  // RH/SMS só acompanham o Relatório de Viagens Internacionais — RLS (rh_sms_view_international)
+  // já limita o que `passagens` traz pra eles a registros internacionais; aqui só decide o que
+  // aparece na tela, pra não mostrar botões de ação que dariam erro de permissão no clique.
+  const somenteRelatorioInternacional = role === "rh" || role === "sms";
   const { data: passagens = [], isLoading: l1 } = usePassagensQuery();
   const { data: periodos = [], isLoading: l2 } = usePeriodosEQuery();
   const { data: colaboradores = [], isLoading: l3 } = useColaboradoresQuery();
@@ -256,6 +1091,9 @@ function PassagensAereasPage() {
   const [filterNome, setFilterNome] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PassagemAerea | null>(null);
+  const [gerenciando, setGerenciando] = useState<PassagemAerea | null>(null);
+  const [gerenciarOpen, setGerenciarOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   // Ordenação clicável no cabeçalho — aplicada só nos dados já filtrados na tela. Sem coluna
   // escolhida, mantém a ordem padrão vinda da consulta (data de ida mais recente primeiro).
@@ -316,11 +1154,47 @@ function PassagensAereasPage() {
     }
   }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, sortColumn, sortDirection]);
 
-  const consolidadoPorBsp = useMemo(() => {
-    const m = new Map<string, number>();
-    filtradas.forEach((p) => m.set(p.bsp, (m.get(p.bsp) ?? 0) + p.valor));
-    return Array.from(m.entries()).map(([bsp, total]) => ({ bsp, total })).sort((a, b) => b.total - a.total);
+  // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
+  // (Custos). Passagens Aéreas não tem campo Cliente próprio, usa o mesmo vínculo Unidade→Cliente
+  // (clienteDaUnidade) já confirmado pela operação, com "Base" pra BSP real sem cliente mapeado.
+  const consolidado = useMemo(() => {
+    const porCliente = new Map<string, Map<string, Map<string, PassagemAerea[]>>>();
+    filtradas.forEach((p) => {
+      const cliente = clienteDaUnidade(p.unidade) ?? (p.bsp?.trim() ? "Base" : p.unidade);
+      if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
+      const porUnidade = porCliente.get(cliente)!;
+      if (!porUnidade.has(p.unidade)) porUnidade.set(p.unidade, new Map());
+      const porBsp = porUnidade.get(p.unidade)!;
+      if (!porBsp.has(p.bsp)) porBsp.set(p.bsp, []);
+      porBsp.get(p.bsp)!.push(p);
+    });
+    return Array.from(porCliente.entries())
+      .map(([cliente, porUnidade]) => {
+        const unidades = Array.from(porUnidade.entries())
+          .map(([unidade, porBsp]) => {
+            const bsps = Array.from(porBsp.entries())
+              .map(([bsp, itens]) => ({
+                bsp, total: itens.reduce((a, p) => a + p.valor, 0),
+                itens: [...itens].sort((a, b) => b.data_ida.localeCompare(a.data_ida)),
+              }))
+              .sort((a, b) => b.total - a.total);
+            return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
+          })
+          .sort((a, b) => b.total - a.total);
+        return { cliente, total: unidades.reduce((a, u) => a + u.total, 0), unidades };
+      })
+      .sort((a, b) => b.total - a.total);
   }, [filtradas]);
+  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
+  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
+  const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
+  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   const criarHospedagemVinculada = (p: PassagemAerea) => {
     navigate({
@@ -363,6 +1237,24 @@ function PassagensAereasPage() {
         <h1 className="text-2xl font-semibold">Passagens Aéreas</h1>
       </div>
 
+      {somenteRelatorioInternacional ? (
+        <RelatorioInternacionalTab passagens={passagens} colaboradores={colaboradores} />
+      ) : (
+      <Tabs defaultValue="solicitacoes">
+        <TabsList>
+          <TabsTrigger value="solicitacoes">Solicitações</TabsTrigger>
+          <TabsTrigger value="proximas">Próximas Viagens</TabsTrigger>
+          <TabsTrigger value="internacionais">Relatório de Viagens</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="proximas" className="mt-4">
+          <ProximasViagensTab passagens={passagens} unidadeOptions={unidadeOptions} periodosE={periodosE} />
+        </TabsContent>
+        <TabsContent value="internacionais" className="mt-4">
+          <RelatorioInternacionalTab passagens={passagens} colaboradores={colaboradores} />
+        </TabsContent>
+
+        <TabsContent value="solicitacoes" className="mt-4 space-y-4">
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5 w-44">
@@ -409,7 +1301,10 @@ function PassagensAereasPage() {
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
+            </Button>
             <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
               <Plus className="mr-1.5 h-4 w-4" />Nova passagem
             </Button>
@@ -417,14 +1312,115 @@ function PassagensAereasPage() {
         </div>
       </Card>
 
-      {consolidadoPorBsp.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {consolidadoPorBsp.map((c) => (
-            <Card key={c.bsp} className="p-3">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP {c.bsp}</div>
-              <div className="mt-1 text-lg font-semibold">{fmtMoney(c.total)}</div>
-            </Card>
-          ))}
+      {consolidado.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex justify-end">
+            <Button
+              type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+              onClick={() => {
+                const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
+                if (tudoAberto) {
+                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
+                  setCollapsedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
+                } else {
+                  setCollapsedClientes(new Set()); setCollapsedUnidades(new Set());
+                }
+              }}
+            >
+              {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
+                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+              ) : (
+                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+              )}
+            </Button>
+          </div>
+          <Card className="overflow-hidden">
+            {consolidado.map((c) => {
+              const clienteAberto = !collapsedClientes.has(c.cliente);
+              return (
+                <div key={c.cliente} className="border-b last:border-b-0">
+                  <button
+                    type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                    aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                  >
+                    <span className="flex min-w-0 items-center gap-2 font-semibold">
+                      {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                      <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{c.cliente}</span>
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold">{fmtMoney(c.total)}</span>
+                  </button>
+                  {clienteAberto && c.unidades.map((u) => {
+                    const unidadeKey = `${c.cliente}::${u.unidade}`;
+                    const unidadeAberta = !collapsedUnidades.has(unidadeKey);
+                    return (
+                      <div key={unidadeKey}>
+                        <button
+                          type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
+                          aria-expanded={unidadeAberta} onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
+                        >
+                          <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
+                            {unidadeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                            <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{u.unidade}</span>
+                            {u.bsps.some((b) => b.bsp !== "Não informado") && (
+                              <span className="text-xs font-normal text-muted-foreground">({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)</span>
+                            )}
+                          </span>
+                          <span className="shrink-0 text-sm font-medium">{fmtMoney(u.total)}</span>
+                        </button>
+                        {unidadeAberta && u.bsps.map((b) => {
+                          if (b.bsp === "Não informado") {
+                            return (
+                              <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
+                                {b.itens.map((p) => (
+                                  <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                    <div className="min-w-0">
+                                      <p className="truncate font-medium">{p.nome_usuario}</p>
+                                      <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>
+                                    </div>
+                                    <span className="shrink-0 font-semibold">{fmtMoney(p.valor)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          const bspKey = `${unidadeKey}::${b.bsp}`;
+                          const bspAberto = expandedBsps.has(bspKey);
+                          return (
+                            <div key={bspKey}>
+                              <button
+                                type="button" className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
+                                aria-expanded={bspAberto} onClick={() => toggleSet(setExpandedBsps, bspKey)}
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  {bspAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                                  <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{b.bsp}</span>
+                                  <span className="text-xs font-normal text-muted-foreground">({b.itens.length})</span>
+                                </span>
+                                <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
+                              </button>
+                              {bspAberto && (
+                                <div className="divide-y border-t bg-emerald-50/40 pl-20">
+                                  {b.itens.map((p) => (
+                                    <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                      <div className="min-w-0">
+                                        <p className="truncate font-medium">{p.nome_usuario}</p>
+                                        <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>
+                                      </div>
+                                      <span className="shrink-0 font-semibold">{fmtMoney(p.valor)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </Card>
         </div>
       )}
 
@@ -443,12 +1439,13 @@ function PassagensAereasPage() {
               <SortableHead label="Valor" column="valor" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <TableHead className="w-28" />
+              <TableHead>Etapa</TableHead>
+              <TableHead className="w-32" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtradas.length === 0 ? (
-              <EmptyStateRow colSpan={12} icon={Plane} title="Nenhuma passagem encontrada" />
+              <EmptyStateRow colSpan={13} icon={Plane} title="Nenhuma passagem encontrada" />
             ) : filtradas.map((p) => (
               <TableRow key={p.id}>
                 <TableCell>{p.unidade}</TableCell>
@@ -463,7 +1460,15 @@ function PassagensAereasPage() {
                 <TableCell><Badge variant={STATUS_BADGE[p.status] ?? "secondary"}>{p.status}</Badge></TableCell>
                 <TableCell>{p.motivo ?? "—"}</TableCell>
                 <TableCell>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_FLUXO_COLOR[p.status_fluxo].bg} ${STATUS_FLUXO_COLOR[p.status_fluxo].text}`}>
+                    {STATUS_FLUXO_LABEL[p.status_fluxo]}
+                  </span>
+                </TableCell>
+                <TableCell>
                   <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Gerenciar solicitação" onClick={() => { setGerenciando(p); setGerenciarOpen(true); }}>
+                      <ListChecks className="h-3.5 w-3.5" />
+                    </Button>
                     {p.status === "Cancelada" && (
                       <Button
                         variant="ghost" size="icon" className="h-7 w-7" title="Criar hospedagem vinculada"
@@ -501,11 +1506,22 @@ function PassagensAereasPage() {
           </TableBody>
         </Table>
       </Card>
+        </TabsContent>
+      </Tabs>
+      )}
 
+      {!somenteRelatorioInternacional && (
       <PassagemDialog
         open={dialogOpen} onOpenChange={setDialogOpen} editing={editing}
         periodosE={periodosE} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
       />
+      )}
+      {!somenteRelatorioInternacional && (
+      <GerenciarFluxoDialog passagem={gerenciando} open={gerenciarOpen} onOpenChange={setGerenciarOpen} />
+      )}
+      {!somenteRelatorioInternacional && (
+      <ImportCustosPassagensDialog open={importOpen} onOpenChange={setImportOpen} />
+      )}
     </div>
   );
 }
