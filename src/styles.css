@@ -3,6 +3,10 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+/* Só existe em tela (nunca em @media print) — usada pra trocar tabela densa
+   por versão em cartão abaixo de 1280px sem arriscar esconder a tabela
+   errada na impressão/PDF (ver BmConsolidatedView.tsx). */
+@custom-variant screen-lt-xl (@media screen and (max-width: 1279.98px));
 
 @theme {
   --animate-fade-in: fade-in 0.6s ease-out both;
@@ -60,6 +64,24 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-scale-pattern-color: var(--chart-scale-pattern-color);
+  --color-chart-scale-05: var(--chart-scale-05);
+  --color-chart-scale-04: var(--chart-scale-04);
+  --color-chart-scale-03: var(--chart-scale-03);
+  --color-chart-scale-02: var(--chart-scale-02);
+  --color-chart-scale-01: var(--chart-scale-01);
+  --color-chart-label: var(--chart-label);
+  --color-chart-marker-foreground: var(--chart-marker-foreground);
+  --color-chart-marker-border: var(--chart-marker-border);
+  --color-chart-marker-background: var(--chart-marker-background);
+  --color-chart-tooltip-muted: var(--chart-tooltip-muted);
+  --color-chart-tooltip-foreground: var(--chart-tooltip-foreground);
+  --color-chart-tooltip-background: var(--chart-tooltip-background);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-crosshair: var(--chart-crosshair);
+  --color-chart-foreground-muted: var(--chart-foreground-muted);
+  --color-chart-foreground: var(--chart-foreground);
+  --color-chart-background: var(--chart-background);
 }
 
 :root {
@@ -106,7 +128,18 @@
   --chart-2: #2563eb; /* blue */
   --chart-3: #0288d1; /* cyan */
   --chart-4: #f97316; /* orange */
-  --chart-5: #22c55e; /* green */
+  --chart-5: #22c55e; /* green */ --chart-background: oklch(1 0 0); --chart-foreground: oklch(0.145 0.004 285); --chart-foreground-muted: oklch(0.55 0.014 260); --chart-line-primary: var(--chart-1); --chart-line-secondary: var(--chart-2); --chart-crosshair: oklch(0.4 0.1828 274.34); --chart-grid: oklch(0.9 0 0); --chart-brush-border: var(--chart-grid); --chart-tooltip-background: oklch(0.21 0.006 285 / 0.8); --chart-tooltip-foreground: oklch(0.985 0 0); --chart-tooltip-muted: oklch(0.65 0.01 260); --chart-marker-background: oklch(0.97 0.005 260); --chart-marker-border: oklch(0.85 0.01 260); --chart-marker-foreground: oklch(0.3 0.01 260); --chart-label: oklch(0.45 0.01 260); --chart-scale-01: oklch(0.98 0.003 106); --chart-scale-02: oklch(0.92 0.008 106); --chart-scale-03: oklch(0.82 0.015 106); --chart-scale-04: oklch(0.68 0.02 106); --chart-scale-05: oklch(0.55 0.025 106); --chart-scale-pattern-color: oklch(0.96 0.005 106);
+}
+
+/* Fonte padrão da Step (JUST Sans) — só o peso ExtraBold foi enviado até agora, por isso fica
+   restrita aos títulos (h1-h6); o corpo do texto continua em Barlow até chegar um peso mais
+   leve (Regular/Medium) pra parágrafo. Arquivo em public/fonts, self-hosted (não é Google Fonts). */
+@font-face {
+  font-family: "JUST Sans";
+  src: url("/fonts/JustSans-ExtraBold.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
 }
 
 @layer base {
@@ -117,7 +150,7 @@
     font-family: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     font-feature-settings: "cv11", "ss01";
   }
-  h1, h2, h3, h4, h5, h6 { font-family: "Barlow", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+  h1, h2, h3, h4, h5, h6 { font-family: "JUST Sans", "Barlow", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
 }
 
 /* Impressão do Boletim de Medição ("Baixar PDF") — esconde tudo na página exceto a área
@@ -158,4 +191,28 @@
   .bm-print-scale-inner {
     zoom: 0.55;
   }
+}
+
+.dark {
+  --chart-1: oklch(1 0 none);
+  --chart-2: oklch(0.73 0 none);
+  --chart-3: oklch(0.51 0 none);
+  --chart-4: oklch(0.39 0 none);
+  --chart-5: oklch(0.32 0 none);
+  --chart-background: oklch(0.145 0 0);
+  --chart-foreground: oklch(0.45 0 0);
+  --chart-foreground-muted: oklch(0.65 0.01 260);
+  --chart-crosshair: oklch(0.45 0 0);
+  --chart-grid: oklch(0.25 0 0);
+  --chart-brush-border: var(--chart-grid);
+  --chart-marker-background: oklch(0.25 0.01 260);
+  --chart-marker-border: oklch(0.4 0.01 260);
+  --chart-marker-foreground: oklch(0.9 0 0);
+  --chart-label: oklch(0.75 0.01 260);
+  --chart-scale-01: oklch(0.28 0.03 270);
+  --chart-scale-02: oklch(0.38 0.04 270);
+  --chart-scale-03: oklch(0.48 0.05 270);
+  --chart-scale-04: oklch(0.58 0.06 270);
+  --chart-scale-05: oklch(0.68 0.07 270);
+  --chart-scale-pattern-color: oklch(0.145 0 0);
 }
