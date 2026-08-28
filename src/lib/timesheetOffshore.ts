@@ -11,7 +11,9 @@ export interface TimesheetEmbarque {
   // BSP principal nas listas; a atribuição de qual dia usa qual BSP continua sendo por dia
   // (timesheet_dias.bsp).
   bsp_2: string | null;
-  funcao_embarque: string;
+  // Nulo é raro (linhas antigas importadas sem essa coluna preenchida), mas acontece —
+  // sempre tratado com fallback (ver resolverFuncaoEmbarque) em vez de assumir string.
+  funcao_embarque: string | null;
   data_inicio_embarque: string;
   data_fim_embarque: string;
   status_entrega: string;
@@ -53,7 +55,7 @@ export interface TimesheetDia {
   id: string;
   semana_id: string;
   data: string;
-  dia_semana: string;
+  dia_semana: string | null;
   descricao_tarefa: string | null;
   numero_tarefa: string | null;
   evento: string | null;
@@ -65,8 +67,8 @@ export interface TimesheetDia {
   horas_normais: number | null;
   horas_extras: number | null;
   total_horas: number | null;
-  adicional_noturno: boolean;
-  feriado: boolean;
+  adicional_noturno: boolean | null;
+  feriado: boolean | null;
   criado_em: string;
 }
 
