@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // bm_timesheet_dias ainda não existe no schema gerado (types.ts) — mesmo padrão já usado nas
@@ -12,12 +13,9 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
-import { CalendarRange, CheckCircle2, ChevronRight, RotateCcw, Users } from "lucide-react";
+import { CalendarRange, CheckCircle2, ChevronRight, Download, RotateCcw, Users } from "lucide-react";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
-import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
-import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
-import { mergeBmTimesheetSource } from "@/lib/bmTimesheetSync";
 
 // Cópia dos dias do Timesheet Offshore dentro do BM. Tudo o que é editado aqui vive só em
 // bm_timesheet_dias — nunca volta pro timesheet_dias original.
@@ -77,15 +75,10 @@ function ultimoDiaDoMes(): string {
 // o BSP confunde mais do que ajuda. Todo BSP de verdade neste sistema tem pelo menos um
 // dígito (25-906, BSP 25-1031 etc.); nome de unidade nunca tem — um jeito simples e seguro
 // de distinguir os dois sem precisar reconhecer cada nome de unidade um por um.
-// Além disso, o mesmo BSP chega gravado em formatos diferentes ("25-1031", "BSP 25-1031",
-// "BSP - 25-1031"). Normalizamos com normalizeBmBspKey (mesma regra do assistente de geração)
-// e exibimos sempre no padrão "BSP - <código>", para que tudo caia num cartão único.
 function bspLabelDaLinha(c: { bsp: string | null; unidade_operacional: string | null }): string {
   const bsp = c.bsp?.trim();
   if (!bsp || !/\d/.test(bsp)) return "Sem BSP";
-  const codigo = normalizeBmBspKey(bsp);
-  if (!codigo) return "Sem BSP";
-  return `BSP - ${codigo}`;
+  return bsp;
 }
 
 function numOrNull(v: string): number | null {
@@ -102,6 +95,95 @@ function numeroSeguro(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+interface RelatorioMedicaoRow {
+  colaborador: string;
+  funcao: string;
+  unidade: string;
+  bsp: string;
+  periodoInicio: string;
+  periodoFim: string;
+  diasPreenchidos: number;
+  horasNormais: number;
+  horasExtras: number;
+  totalHoras: number;
+  medido: boolean;
+}
+
+function proximoDia(data: string): string {
+  const [ano, mes, dia] = data.split("-").map(Number);
+  const value = new Date(ano, mes - 1, dia);
+  value.setDate(value.getDate() + 1);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+// Uma linha por período contínuo efetivamente preenchido. Se houver uma lacuna entre dois
+// dias do mesmo colaborador/BSP, o relatório cria dois períodos em vez de sugerir que houve
+// trabalho nos dias sem lançamento.
+function montarLinhasRelatorioMedicao(
+  dias: BmTimesheetDia[],
+  colaboradoresJaMedidos: Set<string>,
+): RelatorioMedicaoRow[] {
+  const grupos = new Map<string, BmTimesheetDia[]>();
+  dias.forEach((dia) => {
+    const key = [dia.colaborador_id ?? dia.colaborador_nome, dia.funcao ?? "", dia.unidade_operacional ?? "", bspLabelDaLinha(dia)].join("||");
+    grupos.set(key, [...(grupos.get(key) ?? []), dia]);
+  });
+
+  const rows: RelatorioMedicaoRow[] = [];
+  grupos.forEach((items) => {
+    const ordenados = [...items].sort((a, b) => a.data.localeCompare(b.data));
+    let trecho: BmTimesheetDia[] = [];
+    const concluirTrecho = () => {
+      if (!trecho.length) return;
+      const primeiro = trecho[0];
+      const ultimo = trecho[trecho.length - 1];
+      rows.push({
+        colaborador: primeiro.colaborador_nome,
+        funcao: primeiro.funcao || "—",
+        unidade: primeiro.unidade_operacional || "—",
+        bsp: bspLabelDaLinha(primeiro),
+        periodoInicio: primeiro.data,
+        periodoFim: ultimo.data,
+        diasPreenchidos: trecho.length,
+        horasNormais: trecho.reduce((total, dia) => total + numeroSeguro(dia.horas_normais), 0),
+        horasExtras: trecho.reduce((total, dia) => total + numeroSeguro(dia.horas_extras), 0),
+        totalHoras: trecho.reduce((total, dia) => total + numeroSeguro(dia.total_horas), 0),
+        medido: !!primeiro.colaborador_id && colaboradoresJaMedidos.has(primeiro.colaborador_id),
+      });
+      trecho = [];
+    };
+    ordenados.forEach((dia) => {
+      if (trecho.length && dia.data !== proximoDia(trecho[trecho.length - 1].data)) concluirTrecho();
+      trecho.push(dia);
+    });
+    concluirTrecho();
+  });
+  return rows.sort((a, b) => a.colaborador.localeCompare(b.colaborador, "pt-BR") || a.periodoInicio.localeCompare(b.periodoInicio));
+}
+
+function baixarRelatorioMedicao(rows: RelatorioMedicaoRow[], de: string, ate: string): void {
+  const header = ["Colaborador", "Função", "Unidade", "BSP", "Início", "Fim", "Dias preenchidos", "Horas normais", "Horas extras", "Total de horas"];
+  const criarAba = (items: RelatorioMedicaoRow[], titulo: string) => {
+    const values = [
+      ["STEP Oil & Gas"],
+      [`${titulo} — ${fmtData(de)} a ${fmtData(ate)}`],
+      [],
+      header,
+      ...items.map((item) => [item.colaborador, item.funcao, item.unidade, item.bsp, fmtData(item.periodoInicio), fmtData(item.periodoFim),
+        item.diasPreenchidos, item.horasNormais, item.horasExtras, item.totalHoras]),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(values);
+    sheet["!cols"] = [{ wch: 32 }, { wch: 24 }, { wch: 30 }, { wch: 18 }, { wch: 13 }, { wch: 13 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+    sheet["!autofilter"] = { ref: `A4:J${Math.max(4, values.length)}` };
+    sheet["!freeze"] = { xSplit: 0, ySplit: 4 };
+    return sheet;
+  };
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, criarAba(rows.filter((row) => row.medido), "Colaboradores já medidos"), "Já medidos");
+  XLSX.utils.book_append_sheet(workbook, criarAba(rows.filter((row) => !row.medido), "Colaboradores ainda não medidos"), "Não medidos");
+  XLSX.writeFile(workbook, `Relatorio_Status_Medicao_${de}_a_${ate}.xlsx`);
+}
+
 export function TimesheetsTab() {
   const qc = useQueryClient();
   const [de, setDe] = useState(primeiroDiaDoMes);
@@ -114,45 +196,41 @@ export function TimesheetsTab() {
   const periodoValido = !!de && !!ate && de <= ate;
 
   // ── Origem: dias reais do Timesheet Offshore no período ─────────────────────────────
-  const { data: origem = [], isFetching: carregandoOrigem, error: erroOrigem } = useQuery({
+  const { data: origem = [], isFetching: carregandoOrigem } = useQuery({
     queryKey: ["bm-ts-origem", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const dias = await selectAllPagesSequential<any>((from, to) =>
-        supabase
-          .from("timesheet_dias")
-          .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
-          .gte("data", de)
-          .lte("data", ate)
-          .order("data")
-          .order("id")
-          .range(from, to),
-      );
-      if (!dias.length) return [];
+      const { data: dias, error } = await supabase
+        .from("timesheet_dias")
+        .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
+        .gte("data", de).lte("data", ate);
+      if (error) throw error;
+      if (!dias?.length) return [];
 
       const semanaIds = Array.from(new Set(dias.map((d: any) => d.semana_id)));
-      const semanas = await selectInChunks<any, any>(semanaIds, (ids) =>
-        supabase.from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", ids),
-      );
+      const { data: semanas, error: semErr } = await supabase
+        .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);
+      if (semErr) throw semErr;
 
-      const embarqueIds = Array.from(new Set(semanas.map((s: any) => s.embarque_id)));
-      const embarques = await selectInChunks<any, any>(embarqueIds, (ids) =>
-        supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", ids),
-      );
+      const embarqueIds = Array.from(new Set((semanas ?? []).map((s: any) => s.embarque_id)));
+      const { data: embarques, error: embErr } = embarqueIds.length
+        ? await supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", embarqueIds)
+        : { data: [], error: null };
+      if (embErr) throw embErr;
 
-      const colabIds = Array.from(new Set(embarques.map((e: any) => e.colaborador_id).filter(Boolean)));
-      const colaboradores = await selectInChunks<any, any>(colabIds, (ids) =>
-        supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", ids),
-      );
+      const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
+      const { data: colaboradores, error: colErr } = colabIds.length
+        ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colabIds)
+        : { data: [], error: null };
+      if (colErr) throw colErr;
 
-      const semanaById = new Map<string, any>(semanas.map((s: any) => [s.id, s]));
-      const embarqueById = new Map<string, any>(embarques.map((e: any) => [e.id, e]));
-      const nomeById = new Map<string, string>(colaboradores.map((c: any) => [c.id, c.nome]));
+      const semanaById = new Map<string, any>((semanas ?? []).map((s: any) => [s.id, s]));
+      const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
+      const nomeById = new Map<string, string>((colaboradores ?? []).map((c: any) => [c.id, c.nome]));
 
-      return dias.flatMap((d: any) => {
+      return dias.map((d: any) => {
         const semana = semanaById.get(d.semana_id);
         const embarque = semana ? embarqueById.get(semana.embarque_id) : null;
-        if (!embarque || !nomeById.has(embarque.colaborador_id)) return [];
         return {
           source_dia_id: d.id,
           colaborador_id: embarque?.colaborador_id ?? null,
@@ -180,27 +258,15 @@ export function TimesheetsTab() {
   });
 
   // ── Cópia local do BM ───────────────────────────────────────────────────────────────
-  const { data: copias = [], isFetching: carregandoCopias, error: erroCopias } = useQuery({
+  const { data: copias = [], isFetching: carregandoCopias } = useQuery({
     queryKey: ["bm-ts-copias", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const rows = await selectAllPagesSequential<BmTimesheetDia>((from, to) =>
-        supabase
-          .from("bm_timesheet_dias")
-          .select("*")
-          .gte("data", de)
-          .lte("data", ate)
-          .order("colaborador_nome")
-          .order("data")
-          .order("id")
-          .range(from, to),
-      );
-      const colaboradorIds = Array.from(new Set(rows.map((row) => row.colaborador_id).filter(Boolean))) as string[];
-      const ativos = await selectInChunks<any, any>(colaboradorIds, (ids) =>
-        supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", ids),
-      );
-      const activeIds = new Set(ativos.map((row: any) => row.id));
-      return rows.filter((row) => !!row.colaborador_id && activeIds.has(row.colaborador_id));
+      const { data, error } = await supabase
+        .from("bm_timesheet_dias").select("*").gte("data", de).lte("data", ate)
+        .order("colaborador_nome").order("data");
+      if (error) throw error;
+      return (data ?? []) as BmTimesheetDia[];
     },
   });
 
@@ -223,23 +289,25 @@ export function TimesheetsTab() {
     },
   });
 
-  // Copia dias novos e sincroniza mudanças posteriores da origem, preservando somente os
-  // campos que realmente foram editados na Medição.
+  // Copia automaticamente os dias do período que ainda não existem no BM. Nunca sobrescreve
+  // linhas já copiadas — o que a Medição ajustou fica intacto.
   const importar = useMutation({
-    mutationFn: async (pendentes: any[]) => {
+    mutationFn: async (faltantes: any[]) => {
+      // Deduplica por source_dia_id e usa upsert com ignoreDuplicates para evitar 409
+      // quando a cópia automática dispara mais de uma vez em paralelo.
       const vistos = new Set<string>();
-      const rows = pendentes
-        .filter((item) => {
-          const key = String(item.row?.source_dia_id ?? "");
+      const rows = faltantes
+        .filter((d) => {
+          const key = String(d.source_dia_id ?? "");
           if (!key || vistos.has(key)) return false;
           vistos.add(key);
           return true;
         })
-        .map((item) => item.row);
+        .map((d) => ({ ...d, original: d }));
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await supabase
           .from("bm_timesheet_dias")
-          .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id" });
+          .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id", ignoreDuplicates: true });
         if (error) throw error;
       }
       return rows.length;
@@ -250,20 +318,18 @@ export function TimesheetsTab() {
     onError: (e: any) => notify.error(e.message),
   });
 
-  const pendentesSincronizacao = useMemo(() => {
+  const faltantes = useMemo(() => {
     if (!origem.length) return [];
-    const existentes = new Map(copias.map((c) => [c.source_dia_id, c]));
-    return origem
-      .map((source: any) => mergeBmTimesheetSource(source, existentes.get(source.source_dia_id) as any))
-      .filter((item) => item.changed);
+    const existentes = new Set(copias.map((c) => c.source_dia_id).filter(Boolean) as string[]);
+    return origem.filter((d: any) => !existentes.has(d.source_dia_id));
   }, [origem, copias]);
 
   useEffect(() => {
     if (!periodoValido || carregandoOrigem || carregandoCopias) return;
-    if (pendentesSincronizacao.length === 0 || importar.isPending) return;
-    importar.mutate(pendentesSincronizacao);
+    if (faltantes.length === 0 || importar.isPending) return;
+    importar.mutate(faltantes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendentesSincronizacao, periodoValido, carregandoOrigem, carregandoCopias]);
+  }, [faltantes, periodoValido, carregandoOrigem, carregandoCopias]);
 
   const salvar = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Partial<Record<CampoCopia, unknown>> }) => {
@@ -325,6 +391,12 @@ export function TimesheetsTab() {
     [copiasComHoras, unidadeFiltro],
   );
 
+  const linhasRelatorio = useMemo(() => {
+    const termo = busca.trim().toLocaleLowerCase("pt-BR");
+    const dias = copiasDaUnidade.filter((dia) => !termo || dia.colaborador_nome.toLocaleLowerCase("pt-BR").includes(termo));
+    return montarLinhasRelatorioMedicao(dias, colaboradoresJaMedidos);
+  }, [copiasDaUnidade, colaboradoresJaMedidos, busca]);
+
   const bsps = useMemo(() => {
     const map = new Map<string, { bsp: string | null; colaboradores: Set<string>; dias: number }>();
     for (const c of copiasDaUnidade) {
@@ -364,16 +436,9 @@ export function TimesheetsTab() {
   }, [copiasDaUnidade, bspSelecionada, busca]);
 
   const carregando = carregandoOrigem || carregandoCopias || importar.isPending;
-  const erroCarregamento = erroOrigem ?? erroCopias;
 
   return (
     <div className="space-y-4">
-      {erroCarregamento && (
-        <Card className="border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          <p className="font-medium">Não foi possível carregar todas as horas do Timesheet.</p>
-          <p className="mt-1 text-xs">A lista vazia abaixo não representa os dados reais. Tente novamente.</p>
-        </Card>
-      )}
       <Card className="p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
@@ -398,6 +463,17 @@ export function TimesheetsTab() {
             <Label className="text-xs">Colaborador</Label>
             <Input placeholder="Buscar por nome" value={busca} onChange={(e) => setBusca(e.target.value)} className="w-56" />
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!periodoValido || carregando || linhasRelatorio.length === 0}
+            onClick={() => {
+              baixarRelatorioMedicao(linhasRelatorio, de, ate);
+              notify.success("Relatório de medição baixado.");
+            }}
+          >
+            <Download className="mr-2 h-4 w-4" /> Baixar relatório de medição
+          </Button>
           <p className="ml-auto text-xs text-muted-foreground">
             {carregando ? "Sincronizando cópia do Timesheet Offshore…" : `${copiasComHoras.length} dia(s) com horas lançadas no período`}
           </p>
@@ -409,7 +485,7 @@ export function TimesheetsTab() {
 
       {!periodoValido ? (
         <Card className="p-4"><EmptyState icon={CalendarRange} title="Selecione um período válido" /></Card>
-      ) : erroCarregamento ? null : bsps.length === 0 ? (
+      ) : bsps.length === 0 ? (
         <Card className="p-4"><EmptyState icon={CalendarRange} title="Nenhum timesheet no período selecionado" description={carregando ? "Carregando…" : undefined} /></Card>
       ) : (
         <>

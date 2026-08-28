@@ -17,9 +17,10 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { EmptyStateRow } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
-import { Plus, Pencil, Trash2, Upload, Coins } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Coins, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3 } from "lucide-react";
 import { CLIENTES } from "@/lib/clientes";
 import { pageTitle } from "@/lib/pageTitle";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/rates")({ head: () => pageTitle("Rates"), component: RatesPage });
 
@@ -115,6 +116,8 @@ function RatesPage() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [filterClient, setFilterClient] = useState("all");
+  const [filterVessel, setFilterVessel] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
   const [editing, setEditing] = useState<RateForm | null>(null);
   const [importPreview, setImportPreview] = useState<ParsedRateRow[] | null>(null);
 
@@ -197,12 +200,58 @@ function RatesPage() {
     }
   };
 
-  const filtered = useMemo(
-    () => (filterClient === "all" ? rows : rows.filter((r) => r.client === filterClient)),
-    [rows, filterClient],
-  );
+  const filtered = useMemo(() => rows.filter((r) =>
+    (filterClient === "all" || r.client === filterClient) &&
+    (filterVessel === "all" || r.vessel === filterVessel) &&
+    (filterBsp === "all" || (r.bsp ?? "Não informado") === filterBsp),
+  ), [rows, filterClient, filterVessel, filterBsp]);
 
   const clientesNaTabela = useMemo(() => Array.from(new Set(rows.map((r) => r.client))).sort(), [rows]);
+  const vesselsNaTabela = useMemo(() => Array.from(new Set(rows.map((r) => r.vessel))).sort(), [rows]);
+  const bspsNaTabela = useMemo(() => Array.from(new Set(rows.map((r) => r.bsp ?? "Não informado"))).sort(), [rows]);
+
+  // Cascata Cliente → Unidade (embarcação) → BSP — mesmo formato em árvore já usado em
+  // Hospedagem/Transporte/Passagens Aéreas. Rates já tem os 3 campos nativos (nada de
+  // clienteDaUnidade aqui, o Cliente já vem certo da própria tabela) — só agrupa. Quando o BSP
+  // não foi informado (a maioria dos rates, a planilha mestre não tem essa coluna), pula esse
+  // nível e mostra as funções direto sob a Unidade, mesma convenção já usada em Hospedagem.
+  const consolidado = useMemo(() => {
+    const porCliente = new Map<string, Map<string, Map<string, RateRow[]>>>();
+    filtered.forEach((r) => {
+      const cliente = r.client || "Não informado";
+      const vessel = r.vessel || "Não informado";
+      const bsp = r.bsp?.trim() || "Não informado";
+      if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
+      const porVessel = porCliente.get(cliente)!;
+      if (!porVessel.has(vessel)) porVessel.set(vessel, new Map());
+      const porBsp = porVessel.get(vessel)!;
+      if (!porBsp.has(bsp)) porBsp.set(bsp, []);
+      porBsp.get(bsp)!.push(r);
+    });
+    return Array.from(porCliente.entries())
+      .map(([cliente, porVessel]) => {
+        const vessels = Array.from(porVessel.entries())
+          .map(([vessel, porBsp]) => {
+            const bsps = Array.from(porBsp.entries())
+              .map(([bsp, itens]) => ({ bsp, itens: [...itens].sort((a, b) => a.funcao.localeCompare(b.funcao)) }))
+              .sort((a, b) => b.itens.length - a.itens.length);
+            return { vessel, total: bsps.reduce((a, b) => a + b.itens.length, 0), bsps };
+          })
+          .sort((a, b) => b.total - a.total);
+        return { cliente, total: vessels.reduce((a, v) => a + v.total, 0), vessels };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [filtered]);
+  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
+  const [collapsedVessels, setCollapsedVessels] = useState<Set<string>>(new Set());
+  const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
+  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -226,16 +275,19 @@ function RatesPage() {
                 <TableHead>Cliente</TableHead>
                 <TableHead>Embarcação</TableHead>
                 <TableHead>Função</TableHead>
-                <TableHead>Embarque</TableHead>
-                <TableHead>Dobra</TableHead>
-                <TableHead>Hotel</TableHead>
-                <TableHead>Hora Extra</TableHead>
-                <TableHead>Adic. Noturno</TableHead>
+                <TableHead className="hidden md:table-cell">Embarque</TableHead>
+                <TableHead className="hidden md:table-cell">Dobra</TableHead>
+                <TableHead className="hidden md:table-cell">Hotel</TableHead>
+                <TableHead className="hidden lg:table-cell">Hora Extra</TableHead>
+                <TableHead className="hidden lg:table-cell">Adic. Noturno</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-24"></TableHead>
               </TableRow>
             </TableHeader>
-            <TableSkeleton rows={8} cols={11} />
+            <TableSkeleton
+              rows={8} cols={11}
+              colClassNames={["", "", "", "", "hidden md:table-cell", "hidden md:table-cell", "hidden md:table-cell", "hidden lg:table-cell", "hidden lg:table-cell", "", ""]}
+            />
           </Table>
         </Card>
       </div>
@@ -261,17 +313,160 @@ function RatesPage() {
       </div>
 
       <Card className="p-3">
-        <div className="w-56">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Cliente</Label>
-          <Select value={filterClient} onValueChange={setFilterClient}>
-            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos</SelectItem>
-              {clientesNaTabela.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Cliente</Label>
+            <Select value={filterClient} onValueChange={setFilterClient}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {clientesNaTabela.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
+            <Select value={filterVessel} onValueChange={setFilterVessel}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {vesselsNaTabela.map((v) => <SelectItem key={v} value={v} className="text-xs">{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {bspsNaTabela.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </Card>
+
+      {consolidado.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex justify-end">
+            <Button
+              type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+              onClick={() => {
+                const tudoAberto = collapsedClientes.size === 0 && collapsedVessels.size === 0;
+                if (tudoAberto) {
+                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
+                  setCollapsedVessels(new Set(consolidado.flatMap((c) => c.vessels.map((v) => `${c.cliente}::${v.vessel}`))));
+                } else {
+                  setCollapsedClientes(new Set()); setCollapsedVessels(new Set());
+                }
+              }}
+            >
+              {collapsedClientes.size === 0 && collapsedVessels.size === 0 ? (
+                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+              ) : (
+                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+              )}
+            </Button>
+          </div>
+          <Card className="overflow-hidden">
+            {consolidado.map((c) => {
+              const clienteAberto = !collapsedClientes.has(c.cliente);
+              return (
+                <div key={c.cliente} className="border-b last:border-b-0">
+                  <button
+                    type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                    aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                  >
+                    <span className="flex min-w-0 items-center gap-2 font-semibold">
+                      {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                      <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{c.cliente}</span>
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold text-muted-foreground">{c.total} função(ões)</span>
+                  </button>
+                  {clienteAberto && c.vessels.map((v) => {
+                    const vesselKey = `${c.cliente}::${v.vessel}`;
+                    const vesselAberto = !collapsedVessels.has(vesselKey);
+                    return (
+                      <div key={vesselKey}>
+                        <button
+                          type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
+                          aria-expanded={vesselAberto} onClick={() => toggleSet(setCollapsedVessels, vesselKey)}
+                        >
+                          <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
+                            {vesselAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                            <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{v.vessel}</span>
+                            {v.bsps.some((b) => b.bsp !== "Não informado") && (
+                              <span className="text-xs font-normal text-muted-foreground">({v.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)</span>
+                            )}
+                          </span>
+                          <span className="shrink-0 text-xs font-medium text-muted-foreground">{v.total} função(ões)</span>
+                        </button>
+                        {vesselAberto && v.bsps.map((b) => {
+                          if (b.bsp === "Não informado") {
+                            return (
+                              <div key={`${vesselKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
+                                {b.itens.map((r) => (
+                                  <div key={r.id} className={cn("flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs", !r.active && "opacity-50")}>
+                                    <div className="min-w-0">
+                                      <p className="truncate font-medium">{r.funcao}</p>
+                                      <p className="text-muted-foreground">
+                                        Embarque {fmtMoney(r.rate_embarque)} · Dobra {fmtMoney(r.rate_dobra)} · Hotel {fmtMoney(r.rate_hotel)} · HE {fmtMoney(r.rate_hora_extra)} · AN {fmtMoney(r.rate_adicional_noturno)}
+                                      </p>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => remove.mutate(r.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          const bspKey = `${vesselKey}::${b.bsp}`;
+                          const bspAberto = expandedBsps.has(bspKey);
+                          return (
+                            <div key={bspKey}>
+                              <button
+                                type="button" className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
+                                aria-expanded={bspAberto} onClick={() => toggleSet(setExpandedBsps, bspKey)}
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  {bspAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                                  <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{b.bsp}</span>
+                                </span>
+                                <span className="shrink-0 text-xs text-muted-foreground">{b.itens.length} função(ões)</span>
+                              </button>
+                              {bspAberto && (
+                                <div className="divide-y border-t bg-emerald-50/40 pl-20">
+                                  {b.itens.map((r) => (
+                                    <div key={r.id} className={cn("flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs", !r.active && "opacity-50")}>
+                                      <div className="min-w-0">
+                                        <p className="truncate font-medium">{r.funcao}</p>
+                                        <p className="text-muted-foreground">
+                                          Embarque {fmtMoney(r.rate_embarque)} · Dobra {fmtMoney(r.rate_dobra)} · Hotel {fmtMoney(r.rate_hotel)} · HE {fmtMoney(r.rate_hora_extra)} · AN {fmtMoney(r.rate_adicional_noturno)}
+                                        </p>
+                                      </div>
+                                      <div className="flex shrink-0 items-center gap-1">
+                                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => remove.mutate(r.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </Card>
+        </div>
+      )}
 
       <Card>
         <Table>
@@ -281,11 +476,11 @@ function RatesPage() {
               <TableHead>Cliente</TableHead>
               <TableHead>Embarcação</TableHead>
               <TableHead>Função</TableHead>
-              <TableHead>Embarque</TableHead>
-              <TableHead>Dobra</TableHead>
-              <TableHead>Hotel</TableHead>
-              <TableHead>Hora Extra</TableHead>
-              <TableHead>Adic. Noturno</TableHead>
+              <TableHead className="hidden md:table-cell">Embarque</TableHead>
+              <TableHead className="hidden md:table-cell">Dobra</TableHead>
+              <TableHead className="hidden md:table-cell">Hotel</TableHead>
+              <TableHead className="hidden lg:table-cell">Hora Extra</TableHead>
+              <TableHead className="hidden lg:table-cell">Adic. Noturno</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-24"></TableHead>
             </TableRow>
@@ -297,11 +492,11 @@ function RatesPage() {
                 <TableCell>{r.client}</TableCell>
                 <TableCell>{r.vessel}</TableCell>
                 <TableCell>{r.funcao}</TableCell>
-                <TableCell>{fmtMoney(r.rate_embarque)}</TableCell>
-                <TableCell>{fmtMoney(r.rate_dobra)}</TableCell>
-                <TableCell>{fmtMoney(r.rate_hotel)}</TableCell>
-                <TableCell>{fmtMoney(r.rate_hora_extra)}</TableCell>
-                <TableCell>{fmtMoney(r.rate_adicional_noturno)}</TableCell>
+                <TableCell className="hidden md:table-cell">{fmtMoney(r.rate_embarque)}</TableCell>
+                <TableCell className="hidden md:table-cell">{fmtMoney(r.rate_dobra)}</TableCell>
+                <TableCell className="hidden md:table-cell">{fmtMoney(r.rate_hotel)}</TableCell>
+                <TableCell className="hidden lg:table-cell">{fmtMoney(r.rate_hora_extra)}</TableCell>
+                <TableCell className="hidden lg:table-cell">{fmtMoney(r.rate_adicional_noturno)}</TableCell>
                 <TableCell>
                   <button className={r.active ? "text-success text-xs" : "text-muted-foreground text-xs"} onClick={() => toggleActive.mutate(r)}>
                     {r.active ? "Ativo" : "Inativo"}
@@ -328,7 +523,7 @@ function RatesPage() {
           {editing && (
             <div className="grid gap-3">
               <div><Label>BSP (opcional, informativo)</Label><Input value={editing.bsp ?? ""} onChange={(e) => setEditing({ ...editing, bsp: e.target.value })} placeholder="Ex: 26-174" /></div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Cliente</Label>
                   <Select value={editing.client} onValueChange={(v) => setEditing({ ...editing, client: v })}>
@@ -342,11 +537,11 @@ function RatesPage() {
                 </div>
               </div>
               <div><Label>Função</Label><Input value={editing.funcao} onChange={(e) => setEditing({ ...editing, funcao: e.target.value })} /></div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div><Label>Rate Embarque (R$/dia)</Label><Input type="number" step="0.01" value={editing.rate_embarque ?? ""} onChange={(e) => setEditing({ ...editing, rate_embarque: e.target.value === "" ? null : Number(e.target.value) })} /></div>
                 <div><Label>Rate Dobra (R$/dia)</Label><Input type="number" step="0.01" value={editing.rate_dobra ?? ""} onChange={(e) => setEditing({ ...editing, rate_dobra: e.target.value === "" ? null : Number(e.target.value) })} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div><Label>Rate Hotel (R$/dia)</Label><Input type="number" step="0.01" value={editing.rate_hotel ?? ""} onChange={(e) => setEditing({ ...editing, rate_hotel: e.target.value === "" ? null : Number(e.target.value) })} /></div>
                 <div><Label>Rate Hora Extra (R$/h)</Label><Input type="number" step="0.01" value={editing.rate_hora_extra ?? ""} onChange={(e) => setEditing({ ...editing, rate_hora_extra: e.target.value === "" ? null : Number(e.target.value) })} /></div>
               </div>
@@ -377,16 +572,16 @@ function RatesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>BSP</TableHead><TableHead>Cliente</TableHead><TableHead>Embarcação</TableHead><TableHead>Função</TableHead>
-                <TableHead>Embarque</TableHead><TableHead>Dobra</TableHead><TableHead>Hotel</TableHead>
-                <TableHead>HE</TableHead><TableHead>AN</TableHead>
+                <TableHead className="hidden md:table-cell">Embarque</TableHead><TableHead className="hidden md:table-cell">Dobra</TableHead><TableHead className="hidden md:table-cell">Hotel</TableHead>
+                <TableHead className="hidden lg:table-cell">HE</TableHead><TableHead className="hidden lg:table-cell">AN</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(importPreview ?? []).map((p, i) => (
                 <TableRow key={i}>
                   <TableCell>{p.bsp}</TableCell><TableCell>{p.client}</TableCell><TableCell>{p.vessel}</TableCell><TableCell>{p.funcao}</TableCell>
-                  <TableCell>{fmtMoney(p.rate_embarque)}</TableCell><TableCell>{fmtMoney(p.rate_dobra)}</TableCell><TableCell>{fmtMoney(p.rate_hotel)}</TableCell>
-                  <TableCell>{fmtMoney(p.rate_hora_extra)}</TableCell><TableCell>{fmtMoney(p.rate_adicional_noturno)}</TableCell>
+                  <TableCell className="hidden md:table-cell">{fmtMoney(p.rate_embarque)}</TableCell><TableCell className="hidden md:table-cell">{fmtMoney(p.rate_dobra)}</TableCell><TableCell className="hidden md:table-cell">{fmtMoney(p.rate_hotel)}</TableCell>
+                  <TableCell className="hidden lg:table-cell">{fmtMoney(p.rate_hora_extra)}</TableCell><TableCell className="hidden lg:table-cell">{fmtMoney(p.rate_adicional_noturno)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

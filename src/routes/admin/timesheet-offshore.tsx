@@ -25,7 +25,7 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload, History } from "lucide-react";
 import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspDoPeriodo, bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
   FUNCOES_EMBARQUE, ADICIONAL_LABEL, adicionaisPorFuncao, isDiaPericulosidade, isDiaSobreaviso, type AdicionalCode,
   STATUS_ENTREGA_TONE, STATUS_ENTREGA_LABEL, computeStatusEntrega, totalSemanasEsperadas, type StatusEntrega,
@@ -188,7 +188,7 @@ export async function generateRelatorioRH(
   unidadeFiltro = "all",
 ): Promise<void> {
   const [{ data: colaboradores }, embarques, periodosFI, todasSemanas] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
+    supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
     // Folga Indenizada (tipo "FI") já vem pronta do Drake no Histograma — não é lançada aqui,
     // só somada nesse relatório (mesma coluna 413, mesmo adicional de 100%).
@@ -308,7 +308,7 @@ export async function generateRelatorioTimesheetsLancados(
   dataFim: string = defaultEnd(),
 ): Promise<void> {
   const [{ data: colaboradores }, embarques] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
+    supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
@@ -380,7 +380,7 @@ export async function generateRelatorioMedicao(
   unidadeFiltro = "all",
 ): Promise<void> {
   const [{ data: colaboradores }, embarques, periodos] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
+    supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
     selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
@@ -405,7 +405,7 @@ export async function generateRelatorioMedicao(
     // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
     // (mesmo conceito de BSP, só que vindo do relatório Drake).
     const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
-    const bsp = embarque.bsp || (periodo ? bspDoPeriodo(periodo) : null) || "—";
+    const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
     const chave = `${colaborador.id}::${bsp}`;
     if (!porChave.has(chave)) {
       porChave.set(chave, {
@@ -459,7 +459,7 @@ export async function generateRelatorioFolhaRH(
   dataFim: string = defaultEnd(),
 ): Promise<void> {
   const [{ data: colaboradores }, embarques] = await Promise.all([
-    supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true),
+    supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
@@ -472,11 +472,10 @@ export async function generateRelatorioFolhaRH(
     .map((d) => {
       const embarque = embarqueById.get(d.embarque_id);
       const colaborador = embarque ? colabById.get(embarque.colaborador_id) : undefined;
-      if (!embarque || !colaborador) return null;
       return {
-        colaborador: colaborador.nome,
-        embarcacao: embarque.unidade_operacional ?? "—",
-        funcao: embarque.funcao_embarque ?? "—",
+        colaborador: colaborador?.nome ?? "—",
+        embarcacao: embarque?.unidade_operacional ?? "—",
+        funcao: embarque?.funcao_embarque ?? "—",
         tipo_evento: d.evento ?? "—",
         data_inicio: d.data,
         data_fim: d.data,
@@ -484,7 +483,6 @@ export async function generateRelatorioFolhaRH(
         comentarios: d.descricao_tarefa ?? "",
       };
     })
-    .filter((linha): linha is NonNullable<typeof linha> => linha !== null)
     .sort((a, b) => a.colaborador.localeCompare(b.colaborador) || a.data_inicio.localeCompare(b.data_inicio));
 
   const header = ["Colaborador", "Embarcação", "Função", "Tipo de Evento", "Data Início", "Data Fim", "Quantidade de Horas", "Comentários"];
@@ -511,39 +509,30 @@ function TimesheetOffshore() {
   // Todas as tabelas abaixo já passam de 1000 linhas — sem paginação o Supabase corta em
   // silêncio (era o motivo real de "sumiu" BSP/colaborador/dia em várias telas).
   const { data: colaboradores = [], isLoading: l1 } = useQuery({
-    queryKey: ["hist-novo-colaboradores", "ativos", "completo"],
-    queryFn: () => selectAllPages<HistNovoColaborador>((from, to) =>
-      supabase.from("hist_novo_colaboradores").select("*").eq("ativo", true)
-        .order("nome").order("id").range(from, to)),
+    queryKey: ["hist-novo-colaboradores"],
+    queryFn: () => selectAllPages<HistNovoColaborador>((from, to) => supabase.from("hist_novo_colaboradores").select("*").order("nome").order("id").range(from, to)),
   });
 
-  const { data: todosPeriodos = [], isLoading: l2 } = useQuery({
+  const { data: periodos = [], isLoading: l2 } = useQuery({
     queryKey: ["hist-novo-periodos"],
     queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) => supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
-  const { data: todosEmbarques = [], isLoading: l3 } = useQuery({
+  const { data: embarques = [], isLoading: l3 } = useQuery({
     queryKey: ["timesheet-embarques"],
     queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
-  const { data: todasSemanas = [], isLoading: l4 } = useQuery({
+  const { data: semanas = [], isLoading: l4 } = useQuery({
     queryKey: ["timesheet-semanas-all"],
     queryFn: () => selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
-  const { data: todosDias = [], isLoading: l5 } = useQuery({
+  const { data: dias = [], isLoading: l5 } = useQuery({
     queryKey: ["timesheet-dias-all"],
     queryFn: () => selectAllPages<TimesheetDia>((from, to) => supabase.from("timesheet_dias").select("*").gte("data", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   });
 
-  const activeIds = useMemo(() => new Set(colaboradores.map((c) => c.id)), [colaboradores]);
-  const periodos = useMemo(() => todosPeriodos.filter((p) => activeIds.has(p.colaborador_id)), [todosPeriodos, activeIds]);
-  const embarques = useMemo(() => todosEmbarques.filter((e) => activeIds.has(e.colaborador_id)), [todosEmbarques, activeIds]);
-  const activeEmbarkationIds = useMemo(() => new Set(embarques.map((e) => e.id)), [embarques]);
-  const semanas = useMemo(() => todasSemanas.filter((s) => activeEmbarkationIds.has(s.embarque_id)), [todasSemanas, activeEmbarkationIds]);
-  const activeWeekIds = useMemo(() => new Set(semanas.map((s) => s.id)), [semanas]);
-  const dias = useMemo(() => todosDias.filter((d) => activeWeekIds.has(d.semana_id)), [todosDias, activeWeekIds]);
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
 
   // Mapa de grafia canônica por unidade (ver comentário em buildUnidadeCanonMap) — resolve
@@ -1177,9 +1166,6 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
   );
 
   const filtered = rows.filter((r) =>
-    // O histórico permanece no banco e nos relatórios exportáveis, mas colaboradores
-    // inativos não aparecem nas listas operacionais nem recebem novos lançamentos.
-    !!r.colaborador &&
     (filterUnidade === "all" || canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) === filterUnidade) &&
     (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
     (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
@@ -1483,26 +1469,17 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
   const salvar = useMutation({
     mutationFn: async () => {
       if (!embarque) return;
-      const bsp = f.bsp.trim() || null;
       const { error } = await supabase.from("timesheet_embarques").update({
         unidade_operacional: f.unidade_operacional.trim() || null,
-        bsp,
+        bsp: f.bsp.trim() || null,
         funcao_embarque: f.funcao_embarque,
         data_inicio_embarque: f.data_inicio,
         data_fim_embarque: f.data_fim,
       }).eq("id", embarque.id);
       if (error) throw error;
-      if (embarque.periodo_id) {
-        const { error: periodError } = await supabase
-          .from("hist_novo_periodos")
-          .update({ bsp })
-          .eq("id", embarque.periodo_id);
-        if (periodError) throw periodError;
-      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
-      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       notify.success("Embarque atualizado");
       onOpenChange(false);
     },
@@ -1657,7 +1634,6 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
       return { embarque: e, colaborador: colabById.get(e.colaborador_id), recebidas, total, funcaoEfetiva, orfao };
     })
     .filter((r) =>
-      !!r.colaborador &&
       (filterUnidade === "all" || canonUnidade(r.embarque.unidade_operacional, unidadeCanonMap) === filterUnidade) &&
       (filterBsp === "all" || r.embarque.bsp === filterBsp) &&
       (!filterNome || matchesNameSearch(r.colaborador?.nome ?? "", filterNome)) &&
@@ -2148,18 +2124,10 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     mutationFn: async (valor: string | null) => {
       const { error } = await supabase.from("timesheet_embarques").update({ bsp: valor }).eq("id", embarque.id);
       if (error) throw error;
-      if (embarque.periodo_id) {
-        const { error: periodError } = await supabase
-          .from("hist_novo_periodos")
-          .update({ bsp: valor })
-          .eq("id", embarque.periodo_id);
-        if (periodError) throw periodError;
-      }
     },
     onSuccess: (_data, valor) => {
       if (valor) setBspExtras((prev) => (prev.includes(valor) ? prev : [...prev, valor]));
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
-      qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] });
       notify.success("BSP do embarque atualizado");
       setEditandoBsp(false);
       setBspEditManual(false);
@@ -2415,7 +2383,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
         </div>
       </div>
 
-      <div className="overflow-x-auto" onKeyDownCapture={focusNextOnEnter}>
+      <div className="hidden overflow-x-auto xl:block" onKeyDownCapture={focusNextOnEnter}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -2528,6 +2496,113 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
         </Table>
       </div>
 
+      {/* Abaixo de 1280px a tabela de 10 colunas fixas não cabe sem rolar —
+          mesmos campos/handlers do draft, só reorganizados em cartão por dia. */}
+      <div className="space-y-3 xl:hidden" onKeyDownCapture={focusNextOnEnter}>
+        {draft.map((d) => (
+          <Card key={d.id} className="space-y-2 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">{diaLabelCurto(d)}</span>
+              <span className="text-xs font-semibold">Total: {d.total_horas ?? 0}h</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2 space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Evento</Label>
+                <Select
+                  value={d.evento ?? "Nenhum"} disabled={readOnly}
+                  onValueChange={(v) => {
+                    if (v === "Nenhum") { editarCampo(d.id, { evento: null, bsp: null }); return; }
+                    editarCampo(d.id, { evento: v });
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{EVENTO_OPCOES.map((ev) => <SelectItem key={ev} value={ev} className="text-xs">{ev}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label className="text-[10px] text-muted-foreground">BSP</Label>
+                {bspOptions.length > 1 && !bspManualIds.has(d.id) ? (
+                  <Select
+                    value={d.bsp ?? "__nenhum__"} disabled={readOnly}
+                    onValueChange={(v) => {
+                      if (v === "__outro__") { setBspManualIds((prev) => new Set(prev).add(d.id)); return; }
+                      editarCampo(d.id, { bsp: v === "__nenhum__" ? null : v });
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="BSP" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nenhum__" className="text-xs">Nenhum</SelectItem>
+                      {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                      <SelectItem value="__outro__" className="text-xs">Outro (digitar)...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      className="h-8 text-xs" disabled={readOnly} placeholder="BSP novo"
+                      value={bspManualValores[d.id] ?? d.bsp ?? ""}
+                      onChange={(e) => setBspManualValores((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") adicionarBspExtra(d.id, bspManualValores[d.id] ?? ""); }}
+                    />
+                    {!readOnly && (bspManualValores[d.id] ?? "").trim() && (
+                      <Button
+                        type="button" size="sm" variant="ghost" className="h-8 shrink-0 px-1.5 text-xs"
+                        title="Adicionar esse BSP à lista" onClick={() => adicionarBspExtra(d.id, bspManualValores[d.id] ?? "")}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Entrada</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_entrada ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Saída</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_saida ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Horas Normais</Label>
+                <Input
+                  type="number" step="0.5" className="h-8 text-sm font-medium" disabled={readOnly}
+                  value={d.horas_normais ?? ""} onChange={(e) => editarCampo(d.id, { horas_normais: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Horas Extras</Label>
+                <Input
+                  type="number" step="0.5" className="h-8 text-sm font-medium" disabled={readOnly}
+                  value={d.horas_extras ?? ""} onChange={(e) => editarCampo(d.id, { horas_extras: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">HE Entrada</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_entrada_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_entrada_extra: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">HE Saída</Label>
+                <Input
+                  type="time" className="h-8 text-xs" disabled={readOnly}
+                  value={d.hora_saida_extra ?? ""} onChange={(e) => editarCampo(d.id, { hora_saida_extra: e.target.value })}
+                />
+              </div>
+            </div>
+          </Card>
+        ))}
+        {draft.length === 0 && <EmptyState icon={Clock} title="Nenhum dia nessa semana" />}
+      </div>
+
       <div className="flex justify-end gap-4 border-t pt-3 text-sm font-semibold">
         <span>Total Hours — Normais: {totals.normais.toFixed(1)}h</span>
         <span>Extras: {totals.extras.toFixed(1)}h</span>
@@ -2598,7 +2673,7 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
       // esse dado) — nesse caso, cai pro "Centro de Custo" do período correspondente no Histograma
       // (mesmo conceito de BSP, só que vindo do relatório Drake).
       const periodo = periodoCorrespondente(embarque, periodosByColaborador.get(embarque.colaborador_id) ?? []);
-      const bsp = embarque.bsp || (periodo ? bspDoPeriodo(periodo) : null) || "—";
+      const bsp = embarque.bsp || periodo?.centro_de_custo || "—";
       if (bspFiltro !== "all" && bsp !== bspFiltro) return;
       const chave = `${colaborador.id}::${bsp}`;
       if (!porChave.has(chave)) {

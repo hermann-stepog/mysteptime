@@ -176,7 +176,7 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div><span className="text-muted-foreground">Quantidade:</span> {nom.quantidade}</div>
             {nom.unidade && <div><span className="text-muted-foreground">Unidade:</span> {nom.unidade}</div>}
             {nom.bsp && <div><span className="text-muted-foreground">BSP:</span> {nom.bsp}</div>}
@@ -271,8 +271,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   });
   const { data: colaboradores = [] } = useQuery<{ funcao: string | null; funcao_operacao: string | null }[]>({
     queryKey: ["pm-create-nomination-colaboradores-funcoes"],
-    queryFn: async () => (await supabase.from("hist_novo_colaboradores")
-      .select("funcao, funcao_operacao").eq("ativo", true)).data ?? [],
+    queryFn: async () => (await supabase.from("hist_novo_colaboradores").select("funcao, funcao_operacao")).data ?? [],
   });
   const funcaoOptions = useMemo(() => {
     const s = new Set<string>();
@@ -376,7 +375,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
           </div>
 
           {showWeld && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label className="text-xs">Tipo de solda *</Label>
                 <Select value={weldType} onValueChange={(v) => { setWeldType(v); setWeldMaterial(""); }}>
@@ -398,7 +397,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Unidade *</Label>
               <Select value={unidade} onValueChange={(v) => { setUnidade(v); setBsp(""); }}>
@@ -419,7 +418,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Data início</Label>
               <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
@@ -429,7 +428,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
               <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Projeto</Label>
               <Input placeholder="Nome do projeto" value={project} onChange={(e) => setProject(e.target.value)} />

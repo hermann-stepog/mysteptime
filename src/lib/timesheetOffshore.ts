@@ -4,7 +4,6 @@ export interface TimesheetEmbarque {
   id: string;
   colaborador_id: string;
   periodo_id: string | null;
-  source_event_key: string | null;
   unidade_operacional: string | null;
   bsp: string | null;
   // Segundo BSP do mesmo embarque, quando parte dos dias é lançada numa BSP diferente da
@@ -12,11 +11,27 @@ export interface TimesheetEmbarque {
   // BSP principal nas listas; a atribuição de qual dia usa qual BSP continua sendo por dia
   // (timesheet_dias.bsp).
   bsp_2: string | null;
+  // Nulo é raro (linhas antigas importadas sem essa coluna preenchida), mas acontece —
+  // sempre tratado com fallback (ver resolverFuncaoEmbarque) em vez de assumir string.
   funcao_embarque: string | null;
   data_inicio_embarque: string;
   data_fim_embarque: string;
   status_entrega: string;
   criado_em: string;
+}
+
+// Função de embarque efetiva de um colaborador numa data: usa o timesheet_embarques (Drake)
+// que cobre essa data (sobreposição de data_inicio_embarque/data_fim_embarque, não periodo_id
+// — o Drake normalmente não vincula esse id de propósito); sem embarque cobrindo a data (ex.:
+// Folga/Disponível, sem embarque em curso), cai pra função cadastral do colaborador — nunca
+// fica em branco à toa. Compartilhada entre Histograma e Nomeações (Equipes Embarcadas).
+export function resolverFuncaoEmbarque(
+  colaboradorId: string, date: string, embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>,
+  funcaoCadastral: string | null | undefined,
+): string {
+  const embarque = (embarquesByColaboradorId.get(colaboradorId) ?? [])
+    .find((e) => date >= e.data_inicio_embarque && date <= e.data_fim_embarque);
+  return embarque?.funcao_embarque || funcaoCadastral || "—";
 }
 
 export interface TimesheetSemana {

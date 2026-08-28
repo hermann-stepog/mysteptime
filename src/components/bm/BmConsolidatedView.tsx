@@ -46,7 +46,7 @@ interface BmTimesheetCoverViewProps {
 export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps) {
   const qc = useQueryClient();
   // "project_name" guarda o BSP (ver comentário em admin/bm.tsx) — não a embarcação.
-  const { data: dayGrid = [], error: dayGridError } = useQuery({
+  const { data: dayGrid = [] } = useQuery({
     queryKey: ["bm-day-grid", bm.project_name, bm.period_start, bm.period_end],
     queryFn: () => fetchBmDayGrid(bm.project_name ?? "", bm.period_start, bm.period_end),
   });
@@ -131,14 +131,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   // ── Bloco A: Consolidado ──────────────────────────────────────────────────
   // Cada card é um recorte do mesmo valor já somado em bm_lines_mo (rate×quantidade) —
   // nenhum cálculo novo, só exposto separado por card em vez de um único total de Mão de Obra.
-  // Regra do Excel do cliente (aba Histogram): TOTAL da diária = Dias Emb.×Rate Embarque +
-  // Dias Dobra×Rate Dobra + Dias Emb.Canc./Hotel Pré×Rate Standby. O Standby estava fora
-  // desta soma, então o valor do BM saía menor que o total das linhas.
-  const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0) + l.dias_hotel * (l.rate_hotel ?? 0), 0));
-  // Standby (Hotel Pré-Embarque / Embarque Cancelado) exposto separado, mas já contido em
-  // workingDays — a folha de rosto mostra dias e valor pra deixar claro o que compõe o total.
-  const standbyDias = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_hotel, 0));
-  const standbyValor = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_hotel * (l.rate_hotel ?? 0), 0));
+  const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0), 0));
   const overtimeNightShift = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
   // Totais do rodapé da tabela de Horas — a partir de linesMoLocal (reflete os rates editados
   // ali mesmo na folha de rosto, não só o valor original salvo em linesMo).
@@ -146,30 +139,16 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
   const totalAdicionalNoturno = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_adicional_noturno, 0));
   const totalValorHoras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
 
-  // Demais blocos vêm do gerador (já salvos no BM) — logística com markup + manual, materiais,
-  // mob/desmob de equipe e pós-processamento — pra folha de rosto bater com o Excel do cliente.
-  const logistics = round2(
-    (bm.markup_enabled ? bm.total_logistica * (1 + (bm.markup_pct ?? 0) / 100) : bm.total_logistica) + (bm.logistica_manual ?? 0),
-  );
-  const mobDemob = round2((bm.team_mob_desmob ?? 0) + (bm.pos_processamento ?? 0));
-  const materiais = round2(bm.total_materiais ?? 0);
-
   const timesheetCards: { label: string; value: number }[] = [
-    { label: "Working days + Over Stay", value: workingDays },
-    { label: "Over Time + Night Shift", value: overtimeNightShift },
-    { label: "Mob/demob", value: mobDemob },
-    { label: "Logistics", value: logistics },
-    { label: "Material MOB / DEMOB", value: materiais },
+    { label: "Working days + Overstay", value: workingDays },
+    { label: "Overtime + Night Shift", value: overtimeNightShift },
   ];
-  const totalGeral = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
-  // O valor do BM é sempre a soma dos blocos da folha de rosto. `valor_bm_manual` só entra
-  // como fallback quando não há nada calculado (senão um valor antigo salvo no gerador
-  // sobrescrevia o total real — ex.: Total R$ 14.203,85 aparecendo como R$ 531,59).
-  const currentBm = totalGeral > 0 ? totalGeral : round2(bm.valor_bm_manual ?? 0);
+  // Esta folha é independente das demais medições. Logística, materiais, habitat,
+  // locações e o override do valor global continuam no gerador, mas não compõem esta capa.
+  const currentBm = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
 
   const bmIssued = bm.po_value != null && bm.po_balance_before != null ? round2(bm.po_value - bm.po_balance_before) : null;
-  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : (bm.po_value != null ? round2(bm.po_value - currentBm) : null);
-
+  const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : null;
 
   // ── Bloco B: rodapé Mobilização/Demobilização (contagem de cabeças por dia, não é valor) ──
   const mobilizacaoPorData = useMemo(() => {
@@ -192,64 +171,20 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
     return m;
   }, [dates, dayGrid, codesByColaborador]);
 
-  const totalMobilizacao = useMemo(
-    () => Array.from(mobilizacaoPorData.values()).reduce((a, b) => a + b, 0),
-    [mobilizacaoPorData],
-  );
-  const totalDemobilizacao = useMemo(
-    () => Array.from(demobilizacaoPorData.values()).reduce((a, b) => a + b, 0),
-    [demobilizacaoPorData],
-  );
-
-
   return (
     <div className="bm-print-area">
     <div className="bm-print-scale-inner space-y-6">
-      <div className="flex items-start justify-between border-b pb-3">
+      <div className="flex items-center justify-between border-b pb-3">
         <BrandLogo className="h-10 w-auto" />
         <div className="text-center">
           <h1 className="text-base font-semibold uppercase tracking-wide">Medição de Mão de Obra Offshore</h1>
           <p className="text-[11px] text-muted-foreground">Horas trabalhadas dos colaboradores offshore</p>
         </div>
-        <div className="text-right text-xs">
-          <p><span className="font-semibold">Date:</span> <span className="underline">{fmt(bm.period_end)}</span></p>
+        <div className="text-right text-xs text-muted-foreground">
+          <p className="font-semibold text-foreground">{bm.client_name} — {bm.vessel}</p>
+          <p>{fmt(bm.period_start)} – {fmt(bm.period_end)}{bm.po_number ? ` · PO ${bm.po_number}` : ""}</p>
         </div>
       </div>
-
-      {/* Cabeçalho no formato da planilha do cliente */}
-      <section className="grid gap-3 sm:grid-cols-2">
-        <div className="overflow-hidden rounded border text-xs">
-          <div className="flex border-b">
-            <div className="w-32 bg-muted px-2 py-1 font-semibold">CLIENT:</div>
-            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.client_name || "—"}</div>
-          </div>
-          <div className="flex">
-            <div className="w-32 bg-muted px-2 py-1 font-semibold">Vessel:</div>
-            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.vessel || "—"}</div>
-          </div>
-        </div>
-        <div className="overflow-hidden rounded border text-xs">
-          <div className="flex border-b">
-            <div className="w-40 bg-muted px-2 py-1 font-semibold">BSP / BPP / B3D No.:</div>
-            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.project_name || "—"}</div>
-          </div>
-          <div className="flex border-b">
-            <div className="w-40 bg-muted px-2 py-1 font-semibold">PO Number:</div>
-            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.po_number || "—"}</div>
-          </div>
-          <div className="flex">
-            <div className="w-40 bg-muted px-2 py-1 font-semibold">BM:</div>
-            <div className="flex-1 px-2 py-1 text-center font-semibold">{bm.numero_bm || "—"}</div>
-          </div>
-        </div>
-      </section>
-
-      {dayGridError && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive print:hidden">
-          Não foi possível carregar as horas detalhadas do Timesheet. Esta capa não representa os dados completos.
-        </div>
-      )}
-
 
       {/* Observações internas — nunca sai no PDF/impressão, só pra quem está revisando o BM aqui. */}
       <div className="print:hidden space-y-1">
@@ -264,41 +199,41 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
       </div>
 
       {/* ── Bloco A — Consolidado ── */}
-      <section className="grid gap-4 sm:grid-cols-2">
-        <div className="overflow-hidden rounded border text-xs">
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Resumo da medição offshore</h2>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {timesheetCards.map((c) => (
-            <div key={c.label} className="flex border-b">
-              <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">{c.label}:</div>
-              <div className="w-40 px-2 py-1 text-right">{fmtMoney(c.value)}</div>
-            </div>
+            <Card key={c.label} className="border p-3 shadow-sm">
+              <p className="text-[11px] text-muted-foreground">{c.label}</p>
+              <p className="text-sm font-semibold">{fmtMoney(c.value)}</p>
+            </Card>
           ))}
-          <div className="flex bg-muted/60 font-bold">
-            <div className="flex-1 px-2 py-1 text-center">Total:</div>
-            <div className="w-40 px-2 py-1 text-right">{fmtMoney(totalGeral)}</div>
-          </div>
+          <Card className="border bg-muted/30 p-3 shadow-sm">
+            <p className="text-[11px] text-muted-foreground">Total Timesheet</p>
+            <p className="text-sm font-bold">{fmtMoney(currentBm)}</p>
+          </Card>
         </div>
-        <div className="overflow-hidden rounded border text-xs self-start">
-          <div className="flex border-b">
-            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">PO Value:</div>
-            <div className="w-40 px-2 py-1 text-right">{bm.po_value != null ? fmtMoney(bm.po_value) : "—"}</div>
-          </div>
-          <div className="flex border-b">
-            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">BM Issued:</div>
-            <div className="w-40 px-2 py-1 text-right">{bmIssued != null ? fmtMoney(bmIssued) : fmtMoney(0)}</div>
-          </div>
-          <div className="flex border-b">
-            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">Current BM:</div>
-            <div className="w-40 px-2 py-1 text-right">{fmtMoney(currentBm)}</div>
-          </div>
-          <div className="flex">
-            <div className="flex-1 bg-muted px-2 py-1 text-center font-semibold">Balance:</div>
-            <div className={`w-40 px-2 py-1 text-right font-semibold ${balance != null && balance < 0 ? "text-destructive" : ""}`}>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Card className="border p-3 shadow-sm">
+            <p className="text-[11px] text-muted-foreground">PO Value</p>
+            <p className="text-sm font-semibold">{bm.po_value != null ? fmtMoney(bm.po_value) : "—"}</p>
+          </Card>
+          <Card className="border p-3 shadow-sm">
+            <p className="text-[11px] text-muted-foreground">BM Issued</p>
+            <p className="text-sm font-semibold">{bmIssued != null ? fmtMoney(bmIssued) : "—"}</p>
+          </Card>
+          <Card className="border p-3 shadow-sm">
+            <p className="text-[11px] text-muted-foreground">Current BM · Timesheet</p>
+            <p className="text-sm font-semibold">{fmtMoney(currentBm)}</p>
+          </Card>
+          <Card className="border p-3 shadow-sm">
+            <p className="text-[11px] text-muted-foreground">Balance</p>
+            <p className={`text-sm font-semibold ${balance != null && balance < 0 ? "text-destructive" : ""}`}>
               {balance != null ? fmtMoney(balance) : "—"}
-            </div>
-          </div>
+            </p>
+          </Card>
         </div>
       </section>
-
 
       {/* ── Bloco B — Diárias de embarque ── */}
       <section className="space-y-2">
@@ -311,7 +246,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
             </span>
           ))}
         </div>
-        <div className="overflow-x-auto rounded border">
+        <div className="overflow-x-auto rounded border screen-lt-xl:hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -324,7 +259,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                 <TableHead>Rate Dobra</TableHead>
                 <TableHead>Dias Dobra</TableHead>
                 <TableHead>Rate Emb. Canc./Hotel</TableHead>
-                <TableHead>Dias Emb Canc/Hotel/Standby</TableHead>
+                <TableHead>Dias Emb Canc/Hotel</TableHead>
                 <TableHead>Total</TableHead>
               </TableRow>
             </TableHeader>
@@ -370,57 +305,124 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                         </TableCell>
                       );
                     })}
-                    <TableCell className="text-xs">{rateInput("rate_embarque")}</TableCell>
+                    <TableCell className="text-xs">
+                      {idsComRateFaltando.has(l.id) ? rateInput("rate_embarque") : l.rate_embarque != null ? fmtMoney(l.rate_embarque) : "—"}
+                    </TableCell>
                     <TableCell className="text-xs">{l.dias_embarque}</TableCell>
-                    <TableCell className="text-xs">{rateInput("rate_dobra")}</TableCell>
+                    <TableCell className="text-xs">
+                      {idsComRateFaltando.has(l.id) ? rateInput("rate_dobra") : l.rate_dobra != null ? fmtMoney(l.rate_dobra) : "—"}
+                    </TableCell>
                     <TableCell className="text-xs">{l.dias_dobra}</TableCell>
-                    <TableCell className="text-xs">{rateInput("rate_hotel")}</TableCell>
+                    <TableCell className="text-xs">
+                      {idsComRateFaltando.has(l.id) ? rateInput("rate_hotel") : l.rate_hotel != null ? fmtMoney(l.rate_hotel) : "—"}
+                    </TableCell>
                     <TableCell className="text-xs">{l.dias_hotel}</TableCell>
-
                     <TableCell className="text-xs font-semibold">{fmtMoney(l.valor_total)}</TableCell>
                   </TableRow>
                 );
               })}
-              <TableRow className="bg-muted/50">
-                <TableCell className="sticky left-0 bg-muted/50 text-xs font-semibold">Total diárias</TableCell>
-                <TableCell /><TableCell />
-                {dates.map((d) => <TableCell key={d} />)}
-                <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_embarque, 0))}</TableCell>
-                <TableCell /><TableCell className="text-xs">{round2(linesMoLocal.reduce((a, l) => a + l.dias_dobra, 0))}</TableCell>
-                <TableCell /><TableCell className="text-xs">{standbyDias}</TableCell>
-                <TableCell className="text-xs font-semibold">{fmtMoney(workingDays)}</TableCell>
-              </TableRow>
-              <TableRow className="bg-muted/50">
-                <TableCell className="sticky left-0 bg-muted/50 text-xs font-semibold">Standby (dias × rate)</TableCell>
-                <TableCell /><TableCell />
-                {dates.map((d) => <TableCell key={d} />)}
-                <TableCell colSpan={5} className="text-right text-[10px] text-muted-foreground">{standbyDias} dia(s) de standby</TableCell>
-                <TableCell className="text-xs font-semibold">{fmtMoney(standbyValor)}</TableCell>
-              </TableRow>
               <TableRow className="bg-muted/30">
                 <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Mobilização</TableCell>
                 <TableCell /><TableCell />
                 {dates.map((d) => <TableCell key={d} className="text-center text-[10px]">{mobilizacaoPorData.get(d) || ""}</TableCell>)}
-                <TableCell colSpan={5} className="text-right text-[10px] text-muted-foreground">Total</TableCell>
-                <TableCell className="text-xs font-semibold">{totalMobilizacao}</TableCell>
+                <TableCell colSpan={5} />
               </TableRow>
               <TableRow className="bg-muted/30">
                 <TableCell className="sticky left-0 bg-muted/30 text-xs font-semibold">Demobilização</TableCell>
                 <TableCell /><TableCell />
                 {dates.map((d) => <TableCell key={d} className="text-center text-[10px]">{demobilizacaoPorData.get(d) || ""}</TableCell>)}
-                <TableCell colSpan={5} className="text-right text-[10px] text-muted-foreground">Total</TableCell>
-                <TableCell className="text-xs font-semibold">{totalDemobilizacao}</TableCell>
+                <TableCell colSpan={5} />
               </TableRow>
-
             </TableBody>
           </Table>
+        </div>
+
+        {/* Abaixo de 1280px a tabela (colunas por dia + 8 colunas de resumo) não cabe sem
+            rolar — vira um cartão por colaborador. Nunca aparece na impressão: a variante
+            "screen-lt-xl" só existe em @media screen, então em @media print (bm-print-area)
+            fica sempre "hidden", igual antes desta mudança. */}
+        <div className="hidden space-y-2 screen-lt-xl:block print:hidden">
+          {linesMoLocal.map((l) => {
+            const codes = codesByColaborador.get(l.colaborador_id ?? "");
+            const rateField = (campo: "rate_embarque" | "rate_dobra" | "rate_hotel") =>
+              idsComRateFaltando.has(l.id) ? (
+                <Input
+                  type="number" step="0.01" placeholder="Rate"
+                  className="h-7 w-20 text-xs"
+                  defaultValue={l[campo] ?? ""}
+                  onBlur={(e) => {
+                    const valor = e.target.value.trim() === "" ? null : Number(e.target.value);
+                    if (valor === l[campo]) return;
+                    salvarRate.mutate({ linha: l, campo, valor });
+                  }}
+                />
+              ) : (
+                <span>{l[campo] != null ? fmtMoney(l[campo]!) : "—"}</span>
+              );
+            return (
+              <Card key={l.id} className="space-y-2 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-1">
+                  <span className="text-sm font-medium">
+                    {l.colaborador_nome}
+                    {l.rate_missing && (
+                      <span className="ml-1.5 inline-flex items-center gap-1 rounded bg-warning/15 px-1 py-0.5 text-[10px] text-warning-foreground">
+                        <AlertTriangle className="h-3 w-3" />Rate não cadastrado
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs font-semibold">{fmtMoney(l.valor_total)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">{l.funcao} · BSP {l.bsp ?? "—"}</div>
+                <div className="flex flex-wrap gap-1">
+                  {dates.map((d) => {
+                    const code = codes?.get(d);
+                    if (!code) return null;
+                    return (
+                      <span
+                        key={d} title={fmt(d)}
+                        className="flex h-5 min-w-5 items-center justify-center rounded px-1 text-[9px] font-bold"
+                        style={{ backgroundColor: DAY_COLOR[code], color: getContrastText(DAY_COLOR[code]) }}
+                      >
+                        {code}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Rate Emb. · {l.dias_embarque}d</p>
+                    {rateField("rate_embarque")}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Rate Dobra · {l.dias_dobra}d</p>
+                    {rateField("rate_dobra")}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Rate Emb.Canc/Hotel · {l.dias_hotel}d</p>
+                    {rateField("rate_hotel")}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+          {(() => {
+            const mob = dates.filter((d) => (mobilizacaoPorData.get(d) || 0) > 0);
+            const demob = dates.filter((d) => (demobilizacaoPorData.get(d) || 0) > 0);
+            if (!mob.length && !demob.length) return null;
+            return (
+              <div className="space-y-1 rounded border bg-muted/30 p-2 text-xs">
+                {mob.length > 0 && <p><strong>Mobilização:</strong> {mob.map((d) => `${fmt(d)} (${mobilizacaoPorData.get(d)})`).join(", ")}</p>}
+                {demob.length > 0 && <p><strong>Demobilização:</strong> {demob.map((d) => `${fmt(d)} (${demobilizacaoPorData.get(d)})`).join(", ")}</p>}
+              </div>
+            );
+          })()}
         </div>
       </section>
 
       {/* ── Bloco C — Horas (HE / Adicional Noturno) ── */}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Horas (HE / Adicional Noturno)</h2>
-        <div className="overflow-x-auto rounded border">
+        <div className="overflow-x-auto rounded border screen-lt-xl:hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -483,37 +485,62 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
             </TableBody>
           </Table>
         </div>
-      </section>
 
-      {/* ── Total geral da folha (tudo que foi inserido no gerador) ── */}
-      <section className="flex justify-end">
-        <div className="w-full rounded border bg-muted/30 p-3 sm:w-80">
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Diárias de embarque (inclui Standby)</span><span>{fmtMoney(workingDays)}</span>
-          </div>
-          <div className="flex items-center justify-between pl-3 text-[11px] text-muted-foreground">
-            <span>· Standby ({standbyDias} dia{standbyDias === 1 ? "" : "s"})</span><span>{fmtMoney(standbyValor)}</span>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Horas (HE / Adicional Noturno)</span><span>{fmtMoney(totalValorHoras)}</span>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Mob/Desmob</span><span>{fmtMoney(mobDemob)}</span>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Logistics</span><span>{fmtMoney(logistics)}</span>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Material MOB / DEMOB</span><span>{fmtMoney(materiais)}</span>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between border-t pt-2 text-sm font-bold">
-            <span>Valor total do BM</span><span>{fmtMoney(currentBm)}</span>
+        <div className="hidden space-y-2 screen-lt-xl:block print:hidden">
+          {linesMoLocal.map((l) => {
+            const diasData = diasByColaboradorData.get(l.colaborador_id ?? "");
+            const valorHoras = round2(l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0));
+            return (
+              <Card key={l.id} className="space-y-2 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{l.colaborador_nome}</span>
+                  <span className="text-xs font-semibold">{fmtMoney(valorHoras)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">{l.funcao}</div>
+                <div className="flex flex-wrap gap-1 text-[10px]">
+                  {dates.map((d) => {
+                    const dia = diasData?.get(d);
+                    const an = dia?.adicional_noturno ? (dia.total_horas ?? 0) : 0;
+                    const he = dia?.horas_extras ?? 0;
+                    if (!he && !an) return null;
+                    const texto = [he ? `HE ${he}h` : "", an ? `AN ${an}h` : ""].filter(Boolean).join(" / ");
+                    return <span key={d} className="rounded bg-muted px-1.5 py-0.5">{d.slice(8, 10)}: {texto}</span>;
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Horas Extras · Rate Overtime</p>
+                    <div className="flex items-center gap-1">
+                      <span>{l.horas_extras ? `${l.horas_extras}h` : "0h"}</span>
+                      <Input
+                        type="number" step="0.01" className="h-7 w-20 text-xs"
+                        value={l.rate_hora_extra ?? ""}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_hora_extra: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_hora_extra", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground">Adic. Noturno · Rate Night Shift</p>
+                    <div className="flex items-center gap-1">
+                      <span>{l.horas_adicional_noturno ? `${l.horas_adicional_noturno}h` : "0h"}</span>
+                      <Input
+                        type="number" step="0.01" className="h-7 w-20 text-xs"
+                        value={l.rate_adicional_noturno ?? ""}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_adicional_noturno: e.target.value === "" ? null : Number(e.target.value) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_adicional_noturno", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+          <div className="rounded border bg-muted/30 p-2 text-xs font-semibold">
+            Total — Horas Extras: {totalHorasExtras}h · Adicional Noturno: {totalAdicionalNoturno}h · Valor: {fmtMoney(totalValorHoras)}
           </div>
         </div>
       </section>
-
-
 
     </div>
       <div className="flex justify-end print:hidden">
