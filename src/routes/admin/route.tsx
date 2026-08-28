@@ -44,6 +44,11 @@ const PM_PATHS = NAO_OPERADOR_PATHS;
 const STAGE_ROLES = ["aprovacao_tecnica", "qualidade", "rh", "sms"];
 const STAGE_ROLE_PATHS = NAO_OPERADOR_PATHS;
 
+// RH e SMS (só esses dois papéis de etapa, não Aprovação Técnica/Qualidade) também
+// acompanham o Relatório de Viagens Internacionais — a própria PassagensAereasPage esconde
+// o resto da tela (Solicitações/Próximas Viagens) pra esses dois papéis, mostra só o relatório.
+const RH_SMS_EXTRA_PATHS = ["/admin/passagens-aereas"];
+
 function AdminLayout() {
   const { user, role, loading, signOut, profile } = useAuth();
   const navigate = useNavigate();
@@ -66,7 +71,7 @@ function AdminLayout() {
     : role === "pm"
       ? nav.filter((n) => PM_PATHS.includes(n.to))
       : STAGE_ROLES.includes(role ?? "")
-        ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to))
+        ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((role === "rh" || role === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
         : nav;
 
   return (

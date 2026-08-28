@@ -1,1 +1,7 @@
 project_id = "lzahnaekoiervgqxmouv"
+
+# Chamada pelo pg_cron via pg_net (ver migration 20260826000000_schedule_turma_alerts.sql),
+# não por um usuário logado — não tem JWT de sessão pra verificar. A função valida sozinha um
+# header x-cron-secret (ver CRON_SECRET nos secrets da função) em vez disso.
+[functions.check-turma-alerts]
+verify_jwt = false

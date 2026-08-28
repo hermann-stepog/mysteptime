@@ -32,9 +32,11 @@ import {
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
+import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
+import { AplicarCustoMobDesmobDialog } from "@/components/bm/AplicarCustoMobDesmobDialog";
 import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
@@ -42,13 +44,6 @@ import { generateBmExport, generateBmExportBwEnergy, type BmExportData } from "@
 import { getBmHistoryForPo, recordIssuedBm, listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
 import { listBmFlowRows } from "@/lib/api/bmFlow.functions";
 import { getJobOrderPoTotal } from "@/lib/api/jobOrderPoTotal.functions";
-import {
-  normalizeBmBspKey,
-  resolveBmRateClientNames,
-  selectBmRateGroup,
-} from "@/lib/bmUnitResolver";
-import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
-import { mergeBmTimesheetSource } from "@/lib/bmTimesheetSync";
 
 interface BmFlowRowOption {
   client: string;
@@ -109,10 +104,6 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function fmtHoras(n: number): string {
-  return n.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-}
-
 const EVENTO_OPCOES_BM = ["Nenhum", ...EVENTOS_DIA];
 
 // Referência estável pro fallback do useQuery de diasBase abaixo — um array literal `[]`
@@ -145,10 +136,6 @@ function BmPage() {
   // pra sub-aba "Gerar BM" dentro de Mão de Obra Offshore — ver handleReopen abaixo.
   const [activeTab, setActiveTab] = useState("timesheets");
   const [moSubTab, setMoSubTab] = useState("timesheets-lancamentos");
-  // BSP/Nº do BM que o assistente "Gerar BM" está montando agora — enquanto existir, a aba
-  // Logística Mob/Desmob aplica direto nesse BM (sem pedir pra escolher um BM numa lista).
-  const [gerandoCtx, setGerandoCtx] = useState<{ bsp: string; bmNumber: string } | null>(null);
-
   const handleReopen = (bm: Bm) => {
     setReopenBm(bm);
     setActiveTab("timesheets");
@@ -175,7 +162,7 @@ function BmPage() {
         </div>
         <Card className="p-4 space-y-3">
           <Skeleton className="h-4 w-1/3" />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
@@ -211,19 +198,11 @@ function BmPage() {
               <TimesheetsTab />
             </TabsContent>
             <TabsContent value="timesheets-mob-desmob" className="mt-4">
-              <MobDesmobTab bmEmGeracao={gerandoCtx} onAplicadoNoBmEmGeracao={() => setMoSubTab("timesheets-gerar")} />
+              <MobDesmobTab />
             </TabsContent>
-            {/* forceMount: o assistente guarda cabeçalho/horas só em memória — ao pular pra aba
-                Logística Mob/Desmob e voltar, o progresso continua intacto. */}
-            <TabsContent value="timesheets-gerar" className="mt-4" forceMount hidden={moSubTab !== "timesheets-gerar"}>
-              <GerarBmWizard
-                reopenBm={reopenBm}
-                onConsumedReopen={() => setReopenBm(null)}
-                onContextChange={setGerandoCtx}
-                onIrParaLogistica={() => setMoSubTab("timesheets-mob-desmob")}
-              />
+            <TabsContent value="timesheets-gerar" className="mt-4">
+              <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
             </TabsContent>
-
           </Tabs>
         </TabsContent>
         <TabsContent value="habitat" className="mt-4">
@@ -354,12 +333,7 @@ const CATEGORIA_POR_TIPO: Record<MedicaoKey, MaterialCategoria> = {
   mob_desmob_materiais: "mob_desmob_materiais",
 };
 
-function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLogistica }: {
-  reopenBm: Bm | null;
-  onConsumedReopen: () => void;
-  onContextChange?: (ctx: { bsp: string; bmNumber: string } | null) => void;
-  onIrParaLogistica?: () => void;
-}) {
+function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
   const [cab, setCab] = useState<Cabecalho>(CABECALHO_VAZIO);
@@ -371,12 +345,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   const [diasOverrides, setDiasOverrides] = useState<Record<string, DiaOverrideEdit>>({});
   const [markupEnabled, setMarkupEnabled] = useState(false);
   const [markupPct, setMarkupPct] = useState(15);
-  // Rate Standby (dias de Hotel Pré/Embarque Cancelado). Quando desligado, esses dias não são
-  // cobrados; quando ligado, pode-se sobrescrever o rate cadastrado com um valor manual por dia.
-  // O resultado entra em dias_hotel × rate_hotel, que a folha de rosto já soma às diárias.
-  const [standbyEnabled, setStandbyEnabled] = useState(true);
-  const [standbyRateManual, setStandbyRateManual] = useState<number | null>(null);
-
   // Campos simples, lançados direto no formulário (sem integração com Smartsheet) — ver
   // migration 20260805200000_bm_pos_processamento_team_mob_notes.sql.
   const [posProcessamento, setPosProcessamento] = useState(0);
@@ -386,6 +354,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
   // na aba Logística Mob/Desmob.
   const [logisticaManual, setLogisticaManual] = useState(0);
+  const [adicionarCustoOpen, setAdicionarCustoOpen] = useState(false);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
@@ -763,66 +732,58 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   // — filtrar por vessel ali zerava embarqueIds e nunca trazia hora nenhuma. BSP também varia
   // de prefixo (BSP/BPP/B3D/BPS + espaço/traço opcional) entre as duas fontes, daí a
   // normalização abaixo stripar qualquer prefixo alfabético, não só "BSP".
-  const { data: diasBase = EMPTY_DIAS_BM, isFetching: carregandoDias, error: erroDias } = useQuery({
+  const { data: diasBase = EMPTY_DIAS_BM, isFetching: carregandoDias } = useQuery({
     queryKey: ["bm-dias", cab.bsp, cab.periodStart, cab.periodEnd],
     enabled: headerCompleto && !!cab.bsp,
     queryFn: async () => {
       const bspAlvo = normalizeBmBspKey(cab.bsp);
 
-      const copiasData = await selectAllPagesSequential<any>((from, to) =>
-        supabase
-          .from("bm_timesheet_dias")
-          .select("*")
-          .gte("data", cab.periodStart)
-          .lte("data", cab.periodEnd)
-          .order("data")
-          .order("id")
-          .range(from, to),
-      );
+      const { data: copiasData, error: copiasErr } = await supabase
+        .from("bm_timesheet_dias")
+        .select("source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
+        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
+      if (copiasErr) throw copiasErr;
 
       // A cópia (bm_timesheet_dias) só existe pros períodos que alguém já abriu na aba
       // "Timesheets" — sem isso, gerar um BM pra um período nunca visitado lá vinha vazio.
       // Replica aqui o mesmo import automático que a aba faz (TimesheetsTab.tsx), mas já
       // filtrado por este BSP, pra sempre garantir a cópia antes de agregar Mão de Obra.
-      const copiaBySourceId = new Map(copiasData.map((c: any) => [c.source_dia_id, c]));
+      const existentes = new Set((copiasData ?? []).map((c: any) => c.source_dia_id).filter(Boolean));
 
-      const diasOrigem = await selectAllPagesSequential<any>((from, to) =>
-        supabase
-          .from("timesheet_dias")
-          .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
-          .gte("data", cab.periodStart)
-          .lte("data", cab.periodEnd)
-          .order("data")
-          .order("id")
-          .range(from, to),
-      );
+      const { data: diasOrigem, error: diasErr } = await supabase
+        .from("timesheet_dias")
+        .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
+        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
+      if (diasErr) throw diasErr;
 
-      let copiasSincronizadas: any[] = [];
-      if (diasOrigem.length) {
+      let novasCopias: any[] = [];
+      if (diasOrigem?.length) {
         const semanaIds = Array.from(new Set(diasOrigem.map((d: any) => d.semana_id)));
-        const semanas = await selectInChunks<any, any>(semanaIds, (ids) =>
-          supabase.from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", ids),
-        );
+        const { data: semanas, error: semErr } = await supabase
+          .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);
+        if (semErr) throw semErr;
 
-        const embarqueIds = Array.from(new Set(semanas.map((s: any) => s.embarque_id)));
-        const embarques = await selectInChunks<any, any>(embarqueIds, (ids) =>
-          supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", ids),
-        );
+        const embarqueIds = Array.from(new Set((semanas ?? []).map((s: any) => s.embarque_id)));
+        const { data: embarques, error: embErr } = embarqueIds.length
+          ? await supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", embarqueIds)
+          : { data: [], error: null };
+        if (embErr) throw embErr;
 
-        const colabIds = Array.from(new Set(embarques.map((e: any) => e.colaborador_id).filter(Boolean)));
-        const colaboradores = await selectInChunks<any, any>(colabIds, (ids) =>
-          supabase.from("hist_novo_colaboradores").select("id, nome").eq("ativo", true).in("id", ids),
-        );
+        const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
+        const { data: colaboradores, error: colErr } = colabIds.length
+          ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colabIds)
+          : { data: [], error: null };
+        if (colErr) throw colErr;
 
-        const semanaById = new Map<string, any>(semanas.map((s: any) => [s.id, s]));
-        const embarqueById = new Map<string, any>(embarques.map((e: any) => [e.id, e]));
-        const nomeById = new Map<string, string>(colaboradores.map((c: any) => [c.id, c.nome]));
+        const semanaById = new Map<string, any>((semanas ?? []).map((s: any) => [s.id, s]));
+        const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
+        const nomeById = new Map<string, string>((colaboradores ?? []).map((c: any) => [c.id, c.nome]));
 
-        const origensDoBsp = diasOrigem
-          .flatMap((d: any) => {
+        novasCopias = diasOrigem
+          .filter((d: any) => !existentes.has(d.id))
+          .map((d: any) => {
             const semana = semanaById.get(d.semana_id);
             const embarque = semana ? embarqueById.get(semana.embarque_id) : null;
-            if (!embarque || !nomeById.has(embarque.colaborador_id)) return [];
             return {
               source_dia_id: d.id,
               colaborador_id: embarque?.colaborador_id ?? null,
@@ -842,34 +803,18 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
           // até alguém abrir a aba Timesheets (ou gerar um BM) pro BSP correspondente.
           .filter((d: any) => normalizeBmBspKey(d.bsp) === bspAlvo);
 
-        const sincronizacoes = origensDoBsp.map((source: any) =>
-          mergeBmTimesheetSource(source, copiaBySourceId.get(source.source_dia_id)),
-        );
-        const rows = sincronizacoes.filter((item) => item.changed).map((item) => item.row);
-        if (rows.length) {
+        if (novasCopias.length) {
+          const rows = novasCopias.map((d) => ({ ...d, original: d }));
           for (let i = 0; i < rows.length; i += 500) {
             const { error: upsertErr } = await supabase
-              .from("bm_timesheet_dias").upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id" });
+              .from("bm_timesheet_dias")
+              .upsert(rows.slice(i, i + 500), { onConflict: "source_dia_id", ignoreDuplicates: true });
             if (upsertErr) throw upsertErr;
           }
         }
-        copiasSincronizadas = sincronizacoes.map((item, index) => ({
-          ...(copiaBySourceId.get(origensDoBsp[index].source_dia_id) ?? {}),
-          ...item.row,
-        }));
       }
 
-      const idsSincronizados = new Set(copiasSincronizadas.map((c: any) => c.source_dia_id));
-      const copiasCandidatas = [
-        ...copiasData.filter((c: any) => !idsSincronizados.has(c.source_dia_id)),
-        ...copiasSincronizadas,
-      ];
-      const colaboradorIds = Array.from(new Set(copiasCandidatas.map((d: any) => d.colaborador_id).filter(Boolean)));
-      const colaboradoresAtivos = await selectInChunks<any, any>(colaboradorIds, (ids) =>
-        supabase.from("hist_novo_colaboradores").select("id").eq("ativo", true).in("id", ids),
-      );
-      const activeIds = new Set(colaboradoresAtivos.map((c: any) => c.id));
-      const todasAsCopias = copiasCandidatas.filter((d: any) => activeIds.has(d.colaborador_id));
+      const todasAsCopias = [...(copiasData ?? []), ...novasCopias];
 
       const diasComColaborador: TimesheetDiaComColaborador[] = todasAsCopias
         .filter((d: any) => d.colaborador_id && normalizeBmBspKey(d.bsp) === bspAlvo)
@@ -889,6 +834,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
     },
   });
 
+  // Aplica as correções pontuais (diasOverrides) por cima dos dias reais — só pra efeito de
+  // cálculo/exibição no BM, sem tocar no dado original em diasBase.
   const diasComOverrides = useMemo<TimesheetDiaComColaborador[]>(() => diasBase.map((d) => {
     const ov = diasOverrides[chaveDiaOverride(d.colaborador_id, d.data)];
     if (!ov) return d;
@@ -918,98 +865,26 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   // Rate é buscado por Cliente+Embarcação+Função (bate com a planilha mestre de rates da
   // usuária) — não varia por BSP, então filtra só por cliente/embarcação aqui e deixa o
   // cruzamento de função (com fallback de nível) por conta de findRate (bmRateEngine.ts).
-  const { data: rates = EMPTY_RATES_BM, isFetching: carregandoRates, error: erroRates } = useQuery({
+  const { data: rates = EMPTY_RATES_BM } = useQuery({
     queryKey: ["bm-rates", cab.client, cab.vessel],
     enabled: headerCompleto,
     queryFn: async () => {
-      const rateClientNames =
-        resolveBmRateClientNames(cab.client);
-
-      if (!rateClientNames.length) return [];
-
-      const { data, error } = await supabase
-        .from("rates")
-        .select("*")
-        .in("client", rateClientNames)
-        .eq("active", true);
-
+      const { data, error } = await supabase.from("rates").select("*").eq("client", cab.client).eq("vessel", cab.vessel).eq("active", true);
       if (error) throw error;
-
-      const ratesDaEmbarcacao =
-        selectBmRateGroup(
-          (data ?? []) as Rate[],
-          cab.vessel,
-        );
-
-      return ratesDaEmbarcacao.map(
-        (rate) => ({
-          ...rate,
-          client: cab.client,
-          vessel: cab.vessel,
-        }),
-      );
+      return (data ?? []) as Rate[];
     },
   });
 
-  const carregandoMo = carregandoDias || carregandoRates;
-  const erroMaoDeObra = erroDias ?? erroRates;
+  const carregandoMo = carregandoDias;
 
   const maoDeObraCalculada = useMemo(
     () => (headerCompleto ? aggregateMaoDeObra(diasComOverrides, rates, cab.client, cab.vessel) : []),
     [diasComOverrides, rates, cab.client, cab.vessel, headerCompleto],
   );
 
-  // Prévia de horas por colaborador, exibida já no passo do cabeçalho.
-  const resumoHoras = useMemo(() => {
-    const porColaborador = new Map<string, {
-      colaboradorId: string; nome: string; funcao: string;
-      dias: number; totalHoras: number; horasExtras: number; diasAdicionalNoturno: number;
-    }>();
-    for (const d of diasComOverrides) {
-      const id = d.colaborador_id ?? d.colaborador_nome;
-      const atual = porColaborador.get(id) ?? {
-        colaboradorId: id, nome: d.colaborador_nome, funcao: d.funcao_embarque ?? "—",
-        dias: 0, totalHoras: 0, horasExtras: 0, diasAdicionalNoturno: 0,
-      };
-      atual.dias += 1;
-      atual.totalHoras += Number(d.total_horas ?? 0);
-      atual.horasExtras += Number(d.horas_extras ?? 0);
-      if (d.adicional_noturno) atual.diasAdicionalNoturno += 1;
-      porColaborador.set(id, atual);
-    }
-    return Array.from(porColaborador.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [diasComOverrides]);
-
-  const resumoHorasTotais = useMemo(
-    () => resumoHoras.reduce(
-      (acc, r) => ({
-        dias: acc.dias + r.dias,
-        totalHoras: acc.totalHoras + r.totalHoras,
-        horasExtras: acc.horasExtras + r.horasExtras,
-        diasAdicionalNoturno: acc.diasAdicionalNoturno + r.diasAdicionalNoturno,
-      }),
-      { dias: 0, totalHoras: 0, horasExtras: 0, diasAdicionalNoturno: 0 },
-    ),
-    [resumoHoras],
-  );
-
-
   useEffect(() => {
-    setLinesMo(
-      maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => {
-        const rateHotel = !standbyEnabled ? 0 : (standbyRateManual ?? rest.rate_hotel ?? 0);
-        const valorTotal = round2(
-          rest.dias_embarque * (rest.rate_embarque ?? 0) +
-          rest.dias_dobra * (rest.rate_dobra ?? 0) +
-          rest.dias_hotel * rateHotel +
-          rest.horas_extras * (rest.rate_hora_extra ?? 0) +
-          rest.horas_adicional_noturno * (rest.rate_adicional_noturno ?? 0),
-        );
-        return { ...rest, rate_hotel: rateHotel, valor_total: valorTotal };
-      }),
-    );
-  }, [maoDeObraCalculada, standbyEnabled, standbyRateManual]);
-
+    setLinesMo(maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => rest));
+  }, [maoDeObraCalculada]);
 
   const hasRateMissing = linesMo.some((l) => l.rate_missing);
 
@@ -1052,14 +927,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
   // MaterialBmWizard) — não entram mais no cabeçalho/total do BM de Mão de Obra.
   const numeroBmAtual = cab.numeroBm.trim();
 
-  // Publica o BSP/BM em geração pra aba Logística Mob/Desmob aplicar direto neste BM.
-  useEffect(() => {
-    onContextChange?.(cab.bsp ? { bsp: cab.bsp, bmNumber: numeroBmAtual } : null);
-    return () => onContextChange?.(null);
-  }, [cab.bsp, numeroBmAtual]);
-
-
-
   // ── Logística Mob/Desmob (transporte e hotel) aplicada ao BSP selecionado ───────────────
   // Os custos importados na aba "Logística Mob/Desmob" são aplicados por BSP; ao selecionar
   // o BSP aqui, os totais de transporte e hotel já aplicados entram no cálculo do BM.
@@ -1067,17 +934,12 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
     queryKey: ["bm-mob-desmob-aplicados", cab.bsp, numeroBmAtual],
     enabled: !!cab.bsp,
     queryFn: async () => {
-      // O BSP gravado nos custos vem da planilha com prefixo/unidade ("BSP 26-822,ESPIRITO
-      // SANTO"), enquanto o cabeçalho usa só o código ("26-822"). Comparar com o mesmo
-      // normalizador do resto do BM, em vez de igualdade literal.
-      const bspAlvo = normalizeBmBspKey(cab.bsp);
       const { data, error } = await supabase
-        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number, bsp")
-        .eq("applied", true);
+        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number")
+        .eq("applied", true).eq("bsp", cab.bsp);
       if (error) throw error;
       const acc = { transporte: 0, hotel: 0, outros: 0, markup: 0 };
-      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null; bsp: string }[]) {
-        if (normalizeBmBspKey(r.bsp) !== bspAlvo) continue;
+      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
         if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
         const k = (r.categoria in acc ? r.categoria : "outros") as "transporte" | "hotel" | "outros";
         acc[k] = round2(acc[k] + (Number(r.total_cost) || 0));
@@ -1086,11 +948,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
       // pelo "Aplicar tudo ao BM". Se a tabela ainda não existir (migration não aplicada),
       // isso aqui cai em silêncio e markup fica 0, sem quebrar o resto do BM.
       const { data: markups } = await supabase
-        .from("bm_mob_desmob_markups").select("applied_bm_number, incluiu_markup, valor_markup_calculado, bsp")
-        .eq("incluiu_markup", true);
-      for (const m of (markups ?? []) as { applied_bm_number: string; valor_markup_calculado: number; bsp: string }[]) {
-        if (normalizeBmBspKey(m.bsp) !== bspAlvo) continue;
-
+        .from("bm_mob_desmob_markups").select("applied_bm_number, incluiu_markup, valor_markup_calculado")
+        .eq("bsp", cab.bsp).eq("incluiu_markup", true);
+      for (const m of (markups ?? []) as { applied_bm_number: string; valor_markup_calculado: number }[]) {
         if (numeroBmAtual && m.applied_bm_number && m.applied_bm_number !== numeroBmAtual) continue;
         acc.markup = round2(acc.markup + (Number(m.valor_markup_calculado) || 0));
       }
@@ -1114,15 +974,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
 
   const salvarBm = useMutation({
     mutationFn: async (targetStatus: "draft" | "pending_pm") => {
-      if (erroMaoDeObra) {
-        throw new Error("Não foi possível carregar todas as horas do Timesheet. Recarregue os dados antes de gerar o BM.");
-      }
-      if (carregandoMo) {
-        throw new Error("As horas do Timesheet ainda estão sendo carregadas. Aguarde antes de gerar o BM.");
-      }
-      if (!linesMo.length) {
-        throw new Error("Nenhuma hora foi encontrada para este BSP e período. O BM vazio não foi salvo.");
-      }
       const payload = {
         numero_bm: cab.numeroBm.trim() || null,
         client_id: clientIdAtual,
@@ -1151,11 +1002,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
         total_mob_desmob_materiais: 0,
         pos_processamento: posProcessamento,
         team_mob_desmob: teamMobDesmob,
-        // Os custos Mob/Desmob aplicados ao BSP (transporte/hotel/outros + markup já
-        // calculado na aplicação) não vinham de cost_logs, então não entravam em
-        // total_logistica e a folha de rosto mostrava "Logistics: R$ 0,00". Vão junto do
-        // manual, que a folha soma sem reaplicar markup.
-        logistica_manual: round2(logisticaManual + mobDesmob.transporte + mobDesmob.hotel + mobDesmob.outros + mobDesmob.markup),
+        logistica_manual: logisticaManual,
         valor_bm_manual: valorBmManual,
         internal_notes: internalNotes.trim() || null,
         total_geral: totalGeral,
@@ -1208,7 +1055,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
     },
     onSuccess: ({ bm, savedMo, savedLogistica, targetStatus }) => {
       qc.invalidateQueries({ queryKey: ["bm-historico"] });
-      qc.invalidateQueries({ queryKey: ["bm-day-grid"] });
       notify.success(targetStatus === "pending_pm" ? "BM enviado para aprovação do PM." : "Rascunho salvo.");
       setSavedBm(bm);
       setSavedLinesMo(savedMo);
@@ -1217,7 +1063,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
     onError: (e: any) => notify.error(e.message || "Erro ao salvar o BM."),
   });
 
-  const podeAvancarStep0 = headerCompleto && !erroMaoDeObra && linesMo.length > 0;
+  const podeAvancarStep0 = headerCompleto;
   const podeEnviarAprovacao = headerCompleto && linesMo.length > 0 && (!hasRateMissing || cienteRatesFaltando);
 
   if (savedBm) {
@@ -1244,24 +1090,9 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
         ))}
       </div>
 
-      {erroMaoDeObra && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          <p className="font-medium">As horas do Timesheet não foram carregadas.</p>
-          <p className="mt-1 text-xs">
-            O BM não poderá ser gerado vazio. Tente novamente; se o erro continuar, informe o suporte.
-          </p>
-        </div>
-      )}
-
-      {headerCompleto && !carregandoMo && !erroMaoDeObra && linesMo.length === 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          Nenhuma hora foi encontrada para o BSP e período selecionados. O BM vazio não poderá ser gerado.
-        </div>
-      )}
-
       {step === 0 && (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Cliente</Label>
               <Select
@@ -1350,7 +1181,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">BSP</Label>
               <Select
@@ -1430,7 +1261,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label className="text-xs">Valor Total da PO</Label>
               <Input readOnly className="bg-muted/40" value={cab.poValue != null ? fmtMoney(cab.poValue) : "—"} />
@@ -1490,13 +1321,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
                 </div>
               ) : (
                 <details className="relative">
+                  {/* Não trava mais atrás de ter uma PO escolhida — pode não existir PO pra
+                      esse BM (ver "PO"/"Valor Total da PO" logo acima, também sem
+                      obrigatoriedade), e mesmo assim precisa dar pra criar/escolher o número
+                      do BM. */}
                   <summary
-                    aria-disabled={!cab.poNumber}
                     className={cn(
                       "flex h-10 cursor-pointer list-none items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
                       "[&::-webkit-details-marker]:hidden",
-                      !cab.poNumber &&
-                        "pointer-events-none opacity-50",
                     )}
                   >
                     <span className="truncate">
@@ -1603,74 +1435,20 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
                 </details>
               )}
 
-             
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {cab.poNumber
+                  ? `${bmsDaPo.length} BM(s) encontrada(s) para a PO selecionada.`
+                  : "Selecione a PO de Faturamento para carregar as BMs."}
+              </p>
 
             </div>
 
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><Label className="text-xs">Período — De</Label><Input type="date" value={cab.periodStart} onChange={(e) => setCab({ ...cab, periodStart: e.target.value })} /></div>
             <div><Label className="text-xs">Período — Até</Label><Input type="date" value={cab.periodEnd} onChange={(e) => setCab({ ...cab, periodEnd: e.target.value })} /></div>
           </div>
-
-          {/* Prévia de horas: assim que Cliente/Unidade/BSP/período estão preenchidos, as horas
-              já carregadas do Timesheet aparecem aqui, antes de avançar no assistente. */}
-          {headerCompleto && (
-            <div className="rounded-md border p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold">Horas identificadas para cobrança</span>
-                <span className="text-xs text-muted-foreground">
-                  {carregandoMo
-                    ? "Carregando..."
-                    : `${resumoHoras.length} colaborador(es) · ${fmtHoras(resumoHorasTotais.totalHoras)} h`}
-                </span>
-              </div>
-              {carregandoMo ? (
-                <p className="text-xs text-muted-foreground">Buscando horas do Timesheet para o BSP e período...</p>
-              ) : resumoHoras.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Nenhuma hora encontrada para o BSP e período selecionados.
-                </p>
-              ) : (
-                <div className="max-h-72 overflow-auto">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-background">
-                      <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-1 pr-2 font-medium">Colaborador</th>
-                        <th className="py-1 pr-2 font-medium">Função</th>
-                        <th className="py-1 pr-2 text-right font-medium">Dias</th>
-                        <th className="py-1 pr-2 text-right font-medium">Horas totais</th>
-                        <th className="py-1 pr-2 text-right font-medium">HE</th>
-                        <th className="py-1 text-right font-medium">AN</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {resumoHoras.map((r) => (
-                        <tr key={r.colaboradorId} className="border-b last:border-0">
-                          <td className="py-1 pr-2">{r.nome}</td>
-                          <td className="py-1 pr-2 text-muted-foreground">{r.funcao}</td>
-                          <td className="py-1 pr-2 text-right">{r.dias}</td>
-                          <td className="py-1 pr-2 text-right font-medium">{fmtHoras(r.totalHoras)}</td>
-                          <td className="py-1 pr-2 text-right">{fmtHoras(r.horasExtras)}</td>
-                          <td className="py-1 text-right">{r.diasAdicionalNoturno}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t font-semibold">
-                        <td className="py-1 pr-2" colSpan={2}>Total</td>
-                        <td className="py-1 pr-2 text-right">{resumoHorasTotais.dias}</td>
-                        <td className="py-1 pr-2 text-right">{fmtHoras(resumoHorasTotais.totalHoras)}</td>
-                        <td className="py-1 pr-2 text-right">{fmtHoras(resumoHorasTotais.horasExtras)}</td>
-                        <td className="py-1 text-right">{resumoHorasTotais.diasAdicionalNoturno}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
 
           {cab.poValue != null && (
             <p className="text-xs text-muted-foreground">
@@ -1686,9 +1464,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
                 <Button
                   type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]"
                   disabled={!cab.bsp}
-                  onClick={() => onIrParaLogistica?.()}
+                  onClick={() => setAdicionarCustoOpen(true)}
                 >
-
                   <Plus className="mr-1 h-3 w-3" />Adicionar custo
                 </Button>
                 <span className="text-xs text-muted-foreground">Total: <strong>{fmtMoney(totalMobDesmob)}</strong></span>
@@ -1720,26 +1497,21 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
                 : "Selecione o BSP para carregar os custos de transporte e hotel já aplicados."}
             </p>
             <div className="mt-3 border-t pt-3">
-              <Label className="text-xs">Valor Mob/Desmob</Label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
-                <Input
-                  className="pl-9"
-                  inputMode="decimal"
-                  value={teamMobDesmob === 0 ? "" : String(teamMobDesmob).replace(".", ",")}
-                  placeholder="0,00"
-                  onChange={(e) => {
-                    const limpo = e.target.value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
-                    setTeamMobDesmob(Number(limpo) || 0);
-                  }}
-                />
-              </div>
+              <Label className="text-xs">Valor manual de Logística</Label>
+              <Input
+                type="number" step="0.01" value={logisticaManual}
+                onChange={(e) => setLogisticaManual(Number(e.target.value) || 0)}
+              />
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Lançamento manual de Mob/Desmob, somado ao total e enviado pra folha de rosto do BM gerado.
+                Lançamento manual, somado ao total acima e enviado pra folha de rosto do BM gerado.
               </p>
             </div>
-
           </div>
+
+          <AplicarCustoMobDesmobDialog
+            open={adicionarCustoOpen} onOpenChange={setAdicionarCustoOpen}
+            bsp={cab.bsp} bmNumber={numeroBmAtual}
+          />
 
 
         </div>
@@ -1758,37 +1530,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
       {step === 2 && (
         <div className="space-y-2">
           {carregandoMo && <p className="text-xs text-muted-foreground">Calculando mão de obra…</p>}
-          <div className="rounded-md border bg-muted/20 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={standbyEnabled} onChange={(e) => setStandbyEnabled(e.target.checked)} />
-              Incluir rate Standby (Hotel Pré-Embarque / Embarque Cancelado)
-            </label>
-            {standbyEnabled && (
-              <div className="mt-2 max-w-xs">
-                <Label className="text-xs">Valor manual do Standby (por dia)</Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
-                  <Input
-                    className="pl-9"
-                    inputMode="decimal"
-                    placeholder="Usar rate cadastrado"
-                    value={standbyRateManual == null ? "" : String(standbyRateManual).replace(".", ",")}
-                    onChange={(e) => {
-                      const bruto = e.target.value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
-                      setStandbyRateManual(bruto === "" ? null : Number(bruto) || 0);
-                    }}
-                  />
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Em branco usa o rate cadastrado. O valor é multiplicado pelos dias de Standby e somado às diárias de embarque na folha de rosto.
-                </p>
-              </div>
-            )}
-            {!standbyEnabled && (
-              <p className="mt-1 text-[11px] text-muted-foreground">Os dias de Standby ficam zerados no BM.</p>
-            )}
-          </div>
-
           <Table>
             <TableHeader>
               <TableRow>
@@ -1852,7 +1593,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
 
       {step === 4 && (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <div className="space-y-1">
               <div className="flex justify-between"><span>Mão de Obra</span><span className="font-medium">{fmtMoney(totals.totalMo)}</span></div>
               <div className="flex justify-between"><span>Logística{markupEnabled ? ` (+${markupPct}%)` : ""}</span><span className="font-medium">{fmtMoney(totals.totalLogisticaComMarkup)}</span></div>
@@ -1898,7 +1639,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onContextChange, onIrParaLo
                   </div>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
                   <Label className="text-xs">Pós Processamento</Label>
                   <Input type="number" step="0.01" value={posProcessamento}
@@ -2195,7 +1936,7 @@ function MaterialBmWizard({ tipo }: { tipo: MedicaoKey }) {
 
   return (
     <Card className="p-4 space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <Label className="text-xs">BSP</Label>
           <Select value={bsp} onValueChange={setBsp}>

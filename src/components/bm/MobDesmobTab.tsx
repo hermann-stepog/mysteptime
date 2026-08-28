@@ -6,6 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // bm_mob_desmob_costs ainda não está no types.ts gerado — mesmo padrão das outras tabelas de BM.
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,10 +16,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/EmptyState";
-import { Plus, Trash2, Truck, Upload, Download, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car, Percent, Undo2 } from "lucide-react";
+import { Plus, Trash2, Truck, Upload, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car, Percent, Undo2 } from "lucide-react";
 import { type BmMobDesmobCost, type MobDesmobCategoria, type TipoMarkup } from "@/lib/bm";
 import { listSmartsheetBms } from "@/lib/api/smartsheetBm.functions";
-import { extractInvoiceNumberLocally } from "@/lib/invoiceNumberExtraction";
 
 interface SmartsheetBm {
   rowId: string;
@@ -215,17 +215,8 @@ const NOVO_CUSTO_VAZIO: NovoCusto = {
 };
 
 const TODOS = "__todos__";
-const NOTAS_BUCKET = "bm-mob-desmob-notas";
 
-// bmEmGeracao: preenchido quando o usuário veio do assistente "Gerar BM" (botão "Adicionar
-// custo"). Nesse caso não faz sentido escolher um BM numa lista — o BM é o que está sendo
-// gerado; aplica direto nele e o valor (com markup, quando houver) aparece automaticamente
-// nos campos de Logística Mob/Desmob do gerador.
-export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
-  bmEmGeracao?: { bsp: string; bmNumber: string } | null;
-  /** Chamado depois de aplicar custos vindo do assistente — devolve o usuário pra aba "Gerar BM". */
-  onAplicadoNoBmEmGeracao?: () => void;
-} = {}) {
+export function MobDesmobTab() {
 
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -271,234 +262,6 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
     });
   }
 
-  const [notaEmUpload, setNotaEmUpload] = useState<string | null>(null);
-  const [notaEmDownload, setNotaEmDownload] = useState<string | null>(null);
-  const [notaSemNumeroId, setNotaSemNumeroId] = useState<string | null>(null);
-  const [numeroNotaManual, setNumeroNotaManual] = useState("");
-  const [notaOcrText, setNotaOcrText] = useState<string | null>(null);
-  const [notaEmIa, setNotaEmIa] = useState(false);
-
-  async function enviarNota(c: BmMobDesmobCost, file: File) {
-    const tiposPermitidos = new Set([
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ]);
-
-    if (!tiposPermitidos.has(file.type)) {
-      notify.error("Formato não permitido. Use PDF, JPG, PNG ou WEBP.");
-      return;
-    }
-
-    if (file.size > 20 * 1024 * 1024) {
-      notify.error("A nota deve ter no máximo 20 MB.");
-      return;
-    }
-
-    const jaExistia = !!c.invoice_storage_path;
-    setNotaEmUpload(c.id);
-    setNotaOcrText(null);
-
-    try {
-      const storagePath = `${c.id}/nota`;
-
-      const { error: uploadError } = await supabase.storage
-        .from(NOTAS_BUCKET)
-        .upload(storagePath, file, {
-          upsert: true,
-          contentType: file.type,
-        });
-
-      if (uploadError) throw uploadError;
-
-      // Primeiro tenta descobrir o número totalmente sem IA.
-      let numeroExtraido: string | null = null;
-      let textoOcr: string | null = null;
-
-      try {
-        const resultado = await extractInvoiceNumberLocally(file);
-        numeroExtraido = resultado.number;
-        textoOcr = resultado.rawText;
-      } catch {
-        numeroExtraido = null;
-      }
-
-      const { error: updateError } = await supabase
-        .from("bm_mob_desmob_costs")
-        .update({
-          invoice_storage_path: storagePath,
-          invoice_original_name: file.name,
-          invoice_uploaded_at: new Date().toISOString(),
-
-          // Importante: ao substituir a nota, não preservamos
-          // acidentalmente o número pertencente ao arquivo anterior.
-          invoice_number: numeroExtraido,
-        })
-        .eq("id", c.id);
-
-      if (updateError) throw updateError;
-
-      await qc.invalidateQueries({
-        queryKey: ["bm-mob-desmob-costs"],
-      });
-
-      if (numeroExtraido) {
-        setNotaSemNumeroId(null);
-        setNumeroNotaManual("");
-        setNotaOcrText(null);
-
-        notify.success(
-          jaExistia
-            ? `Nota substituída. Número identificado: ${numeroExtraido}.`
-            : `Nota enviada. Número identificado: ${numeroExtraido}.`,
-        );
-      } else {
-        setNumeroNotaManual("");
-        setNotaOcrText(textoOcr);
-        setNotaSemNumeroId(c.id);
-
-        notify.success(
-          jaExistia
-            ? "Nota substituída com sucesso."
-            : "Nota enviada com sucesso.",
-        );
-      }
-    } catch (e: any) {
-      notify.error(e?.message || "Erro ao enviar a nota.");
-    } finally {
-      setNotaEmUpload(null);
-    }
-  }
-
-  async function baixarNota(c: BmMobDesmobCost) {
-    if (!c.invoice_storage_path) return;
-
-    setNotaEmDownload(c.id);
-
-    try {
-      const { data, error } = await supabase.storage
-        .from(NOTAS_BUCKET)
-        .download(c.invoice_storage_path);
-
-      if (error) throw error;
-
-      const url = URL.createObjectURL(data);
-      const a = document.createElement("a");
-
-      a.href = url;
-      a.download = c.invoice_original_name || `nota-${c.id}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (e: any) {
-      notify.error(e?.message || "Erro ao baixar a nota.");
-    } finally {
-      setNotaEmDownload(null);
-    }
-  }
-
-  async function salvarNumeroNota(
-    id: string,
-    numero: string,
-  ): Promise<boolean> {
-    const numeroLimpo = numero.trim();
-
-    const { error } = await supabase
-      .from("bm_mob_desmob_costs")
-      .update({
-        invoice_number: numeroLimpo || null,
-      })
-      .eq("id", id);
-
-    if (error) {
-      notify.error(error.message || "Erro ao salvar número da nota.");
-      return false;
-    }
-
-    await qc.invalidateQueries({
-      queryKey: ["bm-mob-desmob-costs"],
-    });
-
-    return true;
-  }
-
-  async function salvarNumeroManualDoModal() {
-    if (!notaSemNumeroId) return;
-
-    const numero = numeroNotaManual.trim();
-
-    if (!numero) {
-      notify.error("Informe o número da nota.");
-      return;
-    }
-
-    const salvo = await salvarNumeroNota(
-      notaSemNumeroId,
-      numero,
-    );
-
-    if (!salvo) return;
-
-    setNotaSemNumeroId(null);
-    setNumeroNotaManual("");
-
-    notify.success("Número da nota salvo.");
-  }
-
-
-  async function usarIaParaNota() {
-    if (!notaSemNumeroId) return;
-
-    const texto = notaOcrText?.trim();
-
-    if (!texto) {
-      notify.error("Não há texto OCR disponível para consultar a IA.");
-      return;
-    }
-
-    setNotaEmIa(true);
-
-    try {
-      const { data, error } = await supabase.functions.invoke(
-        "extract-invoice-number-ai",
-        {
-          body: { ocrText: texto },
-        },
-      );
-
-      if (error) throw error;
-
-      const numero =
-        typeof data?.number === "string"
-          ? data.number.trim()
-          : "";
-
-      if (!numero) {
-        notify.error("A IA também não conseguiu identificar o número da nota.");
-        return;
-      }
-
-      const salvo = await salvarNumeroNota(
-        notaSemNumeroId,
-        numero,
-      );
-
-      if (!salvo) return;
-
-      setNotaSemNumeroId(null);
-      setNumeroNotaManual("");
-      setNotaOcrText(null);
-
-      notify.success(`Número da nota identificado pela IA: ${numero}.`);
-    } catch (e: any) {
-      notify.error(e?.message || "Erro ao consultar a IA.");
-    } finally {
-      setNotaEmIa(false);
-    }
-  }
 
   const fetchBms = useServerFn(listSmartsheetBms);
 
@@ -656,7 +419,7 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
   const { data: bms = [], isFetching: carregandoBms, refetch: recarregarBms } = useQuery<SmartsheetBm[]>({
     queryKey: ["smartsheet-bm-list"],
     queryFn: async () => (await fetchBms()) as SmartsheetBm[],
-    enabled: !!aplicarBsp && !bmEmGeracao,
+    enabled: !!aplicarBsp,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -738,22 +501,17 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
     return { valorBase: grupoMarkup.totalPendente, valorFinal, valorMarkup: round2(valorFinal - grupoMarkup.totalPendente), lucro, imposto };
   }, [grupoMarkup, markupTipo, markupLucro, markupImposto]);
 
-  // Quando veio do gerador de BM, o alvo já é conhecido: o BM em geração (pode ainda não ter
-  // número escolhido — nesse caso grava sem número e o gerador soma pelo BSP mesmo assim).
-  const bmAlvoNumero = bmEmGeracao ? bmEmGeracao.bmNumber.trim() : bmSelecionado?.bmNumber ?? "";
-
   const aplicar = useMutation({
     mutationFn: async () => {
       if (!grupoAplicando) throw new Error("Selecione um BSP.");
-      if (!bmEmGeracao && !bmSelecionado) throw new Error("Selecione um BM.");
+      if (!bmSelecionado) throw new Error("Selecione um BM.");
       if (!grupoAplicando.pendentes.length) throw new Error("Nenhum custo pendente neste BSP.");
       const { error } = await supabase.from("bm_mob_desmob_costs").update({
         applied: true,
-        applied_bm_number: bmAlvoNumero || null,
+        applied_bm_number: bmSelecionado.bmNumber,
         applied_at: new Date().toISOString(),
       }).in("id", grupoAplicando.pendentes.map((c) => c.id));
       if (error) throw error;
-
 
       // Registro do markup só existe no fluxo por cartão — nunca no "Aplicar tudo ao BM".
       if (aplicarBsp !== TODOS) {
@@ -761,7 +519,7 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
         const valorPendenteOriginal = markupResultado?.valorPendenteOriginal ?? grupoAplicando.totalPendente;
         const { error: markupError } = await supabase.from("bm_mob_desmob_markups").insert({
           bsp: grupoAplicando.bsp,
-          applied_bm_number: bmAlvoNumero,
+          applied_bm_number: bmSelecionado.bmNumber,
           custo_ids: grupoAplicando.pendentes.map((c) => c.id),
           incluiu_markup: incluiuMarkup,
           tipo_markup: incluiuMarkup ? markupResultado?.tipoMarkup ?? null : null,
@@ -779,15 +537,13 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-aplicados"] });
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-markups"] });
       const n = grupoAplicando?.pendentes.length ?? 0;
-      const alvo = bmAlvoNumero || "em geração";
       notify.success(
         aplicarBsp === TODOS
-          ? `Custos pendentes aplicados ao BM ${alvo}.`
+          ? `Custos pendentes aplicados ao BM ${bmSelecionado?.bmNumber}.`
           : grupoAplicando?.usandoSelecao
-            ? `${n} custo(s) selecionado(s) de ${aplicarBsp} aplicados ao BM ${alvo}.`
-            : `Custos de ${aplicarBsp} aplicados ao BM ${alvo}.`,
+            ? `${n} custo(s) selecionado(s) de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`
+            : `Custos de ${aplicarBsp} aplicados ao BM ${bmSelecionado?.bmNumber}.`,
       );
-
       setSelecionados((prev) => {
         const next = new Set(prev);
         grupoAplicando?.pendentes.forEach((c) => next.delete(c.id));
@@ -796,8 +552,6 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
       setAplicarBsp(null);
       setBmSelecionado(null);
       setMarkupResultado(null);
-      // Veio do assistente: volta pra aba "Gerar BM" já com o valor aplicado nos campos.
-      if (bmEmGeracao) onAplicadoNoBmEmGeracao?.();
     },
 
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
@@ -1058,7 +812,7 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
               </div>
 
               {aberto && (
-                <div className="overflow-x-auto">
+                <div className="hidden overflow-x-auto xl:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1085,8 +839,6 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
                         <TableHead className="text-xs">Markup</TableHead>
                         <TableHead className="text-xs">Total</TableHead>
                         <TableHead className="text-xs">Notes</TableHead>
-                        <TableHead className="text-xs">Nº Nota</TableHead>
-                        <TableHead className="text-xs">Nota</TableHead>
                         <TableHead className="text-xs">BM</TableHead>
                         <TableHead className="w-8" />
                       </TableRow>
@@ -1112,98 +864,6 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
                           <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground" title={c.notes ?? ""}>
                             {c.notes || "—"}
                           </TableCell>
-                          <TableCell className="min-w-[125px]">
-                            <Input
-                              key={`${c.id}-${c.invoice_number ?? ""}`}
-                              defaultValue={c.invoice_number ?? ""}
-                              className="h-7 min-w-[110px] text-xs"
-                              placeholder="Nº da nota"
-                              onBlur={(e) => {
-                                const numero = e.currentTarget.value.trim();
-                                if (numero === (c.invoice_number ?? "")) return;
-                                void salvarNumeroNota(c.id, numero);
-                              }}
-                            />
-                          </TableCell>
-
-                          <TableCell className="min-w-[190px]">
-                            <input
-                              id={`nota-upload-${c.id}`}
-                              type="file"
-                              accept="application/pdf,image/jpeg,image/png,image/webp"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.currentTarget.files?.[0];
-                                e.currentTarget.value = "";
-                                if (file) void enviarNota(c, file);
-                              }}
-                            />
-
-                            <div className="flex flex-col items-start gap-1">
-                              {c.invoice_storage_path ? (
-                                <>
-                                  <div className="flex items-center gap-1">
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 px-2 text-xs"
-                                      loading={notaEmDownload === c.id}
-                                      onClick={() => void baixarNota(c)}
-                                    >
-                                      <Download className="mr-1 h-3 w-3" />
-                                      Download
-                                    </Button>
-
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 px-2 text-xs"
-                                      loading={notaEmUpload === c.id}
-                                      onClick={() => {
-                                        const confirmou = window.confirm(
-                                          "Já existe uma nota neste lançamento. Deseja substituir o arquivo existente?",
-                                        );
-
-                                        if (!confirmou) return;
-
-                                        document
-                                          .getElementById(`nota-upload-${c.id}`)
-                                          ?.click();
-                                      }}
-                                    >
-                                      <Upload className="mr-1 h-3 w-3" />
-                                      Substituir
-                                    </Button>
-                                  </div>
-
-                                  <span
-                                    className="max-w-[180px] truncate text-[10px] text-muted-foreground"
-                                    title={c.invoice_original_name ?? ""}
-                                  >
-                                    {c.invoice_original_name || "Nota anexada"}
-                                  </span>
-                                </>
-                              ) : (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  loading={notaEmUpload === c.id}
-                                  onClick={() =>
-                                    document
-                                      .getElementById(`nota-upload-${c.id}`)
-                                      ?.click()
-                                  }
-                                >
-                                  <Upload className="mr-1 h-3 w-3" />
-                                  Upload
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
                           <TableCell className="text-xs">{c.applied_bm_number ?? "—"}</TableCell>
                           <TableCell>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
@@ -1215,6 +875,55 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+
+              {/* Abaixo de 1280px, 11 colunas fixas não cabem sem rolar — vira cartão por
+                  lançamento, com os mesmos dados/ações (seleção, exclusão). */}
+              {aberto && (
+                <div className="space-y-2 xl:hidden">
+                  {g.itens.map((c) => (
+                    <Card key={c.id} className={cn("space-y-2 p-3", c.applied && "opacity-70")}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2">
+                          {!c.applied && (
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={selecionados.has(c.id)}
+                              onCheckedChange={() => toggleSelecionado(c.id)}
+                            />
+                          )}
+                          <div>
+                            <p className="text-xs font-medium">{c.nome}</p>
+                            <p className="text-[10px] text-muted-foreground">{CATEGORIA_LABEL[c.categoria] ?? c.categoria} · {fmt(c.data)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold">{fmtMoney(c.total_cost)}</span>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            title="Excluir" onClick={() => excluirCusto.mutate(c.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Qtd</p>
+                          <p>{c.qtd}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Valor unit.</p>
+                          <p>{fmtMoney(c.valor)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Markup</p>
+                          <p>{c.markup == null ? "—" : fmtMoney(c.markup)}</p>
+                        </div>
+                      </div>
+                      {c.notes && <p className="text-xs text-muted-foreground">Notes: {c.notes}</p>}
+                      <p className="text-xs text-muted-foreground">BM: {c.applied_bm_number ?? "—"}</p>
+                    </Card>
+                  ))}
                 </div>
               )}
 
@@ -1253,82 +962,6 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
         </div>
       ))}
 
-      <Dialog
-        open={!!notaSemNumeroId}
-        onOpenChange={(open) => {
-          if (!open) {
-            setNotaSemNumeroId(null);
-            setNumeroNotaManual("");
-          }
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              Número da nota não identificado
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              O arquivo foi salvo normalmente, mas não foi possível
-              identificar com segurança o número da nota.
-            </p>
-
-            <div className="space-y-2">
-              <Label htmlFor="numero-nota-manual">
-                Informar número manualmente
-              </Label>
-
-              <Input
-                id="numero-nota-manual"
-                autoFocus
-                value={numeroNotaManual}
-                onChange={(e) =>
-                  setNumeroNotaManual(e.target.value)
-                }
-                placeholder="Digite o número da nota"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    void salvarNumeroManualDoModal();
-                  }
-                }}
-              />
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setNotaSemNumeroId(null);
-                  setNumeroNotaManual("");
-                }}
-              >
-                Agora não
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void usarIaParaNota()}
-                disabled={notaEmIa || !notaOcrText?.trim()}
-              >
-                {notaEmIa ? "Consultando IA..." : "Usar IA"}
-              </Button>
-
-              <Button
-                type="button"
-                onClick={() =>
-                  void salvarNumeroManualDoModal()
-                }
-              >
-                Salvar número
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
       <Dialog open={!!markupBsp} onOpenChange={(o) => { if (!o) setMarkupBsp(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1465,52 +1098,41 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: {
                 Total a enviar ao BM: <span className="font-semibold">{fmtMoney(markupResultado?.incluiuMarkup ? markupResultado.valorFinal : (grupoAplicando?.totalPendente ?? 0))}</span>
               </p>
             </div>
-            {bmEmGeracao ? (
-              <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-                Aplicando direto no BM que está sendo gerado
-                {bmEmGeracao.bmNumber ? <> — <strong>{bmEmGeracao.bmNumber}</strong></> : " (número ainda não escolhido)"}.
-                O valor acima entra automaticamente nos campos de Logística Mob/Desmob do gerador.
-              </p>
-            ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
-                  <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <div className="max-h-72 overflow-y-auto rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">BM</TableHead>
-                        <TableHead className="text-xs">PO</TableHead>
-                        <TableHead className="text-xs">Cliente</TableHead>
-                        <TableHead className="text-xs">Valor</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bmsFiltrados.map((b) => (
-                        <TableRow key={b.rowId}
-                          className={`cursor-pointer ${bmSelecionado?.rowId === b.rowId ? "bg-primary/10" : ""}`}
-                          onClick={() => setBmSelecionado(b)}>
-                          <TableCell className="text-xs font-medium">{b.bmNumber}</TableCell>
-                          <TableCell className="text-xs">{b.poNumber ?? "—"}</TableCell>
-                          <TableCell className="text-xs">{b.client ?? "—"}</TableCell>
-                          <TableCell className="text-xs">{b.value != null ? fmtMoney(b.value) : "—"}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </>
-            )}
+            <div className="flex items-center gap-2">
+              <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
+              <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <div className="max-h-72 overflow-y-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">BM</TableHead>
+                    <TableHead className="text-xs">PO</TableHead>
+                    <TableHead className="text-xs">Cliente</TableHead>
+                    <TableHead className="text-xs">Valor</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {bmsFiltrados.map((b) => (
+                    <TableRow key={b.rowId}
+                      className={`cursor-pointer ${bmSelecionado?.rowId === b.rowId ? "bg-primary/10" : ""}`}
+                      onClick={() => setBmSelecionado(b)}>
+                      <TableCell className="text-xs font-medium">{b.bmNumber}</TableCell>
+                      <TableCell className="text-xs">{b.poNumber ?? "—"}</TableCell>
+                      <TableCell className="text-xs">{b.client ?? "—"}</TableCell>
+                      <TableCell className="text-xs">{b.value != null ? fmtMoney(b.value) : "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="outline" onClick={() => { setAplicarBsp(null); setMarkupResultado(null); }}>Cancelar</Button>
-              <Button size="sm" disabled={!bmEmGeracao && !bmSelecionado} loading={aplicar.isPending} onClick={() => aplicar.mutate()}>
+              <Button size="sm" disabled={!bmSelecionado} loading={aplicar.isPending} onClick={() => aplicar.mutate()}>
                 <Send className="mr-1.5 h-3.5 w-3.5" />Aplicar
               </Button>
-
             </div>
           </div>
         </DialogContent>
