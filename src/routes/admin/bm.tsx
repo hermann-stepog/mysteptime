@@ -102,6 +102,13 @@ function fmt(d: string): string {
 function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+// O bsp lançado em bm_mob_desmob_costs/markups pode vir "código,unidade" quando a linha nasceu
+// da planilha de custos importada (ver mesmo comentário em MobDesmobTab.tsx) — normalizeBmBspKey
+// já isola só o código nesse formato (para no primeiro trecho numérico reconhecido), então
+// compara direto com o BSP do Cabeçalho do assistente, que nunca tem a unidade junto.
+function bspCodigo(bsp: string | null | undefined): string {
+  return normalizeBmBspKey(bsp);
+}
 
 const EVENTO_OPCOES_BM = ["Nenhum", ...EVENTOS_DIA];
 
@@ -951,12 +958,18 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     queryKey: ["bm-mob-desmob-aplicados", cab.bsp, numeroBmAtual],
     enabled: !!cab.bsp,
     queryFn: async () => {
+      // O BSP do Cabeçalho vem só o código (Job Order do Smartsheet); o bsp lançado em
+      // bm_mob_desmob_costs/markups vem "código,unidade" quando a linha nasceu da planilha de
+      // custos importada — sem normalizar os dois lados pro código puro, esses totais nunca
+      // casavam com custo nenhum vindo de importação, só com lançamento manual sem vírgula.
+      const alvo = bspCodigo(cab.bsp);
       const { data, error } = await supabase
-        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number")
-        .eq("applied", true).eq("bsp", cab.bsp);
+        .from("bm_mob_desmob_costs").select("bsp, categoria, total_cost, applied_bm_number")
+        .eq("applied", true);
       if (error) throw error;
       const acc = { transporte: 0, hotel: 0, outros: 0, markup: 0 };
-      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+      for (const r of (data ?? []) as { bsp: string; categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+        if (bspCodigo(r.bsp) !== alvo) continue;
         if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
         const k = (r.categoria in acc ? r.categoria : "outros") as "transporte" | "hotel" | "outros";
         acc[k] = round2(acc[k] + (Number(r.total_cost) || 0));
@@ -965,9 +978,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
       // pelo "Aplicar tudo ao BM". Se a tabela ainda não existir (migration não aplicada),
       // isso aqui cai em silêncio e markup fica 0, sem quebrar o resto do BM.
       const { data: markups } = await supabase
-        .from("bm_mob_desmob_markups").select("applied_bm_number, incluiu_markup, valor_markup_calculado")
-        .eq("bsp", cab.bsp).eq("incluiu_markup", true);
-      for (const m of (markups ?? []) as { applied_bm_number: string; valor_markup_calculado: number }[]) {
+        .from("bm_mob_desmob_markups").select("bsp, applied_bm_number, incluiu_markup, valor_markup_calculado")
+        .eq("incluiu_markup", true);
+      for (const m of (markups ?? []) as { bsp: string; applied_bm_number: string; valor_markup_calculado: number }[]) {
+        if (bspCodigo(m.bsp) !== alvo) continue;
         if (numeroBmAtual && m.applied_bm_number && m.applied_bm_number !== numeroBmAtual) continue;
         acc.markup = round2(acc.markup + (Number(m.valor_markup_calculado) || 0));
       }
@@ -1524,9 +1538,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
               </p>
             </div>
           </div>
-
-
-
         </div>
       )}
 
