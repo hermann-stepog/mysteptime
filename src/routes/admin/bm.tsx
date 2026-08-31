@@ -32,7 +32,7 @@ import {
   STATUS_LABELS, STATUS_TONE, computeBmTotals, isBwEnergy,
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
-import { normalizarBsp } from "@/lib/bmDayGrid";
+import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
@@ -103,10 +103,11 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 // O bsp lançado em bm_mob_desmob_costs/markups pode vir "código,unidade" quando a linha nasceu
-// da planilha de custos importada (ver mesmo comentário em MobDesmobTab.tsx) — normaliza pro
-// código puro pra comparar com o BSP do Cabeçalho do assistente, que nunca tem a unidade junto.
+// da planilha de custos importada (ver mesmo comentário em MobDesmobTab.tsx) — normalizeBmBspKey
+// já isola só o código nesse formato (para no primeiro trecho numérico reconhecido), então
+// compara direto com o BSP do Cabeçalho do assistente, que nunca tem a unidade junto.
 function bspCodigo(bsp: string | null | undefined): string {
-  return normalizarBsp((bsp ?? "").split(",")[0]);
+  return normalizeBmBspKey(bsp);
 }
 
 const EVENTO_OPCOES_BM = ["Nenhum", ...EVENTOS_DIA];
@@ -759,7 +760,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     queryKey: ["bm-dias", cab.bsp, cab.periodStart, cab.periodEnd],
     enabled: headerCompleto && !!cab.bsp,
     queryFn: async () => {
-      const bspAlvo = normalizarBsp(cab.bsp);
+      const bspAlvo = normalizeBmBspKey(cab.bsp);
 
       const { data: copiasData, error: copiasErr } = await supabase
         .from("bm_timesheet_dias")
@@ -824,7 +825,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
           })
           // Só importa dias do BSP que realmente interessa aqui — o resto continua faltando
           // até alguém abrir a aba Timesheets (ou gerar um BM) pro BSP correspondente.
-          .filter((d: any) => normalizarBsp(d.bsp) === bspAlvo);
+          .filter((d: any) => normalizeBmBspKey(d.bsp) === bspAlvo);
 
         if (novasCopias.length) {
           const rows = novasCopias.map((d) => ({ ...d, original: d }));
@@ -840,7 +841,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
       const todasAsCopias = [...(copiasData ?? []), ...novasCopias];
 
       const diasComColaborador: TimesheetDiaComColaborador[] = todasAsCopias
-        .filter((d: any) => d.colaborador_id && normalizarBsp(d.bsp) === bspAlvo)
+        .filter((d: any) => d.colaborador_id && normalizeBmBspKey(d.bsp) === bspAlvo)
         .map((d: any): TimesheetDiaComColaborador => ({
           data: d.data,
           evento: d.evento,
