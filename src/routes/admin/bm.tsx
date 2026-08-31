@@ -1527,10 +1527,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
             </div>
           </div>
 
-          <AplicarCustoMobDesmobDialog
-            open={adicionarCustoOpen} onOpenChange={setAdicionarCustoOpen}
-            bsp={cab.bsp} bmNumber={numeroBmAtual}
-          />
 
 
         </div>
