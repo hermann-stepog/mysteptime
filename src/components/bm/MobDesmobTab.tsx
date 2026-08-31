@@ -254,6 +254,30 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
   const [markupImposto, setMarkupImposto] = useState("13");
   const [markupResultado, setMarkupResultado] = useState<MarkupResultado | null>(null);
 
+  // Alvo "BM em geração": entrada sintética (não vem do Smartsheet) pra aplicar direto no BM
+  // que o assistente está montando na aba ao lado.
+  const bmEmGeracaoOption: SmartsheetBm | null = bmEmGeracao?.bmNumber?.trim()
+    ? { rowId: "__em_geracao__", bmNumber: bmEmGeracao.bmNumber.trim(), poNumber: null, client: null, vessel: null, value: null, date: null }
+    : null;
+
+  // Chegou pela ação "Adicionar custo" do assistente: já abre o lançamento manual com o BSP
+  // preenchido, pra ela só completar nome/valor.
+  const contextoAplicadoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bmEmGeracao?.bsp) return;
+    const chave = `${bmEmGeracao.bsp}::${bmEmGeracao.bmNumber}`;
+    if (contextoAplicadoRef.current === chave) return;
+    contextoAplicadoRef.current = chave;
+    setLancamentoAberto(true);
+    setNovo((n) => ({ ...n, bsp: n.bsp || bmEmGeracao.bsp }));
+  }, [bmEmGeracao]);
+
+  // Ao abrir o diálogo de escolha do BM com um BM em geração conhecido, ele já vem marcado.
+  useEffect(() => {
+    if (aplicarBsp && bmEmGeracaoOption && !bmSelecionado) setBmSelecionado(bmEmGeracaoOption);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aplicarBsp]);
+
   function toggleSelecionado(id: string) {
     setSelecionados((prev) => {
       const next = new Set(prev);
