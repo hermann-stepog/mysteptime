@@ -1483,7 +1483,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
                 <Button
                   type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]"
                   disabled={!cab.bsp}
-                  onClick={() => setAdicionarCustoOpen(true)}
+                  onClick={() => onAdicionarCusto({ bsp: cab.bsp, bmNumber: numeroBmAtual })}
                 >
                   <Plus className="mr-1 h-3 w-3" />Adicionar custo
                 </Button>
