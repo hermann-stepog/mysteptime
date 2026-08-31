@@ -33,6 +33,7 @@ import {
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
+import { selectAllPages } from "@/lib/supabasePaginate";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
@@ -963,12 +964,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
       // custos importada — sem normalizar os dois lados pro código puro, esses totais nunca
       // casavam com custo nenhum vindo de importação, só com lançamento manual sem vírgula.
       const alvo = bspCodigo(cab.bsp);
-      const { data, error } = await supabase
-        .from("bm_mob_desmob_costs").select("bsp, categoria, total_cost, applied_bm_number")
-        .eq("applied", true);
-      if (error) throw error;
+      // selectAllPages: mesmo motivo do fetch principal de custos em MobDesmobTab.tsx — sem
+      // paginação, o PostgREST corta em 1000 linhas.
+      const data = await selectAllPages<{ bsp: string; categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }>((from, to) =>
+        supabase.from("bm_mob_desmob_costs").select("bsp, categoria, total_cost, applied_bm_number")
+          .eq("applied", true).range(from, to),
+      );
       const acc = { transporte: 0, hotel: 0, outros: 0, markup: 0 };
-      for (const r of (data ?? []) as { bsp: string; categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+      for (const r of data) {
         if (bspCodigo(r.bsp) !== alvo) continue;
         if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
         const k = (r.categoria in acc ? r.categoria : "outros") as "transporte" | "hotel" | "outros";
