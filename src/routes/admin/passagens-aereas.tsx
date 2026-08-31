@@ -791,14 +791,15 @@ function ProximasViagensTab({ passagens, unidadeOptions, periodosE }: {
   );
 }
 
-// ─── Aba "Relatório de Viagens Internacionais" ──────────────────────────────
+// ─── Aba "Relatório de Viagens" ──────────────────────────────────────────────
 // Nunca inventa/duplica dado do Drake — função vem de hist_novo_colaboradores (mesmo campo já
-// usado em todo o resto do sistema); "internacional" é decidido na própria solicitação (ver
-// checkbox no formulário), não inferido; chegada/saída/retorno vêm só das PRÓPRIAS passagens
-// marcadas como internacionais.
+// usado em todo o resto do sistema). Mostra TODAS as passagens (lançadas manualmente ou vindas
+// da importação de custos), não só as marcadas como internacionais — "internacional" vira só um
+// selo por pessoa, pra RH/SMS (que via RLS só recebem registro internacional) continuarem
+// enxergando exatamente o que já viam antes.
 type StatusInternacional = "no_brasil" | "fora" | "chegando" | "saindo" | "sem_retorno";
 const STATUS_INTERNACIONAL_LABEL: Record<StatusInternacional, string> = {
-  no_brasil: "No Brasil", fora: "Fora do Brasil", chegando: "Chegando", saindo: "Saindo",
+  no_brasil: "Disponível", fora: "Em viagem", chegando: "Chegando", saindo: "Saindo",
   sem_retorno: "Sem retorno programado",
 };
 const STATUS_INTERNACIONAL_COLOR: Record<StatusInternacional, string> = {
@@ -810,7 +811,7 @@ const STATUS_INTERNACIONAL_COLOR: Record<StatusInternacional, string> = {
 interface PessoaInternacional {
   nome: string; funcao: string | null; unidade: string; bsp: string;
   ultimaChegada: string | null; proximaSaida: string | null; proximoRetorno: string | null;
-  status: StatusInternacional; passagens: PassagemAerea[];
+  status: StatusInternacional; passagens: PassagemAerea[]; internacional: boolean;
 }
 
 function computeStatusInternacional(passagens: PassagemAerea[], hoje: string): Pick<PessoaInternacional, "status" | "ultimaChegada" | "proximaSaida" | "proximoRetorno"> {
@@ -849,7 +850,7 @@ function RelatorioInternacionalTab({ passagens, colaboradores }: { passagens: Pa
   const hoje = todayStr();
   const pessoas = useMemo<PessoaInternacional[]>(() => {
     const porNome = new Map<string, PassagemAerea[]>();
-    passagens.filter((p) => p.internacional).forEach((p) => {
+    passagens.forEach((p) => {
       const key = p.nome_usuario.trim().toUpperCase();
       if (!porNome.has(key)) porNome.set(key, []);
       porNome.get(key)!.push(p);
@@ -861,6 +862,7 @@ function RelatorioInternacionalTab({ passagens, colaboradores }: { passagens: Pa
         nome: maisRecente.nome_usuario, funcao: funcaoPorNome.get(maisRecente.nome_usuario.trim().toUpperCase()) ?? null,
         unidade: maisRecente.unidade, bsp: maisRecente.bsp,
         ultimaChegada, proximaSaida, proximoRetorno, status, passagens: lista,
+        internacional: lista.some((p) => p.internacional),
       };
     }).sort((a, b) => a.nome.localeCompare(b.nome));
   }, [passagens, funcaoPorNome, hoje]);
@@ -870,7 +872,8 @@ function RelatorioInternacionalTab({ passagens, colaboradores }: { passagens: Pa
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Controle de quem está chegando/saindo do Brasil, baseado nas passagens marcadas como internacionais.
+        Controle de quem está chegando, saindo ou em viagem, baseado em todas as passagens cadastradas
+        (lançadas manualmente ou importadas). Viagens marcadas como internacionais aparecem com o selo abaixo.
       </p>
       <div className="flex flex-wrap gap-2">
         {porStatus.map(({ status, pessoas: lista }) => {
@@ -887,7 +890,12 @@ function RelatorioInternacionalTab({ passagens, colaboradores }: { passagens: Pa
                     <p className="text-muted-foreground">Ninguém nesse status.</p>
                   ) : lista.map((p) => (
                     <div key={p.nome} className="rounded border p-2">
-                      <p className="font-medium text-foreground">{p.nome}</p>
+                      <p className="flex items-center gap-1.5 font-medium text-foreground">
+                        {p.nome}
+                        {p.internacional && (
+                          <span className="rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-medium text-indigo-800">Internacional</span>
+                        )}
+                      </p>
                       <p className="text-muted-foreground">{p.funcao ?? "Função não informada"}</p>
                       <p className="text-muted-foreground">{p.unidade} · BSP {p.bsp}</p>
                       <p className="mt-1 text-muted-foreground">
