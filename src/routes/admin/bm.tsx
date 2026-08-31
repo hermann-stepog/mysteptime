@@ -333,7 +333,14 @@ const CATEGORIA_POR_TIPO: Record<MedicaoKey, MaterialCategoria> = {
   mob_desmob_materiais: "mob_desmob_materiais",
 };
 
-function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
+function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
+  reopenBm: Bm | null;
+  onConsumedReopen: () => void;
+  // Leva o usuário pra aba "Logística Mob/Desmob" já com o BSP/BM deste assistente em contexto
+  // — o estado do assistente continua montado (ver forceMount nas TabsContent), então ele
+  // volta pra cá sem perder nada depois de aplicar o custo.
+  onAdicionarCusto: (ctx: { bsp: string; bmNumber: string }) => void;
+}) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
   const [cab, setCab] = useState<Cabecalho>(CABECALHO_VAZIO);
