@@ -197,11 +197,20 @@ function BmPage() {
             <TabsContent value="timesheets-lancamentos" className="mt-4">
               <TimesheetsTab />
             </TabsContent>
-            <TabsContent value="timesheets-mob-desmob" className="mt-4">
-              <MobDesmobTab />
+            <TabsContent value="timesheets-mob-desmob" className="mt-4" forceMount hidden={moSubTab !== "timesheets-mob-desmob"}>
+              <MobDesmobTab
+                bmEmGeracao={bmEmGeracao}
+                onAplicadoNoBmEmGeracao={() => setMoSubTab("timesheets-gerar")}
+              />
             </TabsContent>
-            <TabsContent value="timesheets-gerar" className="mt-4">
-              <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+            {/* forceMount: trocar de aba pra lançar/aplicar um custo não pode perder o
+                cabeçalho/horas já preenchidos aqui (o assistente só guarda estado em memória). */}
+            <TabsContent value="timesheets-gerar" className="mt-4" forceMount hidden={moSubTab !== "timesheets-gerar"}>
+              <GerarBmWizard
+                reopenBm={reopenBm}
+                onConsumedReopen={() => setReopenBm(null)}
+                onAdicionarCusto={(ctx) => { setBmEmGeracao(ctx); setMoSubTab("timesheets-mob-desmob"); }}
+              />
             </TabsContent>
           </Tabs>
         </TabsContent>
