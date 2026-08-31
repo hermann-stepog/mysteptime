@@ -92,6 +92,7 @@ function RootComponent() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <Outlet />
+          <AppVersionWatcher />
           <Toaster richColors position="top-right" />
         </AuthProvider>
       </QueryClientProvider>
