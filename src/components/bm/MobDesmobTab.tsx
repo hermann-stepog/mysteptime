@@ -401,14 +401,32 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
       const linhas = parsePlanilha(buf);
       if (!linhas.length) throw new Error("Nenhuma linha reconhecida na planilha. Verifique as colunas (Nome, BSP, Data, Categoria, Qtd, Valor, Total).");
       const batch = `${file.name} · ${new Date().toISOString()}`;
+
+      // Reimportar uma planilha atualizada não pode ir empilhando lançamento em cima de
+      // lançamento antigo pro mesmo BSP — troca (substitui) em vez de acumular. Só mexe no que
+      // ainda está pendente: custo já aplicado a um BM virou parte de um BM gerado e não pode
+      // sumir por baixo dele só porque uma planilha nova foi importada depois.
+      const bspsNoArquivo = Array.from(new Set(linhas.map((l) => l.bsp)));
+      const { data: substituidos, error: delErr } = await supabase
+        .from("bm_mob_desmob_costs")
+        .delete()
+        .eq("applied", false)
+        .in("bsp", bspsNoArquivo)
+        .select("id");
+      if (delErr) throw delErr;
+
       const { error } = await supabase.from("bm_mob_desmob_costs")
         .insert(linhas.map((l) => ({ ...l, import_batch: batch })));
       if (error) throw error;
-      return linhas.length;
+      return { novos: linhas.length, substituidos: substituidos?.length ?? 0, bsps: bspsNoArquivo.length };
     },
-    onSuccess: (n) => {
+    onSuccess: ({ novos, substituidos, bsps }) => {
       qc.invalidateQueries({ queryKey: ["bm-mob-desmob-costs"] });
-      notify.success(`${n} custo(s) importado(s) e distribuído(s) por BSP.`);
+      notify.success(
+        substituidos > 0
+          ? `${novos} custo(s) importado(s) pra ${bsps} BSP(s) — ${substituidos} lançamento(s) pendente(s) anterior(es) substituído(s).`
+          : `${novos} custo(s) importado(s) e distribuído(s) por BSP.`,
+      );
     },
     onError: (e: any) => notify.error(e.message || "Erro ao importar planilha."),
   });
@@ -651,6 +669,8 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
             <h3 className="text-sm font-semibold">Custos de Transporte e Hotel por período</h3>
             <p className="text-xs text-muted-foreground">
               Importe a planilha de custos — os lançamentos nascem distribuídos por BSP em cartões abaixo.
+              Reimportar substitui os lançamentos ainda pendentes do(s) mesmo(s) BSP(s), sem duplicar;
+              custo já aplicado a um BM não é tocado.
             </p>
           </div>
           <div className="flex items-center gap-2">
