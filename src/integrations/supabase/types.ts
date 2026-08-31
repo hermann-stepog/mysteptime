@@ -1360,6 +1360,113 @@ export type Database = {
           },
         ]
       }
+      hospedagens: {
+        Row: {
+          bsp: string
+          check_in: string
+          check_out: string
+          cobrado: boolean | null
+          created_at: string
+          data_faturamento: string | null
+          diarias: number
+          faturado: boolean | null
+          fornecedor: string | null
+          hotel_id: string
+          id: string
+          motivo: string | null
+          nf: string | null
+          nome_usuario: string
+          observacoes: string | null
+          status_lancamento: string | null
+          unidade: string
+          usuario_faturamento: string | null
+          valor_diaria: number
+          valor_total: number
+        }
+        Insert: {
+          bsp: string
+          check_in: string
+          check_out: string
+          cobrado?: boolean | null
+          created_at?: string
+          data_faturamento?: string | null
+          diarias: number
+          faturado?: boolean | null
+          fornecedor?: string | null
+          hotel_id: string
+          id?: string
+          motivo?: string | null
+          nf?: string | null
+          nome_usuario: string
+          observacoes?: string | null
+          status_lancamento?: string | null
+          unidade: string
+          usuario_faturamento?: string | null
+          valor_diaria: number
+          valor_total: number
+        }
+        Update: {
+          bsp?: string
+          check_in?: string
+          check_out?: string
+          cobrado?: boolean | null
+          created_at?: string
+          data_faturamento?: string | null
+          diarias?: number
+          faturado?: boolean | null
+          fornecedor?: string | null
+          hotel_id?: string
+          id?: string
+          motivo?: string | null
+          nf?: string | null
+          nome_usuario?: string
+          observacoes?: string | null
+          status_lancamento?: string | null
+          unidade?: string
+          usuario_faturamento?: string | null
+          valor_diaria?: number
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hospedagens_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hoteis_fornecedores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hoteis_fornecedores: {
+        Row: {
+          cidade: string
+          created_at: string
+          endereco: string | null
+          estado: string
+          id: string
+          nome: string
+          telefone: string | null
+        }
+        Insert: {
+          cidade: string
+          created_at?: string
+          endereco?: string | null
+          estado: string
+          id?: string
+          nome: string
+          telefone?: string | null
+        }
+        Update: {
+          cidade?: string
+          created_at?: string
+          endereco?: string | null
+          estado?: string
+          id?: string
+          nome?: string
+          telefone?: string | null
+        }
+        Relationships: []
+      }
       hotel_bookings: {
         Row: {
           check_in: string
@@ -1728,6 +1835,207 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      passagem_opcoes: {
+        Row: {
+          bagagem: string | null
+          companhia: string | null
+          criado_em: string
+          data_hora_ida: string | null
+          id: string
+          numero: number
+          passagem_id: string
+          valor: number | null
+          valor_alteracao: number | null
+          voo: string | null
+        }
+        Insert: {
+          bagagem?: string | null
+          companhia?: string | null
+          criado_em?: string
+          data_hora_ida?: string | null
+          id?: string
+          numero: number
+          passagem_id: string
+          valor?: number | null
+          valor_alteracao?: number | null
+          voo?: string | null
+        }
+        Update: {
+          bagagem?: string | null
+          companhia?: string | null
+          criado_em?: string
+          data_hora_ida?: string | null
+          id?: string
+          numero?: number
+          passagem_id?: string
+          valor?: number | null
+          valor_alteracao?: number | null
+          voo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "passagem_opcoes_passagem_id_fkey"
+            columns: ["passagem_id"]
+            isOneToOne: false
+            referencedRelation: "passagens_aereas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      passagem_status_history: {
+        Row: {
+          changed_at: string
+          changed_by_name: string
+          id: string
+          notes: string | null
+          passagem_id: string
+          status: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by_name: string
+          id?: string
+          notes?: string | null
+          passagem_id: string
+          status: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by_name?: string
+          id?: string
+          notes?: string | null
+          passagem_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "passagem_status_history_passagem_id_fkey"
+            columns: ["passagem_id"]
+            isOneToOne: false
+            referencedRelation: "passagens_aereas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      passagens_aereas: {
+        Row: {
+          aprovado_em: string | null
+          aprovado_por: string | null
+          bsp: string
+          cobrado: boolean | null
+          comentario_aprovacao: string | null
+          companhia_aerea: string | null
+          created_at: string
+          data_faturamento: string | null
+          data_ida: string
+          data_volta: string | null
+          destino: string | null
+          diferenca_preco: number | null
+          faturado: boolean | null
+          id: string
+          internacional: boolean
+          motivo: string | null
+          motivo_cancelamento: string | null
+          nf: string | null
+          nome_usuario: string
+          observacoes: string | null
+          opcao_escolhida_id: string | null
+          opcoes_texto_agencia: string | null
+          origem: string | null
+          revalidado_em: string | null
+          revalidado_por: string | null
+          solicitante: string | null
+          solicitante_email: string | null
+          status: string
+          status_fluxo: string
+          status_lancamento: string | null
+          tipo: string
+          unidade: string
+          usuario_faturamento: string | null
+          valor: number
+        }
+        Insert: {
+          aprovado_em?: string | null
+          aprovado_por?: string | null
+          bsp: string
+          cobrado?: boolean | null
+          comentario_aprovacao?: string | null
+          companhia_aerea?: string | null
+          created_at?: string
+          data_faturamento?: string | null
+          data_ida: string
+          data_volta?: string | null
+          destino?: string | null
+          diferenca_preco?: number | null
+          faturado?: boolean | null
+          id?: string
+          internacional?: boolean
+          motivo?: string | null
+          motivo_cancelamento?: string | null
+          nf?: string | null
+          nome_usuario: string
+          observacoes?: string | null
+          opcao_escolhida_id?: string | null
+          opcoes_texto_agencia?: string | null
+          origem?: string | null
+          revalidado_em?: string | null
+          revalidado_por?: string | null
+          solicitante?: string | null
+          solicitante_email?: string | null
+          status?: string
+          status_fluxo?: string
+          status_lancamento?: string | null
+          tipo: string
+          unidade: string
+          usuario_faturamento?: string | null
+          valor: number
+        }
+        Update: {
+          aprovado_em?: string | null
+          aprovado_por?: string | null
+          bsp?: string
+          cobrado?: boolean | null
+          comentario_aprovacao?: string | null
+          companhia_aerea?: string | null
+          created_at?: string
+          data_faturamento?: string | null
+          data_ida?: string
+          data_volta?: string | null
+          destino?: string | null
+          diferenca_preco?: number | null
+          faturado?: boolean | null
+          id?: string
+          internacional?: boolean
+          motivo?: string | null
+          motivo_cancelamento?: string | null
+          nf?: string | null
+          nome_usuario?: string
+          observacoes?: string | null
+          opcao_escolhida_id?: string | null
+          opcoes_texto_agencia?: string | null
+          origem?: string | null
+          revalidado_em?: string | null
+          revalidado_por?: string | null
+          solicitante?: string | null
+          solicitante_email?: string | null
+          status?: string
+          status_fluxo?: string
+          status_lancamento?: string | null
+          tipo?: string
+          unidade?: string
+          usuario_faturamento?: string | null
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "passagens_aereas_opcao_escolhida_fkey"
+            columns: ["opcao_escolhida_id"]
+            isOneToOne: false
+            referencedRelation: "passagem_opcoes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       payroll_summaries: {
         Row: {
@@ -2463,26 +2771,33 @@ export type Database = {
           cliente: string | null
           cliente_2: string | null
           cliente_3: string | null
+          cobrado: boolean | null
           column_id: string | null
           created_at: string
           custo: number | null
           custo_2: number | null
           custo_3: number | null
+          data_faturamento: string | null
           departure_time: string | null
           destination: string
           destinos_extras: string[]
           duracao_min: number | null
           external_ref: string | null
+          faturado: boolean | null
           id: string
+          motivo: string | null
+          nf: string | null
           notes: string | null
           origens_extras: string[]
           origin: string
           realizado: boolean
           scheduled_at: string
           status: Database["public"]["Enums"]["transport_trip_status"]
+          status_lancamento: string | null
           tipo: Database["public"]["Enums"]["transport_tipo"]
           unidade: string | null
           updated_at: string
+          usuario_faturamento: string | null
         }
         Insert: {
           arrival_time?: string | null
@@ -2494,26 +2809,33 @@ export type Database = {
           cliente?: string | null
           cliente_2?: string | null
           cliente_3?: string | null
+          cobrado?: boolean | null
           column_id?: string | null
           created_at?: string
           custo?: number | null
           custo_2?: number | null
           custo_3?: number | null
+          data_faturamento?: string | null
           departure_time?: string | null
           destination: string
           destinos_extras?: string[]
           duracao_min?: number | null
           external_ref?: string | null
+          faturado?: boolean | null
           id?: string
+          motivo?: string | null
+          nf?: string | null
           notes?: string | null
           origens_extras?: string[]
           origin: string
           realizado?: boolean
           scheduled_at: string
           status?: Database["public"]["Enums"]["transport_trip_status"]
+          status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
           unidade?: string | null
           updated_at?: string
+          usuario_faturamento?: string | null
         }
         Update: {
           arrival_time?: string | null
@@ -2525,26 +2847,33 @@ export type Database = {
           cliente?: string | null
           cliente_2?: string | null
           cliente_3?: string | null
+          cobrado?: boolean | null
           column_id?: string | null
           created_at?: string
           custo?: number | null
           custo_2?: number | null
           custo_3?: number | null
+          data_faturamento?: string | null
           departure_time?: string | null
           destination?: string
           destinos_extras?: string[]
           duracao_min?: number | null
           external_ref?: string | null
+          faturado?: boolean | null
           id?: string
+          motivo?: string | null
+          nf?: string | null
           notes?: string | null
           origens_extras?: string[]
           origin?: string
           realizado?: boolean
           scheduled_at?: string
           status?: Database["public"]["Enums"]["transport_trip_status"]
+          status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
           unidade?: string | null
           updated_at?: string
+          usuario_faturamento?: string | null
         }
         Relationships: [
           {
@@ -2659,6 +2988,8 @@ export type Database = {
         Returns: boolean
       }
       is_operator: { Args: { _user_id: string }; Returns: boolean }
+      is_rh: { Args: { _user_id: string }; Returns: boolean }
+      is_sms: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       app_role:

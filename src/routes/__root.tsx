@@ -6,6 +6,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/hooks/useAuth";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AppVersionWatcher } from "@/components/AppVersionWatcher";
 
 function NotFoundComponent() {
   return (
@@ -91,6 +92,7 @@ function RootComponent() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <Outlet />
+          <AppVersionWatcher />
           <Toaster richColors position="top-right" />
         </AuthProvider>
       </QueryClientProvider>
