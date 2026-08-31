@@ -216,7 +216,14 @@ const NOVO_CUSTO_VAZIO: NovoCusto = {
 
 const TODOS = "__todos__";
 
-export function MobDesmobTab() {
+interface MobDesmobTabProps {
+  // Contexto vindo do assistente "Gerar BM" (aba irmã) — quando existe, o lançamento manual já
+  // abre com o BSP preenchido e o diálogo "Aplicar ao BM" oferece o BM em geração como alvo.
+  bmEmGeracao?: { bsp: string; bmNumber: string } | null;
+  onAplicadoNoBmEmGeracao?: () => void;
+}
+
+export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: MobDesmobTabProps = {}) {
 
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -246,6 +253,30 @@ export function MobDesmobTab() {
   const [markupLucro, setMarkupLucro] = useState("15");
   const [markupImposto, setMarkupImposto] = useState("13");
   const [markupResultado, setMarkupResultado] = useState<MarkupResultado | null>(null);
+
+  // Alvo "BM em geração": entrada sintética (não vem do Smartsheet) pra aplicar direto no BM
+  // que o assistente está montando na aba ao lado.
+  const bmEmGeracaoOption: SmartsheetBm | null = bmEmGeracao?.bmNumber?.trim()
+    ? { rowId: "__em_geracao__", bmNumber: bmEmGeracao.bmNumber.trim(), poNumber: null, client: null, vessel: null, value: null, date: null }
+    : null;
+
+  // Chegou pela ação "Adicionar custo" do assistente: já abre o lançamento manual com o BSP
+  // preenchido, pra ela só completar nome/valor.
+  const contextoAplicadoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bmEmGeracao?.bsp) return;
+    const chave = `${bmEmGeracao.bsp}::${bmEmGeracao.bmNumber}`;
+    if (contextoAplicadoRef.current === chave) return;
+    contextoAplicadoRef.current = chave;
+    setLancamentoAberto(true);
+    setNovo((n) => ({ ...n, bsp: n.bsp || bmEmGeracao.bsp }));
+  }, [bmEmGeracao]);
+
+  // Ao abrir o diálogo de escolha do BM com um BM em geração conhecido, ele já vem marcado.
+  useEffect(() => {
+    if (aplicarBsp && bmEmGeracaoOption && !bmSelecionado) setBmSelecionado(bmEmGeracaoOption);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aplicarBsp]);
 
   function toggleSelecionado(id: string) {
     setSelecionados((prev) => {
@@ -549,9 +580,12 @@ export function MobDesmobTab() {
         grupoAplicando?.pendentes.forEach((c) => next.delete(c.id));
         return next;
       });
+      const eraBmEmGeracao = bmSelecionado?.rowId === "__em_geracao__";
       setAplicarBsp(null);
       setBmSelecionado(null);
       setMarkupResultado(null);
+      // Aplicou no BM que está sendo montado — volta pro assistente, que recarrega os totais.
+      if (eraBmEmGeracao) onAplicadoNoBmEmGeracao?.();
     },
 
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
@@ -1098,6 +1132,26 @@ export function MobDesmobTab() {
                 Total a enviar ao BM: <span className="font-semibold">{fmtMoney(markupResultado?.incluiuMarkup ? markupResultado.valorFinal : (grupoAplicando?.totalPendente ?? 0))}</span>
               </p>
             </div>
+            {bmEmGeracaoOption && (
+              <button
+                type="button"
+                onClick={() => setBmSelecionado(bmEmGeracaoOption)}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md border p-3 text-left text-xs transition-colors",
+                  bmSelecionado?.rowId === bmEmGeracaoOption.rowId
+                    ? "border-primary bg-primary/10"
+                    : "hover:border-primary/50",
+                )}
+              >
+                <span>
+                  <span className="font-semibold">Aplicar no BM em geração — BM {bmEmGeracaoOption.bmNumber}</span>
+                  <span className="block text-muted-foreground">
+                    BM que está sendo montado agora na aba "Gerar BM"{bmEmGeracao?.bsp ? ` · BSP ${bmEmGeracao.bsp}` : ""}
+                  </span>
+                </span>
+                {bmSelecionado?.rowId === bmEmGeracaoOption.rowId && <Badge variant="secondary" className="text-[10px]">Selecionado</Badge>}
+              </button>
+            )}
             <div className="flex items-center gap-2">
               <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
               <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>

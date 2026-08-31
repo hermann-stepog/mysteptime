@@ -36,7 +36,6 @@ import { normalizarBsp } from "@/lib/bmDayGrid";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
-import { AplicarCustoMobDesmobDialog } from "@/components/bm/AplicarCustoMobDesmobDialog";
 import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
@@ -103,6 +102,12 @@ function fmt(d: string): string {
 function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+// O bsp lançado em bm_mob_desmob_costs/markups pode vir "código,unidade" quando a linha nasceu
+// da planilha de custos importada (ver mesmo comentário em MobDesmobTab.tsx) — normaliza pro
+// código puro pra comparar com o BSP do Cabeçalho do assistente, que nunca tem a unidade junto.
+function bspCodigo(bsp: string | null | undefined): string {
+  return normalizarBsp((bsp ?? "").split(",")[0]);
+}
 
 const EVENTO_OPCOES_BM = ["Nenhum", ...EVENTOS_DIA];
 
@@ -132,6 +137,9 @@ interface DiaOverrideEdit {
 
 function BmPage() {
   const [reopenBm, setReopenBm] = useState<Bm | null>(null);
+  // BSP/número do BM que está sendo montado no assistente "Gerar BM" — usado pela aba
+  // Logística Mob/Desmob pra oferecer "aplicar neste BM" direto, sem procurar na lista.
+  const [bmEmGeracao, setBmEmGeracao] = useState<{ bsp: string; bmNumber: string } | null>(null);
   // Controlados (em vez de defaultValue) só pra "Reabrir" no Histórico conseguir pular direto
   // pra sub-aba "Gerar BM" dentro de Mão de Obra Offshore — ver handleReopen abaixo.
   const [activeTab, setActiveTab] = useState("timesheets");
@@ -197,11 +205,20 @@ function BmPage() {
             <TabsContent value="timesheets-lancamentos" className="mt-4">
               <TimesheetsTab />
             </TabsContent>
-            <TabsContent value="timesheets-mob-desmob" className="mt-4">
-              <MobDesmobTab />
+            <TabsContent value="timesheets-mob-desmob" className="mt-4" forceMount hidden={moSubTab !== "timesheets-mob-desmob"}>
+              <MobDesmobTab
+                bmEmGeracao={bmEmGeracao}
+                onAplicadoNoBmEmGeracao={() => setMoSubTab("timesheets-gerar")}
+              />
             </TabsContent>
-            <TabsContent value="timesheets-gerar" className="mt-4">
-              <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+            {/* forceMount: trocar de aba pra lançar/aplicar um custo não pode perder o
+                cabeçalho/horas já preenchidos aqui (o assistente só guarda estado em memória). */}
+            <TabsContent value="timesheets-gerar" className="mt-4" forceMount hidden={moSubTab !== "timesheets-gerar"}>
+              <GerarBmWizard
+                reopenBm={reopenBm}
+                onConsumedReopen={() => setReopenBm(null)}
+                onAdicionarCusto={(ctx) => { setBmEmGeracao(ctx); setMoSubTab("timesheets-mob-desmob"); }}
+              />
             </TabsContent>
           </Tabs>
         </TabsContent>
@@ -333,7 +350,14 @@ const CATEGORIA_POR_TIPO: Record<MedicaoKey, MaterialCategoria> = {
   mob_desmob_materiais: "mob_desmob_materiais",
 };
 
-function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
+function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
+  reopenBm: Bm | null;
+  onConsumedReopen: () => void;
+  // Leva o usuário pra aba "Logística Mob/Desmob" já com o BSP/BM deste assistente em contexto
+  // — o estado do assistente continua montado (ver forceMount nas TabsContent), então ele
+  // volta pra cá sem perder nada depois de aplicar o custo.
+  onAdicionarCusto: (ctx: { bsp: string; bmNumber: string }) => void;
+}) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
   const [cab, setCab] = useState<Cabecalho>(CABECALHO_VAZIO);
@@ -354,7 +378,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
   // na aba Logística Mob/Desmob.
   const [logisticaManual, setLogisticaManual] = useState(0);
-  const [adicionarCustoOpen, setAdicionarCustoOpen] = useState(false);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
@@ -934,12 +957,18 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
     queryKey: ["bm-mob-desmob-aplicados", cab.bsp, numeroBmAtual],
     enabled: !!cab.bsp,
     queryFn: async () => {
+      // O BSP do Cabeçalho vem só o código (Job Order do Smartsheet); o bsp lançado em
+      // bm_mob_desmob_costs/markups vem "código,unidade" quando a linha nasceu da planilha de
+      // custos importada — sem normalizar os dois lados pro código puro, esses totais nunca
+      // casavam com custo nenhum vindo de importação, só com lançamento manual sem vírgula.
+      const alvo = bspCodigo(cab.bsp);
       const { data, error } = await supabase
-        .from("bm_mob_desmob_costs").select("categoria, total_cost, applied_bm_number")
-        .eq("applied", true).eq("bsp", cab.bsp);
+        .from("bm_mob_desmob_costs").select("bsp, categoria, total_cost, applied_bm_number")
+        .eq("applied", true);
       if (error) throw error;
       const acc = { transporte: 0, hotel: 0, outros: 0, markup: 0 };
-      for (const r of (data ?? []) as { categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+      for (const r of (data ?? []) as { bsp: string; categoria: "transporte" | "hotel" | "outros"; total_cost: number; applied_bm_number: string | null }[]) {
+        if (bspCodigo(r.bsp) !== alvo) continue;
         if (numeroBmAtual && r.applied_bm_number && r.applied_bm_number !== numeroBmAtual) continue;
         const k = (r.categoria in acc ? r.categoria : "outros") as "transporte" | "hotel" | "outros";
         acc[k] = round2(acc[k] + (Number(r.total_cost) || 0));
@@ -948,9 +977,10 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
       // pelo "Aplicar tudo ao BM". Se a tabela ainda não existir (migration não aplicada),
       // isso aqui cai em silêncio e markup fica 0, sem quebrar o resto do BM.
       const { data: markups } = await supabase
-        .from("bm_mob_desmob_markups").select("applied_bm_number, incluiu_markup, valor_markup_calculado")
-        .eq("bsp", cab.bsp).eq("incluiu_markup", true);
-      for (const m of (markups ?? []) as { applied_bm_number: string; valor_markup_calculado: number }[]) {
+        .from("bm_mob_desmob_markups").select("bsp, applied_bm_number, incluiu_markup, valor_markup_calculado")
+        .eq("incluiu_markup", true);
+      for (const m of (markups ?? []) as { bsp: string; applied_bm_number: string; valor_markup_calculado: number }[]) {
+        if (bspCodigo(m.bsp) !== alvo) continue;
         if (numeroBmAtual && m.applied_bm_number && m.applied_bm_number !== numeroBmAtual) continue;
         acc.markup = round2(acc.markup + (Number(m.valor_markup_calculado) || 0));
       }
@@ -1464,7 +1494,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 <Button
                   type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]"
                   disabled={!cab.bsp}
-                  onClick={() => setAdicionarCustoOpen(true)}
+                  onClick={() => onAdicionarCusto({ bsp: cab.bsp, bmNumber: numeroBmAtual })}
                 >
                   <Plus className="mr-1 h-3 w-3" />Adicionar custo
                 </Button>
@@ -1507,13 +1537,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
               </p>
             </div>
           </div>
-
-          <AplicarCustoMobDesmobDialog
-            open={adicionarCustoOpen} onOpenChange={setAdicionarCustoOpen}
-            bsp={cab.bsp} bmNumber={numeroBmAtual}
-          />
-
-
         </div>
       )}
 
