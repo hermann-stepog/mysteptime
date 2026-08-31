@@ -216,7 +216,14 @@ const NOVO_CUSTO_VAZIO: NovoCusto = {
 
 const TODOS = "__todos__";
 
-export function MobDesmobTab() {
+interface MobDesmobTabProps {
+  // Contexto vindo do assistente "Gerar BM" (aba irmã) — quando existe, o lançamento manual já
+  // abre com o BSP preenchido e o diálogo "Aplicar ao BM" oferece o BM em geração como alvo.
+  bmEmGeracao?: { bsp: string; bmNumber: string } | null;
+  onAplicadoNoBmEmGeracao?: () => void;
+}
+
+export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: MobDesmobTabProps = {}) {
 
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
