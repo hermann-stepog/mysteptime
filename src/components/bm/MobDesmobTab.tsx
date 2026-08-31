@@ -580,9 +580,12 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
         grupoAplicando?.pendentes.forEach((c) => next.delete(c.id));
         return next;
       });
+      const eraBmEmGeracao = bmSelecionado?.rowId === "__em_geracao__";
       setAplicarBsp(null);
       setBmSelecionado(null);
       setMarkupResultado(null);
+      // Aplicou no BM que está sendo montado — volta pro assistente, que recarrega os totais.
+      if (eraBmEmGeracao) onAplicadoNoBmEmGeracao?.();
     },
 
     onError: (e: any) => notify.error(e.message || "Erro ao aplicar custos ao BM."),
