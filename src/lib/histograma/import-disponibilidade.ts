@@ -32,14 +32,17 @@ export const DISPONIBILIDADE_EVENTO_MAP: Record<string, TipoPeriodo | null> = {
 export interface ParsedDisponibilidadeRow {
   matricula: string;
   empresa: string | null;
-  tipo: TipoPeriodo;
-  data_inicio: string;
-  data_fim: string;
+  nome: string | null;
+  funcao: string | null;
+  tipo: TipoPeriodo | null;
+  data_inicio: string | null;
+  data_fim: string | null;
 }
 
 export interface DisponibilidadeImportSummary {
   insertedEvents: number;
   skipped: number;
+  insertedColaboradores: number;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -87,6 +90,13 @@ export function parseDisponibilidadeWorkbook(
   const iEmpresa = ["nome da empresa do trabalhador", "empresa do trabalhador", "empresa"]
     .map((h) => header.indexOf(h))
     .find((i) => i !== -1) ?? -1;
+  // Nome/função só existem nas exportações mais novas do relatório "Funcionário Disponível" — é
+  // esse relatório que traz o efetivo GERAL (todo mundo ativo, embarcado ou não), diferente do
+  // relatório de Embarque (só quem tem período de embarque). Usados só pra completar o cadastro
+  // de quem ainda não existe em hist_novo_colaboradores; se faltar, cai no fallback de não
+  // completar cadastro nenhum (comportamento antigo, só grava período).
+  const iNome = header.indexOf("nome do trabalhador");
+  const iFuncao = header.indexOf("funcao de folha do trabalhador");
   if ([iMatricula, iEvento, iInicio, iFim].some((i) => i === -1)) {
     throw new Error(
       "Colunas esperadas não encontradas (Matrícula do Trabalhador / Descrição do Evento / Data de Início do Evento / Data de Término do Evento).",
@@ -99,14 +109,22 @@ export function parseDisponibilidadeWorkbook(
     if (iSituacao !== -1 && normalizeHeader(r[iSituacao]) !== "ativo") continue;
     const matricula = String(r[iMatricula] ?? "").trim();
     if (!matricula) continue;
-    const eventoKey = normalizeHeader(r[iEvento]);
-    const tipo = DISPONIBILIDADE_EVENTO_MAP[eventoKey];
-    if (!tipo) continue;
-    const data_inicio = parseDisponibilidadeDate(r[iInicio]);
-    const data_fim = parseDisponibilidadeDate(r[iFim]);
-    if (!data_inicio || !data_fim) continue;
     const empresa = iEmpresa !== -1 ? String(r[iEmpresa] ?? "").trim() || null : null;
-    out.push({ matricula, empresa, tipo, data_inicio, data_fim });
+    const nome = iNome !== -1 ? String(r[iNome] ?? "").trim() || null : null;
+    const funcao = iFuncao !== -1 ? String(r[iFuncao] ?? "").trim() || null : null;
+    // Todo mundo ativo entra na lista (pra completar o cadastro do efetivo), mas só linhas com
+    // evento mapeado e datas válidas viram período — os demais (embarque, trabalho externo etc.,
+    // já cobertos pelo relatório de Embarque, ou eventos sem tradução pro histograma) ficam com
+    // tipo/datas nulas e servem só pra registrar que a pessoa existe.
+    const eventoKey = normalizeHeader(r[iEvento]);
+    const tipo = DISPONIBILIDADE_EVENTO_MAP[eventoKey] ?? null;
+    const data_inicio = tipo ? parseDisponibilidadeDate(r[iInicio]) : null;
+    const data_fim = tipo ? parseDisponibilidadeDate(r[iFim]) : null;
+    out.push({
+      matricula, empresa, nome, funcao,
+      tipo: data_inicio && data_fim ? tipo : null,
+      data_inicio, data_fim,
+    });
   }
   return out;
 }
@@ -137,6 +155,37 @@ export async function importDisponibilidade(
     idsPorMatricula.get(c.matricula)!.push(c.id);
     idPorChave.set(chaveColaborador(c.matricula, c.empresa), c.id);
   }
+
+  // Completa o cadastro com quem aparece no efetivo geral (este relatório) mas nunca teve período
+  // de embarque importado (relatório de Embarque só traz quem embarcou) — é exatamente esse gap
+  // que fazia a pessoa nunca aparecer na busca de colaborador em Hospedagem/Passagens Aéreas. Só
+  // cria gente nova, nunca sobrescreve nome/função de quem já existe (isso é papel do import de
+  // Embarque, que já faz merge). Só entra sem empresa informada quando a matrícula é totalmente
+  // inédita (nenhum candidato existente) — com empresa, a chave (empresa, matrícula) já garante
+  // que é gente diferente de quem já está cadastrado.
+  const roscaPorChave = new Map<string, { matricula: string; empresa: string | null; nome: string; funcao: string | null }>();
+  for (const r of rows) {
+    if (!r.nome) continue;
+    const chave = chaveColaborador(r.matricula, r.empresa);
+    if (!roscaPorChave.has(chave)) roscaPorChave.set(chave, { matricula: r.matricula, empresa: r.empresa, nome: r.nome, funcao: r.funcao });
+  }
+  const toInsertColabs = Array.from(roscaPorChave.entries())
+    .filter(([chave, r]) => !idPorChave.has(chave) && (r.empresa || (idsPorMatricula.get(r.matricula)?.length ?? 0) === 0))
+    .map(([, r]) => ({ matricula: r.matricula, nome: r.nome, empresa: r.empresa, funcao: r.funcao, funcao_operacao: null }));
+
+  let insertedColaboradores = 0;
+  for (let i = 0; i < toInsertColabs.length; i += 500) {
+    const lote = toInsertColabs.slice(i, i + 500);
+    const { data, error } = await supabase.from("hist_novo_colaboradores").insert(lote).select("id, matricula, empresa");
+    if (error) throw error;
+    insertedColaboradores += lote.length;
+    for (const c of data ?? []) {
+      if (!idsPorMatricula.has(c.matricula)) idsPorMatricula.set(c.matricula, []);
+      idsPorMatricula.get(c.matricula)!.push(c.id);
+      idPorChave.set(chaveColaborador(c.matricula, c.empresa), c.id);
+    }
+  }
+
   const resolverColaboradorId = (r: ParsedDisponibilidadeRow): string | undefined => {
     const candidatos = idsPorMatricula.get(r.matricula) ?? [];
     if (candidatos.length === 1) return candidatos[0];
@@ -145,6 +194,7 @@ export async function importDisponibilidade(
   };
 
   const periodosToInsert = rows
+    .filter((r): r is typeof r & { tipo: TipoPeriodo; data_inicio: string; data_fim: string } => !!r.tipo && !!r.data_inicio && !!r.data_fim)
     .map((r) => ({
       colaborador_id: resolverColaboradorId(r),
       unidade_operacional: null,
@@ -159,7 +209,10 @@ export async function importDisponibilidade(
     }))
     .filter((p): p is typeof p & { colaborador_id: string } => !!p.colaborador_id);
 
-  const skipped = rows.length - periodosToInsert.length;
+  // Só conta como "pulado" quem tinha evento mapeável de verdade (matrícula ambígua sem empresa
+  // pra desempatar) — linhas sem evento pro histograma (embarque, falta etc.) não entram na conta,
+  // já que nunca viraram período mesmo antes dessa mudança.
+  const skipped = rows.filter((r) => r.tipo).length - periodosToInsert.length;
 
   const { error: delErr } = await supabase
     .from("hist_novo_periodos")
@@ -173,7 +226,7 @@ export async function importDisponibilidade(
     if (pErr) throw pErr;
   }
 
-  return { insertedEvents: periodosToInsert.length, skipped };
+  return { insertedEvents: periodosToInsert.length, skipped, insertedColaboradores };
 }
 
 export async function importDisponibilidadeFromBuffer(

@@ -123,6 +123,7 @@ export interface DrakeUpdateResult {
   updated?: number;
   embarkationEvents?: number;
   availabilityEvents?: number;
+  novosColaboradores?: number;
   skipped?: number;
 }
 

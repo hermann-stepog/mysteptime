@@ -103,7 +103,7 @@ async function updateDrakeDataInner(
   let embarkationSummary:
     | { created?: number; updated?: number; insertedEvents?: number; skipped?: number }
     | undefined;
-  let availabilitySummary: { insertedEvents?: number; skipped?: number } | undefined;
+  let availabilitySummary: { insertedEvents?: number; skipped?: number; insertedColaboradores?: number } | undefined;
   let report1Started = 0;
   let report1DurationMs = 0;
   let import1DurationMs = 0;
@@ -377,6 +377,7 @@ async function updateDrakeDataInner(
         updated: embarkationSummary?.updated,
         embarkationEvents: embarkationSummary?.insertedEvents,
         availabilityEvents: availabilitySummary?.insertedEvents,
+        novosColaboradores: availabilitySummary?.insertedColaboradores,
         skipped: (embarkationSummary?.skipped ?? 0) + (availabilitySummary?.skipped ?? 0),
       };
 
