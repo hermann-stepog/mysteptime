@@ -36,7 +36,6 @@ import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
-import { AplicarCustoMobDesmobDialog } from "@/components/bm/AplicarCustoMobDesmobDialog";
 import { MedicaoTab, type MedicaoRow } from "@/components/bm/MedicaoTab";
 
 import { TimesheetsTab } from "@/components/bm/TimesheetsTab";
@@ -132,6 +131,9 @@ interface DiaOverrideEdit {
 
 function BmPage() {
   const [reopenBm, setReopenBm] = useState<Bm | null>(null);
+  // BSP/número do BM que está sendo montado no assistente "Gerar BM" — usado pela aba
+  // Logística Mob/Desmob pra oferecer "aplicar neste BM" direto, sem procurar na lista.
+  const [bmEmGeracao, setBmEmGeracao] = useState<{ bsp: string; bmNumber: string } | null>(null);
   // Controlados (em vez de defaultValue) só pra "Reabrir" no Histórico conseguir pular direto
   // pra sub-aba "Gerar BM" dentro de Mão de Obra Offshore — ver handleReopen abaixo.
   const [activeTab, setActiveTab] = useState("timesheets");
@@ -197,11 +199,20 @@ function BmPage() {
             <TabsContent value="timesheets-lancamentos" className="mt-4">
               <TimesheetsTab />
             </TabsContent>
-            <TabsContent value="timesheets-mob-desmob" className="mt-4">
-              <MobDesmobTab />
+            <TabsContent value="timesheets-mob-desmob" className="mt-4" forceMount hidden={moSubTab !== "timesheets-mob-desmob"}>
+              <MobDesmobTab
+                bmEmGeracao={bmEmGeracao}
+                onAplicadoNoBmEmGeracao={() => setMoSubTab("timesheets-gerar")}
+              />
             </TabsContent>
-            <TabsContent value="timesheets-gerar" className="mt-4">
-              <GerarBmWizard reopenBm={reopenBm} onConsumedReopen={() => setReopenBm(null)} />
+            {/* forceMount: trocar de aba pra lançar/aplicar um custo não pode perder o
+                cabeçalho/horas já preenchidos aqui (o assistente só guarda estado em memória). */}
+            <TabsContent value="timesheets-gerar" className="mt-4" forceMount hidden={moSubTab !== "timesheets-gerar"}>
+              <GerarBmWizard
+                reopenBm={reopenBm}
+                onConsumedReopen={() => setReopenBm(null)}
+                onAdicionarCusto={(ctx) => { setBmEmGeracao(ctx); setMoSubTab("timesheets-mob-desmob"); }}
+              />
             </TabsContent>
           </Tabs>
         </TabsContent>
@@ -333,7 +344,14 @@ const CATEGORIA_POR_TIPO: Record<MedicaoKey, MaterialCategoria> = {
   mob_desmob_materiais: "mob_desmob_materiais",
 };
 
-function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; onConsumedReopen: () => void }) {
+function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
+  reopenBm: Bm | null;
+  onConsumedReopen: () => void;
+  // Leva o usuário pra aba "Logística Mob/Desmob" já com o BSP/BM deste assistente em contexto
+  // — o estado do assistente continua montado (ver forceMount nas TabsContent), então ele
+  // volta pra cá sem perder nada depois de aplicar o custo.
+  onAdicionarCusto: (ctx: { bsp: string; bmNumber: string }) => void;
+}) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
   const [cab, setCab] = useState<Cabecalho>(CABECALHO_VAZIO);
@@ -354,7 +372,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
   // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
   // na aba Logística Mob/Desmob.
   const [logisticaManual, setLogisticaManual] = useState(0);
-  const [adicionarCustoOpen, setAdicionarCustoOpen] = useState(false);
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
@@ -1464,7 +1481,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
                 <Button
                   type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]"
                   disabled={!cab.bsp}
-                  onClick={() => setAdicionarCustoOpen(true)}
+                  onClick={() => onAdicionarCusto({ bsp: cab.bsp, bmNumber: numeroBmAtual })}
                 >
                   <Plus className="mr-1 h-3 w-3" />Adicionar custo
                 </Button>
@@ -1508,10 +1525,6 @@ function GerarBmWizard({ reopenBm, onConsumedReopen }: { reopenBm: Bm | null; on
             </div>
           </div>
 
-          <AplicarCustoMobDesmobDialog
-            open={adicionarCustoOpen} onOpenChange={setAdicionarCustoOpen}
-            bsp={cab.bsp} bmNumber={numeroBmAtual}
-          />
 
 
         </div>
