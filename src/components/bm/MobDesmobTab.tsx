@@ -1129,6 +1129,26 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
                 Total a enviar ao BM: <span className="font-semibold">{fmtMoney(markupResultado?.incluiuMarkup ? markupResultado.valorFinal : (grupoAplicando?.totalPendente ?? 0))}</span>
               </p>
             </div>
+            {bmEmGeracaoOption && (
+              <button
+                type="button"
+                onClick={() => setBmSelecionado(bmEmGeracaoOption)}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md border p-3 text-left text-xs transition-colors",
+                  bmSelecionado?.rowId === bmEmGeracaoOption.rowId
+                    ? "border-primary bg-primary/10"
+                    : "hover:border-primary/50",
+                )}
+              >
+                <span>
+                  <span className="font-semibold">Aplicar no BM em geração — BM {bmEmGeracaoOption.bmNumber}</span>
+                  <span className="block text-muted-foreground">
+                    BM que está sendo montado agora na aba “Gerar BM”{bmEmGeracao?.bsp ? ` · BSP ${bmEmGeracao.bsp}` : ""}
+                  </span>
+                </span>
+                {bmSelecionado?.rowId === bmEmGeracaoOption.rowId && <Badge variant="secondary" className="text-[10px]">Selecionado</Badge>}
+              </button>
+            )}
             <div className="flex items-center gap-2">
               <Input className="h-8 text-xs" placeholder="Buscar BM, PO, cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
               <Button size="sm" variant="outline" onClick={() => recarregarBms()} loading={carregandoBms}>
