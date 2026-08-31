@@ -132,6 +132,9 @@ interface DiaOverrideEdit {
 
 function BmPage() {
   const [reopenBm, setReopenBm] = useState<Bm | null>(null);
+  // BSP/número do BM que está sendo montado no assistente "Gerar BM" — usado pela aba
+  // Logística Mob/Desmob pra oferecer "aplicar neste BM" direto, sem procurar na lista.
+  const [bmEmGeracao, setBmEmGeracao] = useState<{ bsp: string; bmNumber: string } | null>(null);
   // Controlados (em vez de defaultValue) só pra "Reabrir" no Histórico conseguir pular direto
   // pra sub-aba "Gerar BM" dentro de Mão de Obra Offshore — ver handleReopen abaixo.
   const [activeTab, setActiveTab] = useState("timesheets");
