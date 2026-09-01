@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel } from "@/components/LogisticaFormFields";
 import {
   Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
   Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
@@ -114,6 +114,8 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
   const qc = useQueryClient();
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
+  const valorPassagem = Number(f.valor) || 0;
+  const rateio = useRateioComplementar(valorPassagem);
 
   if (open && editing && bound !== editing.id) {
     setF({
@@ -125,9 +127,18 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       solicitante: editing.solicitante ?? "", solicitanteEmail: editing.solicitante_email ?? "",
       internacional: editing.internacional ?? false,
     });
+    // Reconstrói o percentual a partir do valor já gravado (o que fica salvo é sempre o
+    // valor calculado, o percentual é só conveniência de preenchimento — ver useRateioComplementar).
+    const totalEditado = editing.valor || 0;
+    if (editing.bsp_2 && editing.valor_2 && totalEditado > 0) {
+      rateio.setAtivo(true); rateio.setBsp2(editing.bsp_2); rateio.setPercentual2(String(Math.round((editing.valor_2 / totalEditado) * 10000) / 100));
+    }
+    if (editing.bsp_3 && editing.valor_3 && totalEditado > 0) {
+      rateio.setAtivo(true); rateio.setBsp3(editing.bsp_3); rateio.setPercentual3(String(Math.round((editing.valor_3 / totalEditado) * 10000) / 100));
+    }
     setBound(editing.id);
   }
-  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO); rateio.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
@@ -142,12 +153,16 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       const payload = {
         unidade: f.unidade, bsp: f.bsp, nome_usuario: f.nomeUsuario.trim(),
         companhia_aerea: f.companhiaAerea.trim() || null, origem: f.origem.trim() || null, destino: f.destino.trim() || null,
-        data_ida: f.dataIda, data_volta: f.dataVolta || null, tipo: f.tipo, valor: Number(f.valor) || 0,
+        data_ida: f.dataIda, data_volta: f.dataVolta || null, tipo: f.tipo, valor: valorPassagem,
         status: f.status, motivo: f.motivo.trim() || null,
         motivo_cancelamento: f.status === "Cancelada" ? (f.motivoCancelamento.trim() || null) : null,
         observacoes: f.observacoes.trim() || null,
         solicitante: f.solicitante.trim() || null, solicitante_email: f.solicitanteEmail.trim() || null,
         internacional: f.internacional,
+        bsp_2: rateio.ativo && rateio.bsp2.trim() ? rateio.bsp2.trim() : null,
+        bsp_3: rateio.ativo && rateio.bsp3.trim() ? rateio.bsp3.trim() : null,
+        valor_2: rateio.ativo && rateio.bsp2.trim() ? rateio.valor2 : null,
+        valor_3: rateio.ativo && rateio.bsp3.trim() ? rateio.valor3 : null,
       };
       if (editing) {
         const { error } = await supabase.from("passagens_aereas").update(payload).eq("id", editing.id);
@@ -254,6 +269,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               </Select>
             </div>
           </div>
+          <RateioComplementarPanel rateio={rateio} />
           {f.status === "Cancelada" && (
             <div>
               <Label className="text-xs">Motivo do cancelamento</Label>
@@ -660,7 +676,34 @@ function computeStatusInternacional(passagens: PassagemAerea[], hoje: string): P
   return { status, ultimaChegada, proximaSaida, proximoRetorno };
 }
 
-function RelatorioInternacionalTab({ passagens, colaboradores }: { passagens: PassagemAerea[]; colaboradores: ColaboradorBasico[] }) {
+// "Não informado" é valor gravado de verdade pela importação (ver parseUnidadeBsp/
+// buildPassagemRows), não só um texto de fallback da tela — por isso não basta checar
+// truthy, tem que descartar essa string literal pra não exibir campo "vazio" preenchido.
+function temValor(v: string | null | undefined): v is string {
+  return !!v && v.trim() !== "" && v.trim().toLocaleLowerCase("pt-BR") !== "não informado";
+}
+
+function CardPessoaViagem({ p }: { p: PessoaInternacional }) {
+  const datas = [
+    p.ultimaChegada && `Chegou ${fmt(p.ultimaChegada)}`,
+    p.proximaSaida && `Sai ${fmt(p.proximaSaida)}`,
+    p.proximoRetorno && `Volta ${fmt(p.proximoRetorno)}`,
+  ].filter(Boolean).join(" · ");
+  const secundario = [p.funcao, temValor(p.bsp) ? `BSP ${p.bsp}` : null].filter(Boolean).join(" · ");
+  return (
+    <div className="rounded border px-2 py-1.5 text-xs leading-tight">
+      <p className="font-medium text-foreground">{p.nome}</p>
+      {temValor(p.unidade) && <p className="text-muted-foreground">{p.unidade}</p>}
+      {datas && <p className="text-muted-foreground">{datas}</p>}
+      {secundario && <p className="mt-0.5 text-[10px] text-muted-foreground/70">{secundario}</p>}
+    </div>
+  );
+}
+
+// Lista com os 5 status (Chegando/Saindo/Em viagem/Sem retorno/Disponível) pro conjunto de
+// passagens já filtrado (nacional OU internacional) — reaproveitada pelas duas sub-abas e
+// pelo acesso de RH/SMS (que via RLS só recebe registro internacional de qualquer forma).
+function ListaViagensPorStatus({ passagens, colaboradores }: { passagens: PassagemAerea[]; colaboradores: ColaboradorBasico[] }) {
   const [expandido, setExpandido] = useState<Set<StatusInternacional>>(new Set());
   const toggle = (s: StatusInternacional) => setExpandido((cur) => { const n = new Set(cur); if (n.has(s)) n.delete(s); else n.add(s); return n; });
 
@@ -693,53 +736,77 @@ function RelatorioInternacionalTab({ passagens, colaboradores }: { passagens: Pa
   const porStatus = (STATUS_ORDER_INTERNACIONAL).map((s) => ({ status: s, pessoas: pessoas.filter((p) => p.status === s) }));
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        Controle de quem está chegando, saindo ou em viagem, baseado em todas as passagens cadastradas
-        (lançadas manualmente ou importadas). Viagens marcadas como internacionais aparecem com o selo abaixo.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {porStatus.map(({ status, pessoas: lista }) => {
-          const aberto = expandido.has(status);
-          return (
-            <div key={status} className={cn("rounded-md border text-xs", aberto && "w-full")}>
-              <button type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left" onClick={() => toggle(status)}>
-                <span className={`rounded px-1.5 py-0.5 font-medium ${STATUS_INTERNACIONAL_COLOR[status]}`}>{STATUS_INTERNACIONAL_LABEL[status]}</span>
-                <span className="font-semibold">{lista.length}</span>
-              </button>
-              {aberto && (
-                <div className="grid grid-cols-1 gap-x-4 gap-y-2 border-t px-2.5 py-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {lista.length === 0 ? (
-                    <p className="text-muted-foreground">Ninguém nesse status.</p>
-                  ) : lista.map((p) => (
-                    <div key={p.nome} className="rounded border p-2">
-                      <p className="flex items-center gap-1.5 font-medium text-foreground">
-                        {p.nome}
-                        {p.internacional && (
-                          <span className="rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-medium text-indigo-800">Internacional</span>
-                        )}
-                      </p>
-                      <p className="text-muted-foreground">{p.funcao ?? "Função não informada"}</p>
-                      <p className="text-muted-foreground">{p.unidade} · BSP {p.bsp}</p>
-                      <p className="mt-1 text-muted-foreground">
-                        {p.ultimaChegada && `Última chegada: ${fmt(p.ultimaChegada)}`}
-                        {p.proximaSaida && ` · Próxima saída: ${fmt(p.proximaSaida)}`}
-                        {p.proximoRetorno && ` · Retorno: ${fmt(p.proximoRetorno)}`}
-                        {!p.ultimaChegada && !p.proximaSaida && !p.proximoRetorno && "Sem histórico de datas"}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {pessoas.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma viagem internacional lançada ainda.</p>}
-      </div>
+    <div className="flex flex-wrap gap-2">
+      {porStatus.map(({ status, pessoas: lista }) => {
+        const aberto = expandido.has(status);
+        return (
+          <div key={status} className={cn("rounded-md border text-xs", aberto && "w-full")}>
+            <button type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left" onClick={() => toggle(status)}>
+              <span className={`rounded px-1.5 py-0.5 font-medium ${STATUS_INTERNACIONAL_COLOR[status]}`}>{STATUS_INTERNACIONAL_LABEL[status]}</span>
+              <span className="font-semibold">{lista.length}</span>
+            </button>
+            {aberto && (
+              <div className="grid grid-cols-2 gap-1.5 border-t px-2 py-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {lista.length === 0 ? (
+                  <p className="text-muted-foreground">Ninguém nesse status.</p>
+                ) : lista.map((p) => <CardPessoaViagem key={p.nome} p={p} />)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {pessoas.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma viagem lançada ainda.</p>}
     </div>
   );
 }
 const STATUS_ORDER_INTERNACIONAL: StatusInternacional[] = ["chegando", "saindo", "fora", "sem_retorno", "no_brasil"];
+
+// Mesmo critério que já gera o selo "Internacional" na passagem (campo internacional,
+// marcado na própria solicitação, nunca inferido) — só decide em qual sub-aba a pessoa
+// aparece; uma pessoa com viagem nos dois grupos aparece nas duas abas, cada uma só com as
+// passagens daquele tipo.
+function RelatorioInternacionalTab({ passagens, colaboradores, somenteInternacionais }: {
+  passagens: PassagemAerea[]; colaboradores: ColaboradorBasico[]; somenteInternacionais?: boolean;
+}) {
+  const [subAba, setSubAba] = useState<"internacionais" | "nacionais">("internacionais");
+
+  // RH/SMS só recebem passagem internacional via RLS — não faz sentido oferecer a sub-aba
+  // Nacionais nesse caso, ela sempre viria vazia.
+  if (somenteInternacionais) {
+    return <ListaViagensPorStatus passagens={passagens} colaboradores={colaboradores} />;
+  }
+
+  const passagensDaSubAba = passagens.filter((p) => subAba === "internacionais" ? p.internacional : !p.internacional);
+
+  return (
+    <div className="space-y-3">
+      {/* O switcher fica FORA da área que rola — como a página inteira usa o scroll do
+          documento (não um painel com altura própria), "position: sticky" aqui não segura
+          nada (o <main> do layout tem overflow-auto mas nunca chega a estourar sua própria
+          altura, então quem rola de verdade é a janela). Uma área de rolagem com altura
+          própria abaixo resolve o pedido de "Internacionais sempre visível" sem depender de
+          sticky. */}
+      <div className="space-y-2">
+        <Tabs value={subAba} onValueChange={(v) => setSubAba(v as "internacionais" | "nacionais")}>
+          <TabsList>
+            <TabsTrigger value="internacionais">
+              <Globe2 className="mr-1.5 h-3.5 w-3.5" />Internacionais
+            </TabsTrigger>
+            <TabsTrigger value="nacionais">Nacionais</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <p className="text-xs text-muted-foreground">
+          {subAba === "internacionais"
+            ? "Voos internacionais — acompanhamento prioritário (documentação e prazos)."
+            : "Voos nacionais."}
+        </p>
+      </div>
+      <div className="max-h-[70vh] overflow-y-auto pr-1">
+        <ListaViagensPorStatus passagens={passagensDaSubAba} colaboradores={colaboradores} />
+      </div>
+    </div>
+  );
+}
 
 // ─── Importação da planilha de custos histórica (aba "Passagens Aéreas") ───────────────────
 // Mesma planilha "Relatorio_Custos_Stepup_2026_por_modulo.xlsx" já usada em Transporte/
@@ -1069,7 +1136,7 @@ function PassagensAereasPage() {
       </div>
 
       {somenteRelatorioInternacional ? (
-        <RelatorioInternacionalTab passagens={passagens} colaboradores={colaboradores} />
+        <RelatorioInternacionalTab passagens={passagens} colaboradores={colaboradores} somenteInternacionais />
       ) : (
       <Tabs defaultValue="solicitacoes">
         <TabsList>

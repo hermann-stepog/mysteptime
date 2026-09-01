@@ -22,6 +22,13 @@ export interface Hospedagem {
   diarias: number;
   valor_diaria: number;
   valor_total: number;
+  // Rateio por centro de custo (BSP) — mesmo padrão do Transporte: até 3 BSPs por
+  // lançamento, cada um com sua fatia do valor_total. bsp/valor_total (acima) seguem sendo
+  // o BSP e o valor da 1ª fatia; sem 2ª/3ª fatia preenchida, o lançamento não é rateado.
+  bsp_2: string | null;
+  bsp_3: string | null;
+  valor_2: number | null;
+  valor_3: number | null;
   motivo: string | null;
   observacoes: string | null;
   // Campos vindos da importação da planilha de custos histórica (ver src/lib/importCustos.ts)

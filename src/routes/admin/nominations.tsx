@@ -2153,6 +2153,26 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
 
   const totalPositions = (items: Nomination[]) => items.reduce((sum, item) => sum + (item.quantidade || 1), 0);
 
+  // Total e por unidade de quem está REALMENTE embarcado (Drake) em teamReferenceDate — hoje por
+  // padrão, ou a data filtrada em "De"/"Até" — não confundir com totalPositions acima, que soma
+  // vaga de nomeação (quantidade), não gente de fato embarcada agora.
+  const embarqueSummary = useMemo(() => {
+    let total = 0;
+    const porUnidade: { unidade: string; total: number }[] = [];
+    groups.forEach((client) => {
+      client.units.forEach((unit) => {
+        const unidadeTotal = unit.bsps.reduce(
+          (sum, bsp) => sum + (drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name))?.length ?? 0),
+          0,
+        );
+        if (unidadeTotal > 0) porUnidade.push({ unidade: unit.name, total: unidadeTotal });
+        total += unidadeTotal;
+      });
+    });
+    porUnidade.sort((a, b) => b.total - a.total);
+    return { total, porUnidade };
+  }, [groups, drakeWorkersByAssignment]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -2192,6 +2212,23 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
             <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
           )}
         </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Card className="min-w-[150px] border-primary/30 bg-primary/5 px-3 py-2">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-primary/80">
+            Total embarcado {teamReferenceDate === today ? "hoje" : `em ${fmtDate(teamReferenceDate)}`}
+          </p>
+          <p className="text-xl font-semibold text-primary">{embarqueSummary.total}</p>
+        </Card>
+        {embarqueSummary.porUnidade.map(({ unidade, total }) => (
+          <Card key={unidade} className="min-w-[120px] px-3 py-2">
+            <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={unidade}>
+              {unidade}
+            </p>
+            <p className="text-xl font-semibold">{total}</p>
+          </Card>
+        ))}
       </div>
 
       <Card className="overflow-x-auto">
