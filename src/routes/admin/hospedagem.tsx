@@ -26,7 +26,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel } from "@/components/LogisticaFormFields";
 import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
@@ -201,6 +201,9 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const qc = useQueryClient();
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
+  const diariasAtual = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
+  const valorTotal = computeValorTotal(diariasAtual, Number(f.valorDiaria) || 0);
+  const rateio = useRateioComplementar(valorTotal);
 
   if (open && editing && bound !== editing.id) {
     setF({
@@ -211,18 +214,26 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       statusLancamento: editing.status_lancamento ?? "", faturado: editing.faturado ?? false,
       usuarioFaturamento: editing.usuario_faturamento ?? "", dataFaturamento: editing.data_faturamento ?? "",
     });
+    // Reconstrói o percentual a partir do valor já gravado (o que fica salvo é sempre o
+    // valor calculado, o percentual é só conveniência de preenchimento — ver useRateioComplementar).
+    const totalEditado = editing.valor_total || 0;
+    if (editing.bsp_2 && editing.valor_2 && totalEditado > 0) {
+      rateio.setAtivo(true); rateio.setBsp2(editing.bsp_2); rateio.setPercentual2(String(Math.round((editing.valor_2 / totalEditado) * 10000) / 100));
+    }
+    if (editing.bsp_3 && editing.valor_3 && totalEditado > 0) {
+      rateio.setAtivo(true); rateio.setBsp3(editing.bsp_3); rateio.setPercentual3(String(Math.round((editing.valor_3 / totalEditado) * 10000) / 100));
+    }
     setBound(editing.id);
   }
   // Vem preenchido quando aberto a partir de outro módulo (ex.: Passagens Aéreas, ao marcar
   // uma passagem como Cancelada) — só unidade/bsp/nome/motivo, o resto (hotel/datas/valor)
   // continua em branco pra digitação normal.
-  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); rateio.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
   const hotelSelecionado = hoteis.find((h) => h.id === f.hotelId);
-  const diarias = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
-  const valorTotal = computeValorTotal(diarias, Number(f.valorDiaria) || 0);
+  const diarias = diariasAtual;
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -236,6 +247,10 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
         unidade: f.unidade, bsp: f.bsp, nome_usuario: f.nomeUsuario.trim(), hotel_id: f.hotelId,
         check_in: f.checkIn, check_out: f.checkOut, diarias, valor_diaria: Number(f.valorDiaria) || 0,
         valor_total: valorTotal, motivo: f.motivo.trim() || null, observacoes: f.observacoes.trim() || null,
+        bsp_2: rateio.ativo && rateio.bsp2.trim() ? rateio.bsp2.trim() : null,
+        bsp_3: rateio.ativo && rateio.bsp3.trim() ? rateio.bsp3.trim() : null,
+        valor_2: rateio.ativo && rateio.bsp2.trim() ? rateio.valor2 : null,
+        valor_3: rateio.ativo && rateio.bsp3.trim() ? rateio.valor3 : null,
         nf: f.nf.trim() || null, fornecedor: f.fornecedor.trim() || null, cobrado: f.cobrado,
         status_lancamento: f.statusLancamento.trim() || null, faturado: f.faturado,
         usuario_faturamento: f.usuarioFaturamento.trim() || null, data_faturamento: f.dataFaturamento || null,
@@ -315,6 +330,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
               <Input disabled value={fmtMoney(valorTotal)} className="bg-muted" />
             </div>
           </div>
+          <RateioComplementarPanel rateio={rateio} />
           <div>
             <Label className="text-xs">Motivo</Label>
             <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />

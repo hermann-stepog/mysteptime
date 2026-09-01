@@ -26,6 +26,7 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
+import { useRateioPercentual, RateioPercentualPanel } from "@/components/LogisticaFormFields";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
@@ -468,11 +469,26 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   };
   const [f, setF] = useState<FormState>(() => init(trip, columns));
   const [openedFor, setOpenedFor] = useState<string | null>(null);
+  const rateio = useRateioPercentual(3);
   if (open && openedFor !== (trip?.id ?? "new")) {
     setF(init(trip, columns));
     setOpenedFor(trip?.id ?? "new");
+    rateio.reset();
   }
   if (!open && openedFor !== null) setOpenedFor(null);
+
+  // Rateio ligado: os 3 campos de Valor deixam de ser digitados direto e passam a refletir
+  // total × percentual — sem isso, a pessoa preencheria os dois de qualquer jeito e um
+  // sobrescreveria o outro sem nenhum aviso.
+  useEffect(() => {
+    if (!rateio.ativo) return;
+    setF((atual) => ({
+      ...atual,
+      custo: String(rateio.valores[0] ?? 0),
+      custo_2: String(rateio.valores[1] ?? 0),
+      custo_3: String(rateio.valores[2] ?? 0),
+    }));
+  }, [rateio.ativo, rateio.valores[0], rateio.valores[1], rateio.valores[2]]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -633,7 +649,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div>
               <Label>Valor (opcional)</Label>
               <Input
-                type="number" step="0.01" min="0" inputMode="decimal"
+                type="number" step="0.01" min="0" inputMode="decimal" readOnly={rateio.ativo}
+                className={rateio.ativo ? "bg-muted/40" : undefined}
                 value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })}
                 placeholder="R$ 0,00"
               />
@@ -646,7 +663,8 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div>
               <Label>Valor 2 (opcional)</Label>
               <Input
-                type="number" step="0.01" min="0" inputMode="decimal"
+                type="number" step="0.01" min="0" inputMode="decimal" readOnly={rateio.ativo}
+                className={rateio.ativo ? "bg-muted/40" : undefined}
                 value={f.custo_2} onChange={(e) => setF({ ...f, custo_2: e.target.value })}
                 placeholder="R$ 0,00"
               />
@@ -659,12 +677,15 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div>
               <Label>Valor 3 (opcional)</Label>
               <Input
-                type="number" step="0.01" min="0" inputMode="decimal"
+                type="number" step="0.01" min="0" inputMode="decimal" readOnly={rateio.ativo}
+                className={rateio.ativo ? "bg-muted/40" : undefined}
                 value={f.custo_3} onChange={(e) => setF({ ...f, custo_3: e.target.value })}
                 placeholder="R$ 0,00"
               />
             </div>
           </div>
+
+          <RateioPercentualPanel rateio={rateio} labels={["BSP 1", "BSP 2", "BSP 3"]} />
 
           <div><Label>Unidade</Label><Input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value })} placeholder="Preenchido automaticamente ao selecionar colaborador" /></div>
 

@@ -139,7 +139,7 @@ function useCustosBrutosQuery() {
   const { data: ratesMap = new Map(), isLoading: l1 } = useRatesBspMapQuery();
   const { data: hospedagens = [], isLoading: l2 } = useQuery({
     queryKey: ["consolidada-hospedagens"],
-    queryFn: async () => (await db.from("hospedagens").select("id, check_in, check_out, unidade, bsp, nome_usuario, valor_total")).data ?? [],
+    queryFn: async () => (await db.from("hospedagens").select("id, check_in, check_out, unidade, bsp, bsp_2, bsp_3, nome_usuario, valor_total, valor_2, valor_3")).data ?? [],
   });
   const { data: trips = [], isLoading: l3 } = useQuery({
     queryKey: ["consolidada-transport-trips"],
@@ -147,7 +147,7 @@ function useCustosBrutosQuery() {
   });
   const { data: passagens = [], isLoading: l4 } = useQuery({
     queryKey: ["consolidada-passagens"],
-    queryFn: async () => (await db.from("passagens_aereas").select("id, data_ida, data_volta, unidade, bsp, nome_usuario, origem, destino, valor")).data ?? [],
+    queryFn: async () => (await db.from("passagens_aereas").select("id, data_ida, data_volta, unidade, bsp, bsp_2, bsp_3, nome_usuario, origem, destino, valor, valor_2, valor_3")).data ?? [],
   });
 
   // clienteDaUnidade (CLIENTE_POR_UNIDADE) é a fonte PRIORITÁRIA confirmada pela operação —
@@ -164,31 +164,42 @@ function useCustosBrutosQuery() {
     if (unidadeNativa && clienteDaUnidade(unidadeNativa)) return unidadeCanonica(unidadeNativa)!;
     return "BASE";
   };
-  const unidadeNativaOuBase = (unidadeNativa: string | null): string =>
-    unidadeNativa && clienteDaUnidade(unidadeNativa) ? unidadeCanonica(unidadeNativa)! : "BASE";
 
   const brutos = useMemo(() => {
     const out: LancamentoBruto[] = [];
 
+    // Rateio por centro de custo (BSP): igual ao Transporte, até 3 BSPs por lançamento —
+    // bsp/bsp_2/bsp_3, cada um com sua fatia. Sem rateio (valor_2/valor_3 nulos), a 1ª perna
+    // absorve o valor_total inteiro e as outras duas somem no filtro de valor zerado.
     (hospedagens as any[]).forEach((h) => {
-      if (!h.valor_total) return; // desconsidera lançamentos com valor zerado
-      out.push({
-        cliente: clienteDoBsp(h.bsp, h.unidade), unidade: unidadeNativaOuBase(h.unidade), bsp: h.bsp?.trim() || "Não informado",
-        item: {
-          tipo: "hospedagem", data: h.check_in, dataFim: h.check_out || h.check_in,
-          descricao: `${h.nome_usuario} · ${fmtDate(h.check_in)} – ${fmtDate(h.check_out)}`, valor: h.valor_total ?? 0,
-        },
+      const v2 = h.valor_2 ?? 0;
+      const v3 = h.valor_3 ?? 0;
+      const pernas: [string | null, number][] = [[h.bsp, (h.valor_total ?? 0) - v2 - v3], [h.bsp_2, v2], [h.bsp_3, v3]];
+      pernas.forEach(([bsp, valor]) => {
+        if (!valor) return; // desconsidera pernas com valor zerado
+        out.push({
+          cliente: clienteDoBsp(bsp, h.unidade), unidade: unidadeDoBsp(bsp, h.unidade), bsp: bsp?.trim() || "Não informado",
+          item: {
+            tipo: "hospedagem", data: h.check_in, dataFim: h.check_out || h.check_in,
+            descricao: `${h.nome_usuario} · ${fmtDate(h.check_in)} – ${fmtDate(h.check_out)}`, valor,
+          },
+        });
       });
     });
 
     (passagens as any[]).forEach((p) => {
-      if (!p.valor) return;
-      out.push({
-        cliente: clienteDoBsp(p.bsp, p.unidade), unidade: unidadeNativaOuBase(p.unidade), bsp: p.bsp?.trim() || "Não informado",
-        item: {
-          tipo: "passagens", data: p.data_ida, dataFim: p.data_volta || p.data_ida,
-          descricao: `${p.nome_usuario} · ${p.origem ?? "—"} → ${p.destino ?? "—"}`, valor: p.valor ?? 0,
-        },
+      const v2 = p.valor_2 ?? 0;
+      const v3 = p.valor_3 ?? 0;
+      const pernas: [string | null, number][] = [[p.bsp, (p.valor ?? 0) - v2 - v3], [p.bsp_2, v2], [p.bsp_3, v3]];
+      pernas.forEach(([bsp, valor]) => {
+        if (!valor) return;
+        out.push({
+          cliente: clienteDoBsp(bsp, p.unidade), unidade: unidadeDoBsp(bsp, p.unidade), bsp: bsp?.trim() || "Não informado",
+          item: {
+            tipo: "passagens", data: p.data_ida, dataFim: p.data_volta || p.data_ida,
+            descricao: `${p.nome_usuario} · ${p.origem ?? "—"} → ${p.destino ?? "—"}`, valor,
+          },
+        });
       });
     });
 
