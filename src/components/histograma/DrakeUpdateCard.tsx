@@ -569,6 +569,9 @@ export function DrakeUpdateCard() {
               {result.availabilityEvents != null && (
                 <p>{result.availabilityEvents} períodos de disponibilidade lançados</p>
               )}
+              {!!result.novosColaboradores && (
+                <p>{result.novosColaboradores} colaboradores novos cadastrados (efetivo geral do Drake)</p>
+              )}
             </div>
           )}
         </div>

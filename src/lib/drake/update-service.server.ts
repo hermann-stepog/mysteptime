@@ -222,6 +222,7 @@ async function updateDrakeDataInner(
       removedStaleEvents: summary.removedStaleEvents,
       totalDurationMs: Date.now() - startedAtMs,
       skipped: summary.skippedExistingDays,
+      novosColaboradores: summary.novosColaboradores,
     };
 
     logger.info("drake-update", "Atualizacao da ficha anual Drake concluida", {

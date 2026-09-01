@@ -141,6 +141,7 @@ export interface DrakeUpdateResult {
   updated?: number;
   embarkationEvents?: number;
   availabilityEvents?: number;
+  novosColaboradores?: number;
   skipped?: number;
   report1DurationMs?: number;
   import1DurationMs?: number;
