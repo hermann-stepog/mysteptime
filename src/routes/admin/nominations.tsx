@@ -1978,10 +1978,12 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
   const [search, setSearch] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
-  // Tudo começa aberto, como solicitado. Os sets guardam somente os itens recolhidos.
-  const [collapsedClients, setCollapsedClients] = useState<Set<string>>(new Set());
-  const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
-  const [collapsedBsps, setCollapsedBsps] = useState<Set<string>>(new Set());
+  // Cascata Cliente → Unidade → BSP nasce sempre recuada/fechada — só abre o que a pessoa clicar
+  // (pedido posterior dela substitui o "tudo começa aberto" de antes). Os sets guardam só os
+  // itens abertos.
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+  const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
   const today = todayStr();
   const teamReferenceDate = periodStart || periodEnd || today;
 
@@ -2195,21 +2197,28 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
         <Button
           type="button" size="sm" variant="ghost" className="h-8 ml-auto text-muted-foreground"
           onClick={() => {
-            const tudoAberto = collapsedClients.size === 0 && collapsedUnits.size === 0 && collapsedBsps.size === 0;
+            const totalUnits = groups.reduce((n, c) => n + c.units.length, 0);
+            const totalBsps = groups.reduce((n, c) => n + c.units.reduce((m, u) => m + u.bsps.length, 0), 0);
+            const tudoAberto = expandedClients.size >= groups.length && expandedUnits.size >= totalUnits && expandedBsps.size >= totalBsps;
             if (tudoAberto) {
-              setCollapsedClients(new Set(groups.map((c) => c.name)));
-              setCollapsedUnits(new Set(groups.flatMap((c) => c.units.map((u) => `${c.name}::${u.name}`))));
-              setCollapsedBsps(new Set(groups.flatMap((c) => c.units.flatMap((u) => u.bsps.map((b) => `${c.name}::${u.name}::${b.name}`)))));
+              setExpandedClients(new Set()); setExpandedUnits(new Set()); setExpandedBsps(new Set());
             } else {
-              setCollapsedClients(new Set()); setCollapsedUnits(new Set()); setCollapsedBsps(new Set());
+              setExpandedClients(new Set(groups.map((c) => c.name)));
+              setExpandedUnits(new Set(groups.flatMap((c) => c.units.map((u) => `${c.name}::${u.name}`))));
+              setExpandedBsps(new Set(groups.flatMap((c) => c.units.flatMap((u) => u.bsps.map((b) => `${c.name}::${u.name}::${b.name}`)))));
             }
           }}
         >
-          {collapsedClients.size === 0 && collapsedUnits.size === 0 && collapsedBsps.size === 0 ? (
-            <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
-          ) : (
-            <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
-          )}
+          {(() => {
+            const totalUnits = groups.reduce((n, c) => n + c.units.length, 0);
+            const totalBsps = groups.reduce((n, c) => n + c.units.reduce((m, u) => m + u.bsps.length, 0), 0);
+            const tudoAberto = expandedClients.size >= groups.length && expandedUnits.size >= totalUnits && expandedBsps.size >= totalBsps;
+            return tudoAberto ? (
+              <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+            ) : (
+              <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+            );
+          })()}
         </Button>
       </div>
 
@@ -2235,12 +2244,12 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
         {groups.length === 0 ? (
           <EmptyState icon={Layers3} title="Nenhuma nomeação encontrada" description="Ajuste a busca ou o período selecionado." />
         ) : groups.map((client) => {
-          const clientOpen = !collapsedClients.has(client.name);
+          const clientOpen = expandedClients.has(client.name);
           return <div key={client.name} className="border-b last:border-b-0">
             <div className="flex w-full items-center bg-slate-50 px-4 py-3 text-left">
               <span className="flex min-w-0 items-center gap-2 font-semibold">
                 <button type="button" className="rounded p-0.5 hover:bg-slate-200" aria-label={clientOpen ? `Recolher ${client.name}` : `Abrir ${client.name}`}
-                  aria-expanded={clientOpen} onClick={() => toggleCollapsed(setCollapsedClients, client.name)}>
+                  aria-expanded={clientOpen} onClick={() => toggleCollapsed(setExpandedClients, client.name)}>
                   {clientOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 </button>
                 <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{client.name}</span>
@@ -2248,12 +2257,12 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
             </div>
             {clientOpen && client.units.map((unit) => {
               const unitKey = `${client.name}::${unit.name}`;
-              const unitOpen = !collapsedUnits.has(unitKey);
+              const unitOpen = expandedUnits.has(unitKey);
               return <div key={unitKey}>
                 <div className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t bg-sky-50/60 px-4 py-2.5 text-left max-md:flex max-md:justify-between">
                   <span className="flex min-w-0 items-center gap-2 pl-7 font-semibold text-sky-950">
                     <button type="button" className="rounded p-0.5 hover:bg-sky-100" aria-label={unitOpen ? `Recolher ${unit.name}` : `Abrir ${unit.name}`}
-                      aria-expanded={unitOpen} onClick={() => toggleCollapsed(setCollapsedUnits, unitKey)}>
+                      aria-expanded={unitOpen} onClick={() => toggleCollapsed(setExpandedUnits, unitKey)}>
                       {unitOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                     </button>
                     <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{unit.name}</span>
@@ -2263,7 +2272,7 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
                 </div>
               {unitOpen && unit.bsps.map((bsp) => {
               const bspKey = `${unitKey}::${bsp.name}`;
-              const bspOpen = !collapsedBsps.has(bspKey);
+              const bspOpen = expandedBsps.has(bspKey);
               const drakeTeam = drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name)) ?? [];
               // Próxima troca de turma do BSP = desembarque mais próximo entre os embarcados —
               // é o próximo dia em que ALGUÉM daquele BSP precisa ser rendido.
@@ -2276,7 +2285,7 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
                 <div className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t bg-white px-4 py-2.5 text-left max-md:flex max-md:justify-between">
                   <span className="flex min-w-0 flex-wrap items-center gap-2 pl-14 font-medium">
                     <button type="button" className="rounded p-0.5 hover:bg-muted" aria-label={bspOpen ? `Recolher ${bsp.name}` : `Abrir ${bsp.name}`}
-                      aria-expanded={bspOpen} onClick={() => toggleCollapsed(setCollapsedBsps, bspKey)}>
+                      aria-expanded={bspOpen} onClick={() => toggleCollapsed(setExpandedBsps, bspKey)}>
                       {bspOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                     </button>
                     <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{bsp.name}</span>
