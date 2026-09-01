@@ -24,7 +24,7 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NomeUsuarioField, MotivoField } from "@/components/LogisticaFormFields";
 import {
-  Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle, ArrowDownToLine, ArrowUpFromLine,
+  Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
   Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
 } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
@@ -614,183 +614,6 @@ function GerenciarFluxoDialog({ passagem, open, onOpenChange }: {
   );
 }
 
-// ─── Aba "Próximas Viagens" ─────────────────────────────────────────────────
-const JANELA_PROXIMOS_DIAS = 7;
-type Direcao = "ida" | "volta";
-interface ItemViagem { passagem: PassagemAerea; direcao: Direcao; data: string; }
-
-// Ainda não emitida e faltam ≤3 dias pra data de ida — mesmo limiar já usado nesta sessão
-// pro alerta de "troca de turma" em Nomeações.
-function temAlerta(item: ItemViagem, hoje: string): boolean {
-  if (item.direcao !== "ida") return false;
-  if (item.passagem.status_fluxo === "emitida" || item.passagem.status_fluxo === "concluida") return false;
-  return item.data <= addDays(hoje, 3);
-}
-
-function ItemViagemRow({ item, hoje }: { item: ItemViagem; hoje: string }) {
-  const p = item.passagem;
-  const alerta = temAlerta(item, hoje);
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className={cn("flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded text-[9px] font-bold text-white", item.direcao === "ida" ? "bg-emerald-600" : "bg-orange-500")}>
-          <span>{item.data.slice(8, 10)}/{item.data.slice(5, 7)}</span>
-        </span>
-        <div className="min-w-0">
-          <p className="truncate font-medium">{p.nome_usuario}</p>
-          <p className="truncate text-muted-foreground">{p.unidade} · BSP {p.bsp} · {p.origem ?? "—"} → {p.destino ?? "—"}</p>
-        </div>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 text-muted-foreground">
-        <span className="inline-flex items-center gap-1">
-          {item.direcao === "ida" ? <ArrowUpFromLine className="h-3 w-3 text-emerald-600" /> : <ArrowDownToLine className="h-3 w-3 text-orange-600" />}
-          {item.direcao === "ida" ? "Ida" : "Volta"}
-        </span>
-        <span>{p.companhia_aerea ?? "—"}</span>
-        <span className={`rounded px-1.5 py-0.5 font-medium ${STATUS_FLUXO_COLOR[p.status_fluxo].bg} ${STATUS_FLUXO_COLOR[p.status_fluxo].text}`}>{STATUS_FLUXO_LABEL[p.status_fluxo]}</span>
-        {alerta && (
-          <span title="Viagem próxima, ainda sem emissão">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SecaoViagens({ titulo, itens, hoje }: { titulo: string; itens: ItemViagem[]; hoje: string }) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titulo} ({itens.length})</p>
-      {itens.length === 0 ? (
-        <p className="py-2 text-xs text-muted-foreground/70">Nada por aqui.</p>
-      ) : (
-        <div className="space-y-1.5">{itens.map((item, i) => <ItemViagemRow key={`${item.passagem.id}-${item.direcao}-${i}`} item={item} hoje={hoje} />)}</div>
-      )}
-    </div>
-  );
-}
-
-function ProximasViagensTab({ passagens, unidadeOptions, periodosE }: {
-  passagens: PassagemAerea[]; unidadeOptions: string[]; periodosE: HistNovoPeriodo[];
-}) {
-  const [filterColaborador, setFilterColaborador] = useState("all");
-  const [filterUnidade, setFilterUnidade] = useState("all");
-  const [filterBsp, setFilterBsp] = useState("all");
-  const [filterDirecao, setFilterDirecao] = useState<"all" | Direcao>("all");
-  const [filterStatus, setFilterStatus] = useState<"all" | StatusFluxo>("all");
-  const [periodoDe, setPeriodoDe] = useState("");
-  const [periodoAte, setPeriodoAte] = useState("");
-
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
-  const nomesVistos = useMemo(() => Array.from(new Set(passagens.map((p) => p.nome_usuario))).sort(), [passagens]);
-
-  const filtradas = useMemo(() => passagens.filter((p) =>
-    (filterColaborador === "all" || p.nome_usuario === filterColaborador) &&
-    (filterUnidade === "all" || p.unidade === filterUnidade) &&
-    (filterBsp === "all" || p.bsp === filterBsp) &&
-    (filterStatus === "all" || p.status_fluxo === filterStatus) &&
-    (!periodoDe || (p.data_volta ?? p.data_ida) >= periodoDe) &&
-    (!periodoAte || p.data_ida <= periodoAte),
-  ), [passagens, filterColaborador, filterUnidade, filterBsp, filterStatus, periodoDe, periodoAte]);
-
-  const hoje = todayStr();
-  const limite7 = addDays(hoje, JANELA_PROXIMOS_DIAS);
-
-  const itens = useMemo(() => {
-    const arr: ItemViagem[] = [];
-    filtradas.forEach((p) => {
-      if (filterDirecao !== "volta") arr.push({ passagem: p, direcao: "ida", data: p.data_ida });
-      if (p.data_volta && filterDirecao !== "ida") arr.push({ passagem: p, direcao: "volta", data: p.data_volta });
-    });
-    return arr.sort((a, b) => a.data.localeCompare(b.data));
-  }, [filtradas, filterDirecao]);
-
-  const saindoHoje = itens.filter((i) => i.direcao === "ida" && i.data === hoje);
-  const chegandoHoje = itens.filter((i) => i.direcao === "volta" && i.data === hoje);
-  const proximos7 = itens.filter((i) => i.data > hoje && i.data <= limite7);
-  const programadasItens = useMemo(() => {
-    const arr: ItemViagem[] = [];
-    filtradas.filter((p) => p.status_fluxo !== "emitida" && p.status_fluxo !== "concluida").forEach((p) => {
-      arr.push({ passagem: p, direcao: "ida", data: p.data_ida });
-    });
-    return arr.sort((a, b) => a.data.localeCompare(b.data));
-  }, [filtradas]);
-
-  return (
-    <div className="space-y-4">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
-            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
-          </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
-            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-44">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-            <Select value={filterColaborador} onValueChange={setFilterColaborador}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {nomesVistos.map((n) => <SelectItem key={n} value={n} className="text-xs">{n}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
-            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
-            <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-32">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Partida/Chegada</Label>
-            <Select value={filterDirecao} onValueChange={(v) => setFilterDirecao(v as "all" | Direcao)}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Ambos</SelectItem>
-                <SelectItem value="ida" className="text-xs">Só ida</SelectItem>
-                <SelectItem value="volta" className="text-xs">Só volta</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
-            <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as "all" | StatusFluxo)}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {STATUS_FLUXO_ORDER.map((s) => <SelectItem key={s} value={s} className="text-xs">{STATUS_FLUXO_LABEL[s]}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </Card>
-
-      <SecaoViagens titulo="Saindo hoje" itens={saindoHoje} hoje={hoje} />
-      <SecaoViagens titulo="Chegando hoje" itens={chegandoHoje} hoje={hoje} />
-      <SecaoViagens titulo={`Próximos ${JANELA_PROXIMOS_DIAS} dias`} itens={proximos7} hoje={hoje} />
-      <SecaoViagens titulo="Programadas (ainda não emitidas)" itens={programadasItens} hoje={hoje} />
-    </div>
-  );
-}
-
 // ─── Aba "Relatório de Viagens" ──────────────────────────────────────────────
 // Nunca inventa/duplica dado do Drake — função vem de hist_novo_colaboradores (mesmo campo já
 // usado em todo o resto do sistema). Mostra TODAS as passagens (lançadas manualmente ou vindas
@@ -1251,13 +1074,9 @@ function PassagensAereasPage() {
       <Tabs defaultValue="solicitacoes">
         <TabsList>
           <TabsTrigger value="solicitacoes">Solicitações</TabsTrigger>
-          <TabsTrigger value="proximas">Próximas Viagens</TabsTrigger>
           <TabsTrigger value="internacionais">Relatório de Viagens</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="proximas" className="mt-4">
-          <ProximasViagensTab passagens={passagens} unidadeOptions={unidadeOptions} periodosE={periodosE} />
-        </TabsContent>
         <TabsContent value="internacionais" className="mt-4">
           <RelatorioInternacionalTab passagens={passagens} colaboradores={colaboradores} />
         </TabsContent>
