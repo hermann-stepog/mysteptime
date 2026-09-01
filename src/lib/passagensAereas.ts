@@ -13,6 +13,13 @@ export interface PassagemAerea {
   data_volta: string | null;
   tipo: string;
   valor: number;
+  // Rateio por centro de custo (BSP) — mesmo padrão do Transporte: até 3 BSPs por
+  // lançamento, cada um com sua fatia do valor. bsp/valor (acima) seguem sendo o BSP e o
+  // valor da 1ª fatia; sem 2ª/3ª fatia preenchida, o lançamento não é rateado.
+  bsp_2: string | null;
+  bsp_3: string | null;
+  valor_2: number | null;
+  valor_3: number | null;
   status: string;
   motivo: string | null;
   motivo_cancelamento: string | null;

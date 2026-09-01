@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MOTIVOS_LOGISTICA } from "@/lib/logistica";
@@ -70,5 +71,150 @@ export function MotivoField({ value, onChange }: { value: string; onChange: (v: 
         <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
       </SelectContent>
     </Select>
+  );
+}
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+function toNumber(v: string): number {
+  const n = Number(v.replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+// ── Rateio por percentual entre BSPs/centros de custo ────────────────────────────────────
+// Compartilhado por Transporte, Hospedagem e Passagens Aéreas: em vez de digitar o valor de
+// cada BSP na mão, digita o valor TOTAL do lançamento uma vez e o percentual de cada BSP —
+// o valor de cada linha sai calculado (total × percentual/100). Nunca substitui o campo de
+// valor por linha, só oferece um jeito mais rápido de preenchê-lo quando o custo já nasce
+// dividido por rateio; desligado, cada linha continua sendo digitada direto como sempre foi.
+export function useRateioPercentual(numLinhas: number) {
+  const [ativo, setAtivoState] = useState(false);
+  const [valorTotal, setValorTotal] = useState("");
+  const [percentuais, setPercentuaisState] = useState<string[]>(["100", "", ""]);
+
+  const total = toNumber(valorTotal);
+  const somaPercentual = round2(percentuais.slice(0, numLinhas).reduce((soma, p) => soma + toNumber(p), 0));
+  const valores = percentuais.map((p) => round2(total * toNumber(p) / 100));
+
+  function setPercentual(indice: number, valor: string) {
+    setPercentuaisState((atual) => { const proximo = [...atual]; proximo[indice] = valor; return proximo; });
+  }
+  function setAtivo(valor: boolean) {
+    setAtivoState(valor);
+    if (!valor) { setValorTotal(""); setPercentuaisState(["100", "", ""]); }
+  }
+  function reset() {
+    setAtivoState(false); setValorTotal(""); setPercentuaisState(["100", "", ""]);
+  }
+
+  return { ativo, setAtivo, valorTotal, setValorTotal, percentuais, setPercentual, valores, somaPercentual, total, reset };
+}
+
+export type UseRateioPercentualReturn = ReturnType<typeof useRateioPercentual>;
+
+// Painel de UI do rateio acima — recebe o resultado de useRateioPercentual já pronto, só
+// desenha o toggle + valor total + percentual de cada linha ativa (BSP com valor preenchido).
+export function RateioPercentualPanel({ rateio, labels }: { rateio: UseRateioPercentualReturn; labels: string[] }) {
+  return (
+    <div className="rounded-md border border-dashed p-3 text-xs">
+      <label className="flex items-center gap-2 font-medium">
+        <input type="checkbox" checked={rateio.ativo} onChange={(e) => rateio.setAtivo(e.target.checked)} />
+        Calcular por rateio (%) em vez de digitar cada valor
+      </label>
+      {rateio.ativo && (
+        <div className="mt-2 space-y-2">
+          <div className="max-w-[220px]">
+            <Label className="text-xs">Valor total do lançamento</Label>
+            <Input
+              type="number" step="0.01" min="0" inputMode="decimal"
+              value={rateio.valorTotal} onChange={(e) => rateio.setValorTotal(e.target.value)}
+              placeholder="R$ 0,00"
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {labels.map((label, i) => (
+              <div key={label}>
+                <Label className="text-xs">{label} — %</Label>
+                <Input
+                  type="number" step="0.01" min="0" max="100" inputMode="decimal"
+                  value={rateio.percentuais[i] ?? ""} onChange={(e) => rateio.setPercentual(i, e.target.value)}
+                  placeholder="0"
+                />
+                <p className="mt-0.5 text-muted-foreground">
+                  {(rateio.valores[i] ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className={rateio.somaPercentual === 100 ? "text-muted-foreground" : "font-medium text-destructive"}>
+            Soma dos percentuais: {rateio.somaPercentual}%{rateio.somaPercentual !== 100 && " — precisa somar 100%"}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtMoneyLocal(n: number): string {
+  return (Number(n) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// ── Rateio complementar (Hospedagem/Passagens Aéreas) ────────────────────────────────────
+// Diferente do rateio de Transporte acima: aqui já existe um valor único calculado pro
+// lançamento (diárias × valor da diária, ou o valor digitado da passagem) — não faz sentido
+// pedir de novo um "valor total". Em vez de 3 fatias independentes, só pede o percentual dos
+// centros de custo EXTRAS (2º e 3º BSP); o BSP principal (já preenchido acima no formulário)
+// fica implicitamente com o restante — nunca precisa reescrever esse valor na mão.
+export function useRateioComplementar(valorBase: number) {
+  const [ativo, setAtivoState] = useState(false);
+  const [bsp2, setBsp2] = useState("");
+  const [percentual2, setPercentual2] = useState("");
+  const [bsp3, setBsp3] = useState("");
+  const [percentual3, setPercentual3] = useState("");
+
+  const valor2 = round2(valorBase * toNumber(percentual2) / 100);
+  const valor3 = round2(valorBase * toNumber(percentual3) / 100);
+  const restante = round2(valorBase - valor2 - valor3);
+
+  function setAtivo(valor: boolean) {
+    setAtivoState(valor);
+    if (!valor) { setBsp2(""); setPercentual2(""); setBsp3(""); setPercentual3(""); }
+  }
+  function reset() {
+    setAtivoState(false); setBsp2(""); setPercentual2(""); setBsp3(""); setPercentual3("");
+  }
+
+  return { ativo, setAtivo, bsp2, setBsp2, percentual2, setPercentual2, bsp3, setBsp3, percentual3, setPercentual3, valor2, valor3, restante, reset };
+}
+
+export type UseRateioComplementarReturn = ReturnType<typeof useRateioComplementar>;
+
+export function RateioComplementarPanel({ rateio }: { rateio: UseRateioComplementarReturn }) {
+  return (
+    <div className="rounded-md border border-dashed p-3 text-xs">
+      <label className="flex items-center gap-2 font-medium">
+        <input type="checkbox" checked={rateio.ativo} onChange={(e) => rateio.setAtivo(e.target.checked)} />
+        Ratear parte do valor com outro(s) centro(s) de custo
+      </label>
+      {rateio.ativo && (
+        <div className="mt-2 space-y-2">
+          <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-3">
+            <div><Label className="text-xs">BSP 2</Label><Input value={rateio.bsp2} onChange={(e) => rateio.setBsp2(e.target.value)} placeholder="Número do BSP" /></div>
+            <div><Label className="text-xs">% do valor</Label><Input type="number" step="0.01" min="0" max="100" inputMode="decimal" value={rateio.percentual2} onChange={(e) => rateio.setPercentual2(e.target.value)} placeholder="0" /></div>
+            <p className="text-muted-foreground">{fmtMoneyLocal(rateio.valor2)}</p>
+          </div>
+          <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-3">
+            <div><Label className="text-xs">BSP 3</Label><Input value={rateio.bsp3} onChange={(e) => rateio.setBsp3(e.target.value)} placeholder="Número do BSP" /></div>
+            <div><Label className="text-xs">% do valor</Label><Input type="number" step="0.01" min="0" max="100" inputMode="decimal" value={rateio.percentual3} onChange={(e) => rateio.setPercentual3(e.target.value)} placeholder="0" /></div>
+            <p className="text-muted-foreground">{fmtMoneyLocal(rateio.valor3)}</p>
+          </div>
+          <p className={rateio.restante < 0 ? "font-medium text-destructive" : "text-muted-foreground"}>
+            BSP principal fica com {fmtMoneyLocal(rateio.restante)}
+            {rateio.restante < 0 && " — os percentuais somam mais que 100% do valor"}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
