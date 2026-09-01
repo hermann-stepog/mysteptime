@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+import { selectAllPages } from "@/lib/supabasePaginate";
 // bm_mob_desmob_costs ainda não está no types.ts gerado — mesmo padrão das outras tabelas de BM.
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
@@ -117,10 +118,22 @@ function toIsoDate(v: unknown): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+// Só letras minúsculas sem acento, mas preservando espaço — norm() (acima) tira os espaços
+// também, o que destruiria as bordas de palavra usadas aqui embaixo.
+function normPreservandoEspaco(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+// Classifica só pelo que a própria linha diz (categoria/notes) — nunca pelo nome da aba da
+// planilha, que costuma se chamar algo como "Transporte" mesmo quando tem lançamento de outro
+// tipo misturado, e "contaminava" toda linha da aba pra "Transporte" sem examinar o conteúdo
+// real dela. Bordas de palavra (\b) evitam pegar palavra parecida à toa (ex.: "caro", "busca")
+// — nome de rota (ex.: "RIO X BASE STEP") não bate com nenhum termo aqui e cai em "outros",
+// que é o comportamento pedido: só marca Transporte/Hotel com sinal claro, resto é Outros.
 function detectCategoria(...campos: (string | null | undefined)[]): MobDesmobCategoria {
-  const txt = norm(campos.filter(Boolean).join(" "));
-  if (/hotel|hospedag|pousada|diaria|acomodac|lodging|accommodation/.test(txt)) return "hotel";
-  if (/transp|taxi|van|onibus|bus|carro|car|voo|aereo|flight|passagem|traslado|transfer|locacaoveiculo/.test(txt)) {
+  const txt = normPreservandoEspaco(campos.filter(Boolean).join(" "));
+  if (/\b(hotel|hospedag\w*|pousada|diaria|acomodac\w*|lodging|accommodation)\b/.test(txt)) return "hotel";
+  if (/\b(transp\w*|taxi|van|onibus|carro|voo|aereo|flight|passagem|traslado|transfer|locacao de veiculo)\b/.test(txt)) {
     return "transporte";
   }
   return "outros";
@@ -164,7 +177,7 @@ function parsePlanilha(buf: ArrayBuffer): ParsedRow[] {
       const totalCol = get("total");
       const total_cost = totalCol !== undefined && totalCol !== "" ? num(totalCol) : round2(qtd * valor + (markup ?? 0));
       if (!total_cost && !valor) continue;
-      const categoria = detectCategoria(String(get("categoria") ?? ""), notes, sheetName);
+      const categoria = detectCategoria(String(get("categoria") ?? ""), notes);
       rows.push({
         nome: nome || "—",
         bsp: bsp || "SEM BSP",
@@ -298,18 +311,18 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
 
   const { data: custos = [], isFetching } = useQuery({
     queryKey: ["bm-mob-desmob-costs"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bm_mob_desmob_costs").select("*").order("bsp").order("data");
-      if (error) throw error;
-      return (data ?? []).map((c: any) => ({
-        ...c,
-        qtd: Number(c.qtd) || 0,
-        valor: Number(c.valor) || 0,
-        markup: c.markup == null ? null : Number(c.markup),
-        total_cost: Number(c.total_cost) || 0,
-      })) as BmMobDesmobCost[];
-    },
+    // Sem paginação, o PostgREST corta em 1000 linhas — a tabela já passou disso, então uma
+    // consulta simples vinha escondendo os BSPs que caem depois do corte na ordenação (mesmo
+    // bug já corrigido em Transporte: src/routes/admin/transport.tsx).
+    queryFn: () => selectAllPages<any>((from, to) =>
+      supabase.from("bm_mob_desmob_costs").select("*").order("bsp").order("data").range(from, to),
+    ).then((data) => data.map((c: any) => ({
+      ...c,
+      qtd: Number(c.qtd) || 0,
+      valor: Number(c.valor) || 0,
+      markup: c.markup == null ? null : Number(c.markup),
+      total_cost: Number(c.total_cost) || 0,
+    })) as BmMobDesmobCost[]),
   });
 
   // Markups já aplicados por cartão (histórico) — só existe pro fluxo por BSP, nunca pro
@@ -1166,7 +1179,7 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
                 <span>
                   <span className="font-semibold">Aplicar no BM em geração — BM {bmEmGeracaoOption.bmNumber}</span>
                   <span className="block text-muted-foreground">
-                    BM que está sendo montado agora na aba “Gerar BM”{bmEmGeracao?.bsp ? ` · BSP ${bmEmGeracao.bsp}` : ""}
+                    BM que está sendo montado agora na aba "Gerar BM"{bmEmGeracao?.bsp ? ` · BSP ${bmEmGeracao.bsp}` : ""}
                   </span>
                 </span>
                 {bmSelecionado?.rowId === bmEmGeracaoOption.rowId && <Badge variant="secondary" className="text-[10px]">Selecionado</Badge>}
