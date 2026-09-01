@@ -16,16 +16,31 @@ export function NomeUsuarioField({ value, onChange, colaboradores }: {
   value: string; onChange: (v: string) => void; colaboradores: { id: string; nome: string }[];
 }) {
   const [open, setOpen] = useState(false);
+  // hist_novo_colaboradores tem 1 linha por empresa+matrícula — a mesma pessoa que já passou por
+  // mais de um contrato/empresa aparece mais de uma vez com o mesmo nome. Pra esse campo (só
+  // preenche um texto livre, não referencia o id) isso não importa: sem desduplicar por nome,
+  // gente reaparecendo várias vezes toma o lugar de outras pessoas dentro do limite de 20
+  // sugestões, escondendo quem realmente está sendo procurado.
+  const colaboradoresUnicos = useMemo(() => {
+    const vistos = new Set<string>();
+    return colaboradores.filter((c) => {
+      const chave = c.nome.trim().toUpperCase();
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    });
+  }, [colaboradores]);
   const sugestoes = useMemo(() => {
     const q = value.trim();
-    const lista = q ? colaboradores.filter((c) => matchesNameSearch(c.nome, q)) : colaboradores;
+    const lista = q ? colaboradoresUnicos.filter((c) => matchesNameSearch(c.nome, q)) : colaboradoresUnicos;
     return lista.slice(0, 20);
-  }, [value, colaboradores]);
+  }, [value, colaboradoresUnicos]);
 
   return (
     <Popover open={open && sugestoes.length > 0} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Input
+          type="text"
           value={value}
           onChange={(e) => { onChange(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
