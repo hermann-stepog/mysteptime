@@ -261,6 +261,10 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
+          <div>
+            <Label className="text-xs">Nome do usuário</Label>
+            <NomeUsuarioField value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })} colaboradores={colaboradores} />
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Unidade</Label>
@@ -276,10 +280,6 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
                 <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-          </div>
-          <div>
-            <Label className="text-xs">Nome do usuário</Label>
-            <NomeUsuarioField value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })} colaboradores={colaboradores} />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -1091,13 +1091,15 @@ function HospedagemPage() {
   const limparPrefill = () => navigate({ to: "/admin/hospedagem", search: {} });
 
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
-  const unidadeOptions = useMemo(
-    () => Array.from(new Set([
+  const unidadeOptions = useMemo(() => {
+    // "Outros" sempre por último — não é unidade real, é só o catch-all pra quem não se encaixa
+    // em nenhuma das operacionais, então não faz sentido ordenar alfabeticamente junto.
+    const nomeadas = Array.from(new Set([
       ...UNIDADES_OPERACIONAIS_FIXAS,
       ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
-    ])).sort(),
-    [periodos],
-  );
+    ])).sort();
+    return [...nomeadas, "Outros"];
+  }, [periodos]);
 
   if (l1 || l2 || l3 || l4) {
     return (
