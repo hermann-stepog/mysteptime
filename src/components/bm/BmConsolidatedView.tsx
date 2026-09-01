@@ -7,8 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Printer } from "lucide-react";
-import { type Bm, type BmLineMo } from "@/lib/bm";
-import { fetchBmDayGrid, computeDayCodes, type DayCode } from "@/lib/bmDayGrid";
+import { type Bm, type BmLineMo, composeTimesheetCoverTotals } from "@/lib/bm";
+import { fetchBmDayGrid, computeDayCodes, countDayQuantities, filterDayGridByColaboradorIds, type DayCode } from "@/lib/bmDayGrid";
 import { generateDateRange, getContrastText } from "@/lib/histogramaNovo";
 import { notify } from "@/lib/notify";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -74,11 +74,19 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
         atualizada.horas_adicional_noturno * (atualizada.rate_adicional_noturno ?? 0),
       );
       const { error: lineErr } = await supabase.from("bm_lines_mo")
-        .update({ [campo]: valor, rate_missing: atualizada.rate_missing, valor_total: novoValorTotal }).eq("id", linha.id);
+        .update({
+          [campo]: valor,
+          rate_missing: atualizada.rate_missing,
+          valor_total: novoValorTotal,
+          dias_embarque: atualizada.dias_embarque,
+          dias_dobra: atualizada.dias_dobra,
+          dias_hotel: atualizada.dias_hotel,
+        }).eq("id", linha.id);
       if (lineErr) throw lineErr;
 
-      const novoTotalMo = round2(bmTotais.total_mo - linha.valor_total + novoValorTotal);
-      const novoTotalGeral = round2(bmTotais.total_geral - linha.valor_total + novoValorTotal);
+      const snapshot = linesMoLocal.find((x) => x.id === linha.id) ?? linha;
+      const novoTotalMo = round2(bmTotais.total_mo - snapshot.valor_total + novoValorTotal);
+      const novoTotalGeral = round2(bmTotais.total_geral - snapshot.valor_total + novoValorTotal);
       const { error: bmErr } = await supabase.from("bms")
         .update({ total_mo: novoTotalMo, total_geral: novoTotalGeral }).eq("id", bm.id);
       if (bmErr) throw bmErr;
@@ -112,40 +120,59 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
 
   const dates = useMemo(() => generateDateRange(bm.period_start, bm.period_end), [bm.period_start, bm.period_end]);
 
+  const dayGridFiltrado = useMemo(
+    () => filterDayGridByColaboradorIds(dayGrid, linesMoLocal.map((l) => l.colaborador_id)),
+    [dayGrid, linesMoLocal],
+  );
+
   const codesByColaborador = useMemo(() => {
     const m = new Map<string, Map<string, DayCode | null>>();
-    dayGrid.forEach((c) => m.set(c.colaboradorId, computeDayCodes(c.dias)));
+    dayGridFiltrado.forEach((c) => m.set(c.colaboradorId, computeDayCodes(c.dias)));
     return m;
-  }, [dayGrid]);
+  }, [dayGridFiltrado]);
 
   const diasByColaboradorData = useMemo(() => {
     const m = new Map<string, Map<string, { horas_extras: number | null; adicional_noturno: boolean; total_horas: number | null }>>();
-    dayGrid.forEach((c) => {
+    dayGridFiltrado.forEach((c) => {
       const inner = new Map<string, { horas_extras: number | null; adicional_noturno: boolean; total_horas: number | null }>();
       c.dias.forEach((d) => inner.set(d.data, { horas_extras: d.horas_extras ?? null, adicional_noturno: !!d.adicional_noturno, total_horas: d.total_horas ?? null }));
       m.set(c.colaboradorId, inner);
     });
     return m;
-  }, [dayGrid]);
+  }, [dayGridFiltrado]);
+
+  const linesMoExibidas = useMemo(() => linesMoLocal.map((l) => {
+    const codes = l.colaborador_id ? codesByColaborador.get(l.colaborador_id) : undefined;
+    if (!codes || codes.size === 0) return l;
+    const { diasEmbarque, diasDobra, diasHotel } = countDayQuantities(codes);
+    const valorTotal = round2(
+      diasEmbarque * (l.rate_embarque ?? 0) +
+      diasDobra * (l.rate_dobra ?? 0) +
+      diasHotel * (l.rate_hotel ?? 0) +
+      l.horas_extras * (l.rate_hora_extra ?? 0) +
+      l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0),
+    );
+    return { ...l, dias_embarque: diasEmbarque, dias_dobra: diasDobra, dias_hotel: diasHotel, valor_total: valorTotal };
+  }), [linesMoLocal, codesByColaborador]);
 
   // ── Bloco A: Consolidado ──────────────────────────────────────────────────
   // Cada card é um recorte do mesmo valor já somado em bm_lines_mo (rate×quantidade) —
   // nenhum cálculo novo, só exposto separado por card em vez de um único total de Mão de Obra.
-  const workingDays = round2(linesMoLocal.reduce((acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0), 0));
-  const overtimeNightShift = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
-  // Totais do rodapé da tabela de Horas — a partir de linesMoLocal (reflete os rates editados
+  // A logística manual entra à parte e uma única vez no total final.
+  const coverTotals = composeTimesheetCoverTotals(linesMoExibidas, bm.logistica_manual ?? 0);
+  const workingDays = coverTotals.workingDays;
+  const overtimeNightShift = coverTotals.overtimeNightShift;
+  const currentBm = coverTotals.grandTotal;
+  // Totais do rodapé da tabela de Horas — a partir de linesMoExibidas (reflete os rates editados
   // ali mesmo na folha de rosto, não só o valor original salvo em linesMo).
-  const totalHorasExtras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras, 0));
-  const totalAdicionalNoturno = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_adicional_noturno, 0));
-  const totalValorHoras = round2(linesMoLocal.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
+  const totalHorasExtras = round2(linesMoExibidas.reduce((acc, l) => acc + l.horas_extras, 0));
+  const totalAdicionalNoturno = round2(linesMoExibidas.reduce((acc, l) => acc + l.horas_adicional_noturno, 0));
+  const totalValorHoras = round2(linesMoExibidas.reduce((acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0), 0));
 
   const timesheetCards: { label: string; value: number }[] = [
     { label: "Working days + Overstay", value: workingDays },
     { label: "Overtime + Night Shift", value: overtimeNightShift },
   ];
-  // Esta folha é independente das demais medições. Logística, materiais, habitat,
-  // locações e o override do valor global continuam no gerador, mas não compõem esta capa.
-  const currentBm = round2(timesheetCards.reduce((acc, c) => acc + c.value, 0));
 
   const bmIssued = bm.po_value != null && bm.po_balance_before != null ? round2(bm.po_value - bm.po_balance_before) : null;
   const balance = bm.po_balance_before != null ? round2(bm.po_balance_before - currentBm) : null;
@@ -155,21 +182,21 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
     const m = new Map<string, number>();
     dates.forEach((d) => {
       let count = 0;
-      dayGrid.forEach((c) => { if (codesByColaborador.get(c.colaboradorId)?.get(d) === "P") count++; });
+      dayGridFiltrado.forEach((c) => { if (codesByColaborador.get(c.colaboradorId)?.get(d) === "P") count++; });
       m.set(d, count);
     });
     return m;
-  }, [dates, dayGrid, codesByColaborador]);
+  }, [dates, dayGridFiltrado, codesByColaborador]);
 
   const demobilizacaoPorData = useMemo(() => {
     const m = new Map<string, number>();
     dates.forEach((d) => {
       let count = 0;
-      dayGrid.forEach((c) => { if (codesByColaborador.get(c.colaboradorId)?.get(d) === "D") count++; });
+      dayGridFiltrado.forEach((c) => { if (codesByColaborador.get(c.colaboradorId)?.get(d) === "D") count++; });
       m.set(d, count);
     });
     return m;
-  }, [dates, dayGrid, codesByColaborador]);
+  }, [dates, dayGridFiltrado, codesByColaborador]);
 
   return (
     <div className="bm-print-area">
@@ -177,8 +204,8 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
       <div className="flex items-center justify-between border-b pb-3">
         <BrandLogo className="h-10 w-auto" />
         <div className="text-center">
-          <h1 className="text-base font-semibold uppercase tracking-wide">Medição de Mão de Obra Offshore</h1>
-          <p className="text-[11px] text-muted-foreground">Horas trabalhadas dos colaboradores offshore</p>
+          <h1 className="text-lg font-semibold uppercase tracking-wide">Medição de Mão de Obra Offshore</h1>
+          <p className="text-xs text-muted-foreground">Horas trabalhadas dos colaboradores offshore</p>
         </div>
         <div className="text-right text-xs text-muted-foreground">
           <p className="font-semibold text-foreground">{bm.client_name} — {bm.vessel}</p>
@@ -210,7 +237,17 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
           ))}
           <Card className="border bg-muted/30 p-3 shadow-sm">
             <p className="text-[11px] text-muted-foreground">Total Timesheet</p>
-            <p className="text-sm font-bold">{fmtMoney(currentBm)}</p>
+            <p className="text-sm font-bold">{fmtMoney(coverTotals.timesheet)}</p>
+          </Card>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Card className="border p-3 shadow-sm">
+            <p className="text-[11px] text-muted-foreground">Mob/Demob – logística manual</p>
+            <p className="text-sm font-semibold">{fmtMoney(coverTotals.logisticaManual)}</p>
+          </Card>
+          <Card className="border bg-muted/30 p-3 shadow-sm sm:col-span-2">
+            <p className="text-[11px] text-muted-foreground">Total final do BM</p>
+            <p className="text-sm font-bold">{fmtMoney(coverTotals.grandTotal)}</p>
           </Card>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -223,7 +260,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
             <p className="text-sm font-semibold">{bmIssued != null ? fmtMoney(bmIssued) : "—"}</p>
           </Card>
           <Card className="border p-3 shadow-sm">
-            <p className="text-[11px] text-muted-foreground">Current BM · Timesheet</p>
+            <p className="text-[11px] text-muted-foreground">Current BM</p>
             <p className="text-sm font-semibold">{fmtMoney(currentBm)}</p>
           </Card>
           <Card className="border p-3 shadow-sm">
@@ -253,7 +290,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                 <TableHead className="sticky left-0 bg-background">Nome</TableHead>
                 <TableHead>Função</TableHead>
                 <TableHead>BSP</TableHead>
-                {dates.map((d) => <TableHead key={d} className="text-center text-[10px]">{d.slice(8, 10)}</TableHead>)}
+                {dates.map((d) => <TableHead key={d} className="text-center text-[11px] font-semibold">{d.slice(8, 10)}</TableHead>)}
                 <TableHead>Rate Emb.</TableHead>
                 <TableHead>Dias Emb</TableHead>
                 <TableHead>Rate Dobra</TableHead>
@@ -264,7 +301,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
               </TableRow>
             </TableHeader>
             <TableBody>
-              {linesMoLocal.map((l) => {
+              {linesMoExibidas.map((l) => {
                 const codes = codesByColaborador.get(l.colaborador_id ?? "");
                 const rateInput = (campo: "rate_embarque" | "rate_dobra" | "rate_hotel") => (
                   <>
@@ -298,7 +335,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                       return (
                         <TableCell key={d} className="p-0 text-center">
                           {code ? (
-                            <div className="flex h-6 items-center justify-center text-[9px] font-bold" style={{ backgroundColor: DAY_COLOR[code], color: getContrastText(DAY_COLOR[code]) }}>
+                            <div className="bm-day-code flex h-7 items-center justify-center text-[11px] font-bold" style={{ backgroundColor: DAY_COLOR[code], color: getContrastText(DAY_COLOR[code]) }}>
                               {code}
                             </div>
                           ) : null}
@@ -342,7 +379,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
             "screen-lt-xl" só existe em @media screen, então em @media print (bm-print-area)
             fica sempre "hidden", igual antes desta mudança. */}
         <div className="hidden space-y-2 screen-lt-xl:block print:hidden">
-          {linesMoLocal.map((l) => {
+          {linesMoExibidas.map((l) => {
             const codes = codesByColaborador.get(l.colaborador_id ?? "");
             const rateField = (campo: "rate_embarque" | "rate_dobra" | "rate_hotel") =>
               idsComRateFaltando.has(l.id) ? (
@@ -428,7 +465,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
               <TableRow>
                 <TableHead className="sticky left-0 bg-background">Nome</TableHead>
                 <TableHead>Função</TableHead>
-                {dates.map((d) => <TableHead key={d} className="text-center text-[10px]">{d.slice(8, 10)}</TableHead>)}
+                {dates.map((d) => <TableHead key={d} className="text-center text-[11px] font-semibold">{d.slice(8, 10)}</TableHead>)}
                 <TableHead>Horas Extras</TableHead>
                 <TableHead>Adicional Noturno</TableHead>
                 <TableHead>Rate Overtime</TableHead>
@@ -437,7 +474,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
               </TableRow>
             </TableHeader>
             <TableBody>
-              {linesMoLocal.map((l) => {
+              {linesMoExibidas.map((l) => {
                 const diasData = diasByColaboradorData.get(l.colaborador_id ?? "");
                 const valorHoras = round2(l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0));
                 return (
@@ -487,7 +524,7 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
         </div>
 
         <div className="hidden space-y-2 screen-lt-xl:block print:hidden">
-          {linesMoLocal.map((l) => {
+          {linesMoExibidas.map((l) => {
             const diasData = diasByColaboradorData.get(l.colaborador_id ?? "");
             const valorHoras = round2(l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0));
             return (

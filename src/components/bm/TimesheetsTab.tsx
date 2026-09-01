@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
 import { CalendarRange, CheckCircle2, ChevronRight, Download, RotateCcw, Users } from "lucide-react";
+import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
 
@@ -200,29 +201,33 @@ export function TimesheetsTab() {
     queryKey: ["bm-ts-origem", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const { data: dias, error } = await supabase
-        .from("timesheet_dias")
-        .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
-        .gte("data", de).lte("data", ate);
-      if (error) throw error;
+      const dias = await selectAllPagesSequential<any>((from, to) =>
+        supabase
+          .from("timesheet_dias")
+          .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
+          .gte("data", de).lte("data", ate)
+          .order("data").order("id").range(from, to),
+      );
       if (!dias?.length) return [];
 
       const semanaIds = Array.from(new Set(dias.map((d: any) => d.semana_id)));
-      const { data: semanas, error: semErr } = await supabase
-        .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);
-      if (semErr) throw semErr;
+      const semanas = await selectInChunks(semanaIds, (lote) =>
+        supabase.from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", lote),
+      );
 
       const embarqueIds = Array.from(new Set((semanas ?? []).map((s: any) => s.embarque_id)));
-      const { data: embarques, error: embErr } = embarqueIds.length
-        ? await supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", embarqueIds)
-        : { data: [], error: null };
-      if (embErr) throw embErr;
+      const embarques = embarqueIds.length
+        ? await selectInChunks(embarqueIds, (lote) =>
+            supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", lote),
+          )
+        : [];
 
       const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
-      const { data: colaboradores, error: colErr } = colabIds.length
-        ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colabIds)
-        : { data: [], error: null };
-      if (colErr) throw colErr;
+      const colaboradores = colabIds.length
+        ? await selectInChunks(colabIds, (lote) =>
+            supabase.from("hist_novo_colaboradores").select("id, nome").in("id", lote),
+          )
+        : [];
 
       const semanaById = new Map<string, any>((semanas ?? []).map((s: any) => [s.id, s]));
       const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
@@ -262,11 +267,12 @@ export function TimesheetsTab() {
     queryKey: ["bm-ts-copias", de, ate],
     enabled: periodoValido,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bm_timesheet_dias").select("*").gte("data", de).lte("data", ate)
-        .order("colaborador_nome").order("data");
-      if (error) throw error;
-      return (data ?? []) as BmTimesheetDia[];
+      const data = await selectAllPagesSequential<BmTimesheetDia>((from, to) =>
+        supabase
+          .from("bm_timesheet_dias").select("*").gte("data", de).lte("data", ate)
+          .order("colaborador_nome").order("data").order("id").range(from, to),
+      );
+      return data;
     },
   });
 

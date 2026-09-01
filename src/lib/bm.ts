@@ -251,3 +251,42 @@ export function computeBmTotals(
   const grandTotal = round2(totalMo + totalLogisticaComMarkup + totalMateriais + posProcessamento + teamMobDesmob);
   return { totalMo, totalLogistica, totalLogisticaComMarkup, totalMateriais, grandTotal };
 }
+
+export interface TimesheetCoverTotals {
+  workingDays: number;
+  overtimeNightShift: number;
+  timesheet: number;
+  logisticaManual: number;
+  grandTotal: number;
+}
+
+// Totais da folha de rosto / PDF da medição offshore. A logística manual entra como
+// linha própria (não mistura com working days/OT) e no total final exatamente uma vez.
+// Não altera computeBmTotals (Excel/wizard de linhas de cost_logs).
+export function composeTimesheetCoverTotals(
+  linesMo: Array<Pick<BmLineMo,
+    | "dias_embarque" | "rate_embarque"
+    | "dias_dobra" | "rate_dobra"
+    | "horas_extras" | "rate_hora_extra"
+    | "horas_adicional_noturno" | "rate_adicional_noturno"
+  >>,
+  logisticaManual = 0,
+): TimesheetCoverTotals {
+  const workingDays = round2(linesMo.reduce(
+    (acc, l) => acc + l.dias_embarque * (l.rate_embarque ?? 0) + l.dias_dobra * (l.rate_dobra ?? 0),
+    0,
+  ));
+  const overtimeNightShift = round2(linesMo.reduce(
+    (acc, l) => acc + l.horas_extras * (l.rate_hora_extra ?? 0) + l.horas_adicional_noturno * (l.rate_adicional_noturno ?? 0),
+    0,
+  ));
+  const timesheet = round2(workingDays + overtimeNightShift);
+  const logistica = round2(Number(logisticaManual) || 0);
+  return {
+    workingDays,
+    overtimeNightShift,
+    timesheet,
+    logisticaManual: logistica,
+    grandTotal: round2(timesheet + logistica),
+  };
+}

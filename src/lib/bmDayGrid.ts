@@ -107,6 +107,34 @@ export function computeDayCodes(dias: DiaEvento[]): Map<string, DayCode | null> 
   return codes;
 }
 
+// Quantidades faturáveis a partir dos mesmos códigos do calendário (P/E/D/DO/HO…).
+// Dias Emb = P + E (todo evento "Embarque" após o dedupe); D (Desembarque) não entra.
+// Dobra = DO; hotel/embarque cancelado = HO + EC + MEC. Fonte única pra calendário,
+// coluna "Dias Emb", rate e total — sem recontar eventos por outro caminho.
+export function countDayQuantities(codes: Map<string, DayCode | null>): {
+  diasEmbarque: number;
+  diasDobra: number;
+  diasHotel: number;
+} {
+  let diasEmbarque = 0;
+  let diasDobra = 0;
+  let diasHotel = 0;
+  for (const code of codes.values()) {
+    if (code === "P" || code === "E") diasEmbarque += 1;
+    else if (code === "DO") diasDobra += 1;
+    else if (code === "HO" || code === "EC" || code === "MEC") diasHotel += 1;
+  }
+  return { diasEmbarque, diasDobra, diasHotel };
+}
+
+export function filterDayGridByColaboradorIds(
+  grid: ColaboradorDayGrid[],
+  colaboradorIds: Iterable<string | null | undefined>,
+): ColaboradorDayGrid[] {
+  const ids = new Set(Array.from(colaboradorIds).filter((id): id is string => !!id));
+  return grid.filter((c) => ids.has(c.colaboradorId));
+}
+
 // Fonte única: a cópia em bm_timesheet_dias (aba "Timesheets" do módulo de BM), filtrada por
 // BSP — usa o mesmo normalizeBmBspKey (bmUnitResolver.ts) já usado no assistente de geração
 // (admin/bm.tsx), que trata variação de espaço/hífen/prefixo no código do BSP ("25-1031" vs

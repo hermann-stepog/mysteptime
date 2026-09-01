@@ -25,7 +25,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { AlertTriangle, ArrowLeft, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2, ChevronDown, ChevronRight, Printer } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileSpreadsheet, Plus, Trash2, Coins, CircleAlert, CheckCircle2, ChevronDown, ChevronRight, Printer, Search } from "lucide-react";
 import { EVENTOS_DIA } from "@/lib/timesheetOffshore";
 import {
   type Bm, type BmStatus, type BmLineMo, type BmLineLogistica, type BmLineMateriais, type BmDiaOverride, type MaterialCategoria,
@@ -33,7 +33,8 @@ import {
 } from "@/lib/bm";
 import { aggregateMaoDeObra, type Rate, type TimesheetDiaComColaborador } from "@/lib/bmRateEngine";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
-import { selectAllPages } from "@/lib/supabasePaginate";
+import { selectAllPages, selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
+import { filterColaboradoresBySearch, filterLinesBySelectedIds, toggleIdInSet } from "@/lib/bmCollaboratorSelection";
 import { BmTimesheetCoverView } from "@/components/bm/BmConsolidatedView";
 import { BrandLogo } from "@/components/BrandLogo";
 import { MobDesmobTab } from "@/components/bm/MobDesmobTab";
@@ -380,6 +381,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
   // aplicados ao BSP (totalMobDesmob) pra cobrir custo que ainda não foi lançado/aplicado
   // na aba Logística Mob/Desmob.
   const [logisticaManual, setLogisticaManual] = useState(0);
+  const [selectedColaboradorIds, setSelectedColaboradorIds] = useState<Set<string>>(new Set());
+  const [colaboradorBusca, setColaboradorBusca] = useState("");
   const [reopenBmId, setReopenBmId] = useState<string | null>(null);
   const [cienteRatesFaltando, setCienteRatesFaltando] = useState(false);
   // true = usuário optou por criar um número de BM novo em vez de escolher um da lista.
@@ -419,9 +422,14 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     setReopenBmId(reopenBm.id);
     setBmNovoManual(true);
     setSelectedBmNumbers([]);
+    setColaboradorBusca("");
     (async () => {
-      const { data, error } = await supabase.from("bm_dias_overrides").select("*").eq("bm_id", reopenBm.id);
+      const [{ data, error }, linhasMo] = await Promise.all([
+        supabase.from("bm_dias_overrides").select("*").eq("bm_id", reopenBm.id),
+        supabase.from("bm_lines_mo").select("colaborador_id").eq("bm_id", reopenBm.id),
+      ]);
       if (error) { notify.error(error.message); return; }
+      if (linhasMo.error) { notify.error(linhasMo.error.message); return; }
       const restaurado: Record<string, DiaOverrideEdit> = {};
       (data ?? []).forEach((o: BmDiaOverride) => {
         restaurado[chaveDiaOverride(o.colaborador_id, o.data)] = {
@@ -430,6 +438,11 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
         };
       });
       setDiasOverrides(restaurado);
+      setSelectedColaboradorIds(new Set(
+        ((linhasMo.data ?? []) as { colaborador_id: string | null }[])
+          .map((l) => l.colaborador_id)
+          .filter((id): id is string => !!id),
+      ));
     })();
     onConsumedReopen();
   }, [reopenBm]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -439,6 +452,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     setDiasOverrides({});
     setMarkupEnabled(false); setMarkupPct(15); setReopenBmId(null); setCienteRatesFaltando(false);
     setPosProcessamento(0); setTeamMobDesmob(0); setInternalNotes(""); setLogisticaManual(0);
+    setSelectedColaboradorIds(new Set()); setColaboradorBusca("");
     setSavedBm(null); setSavedLinesMo([]); setSavedLinesLogistica([]);
     setSelectedBmNumbers([]);
     setBmNovoManual(false);
@@ -763,11 +777,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     queryFn: async () => {
       const bspAlvo = normalizeBmBspKey(cab.bsp);
 
-      const { data: copiasData, error: copiasErr } = await supabase
-        .from("bm_timesheet_dias")
-        .select("source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
-        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
-      if (copiasErr) throw copiasErr;
+      const copiasData = await selectAllPagesSequential<any>((from, to) =>
+        supabase
+          .from("bm_timesheet_dias")
+          .select("source_dia_id, colaborador_id, colaborador_nome, funcao, bsp, data, evento, horas_extras, adicional_noturno, total_horas")
+          .gte("data", cab.periodStart).lte("data", cab.periodEnd)
+          .order("data").order("id").range(from, to),
+      );
 
       // A cópia (bm_timesheet_dias) só existe pros períodos que alguém já abriu na aba
       // "Timesheets" — sem isso, gerar um BM pra um período nunca visitado lá vinha vazio.
@@ -775,30 +791,34 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
       // filtrado por este BSP, pra sempre garantir a cópia antes de agregar Mão de Obra.
       const existentes = new Set((copiasData ?? []).map((c: any) => c.source_dia_id).filter(Boolean));
 
-      const { data: diasOrigem, error: diasErr } = await supabase
-        .from("timesheet_dias")
-        .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
-        .gte("data", cab.periodStart).lte("data", cab.periodEnd);
-      if (diasErr) throw diasErr;
+      const diasOrigem = await selectAllPagesSequential<any>((from, to) =>
+        supabase
+          .from("timesheet_dias")
+          .select("id, semana_id, data, dia_semana, evento, bsp, descricao_tarefa, numero_tarefa, hora_entrada, hora_saida, hora_entrada_extra, hora_saida_extra, horas_normais, horas_extras, total_horas, adicional_noturno, feriado")
+          .gte("data", cab.periodStart).lte("data", cab.periodEnd)
+          .order("data").order("id").range(from, to),
+      );
 
       let novasCopias: any[] = [];
       if (diasOrigem?.length) {
         const semanaIds = Array.from(new Set(diasOrigem.map((d: any) => d.semana_id)));
-        const { data: semanas, error: semErr } = await supabase
-          .from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", semanaIds);
-        if (semErr) throw semErr;
+        const semanas = await selectInChunks(semanaIds, (lote) =>
+          supabase.from("timesheet_semanas").select("id, embarque_id, funcao_override").in("id", lote),
+        );
 
         const embarqueIds = Array.from(new Set((semanas ?? []).map((s: any) => s.embarque_id)));
-        const { data: embarques, error: embErr } = embarqueIds.length
-          ? await supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", embarqueIds)
-          : { data: [], error: null };
-        if (embErr) throw embErr;
+        const embarques = embarqueIds.length
+          ? await selectInChunks(embarqueIds, (lote) =>
+              supabase.from("timesheet_embarques").select("id, colaborador_id, funcao_embarque, unidade_operacional, bsp").in("id", lote),
+            )
+          : [];
 
         const colabIds = Array.from(new Set((embarques ?? []).map((e: any) => e.colaborador_id).filter(Boolean)));
-        const { data: colaboradores, error: colErr } = colabIds.length
-          ? await supabase.from("hist_novo_colaboradores").select("id, nome").in("id", colabIds)
-          : { data: [], error: null };
-        if (colErr) throw colErr;
+        const colaboradores = colabIds.length
+          ? await selectInChunks(colabIds, (lote) =>
+              supabase.from("hist_novo_colaboradores").select("id, nome").in("id", lote),
+            )
+          : [];
 
         const semanaById = new Map<string, any>((semanas ?? []).map((s: any) => [s.id, s]));
         const embarqueById = new Map<string, any>((embarques ?? []).map((e: any) => [e.id, e]));
@@ -907,9 +927,30 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     [diasComOverrides, rates, cab.client, cab.vessel, headerCompleto],
   );
 
+  const prevPeriodoBspRef = useRef(`${cab.bsp}|${cab.periodStart}|${cab.periodEnd}`);
   useEffect(() => {
-    setLinesMo(maoDeObraCalculada.map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => rest));
-  }, [maoDeObraCalculada]);
+    const scope = `${cab.bsp}|${cab.periodStart}|${cab.periodEnd}`;
+    if (prevPeriodoBspRef.current === scope) return;
+    prevPeriodoBspRef.current = scope;
+    if (!reopenBmId) {
+      setSelectedColaboradorIds(new Set());
+      setColaboradorBusca("");
+    }
+  }, [cab.bsp, cab.periodStart, cab.periodEnd, reopenBmId]);
+
+  const colaboradoresElegiveis = maoDeObraCalculada;
+  const colaboradoresFiltrados = useMemo(
+    () => filterColaboradoresBySearch(colaboradoresElegiveis, colaboradorBusca),
+    [colaboradoresElegiveis, colaboradorBusca],
+  );
+  const selecionadosCount = colaboradoresElegiveis.filter((l) => selectedColaboradorIds.has(l.colaborador_id)).length;
+
+  useEffect(() => {
+    setLinesMo(
+      filterLinesBySelectedIds(maoDeObraCalculada, selectedColaboradorIds)
+        .map(({ hasHoraExtraRate: _a, hasAdicionalNoturnoRate: _b, ...rest }) => rest),
+    );
+  }, [maoDeObraCalculada, selectedColaboradorIds]);
 
   const hasRateMissing = linesMo.some((l) => l.rate_missing);
 
@@ -1008,6 +1049,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
 
   const salvarBm = useMutation({
     mutationFn: async (targetStatus: "draft" | "pending_pm") => {
+      if (linesMo.length === 0) throw new Error("Selecione ao menos um colaborador para gerar o BM.");
       const payload = {
         numero_bm: cab.numeroBm.trim() || null,
         client_id: clientIdAtual,
@@ -1097,7 +1139,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     onError: (e: any) => notify.error(e.message || "Erro ao salvar o BM."),
   });
 
-  const podeAvancarStep0 = headerCompleto;
+  const podeAvancarStep0 = headerCompleto && selecionadosCount > 0;
   const podeEnviarAprovacao = headerCompleto && linesMo.length > 0 && (!hasRateMissing || cienteRatesFaltando);
 
   if (savedBm) {
@@ -1489,6 +1531,68 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
               PO Value: <strong>{fmtMoney(cab.poValue)}</strong>
               {cab.poBalanceBefore != null && <> · Saldo antes deste BM: <strong>{fmtMoney(cab.poBalanceBefore)}</strong></>}
             </p>
+          )}
+
+          {headerCompleto && !!cab.bsp && (
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold">Colaboradores a medir</span>
+                <span className="text-xs text-muted-foreground">
+                  {selecionadosCount} de {colaboradoresElegiveis.length} colaboradores selecionados
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[16rem] flex-1">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    className="h-8 pl-7 text-xs"
+                    placeholder="Buscar por nome ou função"
+                    value={colaboradorBusca}
+                    onChange={(e) => setColaboradorBusca(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button" size="sm" variant="outline" className="h-8 text-xs"
+                  disabled={colaboradoresElegiveis.length === 0}
+                  onClick={() => setSelectedColaboradorIds(new Set(colaboradoresElegiveis.map((l) => l.colaborador_id)))}
+                >
+                  Selecionar todos
+                </Button>
+                <Button
+                  type="button" size="sm" variant="ghost" className="h-8 text-xs"
+                  disabled={selecionadosCount === 0}
+                  onClick={() => setSelectedColaboradorIds(new Set())}
+                >
+                  Limpar seleção
+                </Button>
+              </div>
+              {carregandoDias && <p className="text-xs text-muted-foreground">Carregando colaboradores do período…</p>}
+              {!carregandoDias && colaboradoresElegiveis.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhum colaborador elegível para este BSP e período.</p>
+              )}
+              {!carregandoDias && colaboradoresElegiveis.length > 0 && (
+                <div className="max-h-56 overflow-y-auto rounded border">
+                  {colaboradoresFiltrados.length === 0 && (
+                    <p className="p-2 text-xs text-muted-foreground">Nenhum colaborador corresponde à busca.</p>
+                  )}
+                  {colaboradoresFiltrados.map((l) => (
+                    <label key={l.colaborador_id} className="flex cursor-pointer items-center gap-2 border-b px-2 py-1.5 last:border-b-0 hover:bg-muted/40">
+                      <Checkbox
+                        checked={selectedColaboradorIds.has(l.colaborador_id)}
+                        onCheckedChange={() => setSelectedColaboradorIds((prev) => toggleIdInSet(prev, l.colaborador_id))}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">{l.colaborador_nome}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">{l.funcao}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {selecionadosCount === 0 && !carregandoDias && colaboradoresElegiveis.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">Selecione ao menos um colaborador para gerar o BM.</p>
+              )}
+            </div>
           )}
 
           <div className="rounded-md border p-3">

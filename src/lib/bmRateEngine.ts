@@ -1,5 +1,5 @@
 import type { BmLineMo } from "@/lib/bm";
-import { dedupeDiasPorData } from "@/lib/bmDayGrid";
+import { computeDayCodes, countDayQuantities, dedupeDiasPorData } from "@/lib/bmDayGrid";
 
 // Um dia de timesheet já enriquecido com quem é o colaborador e em que embarque/função ele
 // está — resultado do join feito no componente (timesheet_dias -> timesheet_semanas ->
@@ -28,8 +28,6 @@ export interface Rate {
   rate_adicional_noturno: number | null;
   active: boolean;
 }
-
-const EVENTOS_HOTEL = new Set(["Hotel Pré Embarque", "Hotel Embarque Cancelado", "Embarque Cancelado"]);
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -144,9 +142,9 @@ export function aggregateMaoDeObra(dias: TimesheetDiaComColaborador[], rates: Ra
     // data (re-sincronizações do timesheet). Sem colapsar por data, o mesmo dia de embarque é
     // contado duas vezes (ex.: 5 dias embarcados viravam 9 na folha de rosto).
     const diasColab = dedupeDiasColaborador(diasBrutos);
-    const diasEmbarque = diasColab.filter((d) => d.evento === "Embarque").length;
-    const diasDobra = diasColab.filter((d) => d.evento === "Dobra").length;
-    const diasHotel = diasColab.filter((d) => d.evento && EVENTOS_HOTEL.has(d.evento)).length;
+    // Mesma fonte do calendário da capa/PDF: códigos P/E/D → quantidades. Sem isso, a
+    // coluna "Dias Emb" podia divergir da grade (ex.: 1 vs. P + vários E + D).
+    const { diasEmbarque, diasDobra, diasHotel } = countDayQuantities(computeDayCodes(diasColab));
     const horasExtras = round2(diasColab.reduce((acc, d) => acc + (d.horas_extras ?? 0), 0));
     const horasAdicionalNoturno = round2(diasColab.reduce((acc, d) => acc + (d.adicional_noturno ? (d.total_horas ?? 0) : 0), 0));
 
