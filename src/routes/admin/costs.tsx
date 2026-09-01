@@ -299,8 +299,9 @@ function VisaoConsolidadaTab() {
       .sort((a, b) => b.total - a.total);
   }, [filtrados]);
 
-  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
-  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
+  // Cascata Cliente → Unidade → BSP nasce sempre recuada/fechada — só abre o que a pessoa clicar.
+  const [expandedClientes, setExpandedClientes] = useState<Set<string>>(new Set());
+  const [expandedUnidades, setExpandedUnidades] = useState<Set<string>>(new Set());
   const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
     setter((current) => {
@@ -388,30 +389,35 @@ function VisaoConsolidadaTab() {
             <Button
               type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
               onClick={() => {
-                const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
+                const totalUnidades = consolidado.reduce((n, c) => n + c.unidades.length, 0);
+                const tudoAberto = expandedClientes.size >= consolidado.length && expandedUnidades.size >= totalUnidades;
                 if (tudoAberto) {
-                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
-                  setCollapsedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
+                  setExpandedClientes(new Set()); setExpandedUnidades(new Set());
                 } else {
-                  setCollapsedClientes(new Set()); setCollapsedUnidades(new Set());
+                  setExpandedClientes(new Set(consolidado.map((c) => c.cliente)));
+                  setExpandedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
                 }
               }}
             >
-              {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
-                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
-              ) : (
-                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
-              )}
+              {(() => {
+                const totalUnidades = consolidado.reduce((n, c) => n + c.unidades.length, 0);
+                const tudoAberto = expandedClientes.size >= consolidado.length && expandedUnidades.size >= totalUnidades;
+                return tudoAberto ? (
+                  <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+                ) : (
+                  <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+                );
+              })()}
             </Button>
           </div>
           <Card className="overflow-hidden">
             {consolidado.map((c) => {
-              const clienteAberto = !collapsedClientes.has(c.cliente);
+              const clienteAberto = expandedClientes.has(c.cliente);
               return (
                 <div key={c.cliente} className="border-b last:border-b-0">
                   <button
                     type="button" className="flex w-full flex-wrap items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                    aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                    aria-expanded={clienteAberto} onClick={() => toggleSet(setExpandedClientes, c.cliente)}
                   >
                     <span className="flex min-w-0 items-center gap-2 font-semibold">
                       {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
@@ -431,12 +437,12 @@ function VisaoConsolidadaTab() {
                   </button>
                   {clienteAberto && c.unidades.map((u) => {
                     const unidadeKey = `${c.cliente}::${u.unidade}`;
-                    const unidadeAberta = !collapsedUnidades.has(unidadeKey);
+                    const unidadeAberta = expandedUnidades.has(unidadeKey);
                     return (
                       <div key={unidadeKey}>
                         <button
                           type="button" className="flex w-full flex-wrap items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
-                          aria-expanded={unidadeAberta} onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
+                          aria-expanded={unidadeAberta} onClick={() => toggleSet(setExpandedUnidades, unidadeKey)}
                         >
                           <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
                             {unidadeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}

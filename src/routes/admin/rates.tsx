@@ -242,8 +242,9 @@ function RatesPage() {
       })
       .sort((a, b) => b.total - a.total);
   }, [filtered]);
-  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
-  const [collapsedVessels, setCollapsedVessels] = useState<Set<string>>(new Set());
+  // Cascata Cliente → Embarcação → BSP nasce sempre recuada/fechada — só abre o que a pessoa clicar.
+  const [expandedClientes, setExpandedClientes] = useState<Set<string>>(new Set());
+  const [expandedVessels, setExpandedVessels] = useState<Set<string>>(new Set());
   const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
     setter((current) => {
@@ -353,30 +354,35 @@ function RatesPage() {
             <Button
               type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
               onClick={() => {
-                const tudoAberto = collapsedClientes.size === 0 && collapsedVessels.size === 0;
+                const totalVessels = consolidado.reduce((n, c) => n + c.vessels.length, 0);
+                const tudoAberto = expandedClientes.size >= consolidado.length && expandedVessels.size >= totalVessels;
                 if (tudoAberto) {
-                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
-                  setCollapsedVessels(new Set(consolidado.flatMap((c) => c.vessels.map((v) => `${c.cliente}::${v.vessel}`))));
+                  setExpandedClientes(new Set()); setExpandedVessels(new Set());
                 } else {
-                  setCollapsedClientes(new Set()); setCollapsedVessels(new Set());
+                  setExpandedClientes(new Set(consolidado.map((c) => c.cliente)));
+                  setExpandedVessels(new Set(consolidado.flatMap((c) => c.vessels.map((v) => `${c.cliente}::${v.vessel}`))));
                 }
               }}
             >
-              {collapsedClientes.size === 0 && collapsedVessels.size === 0 ? (
-                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
-              ) : (
-                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
-              )}
+              {(() => {
+                const totalVessels = consolidado.reduce((n, c) => n + c.vessels.length, 0);
+                const tudoAberto = expandedClientes.size >= consolidado.length && expandedVessels.size >= totalVessels;
+                return tudoAberto ? (
+                  <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+                ) : (
+                  <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+                );
+              })()}
             </Button>
           </div>
           <Card className="overflow-hidden">
             {consolidado.map((c) => {
-              const clienteAberto = !collapsedClientes.has(c.cliente);
+              const clienteAberto = expandedClientes.has(c.cliente);
               return (
                 <div key={c.cliente} className="border-b last:border-b-0">
                   <button
                     type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                    aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                    aria-expanded={clienteAberto} onClick={() => toggleSet(setExpandedClientes, c.cliente)}
                   >
                     <span className="flex min-w-0 items-center gap-2 font-semibold">
                       {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
@@ -386,12 +392,12 @@ function RatesPage() {
                   </button>
                   {clienteAberto && c.vessels.map((v) => {
                     const vesselKey = `${c.cliente}::${v.vessel}`;
-                    const vesselAberto = !collapsedVessels.has(vesselKey);
+                    const vesselAberto = expandedVessels.has(vesselKey);
                     return (
                       <div key={vesselKey}>
                         <button
                           type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
-                          aria-expanded={vesselAberto} onClick={() => toggleSet(setCollapsedVessels, vesselKey)}
+                          aria-expanded={vesselAberto} onClick={() => toggleSet(setExpandedVessels, vesselKey)}
                         >
                           <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
                             {vesselAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
