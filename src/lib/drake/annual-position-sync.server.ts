@@ -38,6 +38,7 @@ export interface AnnualPositionSyncResult {
   preservedExistingEvents: number;
   skippedExistingDays: number;
   processedWorkers: number;
+  novosColaboradores: number;
 }
 
 export interface AnnualPositionSyncHooks {
@@ -74,6 +75,13 @@ export async function synchronizeCurrentDrakeAnnualPositions(
   // A carga não cria pessoas: espelha somente quem já pertence ao Histograma.
   // A lista é congelada antes de qualquer gravação e cruzada com os ATIVOS do Drake.
   const histogramWorkerKeys = await loadActiveHistogramWorkerKeys(db);
+
+  // Cadastra em hist_novo_colaboradores quem ainda não existe — só o cadastro (aparece na busca
+  // de colaborador em Hospedagem/Passagens Aéreas/Histograma), nunca elegibilidade de Ficha
+  // Anual: histogramWorkerKeys já foi congelado ACIMA, então quem é criado aqui só entra na
+  // sincronização de fato a partir da próxima atualização, preservando a regra de segurança
+  // "a carga não cria pessoas" tal como está.
+  const novosColaboradores = await backfillMissingColaboradores(db, activeWorkers);
 
   const workers = filterWorkersAlreadyInHistogram(activeWorkers, histogramWorkerKeys);
 
@@ -260,7 +268,56 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     preservedExistingEvents: result.preservedExistingEvents,
     skippedExistingDays: result.skippedExistingDays,
     processedWorkers: workers.length,
+    novosColaboradores,
   };
+}
+
+// Só cadastra quem ainda não existe (por empresa+matrícula) — nunca atualiza nome/função de quem
+// já está lá, isso continua sendo papel do fluxo de embarque/cadastro manual. Roda com a MESMA
+// lista de ativos do Drake que a Ficha Anual já buscou acima, sem chamada nova ao Drake.
+async function backfillMissingColaboradores(
+  db: SupabaseClient,
+  activeWorkers: Awaited<ReturnType<typeof fetchDrakeWorkers>>,
+): Promise<number> {
+  const porChave = new Map<string, (typeof activeWorkers)[number]>();
+  for (const worker of activeWorkers) {
+    if (!worker.companyName?.trim() || !worker.registration?.trim() || !worker.name?.trim()) continue;
+    const chave = buildWorkerKey(worker.companyName, worker.registration);
+    if (!porChave.has(chave)) porChave.set(chave, worker);
+  }
+
+  const matriculas = [...new Set([...porChave.values()].map((w) => w.registration))];
+  const existentes = new Set<string>();
+  for (const batch of chunkEligibilityIds(matriculas, 200)) {
+    const { data, error } = await db
+      .from("hist_novo_colaboradores")
+      .select("empresa, matricula")
+      .in("matricula", batch);
+    if (error) throw error;
+    for (const row of (data ?? []) as { empresa: string | null; matricula: string }[]) {
+      if (row.empresa?.trim() && row.matricula?.trim()) {
+        existentes.add(buildWorkerKey(row.empresa, row.matricula));
+      }
+    }
+  }
+
+  const paraCriar = [...porChave.entries()]
+    .filter(([chave]) => !existentes.has(chave))
+    .map(([, worker]) => ({
+      matricula: worker.registration.trim(),
+      nome: worker.name.trim(),
+      empresa: worker.companyName.trim(),
+      funcao: worker.jobDescription?.trim() || null,
+      funcao_operacao: worker.payrollJobName?.trim() || null,
+      ativo: true,
+    }));
+
+  for (const batch of chunkEligibilityIds(paraCriar, 200)) {
+    const { error } = await db.from("hist_novo_colaboradores").insert(batch);
+    if (error) throw error;
+  }
+
+  return paraCriar.length;
 }
 
 /**
