@@ -214,6 +214,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
   onStatus: (s: TripStatus) => void;
   onDuplicate?: () => void;
 }) {
+  const bspCount = [trip.bsp, trip.bsp_2, trip.bsp_3].filter(Boolean).length;
   return (
     <Card className={cn("cursor-pointer p-3 hover:border-primary/40 transition border-l-4", STATUS_BORDER[trip.status])} onClick={onClick}>
       <div className="flex items-start justify-between gap-2">
@@ -223,6 +224,11 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"><Package className="h-3 w-3" />Material</span>
           ) : (
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"><UsersIcon className="h-3 w-3" />Pessoas</span>
+          )}
+          {bspCount > 0 && (
+            <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/20 px-2 py-0.5 text-[10px] font-semibold text-warning-foreground">
+              {bspCount} BSP{bspCount > 1 ? "s" : ""}
+            </span>
           )}
         </div>
         <div className="text-right text-xs text-muted-foreground">
@@ -1831,8 +1837,15 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {list.map((t) => (
                     <Card key={t.id} className={cn("p-3 cursor-pointer hover:border-primary/40 border-l-4", STATUS_BORDER[t.status])} onClick={() => onEdit(t)}>
-                      <div className="flex items-start justify-between">
-                        <div className="font-semibold">{t.car_number}</div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="font-semibold">{t.car_number}</div>
+                          {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).length > 0 && (
+                            <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/20 px-2 py-0.5 text-[10px] font-semibold text-warning-foreground">
+                              {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).length} BSP{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
                         <StatusBadge status={t.status} />
                       </div>
                       <div className="text-xs text-muted-foreground">{new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(t.scheduled_at))} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
@@ -1846,7 +1859,13 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                       <div className="mt-1 flex flex-wrap gap-1">
                         {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
                       </div>
-                      {t.bsp && <div className="mt-1 inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {t.bsp}</div>}
+                      {[t.bsp, t.bsp_2, t.bsp_3].some(Boolean) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).map((b, i) => (
+                            <span key={`bsp-${i}`} className="inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {b}</span>
+                          ))}
+                        </div>
+                      )}
                       <div className="mt-2 text-sm">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}</div>
                       {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
                       {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
