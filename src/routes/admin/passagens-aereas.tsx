@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel, usePessoasAdicionais, PessoasAdicionaisPanel } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais } from "@/components/LogisticaFormFields";
 import {
   Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
   Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
@@ -194,9 +194,9 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-lg flex-col overflow-hidden">
         <DialogHeader><DialogTitle>{editing ? "Editar passagem" : "Nova passagem"}</DialogTitle></DialogHeader>
-        <div className="grid gap-3">
+        <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <div>
             <Label className="text-xs">Motivo</Label>
             <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
@@ -211,10 +211,11 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               <Input type="email" value={f.solicitanteEmail} onChange={(e) => setF({ ...f, solicitanteEmail: e.target.value })} placeholder="Pra avisar a cada etapa" />
             </div>
           </div>
-          <div>
-            <Label className="text-xs">Colaborador (quem vai viajar)</Label>
-            <NomeUsuarioField value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })} colaboradores={colaboradores} />
-          </div>
+          <NomeUsuarioMultiField
+            label="Colaborador (quem vai viajar)"
+            value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
+            colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
+          />
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={f.internacional} onChange={(e) => setF({ ...f, internacional: e.target.checked })} />
             Viagem internacional (entra no Relatório de Viagens)
@@ -271,22 +272,11 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
                 <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div>
-              <Label className="text-xs">BSP</Label>
-              <Select value={f.bsp} onValueChange={(v) => setF({ ...f, bsp: v })} disabled={!f.unidade}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-          </div>
-          {!editing && (
-            <PessoasAdicionaisPanel
-              estado={pessoas} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
-              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u)}
-              unidadePadrao={f.unidade} bspPadrao={f.bsp}
+            <BspMultiField
+              value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })}
+              options={bspOptions} disabled={!f.unidade} rateio={rateio}
             />
-          )}
-          <RateioComplementarPanel rateio={rateio} />
+          </div>
           {f.status === "Cancelada" && (
             <div>
               <Label className="text-xs">Motivo do cancelamento</Label>

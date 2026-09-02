@@ -305,3 +305,114 @@ export function PessoasAdicionaisPanel({ estado, colaboradores, unidadeOptions, 
     </div>
   );
 }
+
+// ── Campos "+" inline (Nome do usuário / BSP) ─────────────────────────────────────────────
+// Em vez de um painel separado lá embaixo, o próprio campo principal ganha um botão "+"
+// no rótulo: adiciona linhas extras logo abaixo dele.
+
+// Nome do usuário + colaboradores extras (cada um vira um lançamento próprio ao salvar).
+export function NomeUsuarioMultiField({ label = "Nome do usuário", value, onChange, colaboradores, extras, permiteAdicionar = true }: {
+  label?: string;
+  value: string;
+  onChange: (v: string) => void;
+  colaboradores: { id: string; nome: string }[];
+  extras: UsePessoasAdicionaisReturn;
+  permiteAdicionar?: boolean;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">{label}</Label>
+        {permiteAdicionar && (
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={extras.add}>
+            + colaborador
+          </Button>
+        )}
+      </div>
+      <NomeUsuarioField value={value} onChange={onChange} colaboradores={colaboradores} />
+      {permiteAdicionar && extras.pessoas.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {extras.pessoas.map((p, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <div className="flex-1">
+                <NomeUsuarioField value={p.nome} onChange={(v) => extras.update(i, { nome: v })} colaboradores={colaboradores} />
+              </div>
+              <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => extras.remove(i)}>✕</Button>
+            </div>
+          ))}
+          <p className="text-[11px] text-muted-foreground">Cada colaborador adicionado gera um lançamento próprio com os mesmos dados.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// BSP + BSPs extras de rateio (2º/3º centro de custo, com o % de cada um).
+export function BspMultiField({ value, onChange, options, disabled, rateio, permiteRatear = true }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  disabled?: boolean;
+  rateio: UseRateioComplementarReturn;
+  permiteRatear?: boolean;
+}) {
+  const mostrar2 = rateio.ativo;
+  const mostrar3 = rateio.ativo && rateio.bsp3 !== "" ? true : false;
+  const [forcar3, setForcar3] = useState(false);
+  const exibe3 = mostrar3 || forcar3;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">BSP</Label>
+        {permiteRatear && (
+          <Button
+            type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs"
+            onClick={() => { if (!rateio.ativo) rateio.setAtivo(true); else setForcar3(true); }}
+          >
+            + BSP
+          </Button>
+        )}
+      </div>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+        <SelectContent>{options.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+      </Select>
+      {permiteRatear && mostrar2 && (
+        <div className="mt-2 space-y-2 rounded-md border border-dashed p-2 text-xs">
+          <div className="grid grid-cols-[1fr_80px_auto] items-end gap-1">
+            <div>
+              <Label className="text-[11px]">BSP 2</Label>
+              <Input value={rateio.bsp2} onChange={(e) => rateio.setBsp2(e.target.value)} placeholder="Número do BSP" />
+            </div>
+            <div>
+              <Label className="text-[11px]">%</Label>
+              <Input type="number" step="0.01" min="0" max="100" inputMode="decimal" value={rateio.percentual2} onChange={(e) => rateio.setPercentual2(e.target.value)} placeholder="0" />
+            </div>
+            <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => { rateio.setAtivo(false); setForcar3(false); }}>✕</Button>
+          </div>
+          <p className="text-muted-foreground">{fmtMoneyLocal(rateio.valor2)}</p>
+          {exibe3 && (
+            <>
+              <div className="grid grid-cols-[1fr_80px_auto] items-end gap-1">
+                <div>
+                  <Label className="text-[11px]">BSP 3</Label>
+                  <Input value={rateio.bsp3} onChange={(e) => rateio.setBsp3(e.target.value)} placeholder="Número do BSP" />
+                </div>
+                <div>
+                  <Label className="text-[11px]">%</Label>
+                  <Input type="number" step="0.01" min="0" max="100" inputMode="decimal" value={rateio.percentual3} onChange={(e) => rateio.setPercentual3(e.target.value)} placeholder="0" />
+                </div>
+                <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => { rateio.setBsp3(""); rateio.setPercentual3(""); setForcar3(false); }}>✕</Button>
+              </div>
+              <p className="text-muted-foreground">{fmtMoneyLocal(rateio.valor3)}</p>
+            </>
+          )}
+          <p className={rateio.restante < 0 ? "font-medium text-destructive" : "text-muted-foreground"}>
+            BSP principal fica com {fmtMoneyLocal(rateio.restante)}
+            {rateio.restante < 0 && " — os percentuais somam mais que 100% do valor"}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
