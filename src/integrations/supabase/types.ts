@@ -1375,6 +1375,7 @@ export type Database = {
           data_faturamento: string | null
           diarias: number
           faturado: boolean | null
+          forma_pagamento: string | null
           fornecedor: string | null
           hotel_id: string
           id: string
@@ -1401,6 +1402,7 @@ export type Database = {
           data_faturamento?: string | null
           diarias: number
           faturado?: boolean | null
+          forma_pagamento?: string | null
           fornecedor?: string | null
           hotel_id: string
           id?: string
@@ -1427,6 +1429,7 @@ export type Database = {
           data_faturamento?: string | null
           diarias?: number
           faturado?: boolean | null
+          forma_pagamento?: string | null
           fornecedor?: string | null
           hotel_id?: string
           id?: string
@@ -1950,6 +1953,7 @@ export type Database = {
           destino: string | null
           diferenca_preco: number | null
           faturado: boolean | null
+          forma_pagamento: string | null
           id: string
           internacional: boolean
           motivo: string | null
@@ -1990,6 +1994,7 @@ export type Database = {
           destino?: string | null
           diferenca_preco?: number | null
           faturado?: boolean | null
+          forma_pagamento?: string | null
           id?: string
           internacional?: boolean
           motivo?: string | null
@@ -2030,6 +2035,7 @@ export type Database = {
           destino?: string | null
           diferenca_preco?: number | null
           faturado?: boolean | null
+          forma_pagamento?: string | null
           id?: string
           internacional?: boolean
           motivo?: string | null
@@ -2989,6 +2995,7 @@ export type Database = {
           duracao_min: number | null
           external_ref: string | null
           faturado: boolean | null
+          forma_pagamento: string | null
           id: string
           motivo: string | null
           nf: string | null
@@ -3027,6 +3034,7 @@ export type Database = {
           duracao_min?: number | null
           external_ref?: string | null
           faturado?: boolean | null
+          forma_pagamento?: string | null
           id?: string
           motivo?: string | null
           nf?: string | null
@@ -3065,6 +3073,7 @@ export type Database = {
           duracao_min?: number | null
           external_ref?: string | null
           faturado?: boolean | null
+          forma_pagamento?: string | null
           id?: string
           motivo?: string | null
           nf?: string | null
