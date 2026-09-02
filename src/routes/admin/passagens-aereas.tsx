@@ -47,6 +47,7 @@ import {
 import { notifyPassagemStageAdvance } from "@/lib/passagemEmails";
 import { useAuth } from "@/hooks/useAuth";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
+import { AeroportoSelect } from "@/components/AeroportoSelect";
 
 export const Route = createFileRoute("/admin/passagens-aereas")({ head: () => pageTitle("Passagens Aéreas"), component: PassagensAereasPage });
 
@@ -231,12 +232,12 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               <Input value={f.companhiaAerea} onChange={(e) => setF({ ...f, companhiaAerea: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">Origem</Label>
-              <Input value={f.origem} onChange={(e) => setF({ ...f, origem: e.target.value })} />
+              <Label className="text-xs">Aeroporto de origem</Label>
+              <AeroportoSelect value={f.origem} onValueChange={(v) => setF({ ...f, origem: v })} placeholder="Selecionar aeroporto" />
             </div>
             <div>
-              <Label className="text-xs">Destino</Label>
-              <Input value={f.destino} onChange={(e) => setF({ ...f, destino: e.target.value })} />
+              <Label className="text-xs">Aeroporto de destino</Label>
+              <AeroportoSelect value={f.destino} onValueChange={(v) => setF({ ...f, destino: v })} placeholder="Selecionar aeroporto" />
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
