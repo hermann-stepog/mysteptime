@@ -282,13 +282,13 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-lg flex-col overflow-hidden">
         <DialogHeader><DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle></DialogHeader>
-        <div className="grid gap-3">
-          <div>
-            <Label className="text-xs">Nome do usuário</Label>
-            <NomeUsuarioField value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })} colaboradores={colaboradores} />
-          </div>
+        <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
+          <NomeUsuarioMultiField
+            value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
+            colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Unidade</Label>
@@ -297,13 +297,10 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
                 <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div>
-              <Label className="text-xs">BSP</Label>
-              <Select value={f.bsp} onValueChange={(v) => setF({ ...f, bsp: v })} disabled={!f.unidade}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            <BspMultiField
+              value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })}
+              options={bspOptions} disabled={!f.unidade} rateio={rateio}
+            />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
