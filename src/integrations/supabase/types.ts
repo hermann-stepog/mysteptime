@@ -783,6 +783,7 @@ export type Database = {
           created_at: string
           full_name: string
           id: string
+          is_offshore: boolean
           role: string | null
           unit: string | null
           updated_at: string
@@ -793,6 +794,7 @@ export type Database = {
           created_at?: string
           full_name: string
           id?: string
+          is_offshore?: boolean
           role?: string | null
           unit?: string | null
           updated_at?: string
@@ -803,6 +805,7 @@ export type Database = {
           created_at?: string
           full_name?: string
           id?: string
+          is_offshore?: boolean
           role?: string | null
           unit?: string | null
           updated_at?: string
