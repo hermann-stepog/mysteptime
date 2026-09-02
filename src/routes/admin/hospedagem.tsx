@@ -325,20 +325,13 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
               <Input type="date" value={f.checkOut} onChange={(e) => setF({ ...f, checkOut: e.target.value })} />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <Label className="text-xs">Diárias</Label>
-              <Input disabled value={diarias} className="bg-muted" />
-            </div>
-            <div>
-              <Label className="text-xs">Valor da diária</Label>
-              <Input type="number" step="0.01" min="0" value={f.valorDiaria} onChange={(e) => setF({ ...f, valorDiaria: e.target.value })} />
-            </div>
-            <div>
-              <Label className="text-xs">Valor total</Label>
-              <Input disabled value={fmtMoney(valorTotal)} className="bg-muted" />
+              <Label className="text-xs">Valor</Label>
+              <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} />
             </div>
           </div>
+
           <div>
             <Label className="text-xs">Motivo</Label>
             <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
