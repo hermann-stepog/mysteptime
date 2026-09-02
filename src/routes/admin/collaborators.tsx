@@ -379,7 +379,7 @@ function CollaboratorsPage() {
           <CollaboratorsTable rows={rows} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
         </TabsContent>
         <TabsContent value="offshore" className="mt-4">
-          <CollaboratorsTable rows={rows.filter((r) => r.is_offshore)} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
+          <OffshoreTab rows={rows} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
         </TabsContent>
       </Tabs>
 
