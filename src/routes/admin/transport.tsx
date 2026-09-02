@@ -30,7 +30,7 @@ import { useRateioPercentual, RateioPercentualPanel } from "@/components/Logisti
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
-import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtMoney, toDisplayCase } from "@/lib/format";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
@@ -417,10 +417,22 @@ function ClientSelect({ label, value, onChange }: { label: string; value: string
   );
 }
 
+const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
+const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
+
+function parseCarro(car_number: string): { carro_opcao: string; carro_future_num: string; carro_outro: string } {
+  const v = car_number.trim();
+  if (!v) return { carro_opcao: "", carro_future_num: "", carro_outro: "" };
+  if (CARRO_PRESETS.includes(v)) return { carro_opcao: v, carro_future_num: "", carro_outro: "" };
+  const futureMatch = /^Future\s+(\d{1,2})$/i.exec(v);
+  if (futureMatch) return { carro_opcao: "Future", carro_future_num: futureMatch[1], carro_outro: "" };
+  return { carro_opcao: "Outro", carro_future_num: "", carro_outro: v };
+}
+
 function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; columns: Column[]; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   type FormState = {
-    id?: string; car_number: string; column_id: string; scheduled_at: string;
+    id?: string; car_number: string; carro_opcao: string; carro_future_num: string; carro_outro: string; column_id: string; scheduled_at: string;
     departure_time: string; arrival_time: string;
     origin: string; destination: string;
     origens_extras: string[]; destinos_extras: string[];
@@ -432,7 +444,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
     if (t) return {
-      id: t.id, car_number: t.car_number, column_id: t.column_id ?? (cols[0]?.id ?? ""),
+      id: t.id, car_number: t.car_number, ...parseCarro(t.car_number), column_id: t.column_id ?? (cols[0]?.id ?? ""),
       scheduled_at: (t.scheduled_at ?? "").slice(0, 10),
       departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
       origin: t.origin, destination: t.destination,
@@ -453,7 +465,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
     };
     return {
-      car_number: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
+      car_number: "", carro_opcao: "", carro_future_num: "", carro_outro: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "", arrival_time: "",
       origin: "", destination: "",
       origens_extras: [], destinos_extras: [],
@@ -538,6 +550,14 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     onError: (e: any) => notify.error(e.message),
   });
 
+  const setCarroOpcao = (opcao: string) => {
+    if (opcao === "Future") setF({ ...f, carro_opcao: opcao, car_number: f.carro_future_num ? `Future ${f.carro_future_num}` : "" });
+    else if (opcao === "Outro") setF({ ...f, carro_opcao: opcao, car_number: f.carro_outro });
+    else setF({ ...f, carro_opcao: opcao, car_number: opcao });
+  };
+  const setCarroFutureNum = (num: string) => setF({ ...f, carro_future_num: num, car_number: `Future ${num}` });
+  const setCarroOutro = (val: string) => setF({ ...f, carro_outro: val, car_number: val });
+
   const del = useMutation({
     mutationFn: async () => {
       if (!f.id) return;
@@ -557,7 +577,24 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         <DialogHeader><DialogTitle>{f.id ? "Editar viagem" : "Nova viagem"}</DialogTitle></DialogHeader>
         <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div><Label>Número do carro</Label><Input value={f.car_number} onChange={(e) => setF({ ...f, car_number: e.target.value })} placeholder="Carro 01" /></div>
+            <div>
+              <Label>Transporte</Label>
+              <div className="flex gap-2">
+                <Select value={f.carro_opcao} onValueChange={setCarroOpcao}>
+                  <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>{CARRO_OPCOES.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                </Select>
+                {f.carro_opcao === "Future" && (
+                  <Select value={f.carro_future_num} onValueChange={setCarroFutureNum}>
+                    <SelectTrigger className="w-20"><SelectValue placeholder="Nº" /></SelectTrigger>
+                    <SelectContent>{Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                  </Select>
+                )}
+              </div>
+              {f.carro_opcao === "Outro" && (
+                <Input className="mt-2" value={f.carro_outro} onChange={(e) => setCarroOutro(e.target.value)} placeholder="Especifique o transporte" />
+              )}
+            </div>
             <div>
               <Label>Coluna</Label>
               <Select value={f.column_id} onValueChange={(v) => setF({ ...f, column_id: v })}>
@@ -2043,18 +2080,18 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
             {filtered.map((t) => (
               <TableRow key={t.id} className="cursor-pointer" onClick={() => onEdit(t)}>
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
-                <TableCell>{t.car_number}</TableCell>
+                <TableCell>{toDisplayCase(t.car_number)}</TableCell>
                 <TableCell className="hidden md:table-cell">{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
                 <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell className="hidden md:table-cell">{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell className="hidden xl:table-cell"><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
                 <TableCell className="hidden lg:table-cell">{t.departure_time ? t.departure_time.slice(0, 5) : "—"}</TableCell>
-                <TableCell className="hidden lg:table-cell">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
-                <TableCell className="hidden lg:table-cell">{[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ")}</TableCell>
+                <TableCell className="hidden lg:table-cell">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).map(toDisplayCase).join("; ")}</TableCell>
+                <TableCell className="hidden lg:table-cell">{[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).map(toDisplayCase).join("; ")}</TableCell>
                 <TableCell className="hidden max-w-[200px] truncate xl:table-cell">
                   {t.tipo === "pessoas"
-                    ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
-                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
+                    ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).map(toDisplayCase).join(", ")
+                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${toDisplayCase(materialLabel(mat))} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
                 </TableCell>
                 <TableCell><StatusBadge status={t.status} /></TableCell>
                 <TableCell>{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>

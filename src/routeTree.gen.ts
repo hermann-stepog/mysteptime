@@ -27,6 +27,7 @@ import { Route as AdminTransportRouteImport } from './routes/admin/transport'
 import { Route as AdminTimesheetOffshoreRouteImport } from './routes/admin/timesheet-offshore'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
+import { Route as AdminReembolsosRouteImport } from './routes/admin/reembolsos'
 import { Route as AdminRatesRouteImport } from './routes/admin/rates'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
 import { Route as AdminPassagensAereasRouteImport } from './routes/admin/passagens-aereas'
@@ -130,6 +131,11 @@ const AdminReportsRoute = AdminReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminReembolsosRoute = AdminReembolsosRouteImport.update({
+  id: '/reembolsos',
+  path: '/reembolsos',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminRatesRoute = AdminRatesRouteImport.update({
   id: '/rates',
   path: '/rates',
@@ -210,6 +216,7 @@ export interface FileRoutesByFullPath {
   '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/rates': typeof AdminRatesRoute
+  '/admin/reembolsos': typeof AdminReembolsosRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -240,6 +247,7 @@ export interface FileRoutesByTo {
   '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/rates': typeof AdminRatesRoute
+  '/admin/reembolsos': typeof AdminReembolsosRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -273,6 +281,7 @@ export interface FileRoutesById {
   '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
   '/admin/rates': typeof AdminRatesRoute
+  '/admin/reembolsos': typeof AdminReembolsosRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/timesheet-offshore': typeof AdminTimesheetOffshoreRoute
@@ -307,6 +316,7 @@ export interface FileRouteTypes {
     | '/admin/passagens-aereas'
     | '/admin/payroll'
     | '/admin/rates'
+    | '/admin/reembolsos'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -337,6 +347,7 @@ export interface FileRouteTypes {
     | '/admin/passagens-aereas'
     | '/admin/payroll'
     | '/admin/rates'
+    | '/admin/reembolsos'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -369,6 +380,7 @@ export interface FileRouteTypes {
     | '/admin/passagens-aereas'
     | '/admin/payroll'
     | '/admin/rates'
+    | '/admin/reembolsos'
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/timesheet-offshore'
@@ -522,6 +534,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminReportsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/reembolsos': {
+      id: '/admin/reembolsos'
+      path: '/reembolsos'
+      fullPath: '/admin/reembolsos'
+      preLoaderRoute: typeof AdminReembolsosRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/rates': {
       id: '/admin/rates'
       path: '/rates'
@@ -621,6 +640,7 @@ interface AdminRouteRouteChildren {
   AdminPassagensAereasRoute: typeof AdminPassagensAereasRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
   AdminRatesRoute: typeof AdminRatesRoute
+  AdminReembolsosRoute: typeof AdminReembolsosRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTimesheetOffshoreRoute: typeof AdminTimesheetOffshoreRoute
@@ -639,6 +659,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminPassagensAereasRoute: AdminPassagensAereasRoute,
   AdminPayrollRoute: AdminPayrollRoute,
   AdminRatesRoute: AdminRatesRoute,
+  AdminReembolsosRoute: AdminReembolsosRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTimesheetOffshoreRoute: AdminTimesheetOffshoreRoute,
