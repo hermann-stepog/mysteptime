@@ -508,14 +508,14 @@ export function UnidadeMultiField({ value, onChange, options, extras, bspOptions
             const opcoesBsp = bspOptionsFor(item.unidade || "all");
             return (
               <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-1">
-                <Select value={item.unidade || undefined} onValueChange={(v) => extras.update(i, { unidade: v, bsp: "" })}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Unidade" /></SelectTrigger>
-                  <SelectContent>{options.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={item.bsp || undefined} onValueChange={(v) => extras.update(i, { bsp: v })} disabled={!item.unidade}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="BSP" /></SelectTrigger>
-                  <SelectContent>{opcoesBsp.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-                </Select>
+                <SelectComOutro
+                  value={item.unidade} onChange={(v) => extras.update(i, { unidade: v, bsp: "" })}
+                  options={options} placeholder="Unidade" manualPlaceholder="Digitar unidade"
+                />
+                <SelectComOutro
+                  value={item.bsp} onChange={(v) => extras.update(i, { bsp: v })}
+                  options={opcoesBsp} placeholder="BSP" manualPlaceholder="Digitar BSP" disabled={!item.unidade}
+                />
                 <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => extras.remove(i)}>✕</Button>
               </div>
             );
