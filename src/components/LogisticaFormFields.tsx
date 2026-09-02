@@ -328,17 +328,17 @@ export function PessoasAdicionaisPanel({ estado, colaboradores, unidadeOptions, 
                 </div>
                 <div>
                   <Label className="text-xs">Unidade</Label>
-                  <Select value={p.unidade || undefined} onValueChange={(v) => estado.update(i, { unidade: v, bsp: "" })}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={unidadePadrao || "Selecione"} /></SelectTrigger>
-                    <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <SelectComOutro
+                    value={p.unidade} onChange={(v) => estado.update(i, { unidade: v, bsp: "" })}
+                    options={unidadeOptions} placeholder={unidadePadrao || "Selecione"} manualPlaceholder="Digitar unidade"
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">BSP</Label>
-                  <Select value={p.bsp || undefined} onValueChange={(v) => estado.update(i, { bsp: v })}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={bspPadrao || "Selecione"} /></SelectTrigger>
-                    <SelectContent>{opcoesBsp.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <SelectComOutro
+                    value={p.bsp} onChange={(v) => estado.update(i, { bsp: v })}
+                    options={opcoesBsp} placeholder={bspPadrao || "Selecione"} manualPlaceholder="Digitar BSP"
+                  />
                 </div>
                 <Button type="button" variant="ghost" size="sm" onClick={() => estado.remove(i)}>Remover</Button>
               </div>
