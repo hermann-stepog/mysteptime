@@ -290,13 +290,11 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
             colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label className="text-xs">Unidade</Label>
-              <Select value={f.unidade} onValueChange={(v) => setF({ ...f, unidade: v, bsp: "" })}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            <UnidadeMultiField
+              value={f.unidade} onChange={(v) => setF({ ...f, unidade: v, bsp: "" })}
+              options={unidadeOptions} extras={unidades} permiteAdicionar={!editing}
+              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u || "all")}
+            />
             <BspMultiField
               value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })}
               options={bspOptions} disabled={!f.unidade} rateio={rateio}
