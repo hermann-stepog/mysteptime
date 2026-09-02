@@ -775,14 +775,41 @@ function RelatorioInternacionalTab({ passagens, somenteInternacionais }: {
   passagens: PassagemAerea[]; somenteInternacionais?: boolean;
 }) {
   const [subAba, setSubAba] = useState<"internacionais" | "nacionais">("internacionais");
+  const [filterDe, setFilterDe] = useState("");
+  const [filterAte, setFilterAte] = useState("");
+
+  // Mesma sobreposição de período usada na aba Solicitações — sem data preenchida, não filtra
+  // nada (relatório sai igual a hoje).
+  const passagensNoPeriodo = useMemo(() => passagens.filter((p) =>
+    (!filterDe || (p.data_volta ?? p.data_ida) >= filterDe) &&
+    (!filterAte || p.data_ida <= filterAte),
+  ), [passagens, filterDe, filterAte]);
+
+  const filtroPeriodo = (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="space-y-0.5">
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
+        <Input type="date" className="h-8 w-36 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+      </div>
+      <div className="space-y-0.5">
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
+        <Input type="date" className="h-8 w-36 text-xs" min={filterDe || undefined} value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+      </div>
+    </div>
+  );
 
   // RH/SMS só recebem passagem internacional via RLS — não faz sentido oferecer a sub-aba
   // Nacionais nesse caso, ela sempre viria vazia.
   if (somenteInternacionais) {
-    return <ListaViagensPorStatus passagens={passagens} />;
+    return (
+      <div className="space-y-3">
+        {filtroPeriodo}
+        <ListaViagensPorStatus passagens={passagensNoPeriodo} />
+      </div>
+    );
   }
 
-  const passagensDaSubAba = passagens.filter((p) => subAba === "internacionais" ? p.internacional : !p.internacional);
+  const passagensDaSubAba = passagensNoPeriodo.filter((p) => subAba === "internacionais" ? p.internacional : !p.internacional);
 
   return (
     <div className="space-y-3">
@@ -801,6 +828,7 @@ function RelatorioInternacionalTab({ passagens, somenteInternacionais }: {
             <TabsTrigger value="nacionais">Nacionais</TabsTrigger>
           </TabsList>
         </Tabs>
+        {filtroPeriodo}
         <p className="text-xs text-muted-foreground">
           {subAba === "internacionais"
             ? "Voos internacionais — acompanhamento prioritário (documentação e prazos)."
@@ -988,6 +1016,8 @@ function PassagensAereasPage() {
     [periodos],
   );
 
+  const [filterDe, setFilterDe] = useState("");
+  const [filterAte, setFilterAte] = useState("");
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
   const [filterMotivo, setFilterMotivo] = useState("all");
@@ -1022,6 +1052,10 @@ function PassagensAereasPage() {
   });
 
   const filtradas = useMemo(() => passagens.filter((p) =>
+    // Sobreposição de período — mesmo critério já usado em Hospedagem: basta a viagem (ida até
+    // volta, quando houver) cruzar algum dia do intervalo filtrado.
+    (!filterDe || (p.data_volta ?? p.data_ida) >= filterDe) &&
+    (!filterAte || p.data_ida <= filterAte) &&
     (filterUnidade === "all" || p.unidade === filterUnidade) &&
     (filterBsp === "all" || p.bsp === filterBsp) &&
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
@@ -1056,7 +1090,7 @@ function PassagensAereasPage() {
       default:
         return 0;
     }
-  }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, sortColumn, sortDirection]);
+  }), [passagens, filterDe, filterAte, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, sortColumn, sortDirection]);
 
   // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
   // (Custos). Passagens Aéreas não tem campo Cliente próprio, usa o mesmo vínculo Unidade→Cliente
@@ -1159,6 +1193,14 @@ function PassagensAereasPage() {
         <TabsContent value="solicitacoes" className="mt-4 space-y-4">
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
+            <Input type="date" className="h-8 w-36 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
+            <Input type="date" className="h-8 w-36 text-xs" min={filterDe || undefined} value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+          </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
             <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
