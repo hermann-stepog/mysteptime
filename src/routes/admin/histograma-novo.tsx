@@ -1449,6 +1449,14 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   // Nem "P" (Programado) nem "BASE" aparecem nessa aba (ver periodosByColaborador) — sem
   // sentido oferecer os dois na legenda/filtro de Status daqui, já que nunca teriam resultado.
   const statusOrderHistograma = useMemo(() => STATUS_ORDER.filter((s) => s !== "P" && s !== "BASE"), []);
+  // Legenda de botões clicáveis (linha de badges acima da grade) reduzida aos status mais
+  // usados no dia a dia, a pedido dela — o filtro por Status completo (combobox, na visão por
+  // período) continua com todos, é só essa fileira de botões que fica mais enxuta.
+  const STATUS_LEGENDA_VISIVEIS: ComputedStatus[] = ["E", "AT", "FE", "STB", "TE", "DES"];
+  const statusLegenda = useMemo(
+    () => statusOrderHistograma.filter((s) => STATUS_LEGENDA_VISIVEIS.includes(s)),
+    [statusOrderHistograma],
+  );
   const [unidadeFilter, setUnidadeFilter] = useState<string[]>([]);
   const [bspFilter, setBspFilter] = useState<string[]>([]);
   const [funcaoFilter, setFuncaoFilter] = useState<string[]>([]);
@@ -1528,6 +1536,20 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
     });
     return m;
   }, [periodos]);
+
+  const seisMesesAtras = useMemo(() => {
+    const d = new Date(`${today}T00:00:00`);
+    d.setMonth(d.getMonth() - 6);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, [today]);
+  // Pedido da usuária: no combobox "Por colaborador" (visão individual do Histograma), esconder
+  // quem não tem nenhum período (passado, atual ou futuro) nos últimos 6 meses — evita cadastro
+  // legado/inativo poluindo a busca. Não mexe no combobox de Lançamentos (edição de período),
+  // que precisa listar todo mundo mesmo.
+  const colaboradoresComPeriodoRecente = useMemo(
+    () => colaboradores.filter((c) => (periodosByColaborador.get(c.id) ?? []).some((p) => p.data_fim >= seisMesesAtras)),
+    [colaboradores, periodosByColaborador, seisMesesAtras],
+  );
 
   const yearOptions = useMemo(() => {
     const cur = new Date().getFullYear();
@@ -1636,14 +1658,14 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
             </div>
             <div className="space-y-0.5 w-64">
               <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
-              <ColaboradorCombobox colaboradores={colaboradores} value={selectedColaborador} onChange={setSelectedColaborador} />
+              <ColaboradorCombobox colaboradores={colaboradoresComPeriodoRecente} value={selectedColaborador} onChange={setSelectedColaborador} />
             </div>
           </>
         )}
 
 
         <div className="ml-auto flex flex-wrap gap-1.5">
-          {statusOrderHistograma.map((s) => {
+          {statusLegenda.map((s) => {
             const active = statusFilter.includes(s);
             return (
               <button
