@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, UnidadeMultiField } from "@/components/LogisticaFormFields";
 import {
   Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
   Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
@@ -117,6 +117,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
   const valorPassagem = Number(f.valor) || 0;
   const rateio = useRateioComplementar(valorPassagem);
   const pessoas = usePessoasAdicionais();
+  const unidades = useUnidadesAdicionais();
 
   if (open && editing && bound !== editing.id) {
     setF({
@@ -139,7 +140,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
     }
     setBound(editing.id);
   }
-  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO); rateio.reset(); pessoas.reset(); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO); rateio.reset(); pessoas.reset(); unidades.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
@@ -179,6 +180,10 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
           nome_usuario: p.nome.trim(),
           unidade: p.unidade || base.unidade,
           bsp: p.bsp || base.bsp,
+        })), ...unidades.validas.map((u) => ({
+          ...base,
+          unidade: u.unidade,
+          bsp: u.bsp || base.bsp,
         }))];
         const { error } = await supabase.from("passagens_aereas").insert(linhas);
         if (error) throw error;
@@ -186,7 +191,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
-      notify.success(editing ? "Passagem atualizada" : `${1 + pessoas.validas.length} passagem(ns) lançada(s)`);
+      notify.success(editing ? "Passagem atualizada" : `${1 + pessoas.validas.length + unidades.validas.length} passagem(ns) lançada(s)`);
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -265,13 +270,11 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label className="text-xs">Unidade</Label>
-              <Select value={f.unidade} onValueChange={(v) => setF({ ...f, unidade: v, bsp: "" })}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            <UnidadeMultiField
+              value={f.unidade} onChange={(v) => setF({ ...f, unidade: v, bsp: "" })}
+              options={unidadeOptions} extras={unidades} permiteAdicionar={!editing}
+              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u || "all")}
+            />
             <BspMultiField
               value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })}
               options={bspOptions} disabled={!f.unidade} rateio={rateio}

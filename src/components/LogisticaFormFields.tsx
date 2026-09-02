@@ -416,3 +416,69 @@ export function BspMultiField({ value, onChange, options, disabled, rateio, perm
     </div>
   );
 }
+
+// ── Unidade + unidades adicionais ────────────────────────────────────────────────────────
+// Mesma lógica das pessoas adicionais: cada unidade extra (com seu BSP) vira um lançamento
+// próprio, mantendo o restante dos dados do formulário.
+export interface UnidadeAdicional { unidade: string; bsp: string }
+
+export function useUnidadesAdicionais() {
+  const [unidades, setUnidades] = useState<UnidadeAdicional[]>([]);
+  function add() { setUnidades((u) => [...u, { unidade: "", bsp: "" }]); }
+  function update(i: number, patch: Partial<UnidadeAdicional>) {
+    setUnidades((u) => u.map((item, idx) => (idx === i ? { ...item, ...patch } : item)));
+  }
+  function remove(i: number) { setUnidades((u) => u.filter((_, idx) => idx !== i)); }
+  function reset() { setUnidades([]); }
+  const validas = unidades.filter((u) => u.unidade.trim() !== "");
+  return { unidades, add, update, remove, reset, validas };
+}
+
+export type UseUnidadesAdicionaisReturn = ReturnType<typeof useUnidadesAdicionais>;
+
+export function UnidadeMultiField({ value, onChange, options, extras, bspOptionsFor, permiteAdicionar = true }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  extras: UseUnidadesAdicionaisReturn;
+  bspOptionsFor: (unidade: string) => string[];
+  permiteAdicionar?: boolean;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">Unidade</Label>
+        {permiteAdicionar && (
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={extras.add}>
+            + unidade
+          </Button>
+        )}
+      </div>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+        <SelectContent>{options.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+      </Select>
+      {permiteAdicionar && extras.unidades.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {extras.unidades.map((item, i) => {
+            const opcoesBsp = bspOptionsFor(item.unidade || "all");
+            return (
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-1">
+                <Select value={item.unidade || undefined} onValueChange={(v) => extras.update(i, { unidade: v, bsp: "" })}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Unidade" /></SelectTrigger>
+                  <SelectContent>{options.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                </Select>
+                <Select value={item.bsp || undefined} onValueChange={(v) => extras.update(i, { bsp: v })} disabled={!item.unidade}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="BSP" /></SelectTrigger>
+                  <SelectContent>{opcoesBsp.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => extras.remove(i)}>✕</Button>
+              </div>
+            );
+          })}
+          <p className="text-[11px] text-muted-foreground">Cada unidade adicionada gera um lançamento próprio com os mesmos dados.</p>
+        </div>
+      )}
+    </div>
+  );
+}

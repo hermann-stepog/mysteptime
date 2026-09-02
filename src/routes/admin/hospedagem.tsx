@@ -26,7 +26,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, UnidadeMultiField } from "@/components/LogisticaFormFields";
 import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
@@ -205,6 +205,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const valorTotal = computeValorTotal(diariasAtual, Number(f.valorDiaria) || 0);
   const rateio = useRateioComplementar(valorTotal);
   const pessoas = usePessoasAdicionais();
+  const unidades = useUnidadesAdicionais();
 
   if (open && editing && bound !== editing.id) {
     setF({
@@ -229,7 +230,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   // Vem preenchido quando aberto a partir de outro módulo (ex.: Passagens Aéreas, ao marcar
   // uma passagem como Cancelada) — só unidade/bsp/nome/motivo, o resto (hotel/datas/valor)
   // continua em branco pra digitação normal.
-  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); rateio.reset(); pessoas.reset(); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); rateio.reset(); pessoas.reset(); unidades.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
@@ -267,6 +268,10 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           nome_usuario: p.nome.trim(),
           unidade: p.unidade || payload.unidade,
           bsp: p.bsp || payload.bsp,
+        })), ...unidades.validas.map((u) => ({
+          ...payload,
+          unidade: u.unidade,
+          bsp: u.bsp || payload.bsp,
         }))];
         const { error } = await supabase.from("hospedagens").insert(linhas);
         if (error) throw error;
@@ -274,7 +279,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
-      notify.success(editing ? "Hospedagem atualizada" : `${1 + pessoas.validas.length} hospedagem(ns) lançada(s)`);
+      notify.success(editing ? "Hospedagem atualizada" : `${1 + pessoas.validas.length + unidades.validas.length} hospedagem(ns) lançada(s)`);
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -290,13 +295,11 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
             colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label className="text-xs">Unidade</Label>
-              <Select value={f.unidade} onValueChange={(v) => setF({ ...f, unidade: v, bsp: "" })}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            <UnidadeMultiField
+              value={f.unidade} onChange={(v) => setF({ ...f, unidade: v, bsp: "" })}
+              options={unidadeOptions} extras={unidades} permiteAdicionar={!editing}
+              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u || "all")}
+            />
             <BspMultiField
               value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })}
               options={bspOptions} disabled={!f.unidade} rateio={rateio}
