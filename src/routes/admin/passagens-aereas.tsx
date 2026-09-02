@@ -47,6 +47,7 @@ import {
 import { notifyPassagemStageAdvance } from "@/lib/passagemEmails";
 import { useAuth } from "@/hooks/useAuth";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
+import { AeroportoSelect } from "@/components/AeroportoSelect";
 
 export const Route = createFileRoute("/admin/passagens-aereas")({ head: () => pageTitle("Passagens Aéreas"), component: PassagensAereasPage });
 
