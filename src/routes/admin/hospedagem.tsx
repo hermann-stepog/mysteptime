@@ -204,6 +204,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const diariasAtual = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
   const valorTotal = computeValorTotal(diariasAtual, Number(f.valorDiaria) || 0);
   const rateio = useRateioComplementar(valorTotal);
+  const pessoas = usePessoasAdicionais();
 
   if (open && editing && bound !== editing.id) {
     setF({
@@ -228,7 +229,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   // Vem preenchido quando aberto a partir de outro módulo (ex.: Passagens Aéreas, ao marcar
   // uma passagem como Cancelada) — só unidade/bsp/nome/motivo, o resto (hotel/datas/valor)
   // continua em branco pra digitação normal.
-  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); rateio.reset(); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); rateio.reset(); pessoas.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
@@ -259,13 +260,21 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
         const { error } = await supabase.from("hospedagens").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("hospedagens").insert(payload);
+        // Um lançamento por pessoa: o principal + cada colaborador adicional (com unidade/BSP
+        // próprios quando informados, senão herdando os do formulário).
+        const linhas = [payload, ...pessoas.validas.map((p) => ({
+          ...payload,
+          nome_usuario: p.nome.trim(),
+          unidade: p.unidade || payload.unidade,
+          bsp: p.bsp || payload.bsp,
+        }))];
+        const { error } = await supabase.from("hospedagens").insert(linhas);
         if (error) throw error;
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
-      notify.success(editing ? "Hospedagem atualizada" : "Hospedagem lançada");
+      notify.success(editing ? "Hospedagem atualizada" : `${1 + pessoas.validas.length} hospedagem(ns) lançada(s)`);
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -330,6 +339,13 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
               <Input disabled value={fmtMoney(valorTotal)} className="bg-muted" />
             </div>
           </div>
+          {!editing && (
+            <PessoasAdicionaisPanel
+              estado={pessoas} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
+              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u)}
+              unidadePadrao={f.unidade} bspPadrao={f.bsp}
+            />
+          )}
           <RateioComplementarPanel rateio={rateio} />
           <div>
             <Label className="text-xs">Motivo</Label>
