@@ -995,18 +995,21 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
   const importPdfs = useMutation({
     mutationFn: async (grupos: PdfGrupoColaborador[]) => {
-      const embarquesExistentes = await selectAllPages<{ colaborador_id: string; data_inicio_embarque: string; data_fim_embarque: string }>(
-        (from, to) => supabase.from("timesheet_embarques").select("colaborador_id, data_inicio_embarque, data_fim_embarque").order("colaborador_id").range(from, to),
+      const embarquesExistentes = await selectAllPages<{ id: string; colaborador_id: string; data_inicio_embarque: string; data_fim_embarque: string }>(
+        (from, to) => supabase.from("timesheet_embarques").select("id, colaborador_id, data_inicio_embarque, data_fim_embarque").order("colaborador_id").range(from, to),
       );
-      const porColaborador = new Map<string, { data_inicio_embarque: string; data_fim_embarque: string }[]>();
+      const porColaborador = new Map<string, { id: string; data_inicio_embarque: string; data_fim_embarque: string }[]>();
       embarquesExistentes.forEach((e) => {
         if (!porColaborador.has(e.colaborador_id)) porColaborador.set(e.colaborador_id, []);
         porColaborador.get(e.colaborador_id)!.push(e);
       });
-      const sobrepoe = (colaboradorId: string, inicio: string, fim: string) =>
-        (porColaborador.get(colaboradorId) ?? []).some((e) => e.data_inicio_embarque <= fim && e.data_fim_embarque >= inicio);
+      // Embarque já existente (Drake ou import anterior) que sobrepõe esse ciclo, se houver —
+      // usado tanto pra decidir se pula quanto, quando ainda está vazio, pra reaproveitar o
+      // mesmo embarque em vez de duplicar (ver uso abaixo).
+      const encontrarSobreposto = (colaboradorId: string, inicio: string, fim: string) =>
+        (porColaborador.get(colaboradorId) ?? []).find((e) => e.data_inicio_embarque <= fim && e.data_fim_embarque >= inicio);
 
-      let embarquesCriados = 0, ciclosIgnorados = 0, semanasCount = 0, diasCount = 0;
+      let embarquesCriados = 0, embarquesPreenchidos = 0, ciclosIgnorados = 0, semanasCount = 0, diasCount = 0;
 
       for (const grupo of grupos) {
         if (!grupo.colaborador) continue;
@@ -1029,7 +1032,80 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         for (const ciclo of ciclos) {
           const inicio = ciclo[0].semana_inicio;
           const fim = ciclo[ciclo.length - 1].semana_fim;
-          if (sobrepoe(colaboradorId, inicio, fim)) { ciclosIgnorados++; continue; }
+          const existente = encontrarSobreposto(colaboradorId, inicio, fim);
+
+          if (existente) {
+            // O Drake normalmente já criou esse embarque (em branco) antes de alguém digitalizar
+            // o timesheet físico do Access — se nenhuma semana dele já foi confirmada, é só a
+            // "casca" vazia do Drake, e o PDF pode preenchê-la direto, sem duplicar o embarque.
+            // Se já existe semana confirmada (recebido_fisico), é porque já foi preenchido de
+            // verdade antes (por esse mesmo import ou manualmente) — mantém como está e ignora.
+            const { data: semanasExistentes, error: semExistErr } = await supabase
+              .from("timesheet_semanas")
+              .select("id, data_inicio_semana, recebido_fisico")
+              .eq("embarque_id", existente.id);
+            if (semExistErr) throw semExistErr;
+            const jaConfirmado = (semanasExistentes ?? []).some((s) => s.recebido_fisico);
+            if (jaConfirmado) { ciclosIgnorados++; continue; }
+
+            for (const semana of ciclo) {
+              const semanaExistente = (semanasExistentes ?? []).find((s) => s.data_inicio_semana === semana.semana_inicio);
+              if (semanaExistente) {
+                const { error: semUpdErr } = await supabase.from("timesheet_semanas").update({
+                  recebido_fisico: true, data_recebimento: todayStr(),
+                }).eq("id", semanaExistente.id);
+                if (semUpdErr) throw semUpdErr;
+
+                for (const d of semana.dias) {
+                  const { error: diaUpdErr } = await supabase.from("timesheet_dias").update({
+                    descricao_tarefa: d.tarefa, numero_tarefa: d.numero_tarefa,
+                    hora_entrada: d.entrada, hora_saida: d.saida,
+                    evento: normalizarEvento(d.evento),
+                    horas_normais: d.horas_normais, horas_extras: d.horas_extras, total_horas: d.total,
+                    adicional_noturno: suggestAdicionalNoturno(d.entrada, d.saida),
+                    feriado: false,
+                  }).eq("semana_id", semanaExistente.id).eq("data", d.data);
+                  if (diaUpdErr) throw diaUpdErr;
+                  diasCount++;
+                }
+              } else {
+                // Sem semana correspondente no embarque existente (datas fora de alinhamento) —
+                // insere uma semana nova, mas dentro do MESMO embarque já existente, nunca criando
+                // um segundo embarque pro mesmo colaborador/janela.
+                const { data: semanaInserida, error: semErr } = await supabase.from("timesheet_semanas").insert({
+                  embarque_id: existente.id, data_inicio_semana: semana.semana_inicio, data_fim_semana: semana.semana_fim,
+                  recebido_fisico: true, data_recebimento: todayStr(),
+                }).select("*").single();
+                if (semErr) throw semErr;
+
+                const diasToInsert = semana.dias.map((d) => ({
+                  semana_id: semanaInserida.id, data: d.data, dia_semana: weekdayLabel(d.data),
+                  descricao_tarefa: d.tarefa, numero_tarefa: d.numero_tarefa,
+                  hora_entrada: d.entrada, hora_saida: d.saida,
+                  evento: normalizarEvento(d.evento),
+                  horas_normais: d.horas_normais, horas_extras: d.horas_extras, total_horas: d.total,
+                  adicional_noturno: suggestAdicionalNoturno(d.entrada, d.saida),
+                  feriado: false,
+                }));
+                if (diasToInsert.length) {
+                  const { error: diasErr } = await supabase.from("timesheet_dias").insert(diasToInsert);
+                  if (diasErr) throw diasErr;
+                  diasCount += diasToInsert.length;
+                }
+              }
+              semanasCount++;
+            }
+
+            const totalExistente = Math.max(
+              totalSemanasEsperadas(existente.data_inicio_embarque, existente.data_fim_embarque),
+              (semanasExistentes ?? []).length,
+              ciclo.length,
+            );
+            const statusExistente = computeStatusEntrega(ciclo.length, totalExistente);
+            await supabase.from("timesheet_embarques").update({ status_entrega: statusExistente }).eq("id", existente.id);
+            embarquesPreenchidos++;
+            continue;
+          }
 
           const { data: embarque, error: insErr } = await supabase.from("timesheet_embarques").insert({
             colaborador_id: colaboradorId, periodo_id: null,
@@ -1041,7 +1117,7 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           }).select("*").single();
           if (insErr) throw insErr;
           if (!porColaborador.has(colaboradorId)) porColaborador.set(colaboradorId, []);
-          porColaborador.get(colaboradorId)!.push({ data_inicio_embarque: inicio, data_fim_embarque: fim });
+          porColaborador.get(colaboradorId)!.push({ id: embarque.id, data_inicio_embarque: inicio, data_fim_embarque: fim });
           embarquesCriados++;
 
           for (const semana of ciclo) {
@@ -1074,15 +1150,17 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
         }
       }
 
-      return { embarquesCriados, ciclosIgnorados, semanas: semanasCount, dias: diasCount };
+      return { embarquesCriados, embarquesPreenchidos, ciclosIgnorados, semanas: semanasCount, dias: diasCount };
     },
-    onSuccess: ({ embarquesCriados, ciclosIgnorados, semanas, dias }) => {
+    onSuccess: ({ embarquesCriados, embarquesPreenchidos, ciclosIgnorados, semanas, dias }) => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
       qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
       qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       notify.success(
-        `Importado: ${embarquesCriados} embarque(s), ${semanas} semana(s), ${dias} dia(s).` +
-        (ciclosIgnorados > 0 ? ` ${ciclosIgnorados} ciclo(s) ignorado(s) (já havia embarque com datas sobrepostas).` : ""),
+        `Importado: ${embarquesCriados} embarque(s) novo(s)` +
+        (embarquesPreenchidos > 0 ? `, ${embarquesPreenchidos} embarque(s) já existente(s) preenchido(s)` : "") +
+        `, ${semanas} semana(s), ${dias} dia(s).` +
+        (ciclosIgnorados > 0 ? ` ${ciclosIgnorados} ciclo(s) ignorado(s) (já tinha semana confirmada nesse período).` : ""),
       );
       setPdfPreviewOpen(false);
     },
