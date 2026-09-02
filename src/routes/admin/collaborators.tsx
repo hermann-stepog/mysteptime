@@ -67,6 +67,128 @@ function CollaboratorsTable({ rows, onEdit, onRemove, removePending, removeVaria
   );
 }
 
+// Nome normalizado (sem acento, caixa e espaços extras) — usado pra casar as pessoas do
+// Smartsheet com o cadastro local sem criar duplicatas.
+export function normalizeCollaboratorName(name: string): string {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// Aba "Offshore": lista TODAS as pessoas do Smartsheet (fonte da verdade offshore), já cruzadas
+// com o cadastro local — quem ainda não existe é inserido e marcado como is_offshore ao carregar.
+function OffshoreTab({ rows, onEdit, onRemove, removePending, removeVariables }: {
+  rows: Row[]; onEdit: (r: Row) => void; onRemove: (id: string) => void;
+  removePending: boolean; removeVariables: string | undefined;
+}) {
+  const qc = useQueryClient();
+  const { data: people = [], isLoading, isError, error, refetch, isFetching } = useQuery({
+    queryKey: ["smartsheet-offshore-people"],
+    queryFn: () => getOffshoreData(),
+    staleTime: 5 * 60_000,
+  });
+
+  const byName = new Map(rows.map((r) => [normalizeCollaboratorName(r.full_name), r]));
+
+  // Sincroniza o cadastro local com o que veio do Smartsheet (insere faltantes, marca is_offshore).
+  const [syncedFor, setSyncedFor] = useState<number | null>(null);
+  const sync = useMutation({
+    mutationFn: async () => {
+      const toInsert: any[] = [];
+      const toFlag: string[] = [];
+      const seen = new Set<string>();
+      for (const p of people) {
+        const key = normalizeCollaboratorName(p.name ?? "");
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        const hit = byName.get(key);
+        if (!hit) toInsert.push({ full_name: p.name.trim(), role: p.function || null, active: true, is_offshore: true });
+        else if (!hit.is_offshore) toFlag.push(hit.id);
+      }
+      if (toInsert.length) {
+        const { error } = await supabase.from("collaborators").insert(toInsert);
+        if (error) throw error;
+      }
+      if (toFlag.length) {
+        const { error } = await supabase.from("collaborators").update({ is_offshore: true }).in("id", toFlag);
+        if (error) throw error;
+      }
+      return toInsert.length + toFlag.length;
+    },
+    onSuccess: (n) => {
+      if (n > 0) {
+        qc.invalidateQueries({ queryKey: ["collaborators-all"] });
+        qc.invalidateQueries({ queryKey: ["collaborators"] });
+        notify.success(`${n} colaborador(es) do Smartsheet adicionado(s) à aba Offshore.`);
+      }
+    },
+    onError: (e: any) => notify.error(e.message || "Erro ao sincronizar com o Smartsheet."),
+  });
+
+  if (people.length && syncedFor !== people.length && !sync.isPending) {
+    setSyncedFor(people.length);
+    sync.mutate();
+  }
+
+  // Pessoas do Smartsheet + eventuais offshore locais que não estão mais na planilha.
+  const smartsheetKeys = new Set(people.map((p) => normalizeCollaboratorName(p.name ?? "")));
+  const extras = rows.filter((r) => r.is_offshore && !smartsheetKeys.has(normalizeCollaboratorName(r.full_name)));
+  const list = [
+    ...people.map((p) => ({ p, local: byName.get(normalizeCollaboratorName(p.name ?? "")) ?? null })),
+    ...extras.map((r) => ({ p: null as any, local: r })),
+  ];
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3 border-b p-3">
+        <p className="text-sm text-muted-foreground">
+          {isLoading ? "Carregando do Smartsheet..." : `${list.length} colaborador(es) offshore`}
+        </p>
+        <Button size="sm" variant="outline" onClick={() => refetch()} loading={isFetching || sync.isPending}>
+          <RefreshCw className="mr-2 h-4 w-4" />Atualizar do Smartsheet
+        </Button>
+      </div>
+      {isError && <p className="p-3 text-sm text-destructive">{(error as any)?.message || "Erro ao carregar o Smartsheet."}</p>}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Nome</TableHead>
+            <TableHead>Função</TableHead>
+            <TableHead>Especialidade</TableHead>
+            <TableHead>Unidade</TableHead>
+            <TableHead>BSP</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Cidade de residência</TableHead>
+            <TableHead className="w-24"></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoading && <TableSkeleton rows={8} cols={8} />}
+          {!isLoading && list.map(({ p, local }, i) => (
+            <TableRow key={local?.id ?? `ss-${i}`}>
+              <TableCell className="font-medium">{p?.name ?? local?.full_name}</TableCell>
+              <TableCell>{p?.function || local?.role || "—"}</TableCell>
+              <TableCell>{p?.especialidade || "—"}</TableCell>
+              <TableCell>{p?.unit || "—"}</TableCell>
+              <TableCell>{p?.bsp || "—"}</TableCell>
+              <TableCell>{p?.status || "—"}</TableCell>
+              <TableCell>{local?.city || "—"}</TableCell>
+              <TableCell>
+                {local && (
+                  <div className="flex gap-1">
+                    <Button size="icon" variant="ghost" onClick={() => onEdit(local)}><Pencil className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Excluir definitivamente "${local.full_name}"? Esta ação não pode ser desfeita.`)) onRemove(local.id); }} loading={removePending && removeVariables === local.id}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                  </div>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+          {!isLoading && list.length === 0 && <EmptyStateRow colSpan={8} icon={Users} title="Nenhum colaborador offshore" />}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
+
+
 function CollaboratorsPage() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -257,7 +379,7 @@ function CollaboratorsPage() {
           <CollaboratorsTable rows={rows} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
         </TabsContent>
         <TabsContent value="offshore" className="mt-4">
-          <CollaboratorsTable rows={rows.filter((r) => r.is_offshore)} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
+          <OffshoreTab rows={rows} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
         </TabsContent>
       </Tabs>
 
