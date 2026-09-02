@@ -27,6 +27,7 @@ import { NomeUsuarioField, MotivoField, FormaPagamentoField, useRateioComplement
 import {
   Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
   Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
+  PlaneTakeoff, PlaneLanding,
 } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
@@ -38,7 +39,7 @@ import { notify } from "@/lib/notify";
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
 import { selectAllPages } from "@/lib/supabasePaginate";
-import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, todayStr, addDays, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, todayStr, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
   TIPOS_PASSAGEM, STATUS_PASSAGEM, STATUS_FLUXO_ORDER, STATUS_FLUXO_LABEL, STATUS_FLUXO_COLOR,
@@ -639,50 +640,13 @@ function GerenciarFluxoDialog({ passagem, open, onOpenChange }: {
 }
 
 // ─── Aba "Relatório de Viagens" ──────────────────────────────────────────────
-// Nunca inventa/duplica dado do Drake — função vem de hist_novo_colaboradores (mesmo campo já
-// usado em todo o resto do sistema). Mostra TODAS as passagens (lançadas manualmente ou vindas
-// da importação de custos), não só as marcadas como internacionais — "internacional" vira só um
-// selo por pessoa, pra RH/SMS (que via RLS só recebem registro internacional) continuarem
+// Nunca inventa/duplica dado do Drake nem da aba Solicitações — usa exatamente as passagens
+// já lançadas lá. Reestruturado a pedido dela: lista de rota (origem → destino) + data por
+// viagem, agrupada por Unidade, dividida em "Próximas viagens" (ainda vai partir ou ainda
+// está por voltar) e "Já realizadas" (ida e, se houver, volta já no passado) — sem função,
+// só o que interessa pro acompanhamento da viagem em si. "internacional" continua só um
+// filtro (sub-aba), pra RH/SMS (que via RLS só recebem registro internacional) continuarem
 // enxergando exatamente o que já viam antes.
-type StatusInternacional = "no_brasil" | "fora" | "chegando" | "saindo" | "sem_retorno";
-const STATUS_INTERNACIONAL_LABEL: Record<StatusInternacional, string> = {
-  no_brasil: "Disponível", fora: "Em viagem", chegando: "Chegando", saindo: "Saindo",
-  sem_retorno: "Sem retorno programado",
-};
-const STATUS_INTERNACIONAL_COLOR: Record<StatusInternacional, string> = {
-  no_brasil: "bg-emerald-100 text-emerald-800", fora: "bg-slate-200 text-slate-700",
-  chegando: "bg-sky-100 text-sky-800", saindo: "bg-amber-100 text-amber-800",
-  sem_retorno: "bg-red-100 text-red-800",
-};
-
-interface PessoaInternacional {
-  nome: string; funcao: string | null; unidade: string; bsp: string;
-  ultimaChegada: string | null; proximaSaida: string | null; proximoRetorno: string | null;
-  status: StatusInternacional; passagens: PassagemAerea[]; internacional: boolean;
-}
-
-function computeStatusInternacional(passagens: PassagemAerea[], hoje: string): Pick<PessoaInternacional, "status" | "ultimaChegada" | "proximaSaida" | "proximoRetorno"> {
-  const emCurso = passagens.find((p) => p.data_ida <= hoje && (!p.data_volta || p.data_volta >= hoje));
-  const futuras = [...passagens].filter((p) => p.data_ida > hoje).sort((a, b) => a.data_ida.localeCompare(b.data_ida));
-  const passadas = [...passagens].filter((p) => p.data_volta && p.data_volta < hoje).sort((a, b) => (b.data_volta as string).localeCompare(a.data_volta as string));
-
-  const ultimaChegada = passadas[0]?.data_volta ?? null;
-  const proximaViagem = futuras[0] ?? null;
-  const proximaSaida = proximaViagem?.data_ida ?? null;
-  const proximoRetorno = proximaViagem?.data_volta ?? null;
-
-  let status: StatusInternacional;
-  if (emCurso) {
-    if (!emCurso.data_volta) status = "sem_retorno";
-    else if (emCurso.data_volta <= addDays(hoje, 3)) status = "chegando";
-    else status = "fora";
-  } else if (proximaViagem && proximaViagem.data_ida <= addDays(hoje, 3)) {
-    status = "saindo";
-  } else {
-    status = "no_brasil";
-  }
-  return { status, ultimaChegada, proximaSaida, proximoRetorno };
-}
 
 // "Não informado" é valor gravado de verdade pela importação (ver parseUnidadeBsp/
 // buildPassagemRows), não só um texto de fallback da tela — por isso não basta checar
@@ -691,97 +655,131 @@ function temValor(v: string | null | undefined): v is string {
   return !!v && v.trim() !== "" && v.trim().toLocaleLowerCase("pt-BR") !== "não informado";
 }
 
-function CardPessoaViagem({ p }: { p: PessoaInternacional }) {
-  const datas = [
-    p.ultimaChegada && `Chegou ${fmt(p.ultimaChegada)}`,
-    p.proximaSaida && `Sai ${fmt(p.proximaSaida)}`,
-    p.proximoRetorno && `Volta ${fmt(p.proximoRetorno)}`,
-  ].filter(Boolean).join(" · ");
-  const secundario = [p.funcao, temValor(p.bsp) ? `BSP ${p.bsp}` : null].filter(Boolean).join(" · ");
+interface ViagemClassificada {
+  passagem: PassagemAerea;
+  proxima: boolean;
+  dataOrdenacao: string;
+  label: string;
+}
+
+// Uma viagem é "próxima" se a ida ainda não aconteceu OU se já foi mas a volta ainda está
+// por vir (pessoa em viagem, aguardando retorno) — nos dois casos ainda há movimento
+// futuro. Caso contrário (ida e, se houver, volta já no passado) é "já realizada".
+function classificarViagem(p: PassagemAerea, hoje: string): ViagemClassificada {
+  const idaFutura = p.data_ida >= hoje;
+  const voltaFutura = !!p.data_volta && p.data_volta >= hoje;
+  if (idaFutura || voltaFutura) {
+    const label = idaFutura
+      ? `Vai em ${fmt(p.data_ida)}${voltaFutura ? ` · volta em ${fmt(p.data_volta as string)}` : ""}`
+      : `Volta em ${fmt(p.data_volta as string)}`;
+    return { passagem: p, proxima: true, dataOrdenacao: idaFutura ? p.data_ida : (p.data_volta as string), label };
+  }
+  const label = `Foi em ${fmt(p.data_ida)}${p.data_volta ? ` · voltou em ${fmt(p.data_volta)}` : ""}`;
+  return { passagem: p, proxima: false, dataOrdenacao: p.data_volta ?? p.data_ida, label };
+}
+
+function LinhaViagem({ v }: { v: ViagemClassificada }) {
+  const p = v.passagem;
+  const rota = p.origem || p.destino ? `${p.origem ?? "—"} → ${p.destino ?? "—"}` : "Rota não informada";
   return (
-    <div className="rounded border px-2 py-1.5 text-xs leading-tight">
-      <p className="font-medium text-foreground">{p.nome}</p>
-      {temValor(p.unidade) && <p className="text-muted-foreground">{p.unidade}</p>}
-      {datas && <p className="text-muted-foreground">{datas}</p>}
-      {secundario && <p className="mt-0.5 text-[10px] text-muted-foreground/70">{secundario}</p>}
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t px-2.5 py-1.5 text-xs first:border-t-0">
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium text-foreground">{p.nome_usuario}</p>
+        <p className="text-muted-foreground">{rota}</p>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+        <span className={cn("rounded px-1.5 py-0.5 font-medium", v.proxima ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600")}>{v.label}</span>
+        {temValor(p.bsp) && <span className="text-[10px] text-muted-foreground/70">BSP {p.bsp}</span>}
+      </div>
     </div>
   );
 }
 
-// Lista com os 5 status (Chegando/Saindo/Em viagem/Sem retorno/Disponível) pro conjunto de
-// passagens já filtrado (nacional OU internacional) — reaproveitada pelas duas sub-abas e
-// pelo acesso de RH/SMS (que via RLS só recebe registro internacional de qualquer forma).
-function ListaViagensPorStatus({ passagens, colaboradores }: { passagens: PassagemAerea[]; colaboradores: ColaboradorBasico[] }) {
-  const [expandido, setExpandido] = useState<Set<StatusInternacional>>(new Set());
-  const toggle = (s: StatusInternacional) => setExpandido((cur) => { const n = new Set(cur); if (n.has(s)) n.delete(s); else n.add(s); return n; });
+// Agrupador por Unidade (base, produção ou o que estiver lançado no campo) dentro de cada
+// seção temporal — colapsável, aberto por padrão (pedido dela era "mais visível", não menos).
+function GrupoUnidadeViagens({ unidade, viagens }: { unidade: string; viagens: ViagemClassificada[] }) {
+  const [aberto, setAberto] = useState(true);
+  return (
+    <div className="rounded-md border">
+      <button type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-xs font-medium" onClick={() => setAberto((a) => !a)}>
+        {aberto ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+        <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{unidade}</span>
+        <span className="text-muted-foreground">({viagens.length})</span>
+      </button>
+      {aberto && <div>{viagens.map((v) => <LinhaViagem key={v.passagem.id} v={v} />)}</div>}
+    </div>
+  );
+}
 
-  const funcaoPorNome = useMemo(() => {
-    const m = new Map<string, string | null>();
-    colaboradores.forEach((c) => m.set(c.nome.trim().toUpperCase(), c.funcao || c.funcao_operacao || null));
-    return m;
-  }, [colaboradores]);
-
-  const hoje = todayStr();
-  const pessoas = useMemo<PessoaInternacional[]>(() => {
-    const porNome = new Map<string, PassagemAerea[]>();
-    passagens.forEach((p) => {
-      const key = p.nome_usuario.trim().toUpperCase();
-      if (!porNome.has(key)) porNome.set(key, []);
-      porNome.get(key)!.push(p);
+function SecaoTemporalViagens({ titulo, icon: Icon, viagens, vazio }: {
+  titulo: string; icon: typeof PlaneTakeoff; viagens: ViagemClassificada[]; vazio: string;
+}) {
+  const grupos = useMemo(() => {
+    const m = new Map<string, ViagemClassificada[]>();
+    viagens.forEach((v) => {
+      const u = temValor(v.passagem.unidade) ? v.passagem.unidade : "Sem unidade";
+      if (!m.has(u)) m.set(u, []);
+      m.get(u)!.push(v);
     });
-    return Array.from(porNome.values()).map((lista) => {
-      const maisRecente = [...lista].sort((a, b) => b.data_ida.localeCompare(a.data_ida))[0];
-      const { status, ultimaChegada, proximaSaida, proximoRetorno } = computeStatusInternacional(lista, hoje);
-      return {
-        nome: maisRecente.nome_usuario, funcao: funcaoPorNome.get(maisRecente.nome_usuario.trim().toUpperCase()) ?? null,
-        unidade: maisRecente.unidade, bsp: maisRecente.bsp,
-        ultimaChegada, proximaSaida, proximoRetorno, status, passagens: lista,
-        internacional: lista.some((p) => p.internacional),
-      };
-    }).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [passagens, funcaoPorNome, hoje]);
-
-  const porStatus = (STATUS_ORDER_INTERNACIONAL).map((s) => ({ status: s, pessoas: pessoas.filter((p) => p.status === s) }));
+    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [viagens]);
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {porStatus.map(({ status, pessoas: lista }) => {
-        const aberto = expandido.has(status);
-        return (
-          <div key={status} className={cn("rounded-md border text-xs", aberto && "w-full")}>
-            <button type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left" onClick={() => toggle(status)}>
-              <span className={`rounded px-1.5 py-0.5 font-medium ${STATUS_INTERNACIONAL_COLOR[status]}`}>{STATUS_INTERNACIONAL_LABEL[status]}</span>
-              <span className="font-semibold">{lista.length}</span>
-            </button>
-            {aberto && (
-              <div className="grid grid-cols-2 gap-1.5 border-t px-2 py-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                {lista.length === 0 ? (
-                  <p className="text-muted-foreground">Ninguém nesse status.</p>
-                ) : lista.map((p) => <CardPessoaViagem key={p.nome} p={p} />)}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {pessoas.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma viagem lançada ainda.</p>}
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-sm font-semibold">
+        <Icon className="h-4 w-4 text-muted-foreground" /><span>{titulo}</span>
+        <span className="text-xs font-normal text-muted-foreground">({viagens.length})</span>
+      </div>
+      {grupos.length === 0 ? (
+        <p className="pl-5 text-xs text-muted-foreground">{vazio}</p>
+      ) : (
+        <div className="space-y-2">
+          {grupos.map(([unidade, lista]) => <GrupoUnidadeViagens key={unidade} unidade={unidade} viagens={lista} />)}
+        </div>
+      )}
     </div>
   );
 }
-const STATUS_ORDER_INTERNACIONAL: StatusInternacional[] = ["chegando", "saindo", "fora", "sem_retorno", "no_brasil"];
+
+// Reestruturado a pedido dela: em vez de status "ao vivo" por pessoa, uma lista de viagens
+// (origem → destino + data), agrupada por Unidade e dividida em Próximas/Já realizadas —
+// reaproveitada pelas duas sub-abas e pelo acesso de RH/SMS (que via RLS só recebe registro
+// internacional de qualquer forma).
+function ListaViagensPorStatus({ passagens }: { passagens: PassagemAerea[] }) {
+  const hoje = todayStr();
+  const classificadas = useMemo(() => passagens.map((p) => classificarViagem(p, hoje)), [passagens, hoje]);
+  const proximas = useMemo(
+    () => classificadas.filter((v) => v.proxima).sort((a, b) => a.dataOrdenacao.localeCompare(b.dataOrdenacao)),
+    [classificadas],
+  );
+  const realizadas = useMemo(
+    () => classificadas.filter((v) => !v.proxima).sort((a, b) => b.dataOrdenacao.localeCompare(a.dataOrdenacao)),
+    [classificadas],
+  );
+
+  if (passagens.length === 0) return <p className="text-xs text-muted-foreground">Nenhuma viagem lançada ainda.</p>;
+
+  return (
+    <div className="space-y-4">
+      <SecaoTemporalViagens titulo="Próximas viagens" icon={PlaneTakeoff} viagens={proximas} vazio="Nenhuma viagem próxima." />
+      <SecaoTemporalViagens titulo="Já realizadas" icon={PlaneLanding} viagens={realizadas} vazio="Nenhuma viagem já realizada." />
+    </div>
+  );
+}
 
 // Mesmo critério que já gera o selo "Internacional" na passagem (campo internacional,
-// marcado na própria solicitação, nunca inferido) — só decide em qual sub-aba a pessoa
-// aparece; uma pessoa com viagem nos dois grupos aparece nas duas abas, cada uma só com as
-// passagens daquele tipo.
-function RelatorioInternacionalTab({ passagens, colaboradores, somenteInternacionais }: {
-  passagens: PassagemAerea[]; colaboradores: ColaboradorBasico[]; somenteInternacionais?: boolean;
+// marcado na própria solicitação, nunca inferido) — só decide em qual sub-aba a viagem
+// aparece.
+function RelatorioInternacionalTab({ passagens, somenteInternacionais }: {
+  passagens: PassagemAerea[]; somenteInternacionais?: boolean;
 }) {
   const [subAba, setSubAba] = useState<"internacionais" | "nacionais">("internacionais");
 
   // RH/SMS só recebem passagem internacional via RLS — não faz sentido oferecer a sub-aba
   // Nacionais nesse caso, ela sempre viria vazia.
   if (somenteInternacionais) {
-    return <ListaViagensPorStatus passagens={passagens} colaboradores={colaboradores} />;
+    return <ListaViagensPorStatus passagens={passagens} />;
   }
 
   const passagensDaSubAba = passagens.filter((p) => subAba === "internacionais" ? p.internacional : !p.internacional);
@@ -810,7 +808,7 @@ function RelatorioInternacionalTab({ passagens, colaboradores, somenteInternacio
         </p>
       </div>
       <div className="max-h-[70vh] overflow-y-auto pr-1">
-        <ListaViagensPorStatus passagens={passagensDaSubAba} colaboradores={colaboradores} />
+        <ListaViagensPorStatus passagens={passagensDaSubAba} />
       </div>
     </div>
   );
@@ -1146,7 +1144,7 @@ function PassagensAereasPage() {
       </div>
 
       {somenteRelatorioInternacional ? (
-        <RelatorioInternacionalTab passagens={passagens} colaboradores={colaboradores} somenteInternacionais />
+        <RelatorioInternacionalTab passagens={passagens} somenteInternacionais />
       ) : (
       <Tabs defaultValue="solicitacoes">
         <TabsList>
@@ -1155,7 +1153,7 @@ function PassagensAereasPage() {
         </TabsList>
 
         <TabsContent value="internacionais" className="mt-4">
-          <RelatorioInternacionalTab passagens={passagens} colaboradores={colaboradores} />
+          <RelatorioInternacionalTab passagens={passagens} />
         </TabsContent>
 
         <TabsContent value="solicitacoes" className="mt-4 space-y-4">
