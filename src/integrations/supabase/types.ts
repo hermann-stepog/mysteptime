@@ -2290,6 +2290,184 @@ export type Database = {
           },
         ]
       }
+      reembolso_anexos: {
+        Row: {
+          enviado_em: string
+          enviado_por: string
+          id: string
+          item_id: string | null
+          nome_original: string
+          reembolso_id: string
+          storage_path: string
+          tipo: string
+        }
+        Insert: {
+          enviado_em?: string
+          enviado_por: string
+          id?: string
+          item_id?: string | null
+          nome_original: string
+          reembolso_id: string
+          storage_path: string
+          tipo: string
+        }
+        Update: {
+          enviado_em?: string
+          enviado_por?: string
+          id?: string
+          item_id?: string | null
+          nome_original?: string
+          reembolso_id?: string
+          storage_path?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reembolso_anexos_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "reembolso_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reembolso_anexos_reembolso_id_fkey"
+            columns: ["reembolso_id"]
+            isOneToOne: false
+            referencedRelation: "reembolsos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reembolso_itens: {
+        Row: {
+          bsp: string
+          categoria: string
+          categoria_outro: string | null
+          criado_em: string
+          data_despesa: string
+          id: string
+          reembolso_id: string
+          valor: number
+        }
+        Insert: {
+          bsp: string
+          categoria: string
+          categoria_outro?: string | null
+          criado_em?: string
+          data_despesa: string
+          id?: string
+          reembolso_id: string
+          valor: number
+        }
+        Update: {
+          bsp?: string
+          categoria?: string
+          categoria_outro?: string | null
+          criado_em?: string
+          data_despesa?: string
+          id?: string
+          reembolso_id?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reembolso_itens_reembolso_id_fkey"
+            columns: ["reembolso_id"]
+            isOneToOne: false
+            referencedRelation: "reembolsos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reembolso_status_history: {
+        Row: {
+          changed_at: string
+          changed_by_name: string
+          id: string
+          notes: string | null
+          reembolso_id: string
+          status: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by_name: string
+          id?: string
+          notes?: string | null
+          reembolso_id: string
+          status: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by_name?: string
+          id?: string
+          notes?: string | null
+          reembolso_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reembolso_status_history_reembolso_id_fkey"
+            columns: ["reembolso_id"]
+            isOneToOne: false
+            referencedRelation: "reembolsos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reembolsos: {
+        Row: {
+          aprovado_em: string | null
+          aprovado_por: string | null
+          bsp: string
+          colaborador_beneficiario: string
+          comentario_aprovacao: string | null
+          created_at: string
+          data_pagamento: string | null
+          id: string
+          observacoes: string | null
+          periodo_fim: string
+          periodo_inicio: string
+          solicitante: string
+          status_fluxo: string
+          unidade: string
+          valor_total: number
+        }
+        Insert: {
+          aprovado_em?: string | null
+          aprovado_por?: string | null
+          bsp: string
+          colaborador_beneficiario: string
+          comentario_aprovacao?: string | null
+          created_at?: string
+          data_pagamento?: string | null
+          id?: string
+          observacoes?: string | null
+          periodo_fim: string
+          periodo_inicio: string
+          solicitante: string
+          status_fluxo?: string
+          unidade: string
+          valor_total?: number
+        }
+        Update: {
+          aprovado_em?: string | null
+          aprovado_por?: string | null
+          bsp?: string
+          colaborador_beneficiario?: string
+          comentario_aprovacao?: string | null
+          created_at?: string
+          data_pagamento?: string | null
+          id?: string
+          observacoes?: string | null
+          periodo_fim?: string
+          periodo_inicio?: string
+          solicitante?: string
+          status_fluxo?: string
+          unidade?: string
+          valor_total?: number
+        }
+        Relationships: []
+      }
       timesheet_dias: {
         Row: {
           adicional_noturno: boolean | null
