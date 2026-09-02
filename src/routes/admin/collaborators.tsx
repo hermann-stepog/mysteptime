@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+// collaborators.is_offshore ainda não está nos tipos gerados (mesmo padrão de cast local já
+// usado em hospedagem.tsx/passagens-aereas.tsx) — cast local pra não bloquear o build enquanto
+// a migration não roda contra o banco remoto e o codegen não é refeito.
+const supabase: any = supabaseTyped;
 import { getOffshoreData } from "@/lib/api/smartsheet.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Upload, Trash2, Pencil, RefreshCw, Users } from "lucide-react";
 import { useRef, useState } from "react";
 import { notify } from "@/lib/notify";
@@ -20,7 +25,47 @@ import { pageTitle } from "@/lib/pageTitle";
 
 export const Route = createFileRoute("/admin/collaborators")({ head: () => pageTitle("Colaboradores"), component: CollaboratorsPage });
 
-type Row = { id: string; full_name: string; role: string | null; city: string | null; active: boolean };
+type Row = { id: string; full_name: string; role: string | null; city: string | null; active: boolean; is_offshore: boolean };
+
+// Tabela compartilhada pelas abas "Geral" e "Offshore" — mesma coluna/ação, só a lista de
+// linhas muda (Offshore filtra por is_offshore, ver CollaboratorsPage).
+function CollaboratorsTable({ rows, onEdit, onRemove, removePending, removeVariables }: {
+  rows: Row[]; onEdit: (r: Row) => void; onRemove: (id: string) => void;
+  removePending: boolean; removeVariables: string | undefined;
+}) {
+  return (
+    <Card>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Nome</TableHead>
+            <TableHead>Função</TableHead>
+            <TableHead>Cidade de residência</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="w-24"></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.id}>
+              <TableCell className="font-medium">{r.full_name}</TableCell>
+              <TableCell>{r.role || "—"}</TableCell>
+              <TableCell>{r.city || "—"}</TableCell>
+              <TableCell>{r.active ? <span className="text-success">Ativo</span> : <span className="text-muted-foreground">Inativo</span>}</TableCell>
+              <TableCell>
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => onEdit(r)}><Pencil className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Excluir definitivamente "${r.full_name}"? Esta ação não pode ser desfeita.`)) onRemove(r.id); }} loading={removePending && removeVariables === r.id}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+          {rows.length === 0 && <EmptyStateRow colSpan={5} icon={Users} title="Nenhum colaborador cadastrado" />}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
 
 function CollaboratorsPage() {
   const qc = useQueryClient();
@@ -54,7 +99,7 @@ function CollaboratorsPage() {
       const people = await getOffshoreData();
       const byName = new Map(rows.map((r) => [r.full_name.trim().toLowerCase(), r]));
 
-      const toInsert: { full_name: string; role: string | null; city: null; active: boolean }[] = [];
+      const toInsert: { full_name: string; role: string | null; city: null; active: boolean; is_offshore: true }[] = [];
       const toUpdate: { id: string; role: string | null }[] = [];
       const seen = new Set<string>();
 
@@ -68,10 +113,12 @@ function CollaboratorsPage() {
         const newRole = p.function || null;
         const match = byName.get(key);
         if (match) {
-          // Preserve the existing "cidade de residência" — only the função is synced.
-          if ((match.role ?? null) !== newRole) toUpdate.push({ id: match.id, role: newRole });
+          // Preserve the existing "cidade de residência" — only the função is synced. Marca
+          // is_offshore mesmo quando a função não mudou (aba "Offshore" depende disso), por
+          // isso sempre entra em toUpdate, não só quando o role muda de verdade.
+          toUpdate.push({ id: match.id, role: newRole });
         } else {
-          toInsert.push({ full_name: name, role: newRole, city: null, active: true });
+          toInsert.push({ full_name: name, role: newRole, city: null, active: true, is_offshore: true });
         }
       }
 
@@ -80,7 +127,7 @@ function CollaboratorsPage() {
         if (error) throw error;
       }
       for (const u of toUpdate) {
-        const { error } = await supabase.from("collaborators").update({ role: u.role }).eq("id", u.id);
+        const { error } = await supabase.from("collaborators").update({ role: u.role, is_offshore: true }).eq("id", u.id);
         if (error) throw error;
       }
 
@@ -201,36 +248,18 @@ function CollaboratorsPage() {
         </div>
       </div>
 
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Função</TableHead>
-              <TableHead>Cidade de residência</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="w-24"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.id}>
-                <TableCell className="font-medium">{r.full_name}</TableCell>
-                <TableCell>{r.role || "—"}</TableCell>
-                <TableCell>{r.city || "—"}</TableCell>
-                <TableCell>{r.active ? <span className="text-success">Ativo</span> : <span className="text-muted-foreground">Inativo</span>}</TableCell>
-                <TableCell>
-                  <div className="flex gap-1">
-                    <Button size="icon" variant="ghost" onClick={() => setEditing(r)}><Pencil className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Excluir definitivamente "${r.full_name}"? Esta ação não pode ser desfeita.`)) remove.mutate(r.id); }} loading={remove.isPending && remove.variables === r.id}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {rows.length === 0 && <EmptyStateRow colSpan={5} icon={Users} title="Nenhum colaborador cadastrado" />}
-          </TableBody>
-        </Table>
-      </Card>
+      <Tabs defaultValue="geral">
+        <TabsList>
+          <TabsTrigger value="geral">Geral</TabsTrigger>
+          <TabsTrigger value="offshore">Offshore</TabsTrigger>
+        </TabsList>
+        <TabsContent value="geral" className="mt-4">
+          <CollaboratorsTable rows={rows} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
+        </TabsContent>
+        <TabsContent value="offshore" className="mt-4">
+          <CollaboratorsTable rows={rows.filter((r) => r.is_offshore)} onEdit={setEditing} onRemove={(id) => remove.mutate(id)} removePending={remove.isPending} removeVariables={remove.variables} />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
