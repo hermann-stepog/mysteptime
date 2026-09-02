@@ -498,10 +498,7 @@ export function UnidadeMultiField({ value, onChange, options, extras, bspOptions
           </Button>
         )}
       </div>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-        <SelectContent>{options.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-      </Select>
+      <SelectComOutro value={value} onChange={onChange} options={options} manualPlaceholder="Digitar unidade" />
       {permiteAdicionar && extras.unidades.length > 0 && (
         <div className="mt-2 space-y-2">
           {extras.unidades.map((item, i) => {
