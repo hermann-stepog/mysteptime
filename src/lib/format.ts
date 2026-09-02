@@ -17,6 +17,21 @@ export function fmtMoney(v: number | string | null | undefined) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 }
 
+const LOWERCASE_WORDS = new Set(["de", "da", "do", "das", "dos", "e", "em", "no", "na", "a", "o"]);
+
+export function toDisplayCase(value?: string | null): string {
+  if (!value) return value ?? "";
+  return value
+    .toLowerCase()
+    .split(/(\s+)/)
+    .map((token, i) => {
+      if (!token.trim()) return token;
+      if (i !== 0 && LOWERCASE_WORDS.has(token)) return token;
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    })
+    .join("");
+}
+
 export function docStatus(expiresAt: string): "valid" | "expiring" | "expired" {
   const now = new Date();
   const exp = new Date(expiresAt);
