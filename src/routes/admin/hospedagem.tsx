@@ -26,7 +26,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, MotivoField, FormaPagamentoField, useRateioComplementar, RateioComplementarPanel } from "@/components/LogisticaFormFields";
 import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
@@ -186,7 +186,7 @@ function HotelCombobox({ hoteis, value, onChange }: {
 
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", hotelId: "", checkIn: "", checkOut: "",
-  valorDiaria: "", motivo: "", observacoes: "",
+  valorDiaria: "", motivo: "", formaPagamento: "", observacoes: "",
   nf: "", fornecedor: "", cobrado: false, statusLancamento: "", faturado: false,
   usuarioFaturamento: "", dataFaturamento: "",
 };
@@ -209,7 +209,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
     setF({
       unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: editing.nome_usuario, hotelId: editing.hotel_id,
       checkIn: editing.check_in, checkOut: editing.check_out, valorDiaria: String(editing.valor_diaria),
-      motivo: editing.motivo ?? "", observacoes: editing.observacoes ?? "",
+      motivo: editing.motivo ?? "", formaPagamento: editing.forma_pagamento ?? "", observacoes: editing.observacoes ?? "",
       nf: editing.nf ?? "", fornecedor: editing.fornecedor ?? "", cobrado: editing.cobrado ?? false,
       statusLancamento: editing.status_lancamento ?? "", faturado: editing.faturado ?? false,
       usuarioFaturamento: editing.usuario_faturamento ?? "", dataFaturamento: editing.data_faturamento ?? "",
@@ -246,7 +246,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       const payload = {
         unidade: f.unidade, bsp: f.bsp, nome_usuario: f.nomeUsuario.trim(), hotel_id: f.hotelId,
         check_in: f.checkIn, check_out: f.checkOut, diarias, valor_diaria: Number(f.valorDiaria) || 0,
-        valor_total: valorTotal, motivo: f.motivo.trim() || null, observacoes: f.observacoes.trim() || null,
+        valor_total: valorTotal, motivo: f.motivo.trim() || null, forma_pagamento: f.formaPagamento || null, observacoes: f.observacoes.trim() || null,
         bsp_2: rateio.ativo && rateio.bsp2.trim() ? rateio.bsp2.trim() : null,
         bsp_3: rateio.ativo && rateio.bsp3.trim() ? rateio.bsp3.trim() : null,
         valor_2: rateio.ativo && rateio.bsp2.trim() ? rateio.valor2 : null,
@@ -331,9 +331,15 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
             </div>
           </div>
           <RateioComplementarPanel rateio={rateio} />
-          <div>
-            <Label className="text-xs">Motivo</Label>
-            <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="text-xs">Motivo</Label>
+              <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
+            </div>
+            <div>
+              <Label className="text-xs">Forma de pagamento</Label>
+              <FormaPagamentoField value={f.formaPagamento} onChange={(v) => setF({ ...f, formaPagamento: v })} />
+            </div>
           </div>
           <div>
             <Label className="text-xs">Observações</Label>

@@ -26,7 +26,7 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
-import { useRateioPercentual, RateioPercentualPanel } from "@/components/LogisticaFormFields";
+import { useRateioPercentual, RateioPercentualPanel, FormaPagamentoField } from "@/components/LogisticaFormFields";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
@@ -78,6 +78,10 @@ type Trip = {
   custo: number | null;
   custo_2: number | null;
   custo_3: number | null;
+  // Forma de pagamento da viagem (Cartão de Crédito / Faturado) — não confundir com o status
+  // "Faturado" (TripStatus acima) nem com o `faturado` boolean abaixo, que são do fluxo de
+  // cobrança/importação de custos, um controle diferente.
+  forma_pagamento: string | null;
   // Campos vindos da importação da planilha de custos histórica (ver src/lib/importCustos.ts)
   // — também editáveis pra lançamentos novos.
   nf: string | null;
@@ -439,7 +443,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     notes: string;
     tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
     custo: string; custo_2: string; custo_3: string;
-    nf: string; motivo: string; cobrado: boolean; status_lancamento: string; faturado: boolean; usuario_faturamento: string; data_faturamento: string;
+    nf: string; motivo: string; forma_pagamento: string; cobrado: boolean; status_lancamento: string; faturado: boolean; usuario_faturamento: string; data_faturamento: string;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
@@ -457,7 +461,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       custo: t.custo != null ? String(t.custo) : "",
       custo_2: t.custo_2 != null ? String(t.custo_2) : "",
       custo_3: t.custo_3 != null ? String(t.custo_3) : "",
-      nf: t.nf ?? "", motivo: t.motivo ?? "", cobrado: t.cobrado ?? false,
+      nf: t.nf ?? "", motivo: t.motivo ?? "", forma_pagamento: t.forma_pagamento ?? "", cobrado: t.cobrado ?? false,
       status_lancamento: t.status_lancamento ?? "", faturado: t.faturado ?? false,
       usuario_faturamento: t.usuario_faturamento ?? "", data_faturamento: t.data_faturamento ?? "",
       tag_ids: t.tags.map((x) => x.tag_id),
@@ -475,7 +479,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       cliente: "", cliente_2: "", cliente_3: "",
       unidade: "", status: "em_andamento",
       custo: "", custo_2: "", custo_3: "",
-      nf: "", motivo: "", cobrado: false, status_lancamento: "", faturado: false, usuario_faturamento: "", data_faturamento: "",
+      nf: "", motivo: "", forma_pagamento: "", cobrado: false, status_lancamento: "", faturado: false, usuario_faturamento: "", data_faturamento: "",
       tag_ids: [], collab_ids: [], materials: [],
     };
   };
@@ -522,7 +526,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         custo_2: f.custo_2.trim() ? Number(f.custo_2.trim()) : null,
         custo_3: f.custo_3.trim() ? Number(f.custo_3.trim()) : null,
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
-        nf: f.nf.trim() || null, motivo: f.motivo.trim() || null, cobrado: f.cobrado,
+        nf: f.nf.trim() || null, motivo: f.motivo.trim() || null, forma_pagamento: f.forma_pagamento || null, cobrado: f.cobrado,
         status_lancamento: f.status_lancamento.trim() || null, faturado: f.faturado,
         usuario_faturamento: f.usuario_faturamento.trim() || null, data_faturamento: f.data_faturamento || null,
       };
@@ -741,6 +745,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><Label>Motivo</Label><Input value={f.motivo} onChange={(e) => setF({ ...f, motivo: e.target.value })} /></div>
             <div><Label>NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div><Label>Forma de pagamento</Label><FormaPagamentoField value={f.forma_pagamento} onChange={(v) => setF({ ...f, forma_pagamento: v })} /></div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><Label>Status Lanç.</Label><Input value={f.status_lancamento} onChange={(e) => setF({ ...f, status_lancamento: e.target.value })} placeholder="Ex.: Definitivo" /></div>
