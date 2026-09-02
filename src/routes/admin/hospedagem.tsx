@@ -26,7 +26,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel, usePessoasAdicionais, PessoasAdicionaisPanel } from "@/components/LogisticaFormFields";
 import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
