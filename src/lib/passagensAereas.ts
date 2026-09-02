@@ -38,6 +38,9 @@ export interface PassagemAerea {
   revalidado_por: string | null;
   revalidado_em: string | null;
   diferenca_preco: number | null;
+  // Forma de pagamento do lançamento (Cartão de Crédito / Faturado) — não confundir com
+  // `faturado` abaixo, que é do fluxo de importação da planilha de custos.
+  forma_pagamento: string | null;
   // Campos vindos da importação da planilha de custos histórica (ver src/lib/importCustos.ts)
   // — mesmo padrão de hospedagens/transport_trips.
   nf: string | null;

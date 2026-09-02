@@ -157,6 +157,7 @@ export const AEROPORTOS: Aeroporto[] = [
   { iata: "LHR", nome: "Heathrow", cidade: "Londres", pais: "Reino Unido" },
   { iata: "LGW", nome: "Gatwick", cidade: "Londres", pais: "Reino Unido" },
   { iata: "ABZ", nome: "Aberdeen International", cidade: "Aberdeen", pais: "Reino Unido" },
+  { iata: "CWL", nome: "Cardiff Airport", cidade: "Cardiff", pais: "Reino Unido" },
   { iata: "AMS", nome: "Schiphol", cidade: "Amsterdã", pais: "Países Baixos" },
   { iata: "FRA", nome: "Frankfurt am Main", cidade: "Frankfurt", pais: "Alemanha" },
   { iata: "MUC", nome: "Franz Josef Strauss", cidade: "Munique", pais: "Alemanha" },

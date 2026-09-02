@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { MOTIVOS_LOGISTICA } from "@/lib/logistica";
+import { MOTIVOS_LOGISTICA, FORMAS_PAGAMENTO } from "@/lib/logistica";
 import { matchesNameSearch } from "@/lib/utils";
 
 // Campos de formulário compartilhados entre os módulos de logística (Hospedagem, Passagens
@@ -128,6 +128,20 @@ export function SelectComOutro({ value, onChange, options, placeholder = "Seleci
       <SelectContent>
         {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
         <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+// Forma de pagamento (Cartão de Crédito / Faturado) — lista fixa, sem opção "Outro", usada
+// em Transporte/Hospedagem/Passagens Aéreas. Campo opcional (não força refazer lançamentos antigos).
+export function FormaPagamentoField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <Select value={value || "__nenhum__"} onValueChange={(v) => onChange(v === "__nenhum__" ? "" : v)}>
+      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__nenhum__">—</SelectItem>
+        {FORMAS_PAGAMENTO.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
       </SelectContent>
     </Select>
   );
