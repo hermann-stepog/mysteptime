@@ -417,10 +417,7 @@ export function BspMultiField({ value, onChange, options, disabled, rateio, perm
           </Button>
         )}
       </div>
-      <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-        <SelectContent>{options.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-      </Select>
+      <SelectComOutro value={value} onChange={onChange} options={options} disabled={disabled} manualPlaceholder="Digitar BSP" />
       {permiteRatear && mostrar2 && (
         <div className="mt-2 space-y-2 rounded-md border border-dashed p-2 text-xs">
           <div className="grid grid-cols-[1fr_80px_auto] items-end gap-1">
