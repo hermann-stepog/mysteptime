@@ -40,7 +40,7 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
-  computeDiarias, computeValorTotal, localizacaoHotel,
+  computeDiarias, localizacaoHotel,
   type HotelFornecedor, type Hospedagem,
 } from "@/lib/hospedagem";
 
