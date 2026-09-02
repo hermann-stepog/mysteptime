@@ -157,6 +157,7 @@ export const AEROPORTOS: Aeroporto[] = [
   { iata: "LHR", nome: "Heathrow", cidade: "Londres", pais: "Reino Unido" },
   { iata: "LGW", nome: "Gatwick", cidade: "Londres", pais: "Reino Unido" },
   { iata: "ABZ", nome: "Aberdeen International", cidade: "Aberdeen", pais: "Reino Unido" },
+  { iata: "CWL", nome: "Cardiff Airport", cidade: "Cardiff", pais: "Reino Unido" },
   { iata: "AMS", nome: "Schiphol", cidade: "Amsterdã", pais: "Países Baixos" },
   { iata: "FRA", nome: "Frankfurt am Main", cidade: "Frankfurt", pais: "Alemanha" },
   { iata: "MUC", nome: "Franz Josef Strauss", cidade: "Munique", pais: "Alemanha" },
@@ -176,10 +177,12 @@ export const AEROPORTOS: Aeroporto[] = [
   { iata: "IST", nome: "Istanbul Airport", cidade: "Istambul", pais: "Turquia" },
   { iata: "ATH", nome: "Eleftherios Venizelos", cidade: "Atenas", pais: "Grécia" },
   { iata: "WAW", nome: "Chopin", cidade: "Varsóvia", pais: "Polônia" },
+  { iata: "OTP", nome: "Henri Coandă", cidade: "Bucareste", pais: "Romênia" },
 
   // ── África, Oriente Médio e Ásia-Pacífico ─────────────────────────────────
   { iata: "LAD", nome: "Quatro de Fevereiro", cidade: "Luanda", pais: "Angola" },
   { iata: "MPM", nome: "Maputo", cidade: "Maputo", pais: "Moçambique" },
+  { iata: "WDH", nome: "Hosea Kutako International", cidade: "Windhoek", pais: "Namíbia" },
   { iata: "JNB", nome: "O. R. Tambo", cidade: "Joanesburgo", pais: "África do Sul" },
   { iata: "CPT", nome: "Cidade do Cabo", cidade: "Cidade do Cabo", pais: "África do Sul" },
   { iata: "LOS", nome: "Murtala Muhammed", cidade: "Lagos", pais: "Nigéria" },
