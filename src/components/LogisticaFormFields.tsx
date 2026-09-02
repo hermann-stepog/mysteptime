@@ -89,6 +89,50 @@ export function MotivoField({ value, onChange }: { value: string; onChange: (v: 
   );
 }
 
+// Select com escape para digitação manual — usado em Unidade/BSP, onde a lista vem do
+// histórico (hist_novo_*) e nem sempre contém uma unidade/BSP novo ainda não cadastrado.
+// Quando o valor atual não está na lista (ex.: registro antigo, ou algo digitado agora),
+// o campo já abre no modo manual.
+export function SelectComOutro({ value, onChange, options, placeholder = "Selecione", disabled, manualPlaceholder = "Digitar" }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+  disabled?: boolean;
+  manualPlaceholder?: string;
+}) {
+  const [manual, setManual] = useState(false);
+  const foraDaLista = value !== "" && !options.includes(value);
+  if (manual || foraDaLista) {
+    return (
+      <div className="flex gap-1">
+        <Input
+          value={value} disabled={disabled} placeholder={manualPlaceholder}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <Button
+          type="button" variant="ghost" size="sm" className="h-9 px-2 text-xs"
+          onClick={() => { setManual(false); onChange(""); }}
+        >
+          Lista
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <Select
+      value={value || undefined} disabled={disabled}
+      onValueChange={(v) => { if (v === "__outro__") { setManual(true); onChange(""); return; } onChange(v); }}
+    >
+      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={placeholder} /></SelectTrigger>
+      <SelectContent>
+        {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
