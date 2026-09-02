@@ -78,6 +78,28 @@ const AUSENCIA_LABEL: Record<"F" | "FE" | "AT", string> = {
   AT: "com atestado",
 };
 
+// Mesmo critério de normalização usado em outros pontos de matching por nome no app (ver
+// normalizeName em timesheet-offshore.tsx) — sem acento, maiúsculas, espaços colapsados.
+function normalizeNomeHistograma(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase().replace(/\s+/g, " ").trim();
+}
+
+// Nomes (normalizados) de quem está marcado como Offshore na aba "Offshore" do módulo de
+// Colaboradores — usado pra dividir Histograma Offshore em "Geral" (tudo, direto do Drake,
+// como sempre foi) e "Offshore" (só quem está cadastrado lá). Cast local porque is_offshore
+// ainda não está nos tipos gerados (mesmo padrão já usado em collaborators.tsx).
+function useOffshoreNomesQuery() {
+  return useQuery({
+    queryKey: ["collaborators-offshore-nomes"],
+    queryFn: async () => {
+      const rows = await selectAllPages<{ full_name: string }>((from, to) =>
+        (supabase.from("collaborators") as any).select("full_name").eq("is_offshore", true).order("id").range(from, to),
+      );
+      return new Set(rows.map((r) => normalizeNomeHistograma(r.full_name)));
+    },
+  });
+}
+
 function useColaboradoresQuery() {
   return useQuery({
     queryKey: ["hist-novo-colaboradores"],
@@ -113,6 +135,7 @@ function usePeriodosQuery() {
 function HistogramaOffshoreNovo() {
   const { data: colaboradores = [], isLoading: loadingColabs, error: errorColabs } = useColaboradoresQuery();
   const { data: periodos = [], isLoading: loadingPeriodos, error: errorPeriodos } = usePeriodosQuery();
+  const { data: offshoreNomes = new Set<string>() } = useOffshoreNomesQuery();
 
   if (loadingColabs || loadingPeriodos)
     return (
@@ -166,10 +189,12 @@ function HistogramaOffshoreNovo() {
       </div>
     );
 
-  return <HistogramaOffshoreNovoContent colaboradores={colaboradores} periodos={periodos} />;
+  return <HistogramaOffshoreNovoContent colaboradores={colaboradores} periodos={periodos} offshoreNomes={offshoreNomes} />;
 }
 
-function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
+function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes }: {
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; offshoreNomes: Set<string>;
+}) {
   const { role } = useAuth();
   const isOperator = role === "logistics_operator";
   // Todo mundo que chega nessa página (operador, visitante, solicitante e os papéis de etapa
@@ -178,11 +203,32 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaborado
   const canSeeHistograma = true;
   const canSeeLancamentos = isOperator;
 
+  // "Geral" = todo mundo, direto do Drake, exatamente como sempre foi (comportamento
+  // inalterado). "Offshore" = só quem está marcado como Offshore na aba Offshore de
+  // Colaboradores (ver useOffshoreNomesQuery) — pedido dela pra não misturar os dois
+  // universos nas métricas/grade do Dashboard e do Histograma. Lançamentos (edição de
+  // verdade) continua sempre com a lista completa, pra nunca travar o lançamento de quem
+  // ainda não está marcado como Offshore.
+  const [origem, setOrigem] = useState<"geral" | "offshore">("geral");
+  const colaboradoresOffshore = useMemo(
+    () => colaboradores.filter((c) => offshoreNomes.has(normalizeNomeHistograma(c.nome))),
+    [colaboradores, offshoreNomes],
+  );
+  const colaboradoresView = origem === "offshore" ? colaboradoresOffshore : colaboradores;
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
-        {isOperator && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
+          {isOperator && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
+        </div>
+        <Tabs value={origem} onValueChange={(v) => setOrigem(v as "geral" | "offshore")}>
+          <TabsList>
+            <TabsTrigger value="geral">Geral</TabsTrigger>
+            <TabsTrigger value="offshore">Offshore ({colaboradoresOffshore.length})</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       <Tabs defaultValue="dashboard">
@@ -192,11 +238,11 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos }: { colaborado
           {canSeeLancamentos && <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard" className="mt-4">
-          <DashboardTab colaboradores={colaboradores} periodos={periodos} />
+          <DashboardTab colaboradores={colaboradoresView} periodos={periodos} />
         </TabsContent>
         {canSeeHistograma && (
           <TabsContent value="histograma" className="mt-4">
-            <HistogramaTab colaboradores={colaboradores} periodos={periodos} />
+            <HistogramaTab colaboradores={colaboradoresView} periodos={periodos} />
           </TabsContent>
         )}
         {canSeeLancamentos && (
