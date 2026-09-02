@@ -943,7 +943,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
     () => filterColaboradoresBySearch(colaboradoresElegiveis, colaboradorBusca),
     [colaboradoresElegiveis, colaboradorBusca],
   );
-  const selecionadosCount = colaboradoresElegiveis.filter((l) => selectedColaboradorIds.has(l.colaborador_id)).length;
+  const selecionadosCount = colaboradoresElegiveis.filter((l) => selectedColaboradorIds.has(l.colaborador_id ?? "")).length;
 
   useEffect(() => {
     setLinesMo(
@@ -1554,7 +1554,7 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
                 <Button
                   type="button" size="sm" variant="outline" className="h-8 text-xs"
                   disabled={colaboradoresElegiveis.length === 0}
-                  onClick={() => setSelectedColaboradorIds(new Set(colaboradoresElegiveis.map((l) => l.colaborador_id)))}
+                  onClick={() => setSelectedColaboradorIds(new Set(colaboradoresElegiveis.map((l) => l.colaborador_id ?? "")))}
                 >
                   Selecionar todos
                 </Button>
@@ -1578,8 +1578,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
                   {colaboradoresFiltrados.map((l) => (
                     <label key={l.colaborador_id} className="flex cursor-pointer items-center gap-2 border-b px-2 py-1.5 last:border-b-0 hover:bg-muted/40">
                       <Checkbox
-                        checked={selectedColaboradorIds.has(l.colaborador_id)}
-                        onCheckedChange={() => setSelectedColaboradorIds((prev) => toggleIdInSet(prev, l.colaborador_id))}
+                        checked={selectedColaboradorIds.has(l.colaborador_id ?? "")}
+                        onCheckedChange={() => setSelectedColaboradorIds((prev) => toggleIdInSet(prev, l.colaborador_id ?? ""))}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-medium">{l.colaborador_nome}</span>

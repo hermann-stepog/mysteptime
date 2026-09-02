@@ -16,7 +16,7 @@ const RATE: Rate = {
   active: true,
 };
 
-function dia(partial: Omit<TimesheetDiaComColaborador, "colaborador_id" | "colaborador_nome" | "funcao_embarque" | "bsp">): TimesheetDiaComColaborador {
+function dia(partial: Partial<TimesheetDiaComColaborador> & Pick<TimesheetDiaComColaborador, "data" | "evento">): TimesheetDiaComColaborador {
   return {
     colaborador_id: "edinaldo",
     colaborador_nome: "Edinaldo de Oliveira Barbosa",

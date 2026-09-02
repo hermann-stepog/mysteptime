@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel, usePessoasAdicionais, PessoasAdicionaisPanel } from "@/components/LogisticaFormFields";
 import {
   Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
   Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
@@ -116,6 +116,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
   const [bound, setBound] = useState<string | null>(null);
   const valorPassagem = Number(f.valor) || 0;
   const rateio = useRateioComplementar(valorPassagem);
+  const pessoas = usePessoasAdicionais();
 
   if (open && editing && bound !== editing.id) {
     setF({
@@ -138,7 +139,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
     }
     setBound(editing.id);
   }
-  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO); rateio.reset(); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO); rateio.reset(); pessoas.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
@@ -170,13 +171,22 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       } else {
         // Solicitação nova sempre entra no início do fluxo — status_fluxo default do banco
         // ("emitida") é só pra registro histórico lançado direto, não pra quem passa por aqui.
-        const { error } = await supabase.from("passagens_aereas").insert({ ...payload, status_fluxo: "solicitada" });
+        // Um lançamento por passageiro: o principal + cada colaborador adicional (unidade/BSP
+        // próprios quando informados, senão herdando os do formulário).
+        const base = { ...payload, status_fluxo: "solicitada" };
+        const linhas = [base, ...pessoas.validas.map((p) => ({
+          ...base,
+          nome_usuario: p.nome.trim(),
+          unidade: p.unidade || base.unidade,
+          bsp: p.bsp || base.bsp,
+        }))];
+        const { error } = await supabase.from("passagens_aereas").insert(linhas);
         if (error) throw error;
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
-      notify.success(editing ? "Passagem atualizada" : "Passagem lançada");
+      notify.success(editing ? "Passagem atualizada" : `${1 + pessoas.validas.length} passagem(ns) lançada(s)`);
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -269,6 +279,13 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               </Select>
             </div>
           </div>
+          {!editing && (
+            <PessoasAdicionaisPanel
+              estado={pessoas} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
+              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u)}
+              unidadePadrao={f.unidade} bspPadrao={f.bsp}
+            />
+          )}
           <RateioComplementarPanel rateio={rateio} />
           {f.status === "Cancelada" && (
             <div>

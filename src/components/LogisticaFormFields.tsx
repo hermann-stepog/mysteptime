@@ -233,3 +233,75 @@ export function RateioComplementarPanel({ rateio }: { rateio: UseRateioComplemen
     </div>
   );
 }
+
+// ── Pessoas adicionais no mesmo formulário (Hospedagem / Passagens Aéreas) ────────────────
+// Um lançamento por pessoa continua sendo a regra no banco: aqui só evitamos reabrir o
+// formulário do zero pra cada colaborador da mesma viagem/estadia. Cada pessoa adicional
+// pode ter unidade/BSP próprios (ex.: mesma van de hotel, centros de custo diferentes);
+// deixando em branco, herda a unidade/BSP do formulário principal.
+export interface PessoaAdicional { nome: string; unidade: string; bsp: string }
+
+export function usePessoasAdicionais() {
+  const [pessoas, setPessoas] = useState<PessoaAdicional[]>([]);
+  function add() { setPessoas((p) => [...p, { nome: "", unidade: "", bsp: "" }]); }
+  function update(i: number, patch: Partial<PessoaAdicional>) {
+    setPessoas((p) => p.map((item, idx) => (idx === i ? { ...item, ...patch } : item)));
+  }
+  function remove(i: number) { setPessoas((p) => p.filter((_, idx) => idx !== i)); }
+  function reset() { setPessoas([]); }
+  const validas = pessoas.filter((p) => p.nome.trim() !== "");
+  return { pessoas, add, update, remove, reset, validas };
+}
+
+export type UsePessoasAdicionaisReturn = ReturnType<typeof usePessoasAdicionais>;
+
+export function PessoasAdicionaisPanel({ estado, colaboradores, unidadeOptions, bspOptionsFor, unidadePadrao, bspPadrao }: {
+  estado: UsePessoasAdicionaisReturn;
+  colaboradores: { id: string; nome: string }[];
+  unidadeOptions: string[];
+  bspOptionsFor: (unidade: string) => string[];
+  unidadePadrao: string;
+  bspPadrao: string;
+}) {
+  return (
+    <div className="rounded-md border border-dashed p-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">Outros colaboradores neste lançamento</span>
+        <Button type="button" variant="outline" size="sm" onClick={estado.add}>Adicionar colaborador</Button>
+      </div>
+      {estado.pessoas.length === 0 ? (
+        <p className="mt-1 text-muted-foreground">Cada colaborador adicionado gera um lançamento próprio com os mesmos dados.</p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {estado.pessoas.map((p, i) => {
+            const unidade = p.unidade || unidadePadrao;
+            const opcoesBsp = bspOptionsFor(unidade || "all");
+            return (
+              <div key={i} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                <div>
+                  <Label className="text-xs">Colaborador</Label>
+                  <NomeUsuarioField value={p.nome} onChange={(v) => estado.update(i, { nome: v })} colaboradores={colaboradores} />
+                </div>
+                <div>
+                  <Label className="text-xs">Unidade</Label>
+                  <Select value={p.unidade || undefined} onValueChange={(v) => estado.update(i, { unidade: v, bsp: "" })}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={unidadePadrao || "Selecione"} /></SelectTrigger>
+                    <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">BSP</Label>
+                  <Select value={p.bsp || undefined} onValueChange={(v) => estado.update(i, { bsp: v })}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={bspPadrao || "Selecione"} /></SelectTrigger>
+                    <SelectContent>{opcoesBsp.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => estado.remove(i)}>Remover</Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
