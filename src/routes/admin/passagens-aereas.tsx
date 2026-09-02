@@ -194,9 +194,9 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-lg flex-col overflow-hidden">
         <DialogHeader><DialogTitle>{editing ? "Editar passagem" : "Nova passagem"}</DialogTitle></DialogHeader>
-        <div className="grid gap-3">
+        <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <div>
             <Label className="text-xs">Motivo</Label>
             <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
