@@ -18,6 +18,7 @@ const nav: NavItem[] = [
   { to: "/admin/transport",      label: "Transporte" },
   { to: "/admin/hospedagem",     label: "Hospedagem" },
   { to: "/admin/passagens-aereas", label: "Passagens Aéreas" },
+  { to: "/admin/reembolsos",     label: "Reembolsos" },
   { to: "/admin/collaborators",  label: "Colaboradores" },
   { to: "/admin/costs",          label: "Custos" },
   { to: "/admin/rates",          label: "Rates" },
