@@ -89,6 +89,50 @@ export function MotivoField({ value, onChange }: { value: string; onChange: (v: 
   );
 }
 
+// Select com escape para digitação manual — usado em Unidade/BSP, onde a lista vem do
+// histórico (hist_novo_*) e nem sempre contém uma unidade/BSP novo ainda não cadastrado.
+// Quando o valor atual não está na lista (ex.: registro antigo, ou algo digitado agora),
+// o campo já abre no modo manual.
+export function SelectComOutro({ value, onChange, options, placeholder = "Selecione", disabled, manualPlaceholder = "Digitar" }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+  disabled?: boolean;
+  manualPlaceholder?: string;
+}) {
+  const [manual, setManual] = useState(false);
+  const foraDaLista = value !== "" && !options.includes(value);
+  if (manual || foraDaLista) {
+    return (
+      <div className="flex gap-1">
+        <Input
+          value={value} disabled={disabled} placeholder={manualPlaceholder}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <Button
+          type="button" variant="ghost" size="sm" className="h-9 px-2 text-xs"
+          onClick={() => { setManual(false); onChange(""); }}
+        >
+          Lista
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <Select
+      value={value || undefined} disabled={disabled}
+      onValueChange={(v) => { if (v === "__outro__") { setManual(true); onChange(""); return; } onChange(v); }}
+    >
+      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={placeholder} /></SelectTrigger>
+      <SelectContent>
+        {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
@@ -284,17 +328,17 @@ export function PessoasAdicionaisPanel({ estado, colaboradores, unidadeOptions, 
                 </div>
                 <div>
                   <Label className="text-xs">Unidade</Label>
-                  <Select value={p.unidade || undefined} onValueChange={(v) => estado.update(i, { unidade: v, bsp: "" })}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={unidadePadrao || "Selecione"} /></SelectTrigger>
-                    <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <SelectComOutro
+                    value={p.unidade} onChange={(v) => estado.update(i, { unidade: v, bsp: "" })}
+                    options={unidadeOptions} placeholder={unidadePadrao || "Selecione"} manualPlaceholder="Digitar unidade"
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">BSP</Label>
-                  <Select value={p.bsp || undefined} onValueChange={(v) => estado.update(i, { bsp: v })}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={bspPadrao || "Selecione"} /></SelectTrigger>
-                    <SelectContent>{opcoesBsp.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <SelectComOutro
+                    value={p.bsp} onChange={(v) => estado.update(i, { bsp: v })}
+                    options={opcoesBsp} placeholder={bspPadrao || "Selecione"} manualPlaceholder="Digitar BSP"
+                  />
                 </div>
                 <Button type="button" variant="ghost" size="sm" onClick={() => estado.remove(i)}>Remover</Button>
               </div>
@@ -373,10 +417,7 @@ export function BspMultiField({ value, onChange, options, disabled, rateio, perm
           </Button>
         )}
       </div>
-      <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-        <SelectContent>{options.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-      </Select>
+      <SelectComOutro value={value} onChange={onChange} options={options} disabled={disabled} manualPlaceholder="Digitar BSP" />
       {permiteRatear && mostrar2 && (
         <div className="mt-2 space-y-2 rounded-md border border-dashed p-2 text-xs">
           <div className="grid grid-cols-[1fr_80px_auto] items-end gap-1">
@@ -454,24 +495,21 @@ export function UnidadeMultiField({ value, onChange, options, extras, bspOptions
           </Button>
         )}
       </div>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-        <SelectContent>{options.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-      </Select>
+      <SelectComOutro value={value} onChange={onChange} options={options} manualPlaceholder="Digitar unidade" />
       {permiteAdicionar && extras.unidades.length > 0 && (
         <div className="mt-2 space-y-2">
           {extras.unidades.map((item, i) => {
             const opcoesBsp = bspOptionsFor(item.unidade || "all");
             return (
               <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-1">
-                <Select value={item.unidade || undefined} onValueChange={(v) => extras.update(i, { unidade: v, bsp: "" })}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Unidade" /></SelectTrigger>
-                  <SelectContent>{options.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={item.bsp || undefined} onValueChange={(v) => extras.update(i, { bsp: v })} disabled={!item.unidade}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="BSP" /></SelectTrigger>
-                  <SelectContent>{opcoesBsp.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-                </Select>
+                <SelectComOutro
+                  value={item.unidade} onChange={(v) => extras.update(i, { unidade: v, bsp: "" })}
+                  options={options} placeholder="Unidade" manualPlaceholder="Digitar unidade"
+                />
+                <SelectComOutro
+                  value={item.bsp} onChange={(v) => extras.update(i, { bsp: v })}
+                  options={opcoesBsp} placeholder="BSP" manualPlaceholder="Digitar BSP" disabled={!item.unidade}
+                />
                 <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => extras.remove(i)}>✕</Button>
               </div>
             );
