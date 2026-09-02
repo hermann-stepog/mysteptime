@@ -26,7 +26,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField, useRateioComplementar, RateioComplementarPanel, usePessoasAdicionais, PessoasAdicionaisPanel } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais } from "@/components/LogisticaFormFields";
 import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
@@ -336,14 +336,6 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
               <Input disabled value={fmtMoney(valorTotal)} className="bg-muted" />
             </div>
           </div>
-          {!editing && (
-            <PessoasAdicionaisPanel
-              estado={pessoas} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
-              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u)}
-              unidadePadrao={f.unidade} bspPadrao={f.bsp}
-            />
-          )}
-          <RateioComplementarPanel rateio={rateio} />
           <div>
             <Label className="text-xs">Motivo</Label>
             <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
