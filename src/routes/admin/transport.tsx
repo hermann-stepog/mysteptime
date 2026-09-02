@@ -721,7 +721,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
                 Faturado
               </label>
             </div>
-            <div><Label>Usuário Faturamento</Label><Input value={f.usuario_faturamento} onChange={(e) => setF({ ...f, usuario_faturamento: e.target.value })} /></div>
+            
             <div><Label>Data Faturamento</Label><Input type="date" value={f.data_faturamento} onChange={(e) => setF({ ...f, data_faturamento: e.target.value })} /></div>
           </div>
 
