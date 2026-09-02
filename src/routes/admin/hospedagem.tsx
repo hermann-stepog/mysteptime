@@ -40,7 +40,7 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
-  computeDiarias, computeValorTotal, localizacaoHotel,
+  computeDiarias, localizacaoHotel,
   type HotelFornecedor, type Hospedagem,
 } from "@/lib/hospedagem";
 
@@ -186,7 +186,7 @@ function HotelCombobox({ hoteis, value, onChange }: {
 
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", hotelId: "", checkIn: "", checkOut: "",
-  valorDiaria: "", motivo: "", observacoes: "",
+  valor: "", motivo: "", observacoes: "",
   nf: "", fornecedor: "", cobrado: false, statusLancamento: "", faturado: false,
   usuarioFaturamento: "", dataFaturamento: "",
 };
@@ -202,7 +202,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
   const diariasAtual = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
-  const valorTotal = computeValorTotal(diariasAtual, Number(f.valorDiaria) || 0);
+  const valorTotal = Math.round((Number(f.valor) || 0) * 100) / 100;
   const rateio = useRateioComplementar(valorTotal);
   const pessoas = usePessoasAdicionais();
   const unidades = useUnidadesAdicionais();
@@ -210,7 +210,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   if (open && editing && bound !== editing.id) {
     setF({
       unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: editing.nome_usuario, hotelId: editing.hotel_id,
-      checkIn: editing.check_in, checkOut: editing.check_out, valorDiaria: String(editing.valor_diaria),
+      checkIn: editing.check_in, checkOut: editing.check_out, valor: String(editing.valor_total ?? 0),
       motivo: editing.motivo ?? "", observacoes: editing.observacoes ?? "",
       nf: editing.nf ?? "", fornecedor: editing.fornecedor ?? "", cobrado: editing.cobrado ?? false,
       statusLancamento: editing.status_lancamento ?? "", faturado: editing.faturado ?? false,
@@ -247,7 +247,9 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       if (diarias <= 0) throw new Error("Check-out precisa ser depois do check-in.");
       const payload = {
         unidade: f.unidade, bsp: f.bsp, nome_usuario: f.nomeUsuario.trim(), hotel_id: f.hotelId,
-        check_in: f.checkIn, check_out: f.checkOut, diarias, valor_diaria: Number(f.valorDiaria) || 0,
+        check_in: f.checkIn, check_out: f.checkOut, diarias,
+        valor_diaria: diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal,
+
         valor_total: valorTotal, motivo: f.motivo.trim() || null, observacoes: f.observacoes.trim() || null,
         bsp_2: rateio.ativo && rateio.bsp2.trim() ? rateio.bsp2.trim() : null,
         bsp_3: rateio.ativo && rateio.bsp3.trim() ? rateio.bsp3.trim() : null,
@@ -325,20 +327,13 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
               <Input type="date" value={f.checkOut} onChange={(e) => setF({ ...f, checkOut: e.target.value })} />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <Label className="text-xs">Diárias</Label>
-              <Input disabled value={diarias} className="bg-muted" />
-            </div>
-            <div>
-              <Label className="text-xs">Valor da diária</Label>
-              <Input type="number" step="0.01" min="0" value={f.valorDiaria} onChange={(e) => setF({ ...f, valorDiaria: e.target.value })} />
-            </div>
-            <div>
-              <Label className="text-xs">Valor total</Label>
-              <Input disabled value={fmtMoney(valorTotal)} className="bg-muted" />
+              <Label className="text-xs">Valor</Label>
+              <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} />
             </div>
           </div>
+
           <div>
             <Label className="text-xs">Motivo</Label>
             <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
