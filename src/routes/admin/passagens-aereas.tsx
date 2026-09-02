@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, UnidadeMultiField } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, UnidadeMultiField, FormaPagamentoField } from "@/components/LogisticaFormFields";
 import {
   Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
   Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
@@ -103,7 +103,7 @@ function useColaboradoresQuery() {
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", companhiaAerea: "", origem: "", destino: "",
   dataIda: "", dataVolta: "", tipo: "Ida e Volta", valor: "", status: "Confirmada",
-  motivo: "", motivoCancelamento: "", observacoes: "",
+  motivo: "", motivoCancelamento: "", formaPagamento: "", observacoes: "",
   solicitante: "", solicitanteEmail: "", internacional: false,
 };
 
@@ -126,7 +126,8 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       companhiaAerea: editing.companhia_aerea ?? "", origem: editing.origem ?? "", destino: editing.destino ?? "",
       dataIda: editing.data_ida, dataVolta: editing.data_volta ?? "", tipo: editing.tipo,
       valor: String(editing.valor), status: editing.status, motivo: editing.motivo ?? "",
-      motivoCancelamento: editing.motivo_cancelamento ?? "", observacoes: editing.observacoes ?? "",
+      motivoCancelamento: editing.motivo_cancelamento ?? "", formaPagamento: editing.forma_pagamento ?? "",
+      observacoes: editing.observacoes ?? "",
       solicitante: editing.solicitante ?? "", solicitanteEmail: editing.solicitante_email ?? "",
       internacional: editing.internacional ?? false,
     });
@@ -159,6 +160,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
         data_ida: f.dataIda, data_volta: f.dataVolta || null, tipo: f.tipo, valor: valorPassagem,
         status: f.status, motivo: f.motivo.trim() || null,
         motivo_cancelamento: f.status === "Cancelada" ? (f.motivoCancelamento.trim() || null) : null,
+        forma_pagamento: f.formaPagamento || null,
         observacoes: f.observacoes.trim() || null,
         solicitante: f.solicitante.trim() || null, solicitante_email: f.solicitanteEmail.trim() || null,
         internacional: f.internacional,
@@ -203,9 +205,15 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-lg flex-col overflow-hidden">
         <DialogHeader><DialogTitle>{editing ? "Editar passagem" : "Nova passagem"}</DialogTitle></DialogHeader>
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
-          <div>
-            <Label className="text-xs">Motivo</Label>
-            <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="text-xs">Motivo</Label>
+              <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
+            </div>
+            <div>
+              <Label className="text-xs">Forma de pagamento</Label>
+              <FormaPagamentoField value={f.formaPagamento} onChange={(v) => setF({ ...f, formaPagamento: v })} />
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -1277,7 +1285,11 @@ function PassagensAereasPage() {
                             return (
                               <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
                                 {b.itens.map((p) => (
-                                  <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                  <div
+                                    key={p.id} role="button" tabIndex={0} title="Clique para editar esta passagem"
+                                    className="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs hover:bg-emerald-100/60"
+                                    onClick={() => { setEditing(p); setDialogOpen(true); }}
+                                  >
                                     <div className="min-w-0">
                                       <p className="truncate font-medium">{p.nome_usuario}</p>
                                       <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>
@@ -1306,7 +1318,11 @@ function PassagensAereasPage() {
                               {bspAberto && (
                                 <div className="divide-y border-t bg-emerald-50/40 pl-20">
                                   {b.itens.map((p) => (
-                                    <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                    <div
+                                      key={p.id} role="button" tabIndex={0} title="Clique para editar esta passagem"
+                                      className="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs hover:bg-emerald-100/60"
+                                      onClick={() => { setEditing(p); setDialogOpen(true); }}
+                                    >
                                       <div className="min-w-0">
                                         <p className="truncate font-medium">{p.nome_usuario}</p>
                                         <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>

@@ -6,6 +6,10 @@ import { getTotalPassagensPorBsp } from "@/lib/passagensAereas";
 // em cada módulo.
 export const MOTIVOS_LOGISTICA = ["Pré-Embarque", "Voo Cancelado", "Standby", "Viagem", "Curso", "Outros"];
 
+// Forma de pagamento — mesma lista fixa (sem "Outro") em Transporte/Hospedagem/Passagens Aéreas.
+export const FORMAS_PAGAMENTO = ["Cartão de Crédito", "Faturado"] as const;
+export type FormaPagamento = (typeof FORMAS_PAGAMENTO)[number];
+
 // Soma Hospedagem + Passagens Aéreas de um BSP no período — usada pelo Boletim de Medição pra
 // popular a linha única "Logistics" do consolidado (decisão confirmada com a usuária: uma linha
 // só, não duas separadas). Só lê os dois módulos, não grava nada no BM.
