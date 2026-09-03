@@ -369,6 +369,9 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
+      // Um id só pra todas as funções desta solicitação — "Minhas Solicitações" agrupa por
+      // ele de volta num único cartão, mesmo cada função seguindo seu próprio fluxo aqui.
+      const groupId = crypto.randomUUID();
 
       // Uma nomeação por função — cada uma segue seu próprio fluxo de aprovação/nomeação,
       // por isso não dá pra combinar num só registro (diferente de um lançamento de viagem
@@ -384,6 +387,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
           .insert({
             pm_user_id:                 user!.id,
             pm_name:                    pmName,
+            request_group_id:           groupId,
             funcao:                     l.funcao.trim(),
             quantidade:                 Math.max(1, Number(l.quantidade) || 1),
             unidade,
@@ -561,9 +565,23 @@ function MinhasSolicitacoesTab() {
     enabled: !!user,
   });
 
+  // Agrupa de volta pelo request_group_id (uma solicitação pode ter várias funções — ver
+  // CreateDialog) — solicitações antigas sem esse campo viram grupo de uma linha só, usando o
+  // próprio id. Filtro de status mantém o grupo inteiro se QUALQUER função dele bater, pra não
+  // esconder metade de uma solicitação em andamento.
+  const groups = useMemo(() => {
+    const m = new Map<string, Nomination[]>();
+    nominations.forEach((n) => {
+      const key = n.request_group_id ?? n.id;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(n);
+    });
+    return Array.from(m.entries()).map(([key, items]) => ({ key, items }));
+  }, [nominations]);
+
   const visible = filterStatus === "todos"
-    ? nominations
-    : nominations.filter((n) => n.current_status === filterStatus);
+    ? groups
+    : groups.filter((g) => g.items.some((n) => n.current_status === filterStatus));
 
   if (isLoading) {
     return (
@@ -625,37 +643,43 @@ function MinhasSolicitacoesTab() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {visible.map((nom) => (
-            <Card
-              key={nom.id}
-              className="p-4 cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => setSelected(nom)}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1 min-w-0">
-                  <p className="font-semibold text-sm">{nom.funcao}</p>
-                  <p className="text-xs text-muted-foreground">{nom.unidade} {nom.bsp}</p>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                    {nom.period_start && nom.period_end && (
-                      <span className="flex items-center gap-1">
-                        <CalendarDays className="h-3 w-3" />
-                        {fmtDate(nom.period_start)} – {fmtDate(nom.period_end)}
-                      </span>
-                    )}
-                    {nom.client && <span>{nom.client}</span>}
-                    {nom.project && <span>{nom.project}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {nom.current_status === "aprovacao_pm" && (
-                    <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Ação necessária</Badge>
+          {visible.map(({ key, items }) => {
+            const primeiro = items[0];
+            return (
+              <Card key={key} className="p-4">
+                <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{primeiro.unidade} {primeiro.bsp}</span>
+                  {primeiro.period_start && primeiro.period_end && (
+                    <span className="flex items-center gap-1">
+                      <CalendarDays className="h-3 w-3" />
+                      {fmtDate(primeiro.period_start)} – {fmtDate(primeiro.period_end)}
+                    </span>
                   )}
-                  <StatusBadge status={nom.current_status} />
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  {primeiro.client && <span>{primeiro.client}</span>}
                 </div>
-              </div>
-            </Card>
-          ))}
+                <div className="divide-y">
+                  {items.map((nom) => (
+                    <button
+                      key={nom.id} type="button"
+                      className="flex w-full items-center justify-between gap-3 py-2 text-left first:pt-0 last:pb-0 hover:bg-muted/40"
+                      onClick={() => setSelected(nom)}
+                    >
+                      <span className="min-w-0 truncate text-sm font-semibold">
+                        {nom.funcao}{nom.quantidade > 1 && <span className="ml-1 font-normal text-muted-foreground">×{nom.quantidade}</span>}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        {nom.current_status === "aprovacao_pm" && (
+                          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Ação necessária</Badge>
+                        )}
+                        <StatusBadge status={nom.current_status} />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
