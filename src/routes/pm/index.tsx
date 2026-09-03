@@ -744,10 +744,21 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
 
 // ── Minhas Solicitações (aba padrão do ambiente do Solicitante) ────────────────
 
+// Status "representante" de um grupo de funções da mesma solicitação — a etapa mais atrasada
+// entre elas, porque a solicitação como um todo só está de fato adiantada quando TODAS as
+// funções chegarem lá (não faz sentido mostrar "Equipe Formada" se uma das funções ainda
+// está em Solicitação).
+function statusRepresentante(items: Nomination[]): Nomination["current_status"] {
+  return items.reduce((pior, n) => (
+    ALL_STATUSES.indexOf(n.current_status) < ALL_STATUSES.indexOf(pior) ? n.current_status : pior
+  ), items[0].current_status);
+}
+
 function MinhasSolicitacoesTab() {
   const { user, profile } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected]     = useState<Nomination | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Nomination[] | null>(null);
   const [filterStatus, setFilter]   = useState("todos");
 
   const { data: nominations = [], isLoading } = useQuery<Nomination[]>({
@@ -844,37 +855,35 @@ function MinhasSolicitacoesTab() {
         <div className="space-y-3">
           {visible.map(({ key, items }) => {
             const primeiro = items[0];
+            const status = statusRepresentante(items);
+            const precisaAcao = items.some((n) => n.current_status === "aprovacao_pm");
             return (
-              <Card key={key} className="p-4">
-                <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">{primeiro.unidade} {primeiro.bsp}</span>
-                  {primeiro.period_start && primeiro.period_end && (
-                    <span className="flex items-center gap-1">
-                      <CalendarDays className="h-3 w-3" />
-                      {fmtDate(primeiro.period_start)} – {fmtDate(primeiro.period_end)}
-                    </span>
-                  )}
-                  {primeiro.client && <span>{primeiro.client}</span>}
-                </div>
-                <div className="divide-y">
-                  {items.map((nom) => (
-                    <button
-                      key={nom.id} type="button"
-                      className="flex w-full items-center justify-between gap-3 py-2 text-left first:pt-0 last:pb-0 hover:bg-muted/40"
-                      onClick={() => setSelected(nom)}
-                    >
-                      <span className="min-w-0 truncate text-sm font-semibold">
-                        {nom.funcao}{nom.quantidade > 1 && <span className="ml-1 font-normal text-muted-foreground">×{nom.quantidade}</span>}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-2">
-                        {nom.current_status === "aprovacao_pm" && (
-                          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Ação necessária</Badge>
-                        )}
-                        <StatusBadge status={nom.current_status} />
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </span>
-                    </button>
-                  ))}
+              <Card
+                key={key}
+                className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => (items.length === 1 ? setSelected(items[0]) : setSelectedGroup(items))}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      {primeiro.unidade} {primeiro.bsp}
+                      {primeiro.period_start && primeiro.period_end && (
+                        <span className="ml-2 inline-flex items-center gap-1">
+                          <CalendarDays className="h-3 w-3" />
+                          {fmtDate(primeiro.period_start)} – {fmtDate(primeiro.period_end)}
+                        </span>
+                      )}
+                      {primeiro.client && <span className="ml-2">{primeiro.client}</span>}
+                    </p>
+                    <p className="truncate text-sm font-semibold">
+                      {items.map((n) => n.funcao + (n.quantidade > 1 ? ` ×${n.quantidade}` : "")).join(", ")}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {precisaAcao && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Ação necessária</Badge>}
+                    <StatusBadge status={status} />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
                 </div>
               </Card>
             );
@@ -884,7 +893,59 @@ function MinhasSolicitacoesTab() {
 
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} />}
       {selected && <NominationDetail nom={selected} onClose={() => setSelected(null)} />}
+      {selectedGroup && <GroupDetailDialog items={selectedGroup} onClose={() => setSelectedGroup(null)} />}
     </div>
+  );
+}
+
+// Detalhe de uma solicitação com várias funções — lista cada função com sua etapa/ação
+// própria; clicar numa delas abre o NominationDetail de sempre (edição/exclusão inclusive).
+function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: () => void }) {
+  const [selected, setSelected] = useState<Nomination | null>(null);
+  const primeiro = items[0];
+
+  if (selected) {
+    return (
+      <NominationDetail
+        nom={items.find((n) => n.id === selected.id) ?? selected}
+        onClose={() => setSelected(null)}
+      />
+    );
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Solicitação — {primeiro.unidade} {primeiro.bsp}</DialogTitle>
+          {primeiro.period_start && primeiro.period_end && (
+            <p className="text-xs text-muted-foreground">
+              {fmtDate(primeiro.period_start)} – {fmtDate(primeiro.period_end)}{primeiro.client && ` · ${primeiro.client}`}
+            </p>
+          )}
+        </DialogHeader>
+        <div className="divide-y">
+          {items.map((nom) => (
+            <button
+              key={nom.id} type="button"
+              className="flex w-full items-center justify-between gap-3 py-2.5 text-left first:pt-0 hover:bg-muted/40"
+              onClick={() => setSelected(nom)}
+            >
+              <span className="min-w-0 truncate text-sm font-semibold">
+                {nom.funcao}{nom.quantidade > 1 && <span className="ml-1 font-normal text-muted-foreground">×{nom.quantidade}</span>}
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {nom.current_status === "aprovacao_pm" && (
+                  <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Ação necessária</Badge>
+                )}
+                <StatusBadge status={nom.current_status} />
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </span>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
