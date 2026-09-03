@@ -31,6 +31,8 @@ function AppLayout() {
     else if (!role || role === "pending") navigate({ to: "/pending" });
     else if (role === "logistics_operator") navigate({ to: "/admin/histograma-novo" });
     else if (role === "visitante") navigate({ to: "/admin/transport" });
+    else if (role === "pm") navigate({ to: "/pm" });
+    else if (role !== "collaborator") navigate({ to: "/admin/histograma-novo" });
   }, [user, role, loading, navigate]);
 
   if (loading || !user || role !== "collaborator") {
