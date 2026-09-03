@@ -900,9 +900,28 @@ function MinhasSolicitacoesTab() {
 
 // Detalhe de uma solicitação com várias funções — lista cada função com sua etapa/ação
 // própria; clicar numa delas abre o NominationDetail de sempre (edição/exclusão inclusive).
+// Além disso, dá pra excluir a solicitação inteira (todas as funções de uma vez) direto por
+// aqui, sem precisar entrar função por função — mesma regra de "só antes da Logística receber"
+// já usada na exclusão individual (current_status === "solicitacao").
 function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: () => void }) {
+  const qc = useQueryClient();
   const [selected, setSelected] = useState<Nomination | null>(null);
+  const [confirmandoExclusaoTudo, setConfirmandoExclusaoTudo] = useState(false);
   const primeiro = items[0];
+  const podeExcluirTudo = items.every((n) => n.current_status === "solicitacao");
+
+  const excluirTudo = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("nominations").delete().in("id", items.map((n) => n.id));
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      notify.success("Solicitação excluída.");
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      onClose();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao excluir solicitação."),
+  });
 
   if (selected) {
     return (
@@ -917,7 +936,23 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Solicitação — {primeiro.unidade} {primeiro.bsp}</DialogTitle>
+          <div className="flex items-center justify-between gap-2 pr-6">
+            <DialogTitle>Solicitação — {primeiro.unidade} {primeiro.bsp}</DialogTitle>
+            {podeExcluirTudo && (
+              <div className="flex shrink-0 gap-1.5">
+                {confirmandoExclusaoTudo ? (
+                  <>
+                    <Button size="sm" variant="destructive" loading={excluirTudo.isPending} onClick={() => excluirTudo.mutate()}>Confirmar</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmandoExclusaoTudo(false)}>Cancelar</Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" className="text-red-700 hover:text-red-700" onClick={() => setConfirmandoExclusaoTudo(true)}>
+                    Excluir solicitação
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
           {primeiro.period_start && primeiro.period_end && (
             <p className="text-xs text-muted-foreground">
               {fmtDate(primeiro.period_start)} – {fmtDate(primeiro.period_end)}{primeiro.client && ` · ${primeiro.client}`}
