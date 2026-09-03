@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
+import { useViewAs } from "@/hooks/useViewAs";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
-import { LogOut } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
 import { AnimatedOutlet } from "@/components/AnimatedOutlet";
@@ -19,6 +20,10 @@ const NAV = [
 
 function PmLayout() {
   const { user, role, loading, signOut, profile } = useAuth();
+  // "Ver como Solicitante" (ver useViewAs) deixa a conta master entrar aqui também — o gate
+  // de quem entra de verdade (usuário logado, papel pending) continua sempre no papel real.
+  const { viewAsRole, setViewAsRole } = useViewAs();
+  const effectiveRole = viewAsRole ?? role;
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -26,11 +31,11 @@ function PmLayout() {
     if (loading) return;
     if (!user) navigate({ to: "/auth" });
     else if (!role || role === "pending") navigate({ to: "/pending" });
-    else if (role === "visitante") navigate({ to: "/admin/transport" });
-    else if (role !== "pm") navigate({ to: "/admin/histograma-novo" });
-  }, [user, role, loading, navigate]);
+    else if (effectiveRole === "visitante") navigate({ to: "/admin/transport" });
+    else if (effectiveRole !== "pm") navigate({ to: "/admin/histograma-novo" });
+  }, [user, role, effectiveRole, loading, navigate]);
 
-  if (loading || !user || role !== "pm") {
+  if (loading || !user || effectiveRole !== "pm") {
     return <AppLoader />;
   }
 
@@ -51,6 +56,15 @@ function PmLayout() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {viewAsRole === "pm" && (
+              <button
+                onClick={() => { setViewAsRole(null); navigate({ to: "/admin/histograma-novo" }); }}
+                title="Voltar ao seu acesso normal"
+                className="flex items-center gap-1 rounded-md border border-amber-300/40 bg-amber-400/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
+              >
+                Vendo como: Solicitante<X className="h-3.5 w-3.5" />
+              </button>
+            )}
             <span className="text-xs text-white/60 hidden sm:block">
               {profile?.full_name ?? profile?.email}
             </span>
