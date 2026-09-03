@@ -38,7 +38,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
-  ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye,
+  ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -216,6 +216,19 @@ function EfetivoDisponivelSection({
       )}
     </div>
   );
+}
+
+// Mesmo bucket/caminho usado no upload feito pelo Solicitante (ver uploadScopeDocument em
+// src/routes/pm/index.tsx) — aqui só baixa, nunca envia.
+const SCOPE_BUCKET = "nomeacoes-anexos";
+async function baixarEscopoDocumento(path: string, nomeOriginal: string): Promise<void> {
+  const { data, error } = await supabase.storage.from(SCOPE_BUCKET).download(path);
+  if (error) { notify.error(error.message); return; }
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomeOriginal;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
@@ -892,7 +905,7 @@ function ManageDialog({
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-2 text-sm text-purple-900">
                       <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      Validação de Qualidade (tipo de solda exige)
+                      Validação de Qualidade (soldador)
                     </span>
                     {canQuality ? (
                       <div className="flex gap-1.5">
@@ -926,6 +939,16 @@ function ManageDialog({
                       </span>
                     )}
                   </div>
+                  {nomination.scope_document_path ? (
+                    <button
+                      type="button" className="flex items-center gap-1.5 text-xs text-purple-900 hover:underline"
+                      onClick={() => baixarEscopoDocumento(nomination.scope_document_path!, nomination.scope_document_name ?? "escopo-do-servico")}
+                    >
+                      <FileText className="h-3.5 w-3.5" /> {nomination.scope_document_name ?? "Baixar escopo do serviço"}
+                    </button>
+                  ) : (
+                    <p className="text-xs text-purple-900/70">Nenhum escopo do serviço anexado pelo solicitante.</p>
+                  )}
                   {nomination.quality_status === "reprovado" && nomination.quality_rejection_reason && (
                     <p className="text-xs text-red-800">Motivo: {nomination.quality_rejection_reason}</p>
                   )}

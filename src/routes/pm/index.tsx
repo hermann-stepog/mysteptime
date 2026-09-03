@@ -7,8 +7,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import {
-  type Nomination, type NominationNominee, type NominationStatusHistory,
-  type WeldTypeConfig, type WeldMaterialConfig, type PmDecision,
+  type Nomination, type NominationNominee, type NominationStatusHistory, type PmDecision,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES,
   fmtDate, fmtDatetime, isSoldador, canMoveToColumn,
 } from "@/lib/nominations";
@@ -30,7 +29,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, CalendarDays, ChevronRight, Check, X } from "lucide-react";
+import { Plus, CalendarDays, ChevronRight, Check, X, Upload, FileText } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -192,6 +191,16 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
             {nom.project && <div><span className="text-muted-foreground">Projeto:</span> {nom.project}</div>}
             {nom.weld_type && <div><span className="text-muted-foreground">Tipo de solda:</span> {nom.weld_type}</div>}
             {nom.weld_material && <div><span className="text-muted-foreground">Material:</span> {nom.weld_material}</div>}
+            {nom.scope_document_path && (
+              <div className="col-span-2">
+                <button
+                  type="button" className="inline-flex items-center gap-1.5 text-primary hover:underline"
+                  onClick={() => baixarEscopoDocumento(nom.scope_document_path!, nom.scope_document_name ?? "escopo-do-servico")}
+                >
+                  <FileText className="h-3.5 w-3.5" /> {nom.scope_document_name ?? "Baixar escopo do serviço"}
+                </button>
+              </div>
+            )}
             {nom.notes && <div className="col-span-2 text-muted-foreground italic">{nom.notes}</div>}
           </div>
 
@@ -245,9 +254,37 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
 // Uma solicitação pode pedir várias funções de uma vez (ex.: 2 Soldadores + 1 Caldeireiro) —
 // cada função vira uma nomeação própria no banco/kanban (cada uma segue seu próprio fluxo de
 // aprovação técnica/nomeação), todas compartilhando unidade/BSP/período/projeto/cliente.
-interface FuncaoLinha { funcao: string; quantidade: string; weldType: string; weldMaterial: string }
+// Soldador não pede mais tipo de solda/material em lista — em vez disso, anexa o escopo do
+// serviço (documento) pra Qualidade avaliar e aprovar a qualificação a partir dele.
+interface FuncaoLinha { funcao: string; quantidade: string; scopeFile: File | null }
 function novaLinhaFuncao(): FuncaoLinha {
-  return { funcao: "", quantidade: "1", weldType: "", weldMaterial: "" };
+  return { funcao: "", quantidade: "1", scopeFile: null };
+}
+
+const SCOPE_DOCUMENT_TYPES = "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png";
+const SCOPE_DOCUMENT_MAX_SIZE = 20 * 1024 * 1024;
+const SCOPE_BUCKET = "nomeacoes-anexos";
+
+async function uploadScopeDocument(file: File): Promise<{ path: string; name: string }> {
+  if (!SCOPE_DOCUMENT_TYPES.split(",").includes(file.type)) {
+    throw new Error("Formato não aceito. Envie PDF, Word, JPEG ou PNG.");
+  }
+  if (file.size > SCOPE_DOCUMENT_MAX_SIZE) throw new Error("Arquivo muito grande (máximo 20MB).");
+  const nomeSeguro = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+  const path = `${crypto.randomUUID()}-${nomeSeguro}`;
+  const { error } = await supabase.storage.from(SCOPE_BUCKET).upload(path, file, { contentType: file.type });
+  if (error) throw error;
+  return { path, name: file.name };
+}
+
+async function baixarEscopoDocumento(path: string, nomeOriginal: string): Promise<void> {
+  const { data, error } = await supabase.storage.from(SCOPE_BUCKET).download(path);
+  if (error) { notify.error(error.message); return; }
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomeOriginal;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function CreateDialog({ onClose }: { onClose: () => void }) {
@@ -267,15 +304,6 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   };
   const addLinha = () => setLinhas((atual) => [...atual, novaLinhaFuncao()]);
   const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
-
-  const { data: weldConfig = [] } = useQuery<WeldTypeConfig[]>({
-    queryKey: ["weld-type-config"],
-    queryFn: async () => (await supabase.from("weld_type_config").select("*").order("weld_type_name")).data ?? [],
-  });
-  const { data: weldMaterialConfig = [] } = useQuery<WeldMaterialConfig[]>({
-    queryKey: ["weld-material-config"],
-    queryFn: async () => (await supabase.from("weld_material_config").select("*").order("material_name")).data ?? [],
-  });
 
   const { data: funcoesHistorico = [] } = useQuery<{ funcao: string }[]>({
     queryKey: ["pm-create-nomination-funcoes-historico"],
@@ -340,20 +368,16 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
       if (validas.length === 0) throw new Error("Adicione ao menos uma função.");
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
-      for (const l of validas) {
-        if (isSoldador(l.funcao) && !l.weldType) throw new Error(`Selecione o tipo de solda para ${l.funcao}.`);
-        if (isSoldador(l.funcao) && !l.weldMaterial) throw new Error(`Selecione o material para ${l.funcao}.`);
-      }
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
 
       // Uma nomeação por função — cada uma segue seu próprio fluxo de aprovação/nomeação,
       // por isso não dá pra combinar num só registro (diferente de um lançamento de viagem
-      // em grupo, onde todos compartilham exatamente o mesmo evento).
+      // em grupo, onde todos compartilham exatamente o mesmo evento). Soldador sempre passa
+      // pela Qualidade — ela decide olhando o escopo do serviço anexado, não mais um tipo de
+      // solda/material escolhido em lista.
       for (const l of validas) {
-        const showWeldL = isSoldador(l.funcao);
-        const requiresQualityL = showWeldL
-          ? weldConfig.find((w) => w.weld_type_name === l.weldType)?.requires_quality_validation ?? false
-          : false;
+        const isWelder = isSoldador(l.funcao);
+        const scopeDocument = l.scopeFile ? await uploadScopeDocument(l.scopeFile) : null;
 
         const { data, error } = await supabase
           .from("nominations")
@@ -364,14 +388,16 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             quantidade:                 Math.max(1, Number(l.quantidade) || 1),
             unidade,
             bsp,
-            weld_type:                  showWeldL ? l.weldType || null : null,
-            weld_material:               showWeldL ? l.weldMaterial || null : null,
+            weld_type:                  null,
+            weld_material:               null,
+            scope_document_path:        scopeDocument?.path ?? null,
+            scope_document_name:        scopeDocument?.name ?? null,
             period_start:               start || null,
             period_end:                 end || null,
             project:                    null,
             client:                     client || null,
             notes:                      notes.trim() || null,
-            requires_quality_validation: requiresQualityL,
+            requires_quality_validation: isWelder,
             current_status:              "solicitacao",
           })
           .select()
@@ -406,7 +432,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
         <div className="space-y-3 py-2">
           <div className="space-y-3">
             {linhas.map((l, i) => {
-              const showWeldL = isSoldador(l.funcao);
+              const isWelder = isSoldador(l.funcao);
               return (
                 <div key={i} className="space-y-2 rounded-md border p-3">
                   <div className="grid grid-cols-[1fr_90px_auto] items-end gap-3">
@@ -414,7 +440,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                       <Label>Função *</Label>
                       <SearchableSelect
                         value={l.funcao}
-                        onValueChange={(v) => updateLinha(i, { funcao: v, weldType: "", weldMaterial: "" })}
+                        onValueChange={(v) => updateLinha(i, { funcao: v, scopeFile: null })}
                         options={funcaoOptions}
                         placeholder="Buscar função..."
                       />
@@ -430,26 +456,18 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                     )}
                   </div>
 
-                  {showWeldL && (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Tipo de solda *</Label>
-                        <Select value={l.weldType} onValueChange={(v) => updateLinha(i, { weldType: v, weldMaterial: "" })}>
-                          <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                          <SelectContent>
-                            {weldConfig.map((w) => <SelectItem key={w.id} value={w.weld_type_name}>{w.weld_type_name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Material *</Label>
-                        <Select value={l.weldMaterial} onValueChange={(v) => updateLinha(i, { weldMaterial: v })} disabled={!l.weldType}>
-                          <SelectTrigger><SelectValue placeholder={l.weldType ? "Selecione" : "Escolha o tipo de solda"} /></SelectTrigger>
-                          <SelectContent>
-                            {weldMaterialConfig.map((m) => <SelectItem key={m.id} value={m.material_name}>{m.material_name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                  {isWelder && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
+                        <Upload className="h-3.5 w-3.5 shrink-0" />
+                        {l.scopeFile ? l.scopeFile.name : "Selecionar arquivo..."}
+                        <input
+                          type="file" accept={SCOPE_DOCUMENT_TYPES} className="hidden"
+                          onChange={(e) => updateLinha(i, { scopeFile: e.target.files?.[0] ?? null })}
+                        />
+                      </label>
+                      <p className="text-[11px] text-muted-foreground">A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar.</p>
                     </div>
                   )}
                 </div>

@@ -43,6 +43,10 @@ export interface Nomination {
   bsp: string | null;
   weld_type: string | null;
   weld_material: string | null;
+  // Escopo do serviço (documento anexado pelo Solicitante) — a Qualidade avalia o tipo de
+  // solda a partir dele antes de aprovar, em vez de um tipo/material escolhido em lista.
+  scope_document_path: string | null;
+  scope_document_name: string | null;
   period_start: string | null;
   period_end: string | null;
   notes: string | null;
