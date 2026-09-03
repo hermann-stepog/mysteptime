@@ -302,14 +302,36 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
       ),
   });
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
+
+  // O Drake grava a mesma unidade com grafias diferentes ao longo do tempo (ex.: "BRAVO" num
+  // período, "Bravo" ou "bravo" noutro) — agrupa por chave maiúscula pra não duplicar a mesma
+  // unidade na lista, e guarda as grafias reais de cada grupo pra filtrar o BSP corretamente
+  // (bspOptionsForUnidade precisa das grafias como estão gravadas, não da versão exibida).
+  const unidadeGroups = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const add = (raw: string) => {
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+      const key = trimmed.toUpperCase();
+      if (!m.has(key)) m.set(key, new Set());
+      m.get(key)!.add(trimmed);
+    };
+    UNIDADES_OPERACIONAIS_FIXAS.forEach(add);
+    periodos.forEach((p) => { if (p.unidade_operacional) add(p.unidade_operacional); });
+    return m;
+  }, [periodos]);
+
+  // Exibição normalizada: só a primeira letra maiúscula (pedido dela) — nunca altera o que
+  // está gravado no banco, só como aparece na lista/valor selecionado.
   const unidadeOptions = useMemo(
-    () => Array.from(new Set([
-      ...UNIDADES_OPERACIONAIS_FIXAS,
-      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
-    ])).sort(),
-    [periodos],
+    () => Array.from(unidadeGroups.keys()).map((k) => k.charAt(0) + k.slice(1).toLowerCase()).sort(),
+    [unidadeGroups],
   );
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, unidade || "all"), [periodosE, unidade]);
+  const bspOptions = useMemo(() => {
+    if (!unidade) return bspOptionsForUnidade(periodosE, "all");
+    const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
+    return bspOptionsForUnidade(periodosE, variantes);
+  }, [periodosE, unidade, unidadeGroups]);
 
   const create = useMutation({
     mutationFn: async () => {
