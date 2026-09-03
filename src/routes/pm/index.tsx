@@ -159,6 +159,10 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
 // ── Status timeline (simplified for PM view) ──────────────────────────────────
 
 function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+
   const { data: history = [] } = useQuery<NominationStatusHistory[]>({
     queryKey: ["pm-nomination-history", nom.id],
     queryFn: async () => {
@@ -171,11 +175,46 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
     },
   });
 
+  // Editar/excluir só antes de a Logística sequer ter recebido a solicitação — depois disso,
+  // mudança passa pelo fluxo normal do kanban, não por edição direta do Solicitante (mesma
+  // regra da política de RLS pm_nominations_update_own_solicitacao/pm_nominations_delete_own_solicitacao).
+  const podeEditar = nom.current_status === "solicitacao";
+
+  const excluir = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("nominations").delete().eq("id", nom.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      notify.success("Solicitação excluída.");
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      onClose();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao excluir solicitação."),
+  });
+
+  if (editing) return <EditDialog nom={nom} onClose={() => setEditing(false)} onSaved={onClose} />;
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{nom.funcao}</DialogTitle>
+          <div className="flex items-center justify-between gap-2 pr-6">
+            <DialogTitle>{nom.funcao}</DialogTitle>
+            {podeEditar && (
+              <div className="flex shrink-0 gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Editar</Button>
+                {confirmandoExclusao ? (
+                  <>
+                    <Button size="sm" variant="destructive" loading={excluir.isPending} onClick={() => excluir.mutate()}>Confirmar</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmandoExclusao(false)}>Cancelar</Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" className="text-red-700 hover:text-red-700" onClick={() => setConfirmandoExclusao(true)}>Excluir</Button>
+                )}
+              </div>
+            )}
+          </div>
           <StatusBadge status={nom.current_status} />
         </DialogHeader>
 
@@ -249,6 +288,158 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
   );
 }
 
+// ── Editar solicitação (só permitido em current_status = "solicitacao") ────────────────────
+function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () => void; onSaved: () => void }) {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+
+  const [funcao, setFuncao]         = useState(nom.funcao);
+  const [quantidade, setQuantidade] = useState(String(nom.quantidade));
+  const [unidade, setUnidade]       = useState(nom.unidade ?? "");
+  const [bsp, setBsp]               = useState(nom.bsp ?? "");
+  const [start, setStart]           = useState(nom.period_start ?? "");
+  const [end, setEnd]               = useState(nom.period_end ?? "");
+  const [client, setClient]         = useState(nom.client ?? "");
+  const [notes, setNotes]           = useState(nom.notes ?? "");
+  const [scopeFile, setScopeFile]   = useState<File | null>(null);
+
+  const { funcaoOptions, periodosE, unidadeGroups, unidadeOptions } = useNominationFormData();
+  const bspOptions = useMemo(() => {
+    if (!unidade) return bspOptionsForUnidade(periodosE, "all");
+    const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
+    return bspOptionsForUnidade(periodosE, variantes);
+  }, [periodosE, unidade, unidadeGroups]);
+
+  const isWelder = isSoldador(funcao);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!funcao.trim()) throw new Error("Selecione a função.");
+      if (!unidade) throw new Error("Selecione a unidade.");
+      if (!bsp) throw new Error("Selecione a BSP.");
+      const scopeDocument = scopeFile ? await uploadScopeDocument(scopeFile) : null;
+      const { error } = await supabase.from("nominations").update({
+        funcao: funcao.trim(),
+        quantidade: Math.max(1, Number(quantidade) || 1),
+        unidade,
+        bsp,
+        period_start: start || null,
+        period_end: end || null,
+        client: client || null,
+        notes: notes.trim() || null,
+        requires_quality_validation: isWelder,
+        ...(scopeDocument ? { scope_document_path: scopeDocument.path, scope_document_name: scopeDocument.name } : {}),
+      }).eq("id", nom.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nom.id, status: "solicitacao",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante", notes: "Solicitação editada pelo solicitante",
+      });
+    },
+    onSuccess: () => {
+      notify.success("Solicitação atualizada.");
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      qc.invalidateQueries({ queryKey: ["pm-nomination-history", nom.id] });
+      onSaved();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao atualizar solicitação."),
+  });
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar solicitação</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          <div className="grid grid-cols-[1fr_90px] gap-3">
+            <div className="space-y-1">
+              <Label>Função *</Label>
+              <SearchableSelect value={funcao} onValueChange={setFuncao} options={funcaoOptions} placeholder="Buscar função..." />
+            </div>
+            <div className="space-y-1">
+              <Label>Qtd. *</Label>
+              <Input type="number" min={1} value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+            </div>
+          </div>
+
+          {isWelder && (
+            <div className="space-y-1">
+              <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
+              {nom.scope_document_path && !scopeFile && (
+                <button
+                  type="button" className="mb-1 flex items-center gap-1.5 text-xs text-primary hover:underline"
+                  onClick={() => baixarEscopoDocumento(nom.scope_document_path!, nom.scope_document_name ?? "escopo-do-servico")}
+                >
+                  <FileText className="h-3.5 w-3.5" /> {nom.scope_document_name ?? "Ver documento atual"}
+                </button>
+              )}
+              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
+                <Upload className="h-3.5 w-3.5 shrink-0" />
+                {scopeFile ? scopeFile.name : nom.scope_document_path ? "Substituir arquivo..." : "Selecionar arquivo..."}
+                <input type="file" accept={SCOPE_DOCUMENT_TYPES} className="hidden" onChange={(e) => setScopeFile(e.target.files?.[0] ?? null)} />
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                {scopeFile || nom.scope_document_path
+                  ? "A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar."
+                  : `Sem documento? Descreva o tipo de serviço no campo Observações abaixo (indicando a função "${funcao}").`}
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Unidade *</Label>
+              <Select value={unidade} onValueChange={(v) => { setUnidade(v); setBsp(""); setClient(clienteDaUnidade(v) ?? ""); }}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>BSP *</Label>
+              <Select value={bsp} onValueChange={setBsp} disabled={!unidade}>
+                <SelectTrigger><SelectValue placeholder={unidade ? "Selecione" : "Escolha a unidade"} /></SelectTrigger>
+                <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Data início</Label>
+              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Data fim</Label>
+              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Cliente</Label>
+            <Select value={client} onValueChange={setClient}>
+              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <SelectContent>
+                {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Observações</Label>
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => save.mutate()} loading={save.isPending}>Salvar alterações</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Create dialog ─────────────────────────────────────────────────────────────
 
 // Uma solicitação pode pedir várias funções de uma vez (ex.: 2 Soldadores + 1 Caldeireiro) —
@@ -287,24 +478,9 @@ async function baixarEscopoDocumento(path: string, nomeOriginal: string): Promis
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function CreateDialog({ onClose }: { onClose: () => void }) {
-  const { user, profile } = useAuth();
-  const qc = useQueryClient();
-
-  const [linhas, setLinhas]         = useState<FuncaoLinha[]>([novaLinhaFuncao()]);
-  const [unidade, setUnidade]       = useState("");
-  const [bsp, setBsp]               = useState("");
-  const [start, setStart]           = useState("");
-  const [end, setEnd]               = useState("");
-  const [client, setClient]         = useState("");
-  const [notes, setNotes]           = useState("");
-
-  const updateLinha = (i: number, patch: Partial<FuncaoLinha>) => {
-    setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
-  };
-  const addLinha = () => setLinhas((atual) => [...atual, novaLinhaFuncao()]);
-  const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
-
+// Dados de referência compartilhados entre CreateDialog e EditDialog (funções conhecidas,
+// unidades/BSPs vindos do Drake) — um só lugar pra não duplicar as mesmas 4 consultas.
+function useNominationFormData() {
   const { data: funcoesHistorico = [] } = useQuery<{ funcao: string }[]>({
     queryKey: ["pm-create-nomination-funcoes-historico"],
     queryFn: () =>
@@ -356,6 +532,29 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
     () => Array.from(unidadeGroups.keys()).map((k) => k.charAt(0) + k.slice(1).toLowerCase()).sort(),
     [unidadeGroups],
   );
+
+  return { funcaoOptions, periodosE, unidadeGroups, unidadeOptions };
+}
+
+function CreateDialog({ onClose }: { onClose: () => void }) {
+  const { user, profile } = useAuth();
+  const qc = useQueryClient();
+
+  const [linhas, setLinhas]         = useState<FuncaoLinha[]>([novaLinhaFuncao()]);
+  const [unidade, setUnidade]       = useState("");
+  const [bsp, setBsp]               = useState("");
+  const [start, setStart]           = useState("");
+  const [end, setEnd]               = useState("");
+  const [client, setClient]         = useState("");
+  const [notes, setNotes]           = useState("");
+
+  const updateLinha = (i: number, patch: Partial<FuncaoLinha>) => {
+    setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  };
+  const addLinha = () => setLinhas((atual) => [...atual, novaLinhaFuncao()]);
+  const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
+
+  const { funcaoOptions, periodosE, unidadeGroups, unidadeOptions } = useNominationFormData();
   const bspOptions = useMemo(() => {
     if (!unidade) return bspOptionsForUnidade(periodosE, "all");
     const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
