@@ -1719,8 +1719,8 @@ function SimulacaoTab({
     // ainda assim precisa aparecer selecionada no filtro.
     if (filterFuncao !== "all") s.add(filterFuncao);
     return Array.from(s).sort();
+  }, [colaboradores, colaboradoresOffshore, funcoesAnoPorColaborador, filterFuncao]);
 
-  }, [colaboradores, colaboradoresOffshore, funcoesAnoPorColaborador]);
 
   const dates = useMemo(
     () => (periodoDe && periodoAte && periodoDe <= periodoAte ? generateDateRange(periodoDe, periodoAte) : []),
