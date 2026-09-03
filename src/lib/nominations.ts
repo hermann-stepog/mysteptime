@@ -2,11 +2,17 @@
 // de Henrique/Wainer, com um gate de Validação de Qualidade (só quando o tipo de solda
 // exige) que precisa ser marcado antes de avançar dessa coluna. A partir desta reformulação
 // uma solicitação pode ter N colaboradores nomeados (ver NominationNominee) — não é mais 1
-// colaborador por registro. "Aprovação PM" só libera pra Aptidão quando TODOS os nomeados
-// ativos tiverem sido decididos (aprovado ou reprovado); reprovados voltam pra Aprovação
-// Técnica pra nova indicação. "Validação RH" trava se algum nomeado tiver divergência de
-// aptidão sinalizada (resolvida manualmente, ver aptidao_divergence). "Briefing" é o SMS
-// confirmando o briefing; "Equipe Formada — BSP" é o estado terminal.
+// colaborador por registro. "Aprovação PM" só libera pra Validação SMS (ASO) quando TODOS os
+// nomeados ativos tiverem sido decididos (aprovado ou reprovado); reprovados voltam pra
+// Aprovação Técnica pra nova indicação. "Validação SMS (ASO)" e a checklist de Aptidão (agora
+// dentro de "Validação RH") exigem cada nomeado aprovado marcado antes de avançar. "Validação
+// RH" também trava se algum nomeado tiver divergência de aptidão sinalizada (resolvida
+// manualmente, ver aptidao_divergence). "Briefing" é o SMS confirmando o briefing; "Equipe
+// Formada — BSP" é o estado terminal.
+//
+// "aptidao" deixou de ser uma coluna própria (virou uma checklist dentro de "validacao_rh",
+// ver ValidacaoRhSection) — mantido no tipo só porque nomination_status_history ainda guarda
+// linhas antigas com esse status; nenhuma nomeação deve mais ter current_status = "aptidao".
 export type NominationStatus =
   | "solicitacao"
   | "recebido_logistica"
@@ -15,6 +21,7 @@ export type NominationStatus =
   | "nomeados"
   | "aprovacao_pm"
   | "aptidao"
+  | "validacao_sms_aso"
   | "validacao_rh"
   | "briefing_sms"
   | "equipe_formada";
@@ -87,6 +94,9 @@ export interface NominationNominee {
   rh_validated: boolean;
   rh_validated_at: string | null;
   rh_validated_by: string | null;
+  sms_aso_checked: boolean;
+  sms_aso_checked_at: string | null;
+  sms_aso_checked_by: string | null;
   created_at: string;
 }
 
@@ -114,8 +124,9 @@ export interface WeldMaterialConfig {
 }
 
 // Colunas do kanban, na ordem fixa do processo — cores conforme definidas com a usuária pra
-// as 6 originais; as 4 novas (Recebido pela Logística, Simulação, Nomeados, Aptidão) seguem a
-// mesma família pastel, avisar a usuária se quiser trocar algum tom.
+// as 6 originais; as demais seguem a mesma família pastel, avisar a usuária se quiser trocar
+// algum tom. "Aptidão" saiu daqui (virou checklist dentro de "Validação RH") e entrou
+// "Validação SMS (ASO)", antes de "Validação RH" — mesmo papel (sms) que já cuida do Briefing.
 export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; text: string }[] = [
   { id: "solicitacao",         label: "Solicitação",              bg: "#F1EFE8", text: "#2C2C2A" },
   { id: "recebido_logistica",  label: "Recebido pela Logística",  bg: "#EFEDE3", text: "#4A4636" },
@@ -123,7 +134,7 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
   { id: "aprovacao_tecnica",   label: "Aprovação Técnica",        bg: "#EEEDFE", text: "#3C3489" },
   { id: "nomeados",            label: "Nomeados",                 bg: "#F3E8FD", text: "#5B2A8C" },
   { id: "aprovacao_pm",        label: "Aprovação PM",             bg: "#FAEEDA", text: "#633806" },
-  { id: "aptidao",             label: "Aptidão",                  bg: "#FDEBEA", text: "#8C2F26" },
+  { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
   { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
   { id: "briefing_sms",        label: "Briefing",                 bg: "#E0F7F5", text: "#0F5E59" },
   { id: "equipe_formada",      label: "Equipe Formada",           bg: "#DCFCE7", text: "#166534" },
@@ -131,13 +142,18 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
 
 const COLUMN_ORDER: NominationStatus[] = KANBAN_COLUMNS.map((c) => c.id);
 
-export const STATUS_LABELS: Record<NominationStatus, string> = Object.fromEntries(
-  KANBAN_COLUMNS.map((c) => [c.id, c.label]),
-) as Record<NominationStatus, string>;
+// "aptidao" não tem mais coluna própria, mas nomination_status_history ainda guarda linhas
+// antigas com esse status — mantém o rótulo/cor de exibição pra elas não quebrarem no
+// histórico, sem entrar em ALL_STATUSES nem em nenhum filtro/seleção do kanban.
+export const STATUS_LABELS: Record<NominationStatus, string> = {
+  ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, c.label])) as Record<NominationStatus, string>),
+  aptidao: "Aptidão",
+};
 
-export const STATUS_BADGE: Record<NominationStatus, { bg: string; text: string }> = Object.fromEntries(
-  KANBAN_COLUMNS.map((c) => [c.id, { bg: c.bg, text: c.text }]),
-) as Record<NominationStatus, { bg: string; text: string }>;
+export const STATUS_BADGE: Record<NominationStatus, { bg: string; text: string }> = {
+  ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, { bg: c.bg, text: c.text }])) as Record<NominationStatus, { bg: string; text: string }>),
+  aptidao: { bg: "#FDEBEA", text: "#8C2F26" },
+};
 
 export const ALL_STATUSES: NominationStatus[] = [...COLUMN_ORDER];
 
@@ -189,12 +205,30 @@ export function canMoveToColumn(
     }
   }
 
+  const validacaoSmsAsoIdx = COLUMN_ORDER.indexOf("validacao_sms_aso");
+  const saiDeValidacaoSmsAso = currentIdx <= validacaoSmsAsoIdx && targetIdx > validacaoSmsAsoIdx;
+  if (saiDeValidacaoSmsAso) {
+    const aprovados = activeNominees(nominees).filter((n) => n.pm_decision === "aprovado");
+    if (aprovados.length > 0 && !aprovados.every((n) => n.sms_aso_checked)) {
+      return { ok: false, reason: "Marque o ASO de todos os nomeados aprovados antes de avançar." };
+    }
+  }
+
+  // Aptidão virou uma checklist dentro de Validação RH (não é mais coluna própria) — por
+  // isso o mesmo gate de saída de Validação RH exige tanto ela quanto a ausência de
+  // divergência, que já existia antes.
   const validacaoRhIdx = COLUMN_ORDER.indexOf("validacao_rh");
   const saiDeValidacaoRh = currentIdx <= validacaoRhIdx && targetIdx > validacaoRhIdx;
   if (saiDeValidacaoRh) {
     const aprovados = activeNominees(nominees).filter((n) => n.pm_decision === "aprovado");
     if (aprovados.some((n) => n.aptidao_divergence)) {
       return { ok: false, reason: "Há divergência de aptidão pendente — resolva antes de avançar." };
+    }
+    if (aprovados.length > 0 && !aprovados.every((n) => n.aptidao_checked)) {
+      return { ok: false, reason: "Marque a aptidão de todos os nomeados aprovados antes de avançar." };
+    }
+    if (aprovados.length > 0 && !aprovados.every((n) => n.rh_validated)) {
+      return { ok: false, reason: "Valide o RH de todos os nomeados aprovados antes de avançar." };
     }
   }
 
@@ -225,10 +259,16 @@ function nomineeFieldsMarkedAt(stage: NominationStatus): Record<string, unknown>
       return { technical_selected_at: null, technical_selected_by: null };
     case "aprovacao_pm":
       return { pm_decision: "pendente", pm_decided_at: null, pm_decided_by: null };
+    // "aptidao" não é mais alcançável como current_status (virou checklist dentro de
+    // validacao_rh) — mantido só por completude do switch, nunca é percorrido de verdade.
     case "aptidao":
       return { aptidao_checked: false, aptidao_checked_at: null, aptidao_checked_by: null };
+    case "validacao_sms_aso":
+      return { sms_aso_checked: false, sms_aso_checked_at: null, sms_aso_checked_by: null };
     case "validacao_rh":
+      // Checklist de aptidão + validação/divergência de RH, ambas dentro desta mesma etapa.
       return {
+        aptidao_checked: false, aptidao_checked_at: null, aptidao_checked_by: null,
         rh_validated: false, rh_validated_at: null, rh_validated_by: null,
         aptidao_divergence: false, aptidao_divergence_text: null, aptidao_divergence_flagged_at: null,
       };
@@ -296,6 +336,7 @@ export function isSoldador(fn: string) {
 // continua com acesso total em qualquer etapa (não entra neste mapa).
 export const STAGE_ROLE: Partial<Record<NominationStatus, string>> = {
   aprovacao_tecnica: "aprovacao_tecnica",
+  validacao_sms_aso: "sms",
   validacao_rh: "rh",
   briefing_sms: "sms",
 };
