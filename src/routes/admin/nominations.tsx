@@ -647,6 +647,20 @@ function ManageDialog({
   const { data: nominees = [] } = useNominees(nomination.id);
   const canOperate = role === "logistics_operator";
 
+  // Demais funções da mesma solicitação (mesmo request_group_id) ainda na mesma etapa — os
+  // avanços "administrativos" abaixo (sem decisão por pessoa: Recebido/Simulação/Aprovação
+  // Técnica) movem o grupo inteiro junto, pra o card continuar único depois de avançar (ver
+  // mesmo agrupamento no KanbanBoard). As etapas com decisão por nomeado (Aprovação Técnica em
+  // diante) continuam avançando só esta nomeação, já que cada função tem seu próprio efetivo.
+  const groupSiblings = (allNominations ?? []).filter(
+    (n) => n.id !== nomination.id
+      && n.current_status === nomination.current_status
+      && (n.request_group_id ?? n.id) === (nomination.request_group_id ?? nomination.id),
+  );
+  const advanceGroupTo = (target: NominationStatus, extraPatch?: Record<string, unknown>) => {
+    groupSiblings.forEach((sibling) => advance.mutate({ nomination: sibling, target, extraPatch }));
+  };
+
   const { data: history = [] } = useQuery<NominationStatusHistory[]>({
     queryKey: ["nominations", nomination.id, "history"],
     queryFn: async () => {
@@ -690,10 +704,9 @@ function ManageDialog({
   });
 
   const marcarRecebido = () => {
-    advance.mutate({
-      nomination, target: "recebido_logistica",
-      extraPatch: { logistics_received_at: new Date().toISOString(), logistics_received_by: profile?.full_name ?? profile?.email ?? null },
-    });
+    const extraPatch = { logistics_received_at: new Date().toISOString(), logistics_received_by: profile?.full_name ?? profile?.email ?? null };
+    advance.mutate({ nomination, target: "recebido_logistica", extraPatch });
+    advanceGroupTo("recebido_logistica", extraPatch);
   };
 
   const [showRevert, setShowRevert] = useState(false);
@@ -882,10 +895,13 @@ function ManageDialog({
               {nomination.current_status === "recebido_logistica" && canOperate && (
                 <Button
                   size="sm"
-                  onClick={() => advance.mutate(
-                    { nomination, target: "simulacao" },
-                    { onSuccess: () => { onGoToSimulacao(nomination); onClose(); } },
-                  )}
+                  onClick={() => {
+                    advance.mutate(
+                      { nomination, target: "simulacao" },
+                      { onSuccess: () => { onGoToSimulacao(nomination); onClose(); } },
+                    );
+                    advanceGroupTo("simulacao");
+                  }}
                   loading={advance.isPending}
                 >
                   <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Iniciar Simulação
@@ -894,7 +910,7 @@ function ManageDialog({
               {nomination.current_status === "simulacao" && canOperate && (
                 <Button
                   size="sm"
-                  onClick={() => advance.mutate({ nomination, target: "aprovacao_tecnica" })}
+                  onClick={() => { advance.mutate({ nomination, target: "aprovacao_tecnica" }); advanceGroupTo("aprovacao_tecnica"); }}
                   loading={advance.isPending}
                 >
                   <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação Técnica
