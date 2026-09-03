@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/hooks/useAuth";
+import { ViewAsProvider } from "@/hooks/useViewAs";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppVersionWatcher } from "@/components/AppVersionWatcher";
@@ -91,9 +92,11 @@ function RootComponent() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <Outlet />
-          <AppVersionWatcher />
-          <Toaster richColors position="top-right" />
+          <ViewAsProvider>
+            <Outlet />
+            <AppVersionWatcher />
+            <Toaster richColors position="top-right" />
+          </ViewAsProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>
