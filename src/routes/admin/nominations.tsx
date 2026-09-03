@@ -1715,7 +1715,11 @@ function SimulacaoTab({
       const funcao = c.funcao || c.funcao_operacao || funcoesAno[0] || "—";
       if (funcao !== "—") s.add(funcao);
     });
+    // A função da solicitação (modo recrutamento) pode não existir como função cadastral —
+    // ainda assim precisa aparecer selecionada no filtro.
+    if (filterFuncao !== "all") s.add(filterFuncao);
     return Array.from(s).sort();
+
   }, [colaboradores, colaboradoresOffshore, funcoesAnoPorColaborador]);
 
   const dates = useMemo(
