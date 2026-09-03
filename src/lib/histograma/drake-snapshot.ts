@@ -389,7 +389,8 @@ export function disembarkationTypeForDate(date: string): "DES" | "DDN" {
 interface AnnualPositionWorkerGroup {
   workerKey: string;
   drakeWorkerIds: Set<string>;
-  matricula: string;  nome: string;
+  matricula: string;
+  nome: string;
   empresa: string;
   funcao: string | null;
   funcaoOperacao: string | null;
@@ -417,7 +418,8 @@ function consolidateAnnualPositionRows(
       group = {
         workerKey,
         drakeWorkerIds: new Set<string>(),
-        matricula: row.matricula,        nome: row.nome,
+        matricula: row.matricula,
+        nome: row.nome,
         empresa: row.empresa,
         funcao: row.funcao,
         funcaoOperacao: row.funcaoOperacao,
@@ -661,6 +663,9 @@ export function mapAnnualPositionType(
 
     case "FIT":
       return "FIT";
+
+    case "FIE":
+      return "FIE";
 
     case "FT":
       return "FT";
