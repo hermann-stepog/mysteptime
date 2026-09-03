@@ -1718,6 +1718,21 @@ function SimulacaoTab({
     onError: (err: Error) => notify.error(err.message || "Erro ao adicionar candidato."),
   });
 
+  // Desfaz um "Adicionar" feito por engano direto na listagem, sem precisar abrir o card e
+  // remover pelo Efetivo Disponível — mesma remoção (exclui a linha de nomination_nominees).
+  const undoAddNominee = useMutation({
+    mutationFn: async (colaboradorId: string) => {
+      const nominee = focusNominees.find((n) => n.colaborador_id === colaboradorId && n.is_active);
+      if (!nominee) return;
+      const { error } = await supabase.from("nomination_nominees").delete().eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nominations", focusNomination?.id, "nominees"] });
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao desfazer."),
+  });
+
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
     queryKey: ["sim-colaboradores"],
     queryFn: async () => {
@@ -2019,9 +2034,14 @@ function SimulacaoTab({
                           </div>
                           {focusNomination && (
                             focusNomineeIds.has(l.colaborador.id) ? (
-                              <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-green-700">
+                              <Button
+                                size="sm" variant="ghost" title="Clique para desfazer"
+                                className="h-7 shrink-0 gap-1 px-2 text-xs text-green-700 hover:bg-red-50 hover:text-red-700"
+                                loading={undoAddNominee.isPending && undoAddNominee.variables === l.colaborador.id}
+                                onClick={() => undoAddNominee.mutate(l.colaborador.id)}
+                              >
                                 <Check className="h-3 w-3" /> Adicionado
-                              </span>
+                              </Button>
                             ) : (
                               <Button
                                 size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs"
