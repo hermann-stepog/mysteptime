@@ -1286,59 +1286,108 @@ function WeldMaterialConfigPanel() {
 // 10 colunas fixas (ver KANBAN_COLUMNS em src/lib/nominations.ts). Card arrastável via
 // dnd-kit; os bloqueios de avanço (Qualidade, Aprovação PM completa, divergência de Aptidão
 // pendente) vêm de canMoveToColumn, que agora também recebe os nomeados da solicitação.
+//
+// Um card representa uma SOLICITAÇÃO, não uma função isolada: nomeações que nasceram do mesmo
+// envio do formulário (mesmo request_group_id) e ainda estão na mesma coluna/status aparecem
+// juntas em 1 card só (mesmo padrão de "Minhas Solicitações" no ambiente do PM). Se uma função
+// da solicitação avança antes das outras, ela sai desse card e forma um novo card sozinha na
+// coluna seguinte — o agrupamento é sempre por coluna, nunca cruza status diferentes.
 
 function NominationCard({
-  nomination,
+  items,
   highlighted,
   onOpen,
 }: {
-  nomination: Nomination;
+  items: Nomination[];
   highlighted: boolean;
-  onOpen: () => void;
+  onOpen: (n: Nomination) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: nomination.id });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const first = items[0];
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: first.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
-  const isTerminal = nomination.current_status === "equipe_formada";
+  const isTerminal = first.current_status === "equipe_formada";
+  const isGroup = items.length > 1;
+
+  const quality = items.filter((n) => n.requires_quality_validation);
+  const qualityBadge = quality.length === 0 ? null
+    : quality.some((n) => n.quality_status === "reprovado")
+      ? { label: `Qualidade reprovada${isGroup ? ` (${quality.filter((n) => n.quality_status === "reprovado").length})` : ""}`, cls: "border-red-200 bg-red-50 text-red-700" }
+      : quality.some((n) => n.quality_status !== "aprovado")
+        ? { label: `Qualidade pendente${isGroup ? ` (${quality.filter((n) => n.quality_status !== "aprovado").length})` : ""}`, cls: "border-amber-200 bg-amber-50 text-amber-700" }
+        : { label: "Qualidade validada", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" };
 
   return (
-    <div
-      id={`kanban-card-${nomination.id}`}
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      onClick={onOpen}
-      className={`cursor-grab animate-in fade-in zoom-in-95 rounded-lg border bg-background p-3.5 shadow-sm duration-300 transition-shadow active:cursor-grabbing hover:shadow-md ${
-        isDragging ? "opacity-40" : ""
-      } ${highlighted ? "ring-2 ring-primary" : ""}`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold leading-tight">
-          {nomination.funcao}
-          {nomination.quantidade > 1 && <span className="ml-1.5 font-normal text-muted-foreground">×{nomination.quantidade}</span>}
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          {isTerminal && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
+    <>
+      <div
+        id={`kanban-card-${first.id}`}
+        ref={setNodeRef}
+        style={style}
+        {...listeners}
+        {...attributes}
+        onClick={() => (isGroup ? setPickerOpen(true) : onOpen(first))}
+        className={`cursor-grab animate-in fade-in zoom-in-95 rounded-lg border bg-background p-3.5 shadow-sm duration-300 transition-shadow active:cursor-grabbing hover:shadow-md ${
+          isDragging ? "opacity-40" : ""
+        } ${highlighted ? "ring-2 ring-primary" : ""}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold leading-tight">
+            {isGroup
+              ? items.map((n) => `${n.funcao}${n.quantidade > 1 ? ` ×${n.quantidade}` : ""}`).join(", ")
+              : (<>{first.funcao}{first.quantidade > 1 && <span className="ml-1.5 font-normal text-muted-foreground">×{first.quantidade}</span>}</>)}
+          </p>
+          <div className="flex shrink-0 items-center gap-1">
+            {isTerminal && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
+          </div>
         </div>
+        {first.bsp && <p className="mt-0.5 text-xs text-muted-foreground">{first.unidade} — {first.bsp}</p>}
+        {first.period_start && first.period_end && (
+          <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(first.period_start)} – {fmtDate(first.period_end)}</p>
+        )}
+        {qualityBadge && (
+          <span className={`mt-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${qualityBadge.cls}`}>
+            {qualityBadge.label}
+          </span>
+        )}
       </div>
-      {nomination.bsp && <p className="mt-0.5 text-xs text-muted-foreground">{nomination.unidade} — {nomination.bsp}</p>}
-      {nomination.period_start && nomination.period_end && (
-        <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(nomination.period_start)} – {fmtDate(nomination.period_end)}</p>
+
+      {pickerOpen && (
+        <Dialog open onOpenChange={(o) => !o && setPickerOpen(false)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Funções desta solicitação</DialogTitle>
+            </DialogHeader>
+            <div className="divide-y rounded-md border">
+              {items.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => { setPickerOpen(false); onOpen(n); }}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/60"
+                >
+                  <span className="font-medium">
+                    {n.funcao}{n.quantidade > 1 && <span className="ml-1 font-normal text-muted-foreground">×{n.quantidade}</span>}
+                  </span>
+                  {n.requires_quality_validation && (
+                    <span
+                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                        n.quality_status === "aprovado"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : n.quality_status === "reprovado"
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : "border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      {n.quality_status === "aprovado" ? "Qualidade OK" : n.quality_status === "reprovado" ? "Qualidade reprovada" : "Qualidade pendente"}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
-      {nomination.requires_quality_validation && (
-        <span
-          className={`mt-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
-            nomination.quality_status === "aprovado"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : nomination.quality_status === "reprovado"
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-amber-200 bg-amber-50 text-amber-700"
-          }`}
-        >
-          {nomination.quality_status === "aprovado" ? "Qualidade validada" : nomination.quality_status === "reprovado" ? "Qualidade reprovada" : "Qualidade pendente"}
-        </span>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -1396,7 +1445,7 @@ function KanbanColumn({
   label,
   bg,
   text,
-  nominations,
+  groups,
   highlightedId,
   onOpen,
   index = 0,
@@ -1405,7 +1454,7 @@ function KanbanColumn({
   label: string;
   bg: string;
   text: string;
-  nominations: Nomination[];
+  groups: Nomination[][];
   highlightedId: string | null;
   onOpen: (n: Nomination) => void;
   index?: number;
@@ -1420,21 +1469,21 @@ function KanbanColumn({
         className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide"
         style={{ backgroundColor: bg, color: text }}
       >
-        {label} <span className="font-normal opacity-70">({nominations.length})</span>
+        {label} <span className="font-normal opacity-70">({groups.length})</span>
       </div>
       <div
         ref={setNodeRef}
         className={`flex-1 space-y-2.5 overflow-y-auto p-2.5 h-[calc(100vh-240px)] min-h-[540px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
       >
-        {nominations.map((n) => (
+        {groups.map((items) => (
           <NominationCard
-            key={n.id}
-            nomination={n}
-            highlighted={highlightedId === n.id}
-            onOpen={() => onOpen(n)}
+            key={items[0].id}
+            items={items}
+            highlighted={items.some((n) => n.id === highlightedId)}
+            onOpen={onOpen}
           />
         ))}
-        {nominations.length === 0 && (
+        {groups.length === 0 && (
           <p className="py-4 text-center text-[11px] text-muted-foreground/60">Nenhum card</p>
         )}
       </div>
@@ -1467,24 +1516,53 @@ function KanbanBoard({
     return m;
   }, [nominations]);
 
+  // Agrupa por solicitação (mesmo request_group_id) dentro de cada coluna — nomeações sem grupo
+  // (formulário antigo, antes desse campo existir) formam grupo de 1 sozinhas, pelo próprio id.
+  const groupsByColumn = useMemo(() => {
+    const m = new Map<NominationStatus, Nomination[][]>();
+    byColumn.forEach((list, col) => {
+      const order: string[] = [];
+      const byKey = new Map<string, Nomination[]>();
+      list.forEach((n) => {
+        const key = n.request_group_id ?? n.id;
+        if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
+        byKey.get(key)!.push(n);
+      });
+      m.set(col, order.map((k) => byKey.get(k)!));
+    });
+    return m;
+  }, [byColumn]);
+
+  const groupByDragId = useMemo(() => {
+    const m = new Map<string, Nomination[]>();
+    groupsByColumn.forEach((groups) => groups.forEach((items) => m.set(items[0].id, items)));
+    return m;
+  }, [groupsByColumn]);
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over) return;
-    const nomination = nominations.find((n) => n.id === active.id);
+    const group = groupByDragId.get(active.id as string);
+    if (!group || group.length === 0) return;
     const target = over.id as NominationStatus;
-    if (!nomination || nomination.current_status === target) return;
+    const current = group[0].current_status;
+    if (current === target) return;
 
-    if (role !== "logistics_operator" && STAGE_ROLE[nomination.current_status] !== role) {
+    if (role !== "logistics_operator" && STAGE_ROLE[current] !== role) {
       notify.error("Você não tem permissão para mover este card.");
       return;
     }
 
-    const gate = canMoveToColumn(nomination, target, nomineesByNomination.get(nomination.id) ?? []);
-    if (!gate.ok) {
-      notify.error(gate.reason ?? "Não é possível mover este card.");
-      return;
+    // Card representa a solicitação inteira: só move se TODAS as funções do grupo puderem
+    // avançar — senão o card "quebraria" em dois status diferentes sem o usuário perceber.
+    for (const nomination of group) {
+      const gate = canMoveToColumn(nomination, target, nomineesByNomination.get(nomination.id) ?? []);
+      if (!gate.ok) {
+        notify.error(group.length > 1 ? `${nomination.funcao}: ${gate.reason ?? "não pode avançar."}` : gate.reason ?? "Não é possível mover este card.");
+        return;
+      }
     }
-    advance.mutate({ nomination, target });
+    group.forEach((nomination) => advance.mutate({ nomination, target }));
   };
 
   return (
@@ -1503,7 +1581,7 @@ function KanbanBoard({
               label={c.label}
               bg={c.bg}
               text={c.text}
-              nominations={byColumn.get(c.id) ?? []}
+              groups={groupsByColumn.get(c.id) ?? []}
               highlightedId={highlightedId}
               onOpen={onOpen}
               index={i}
