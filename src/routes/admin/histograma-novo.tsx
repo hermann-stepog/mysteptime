@@ -203,13 +203,15 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
   const canSeeHistograma = true;
   const canSeeLancamentos = isOperator;
 
-  // "Geral" = todo mundo, direto do Drake, exatamente como sempre foi (comportamento
-  // inalterado). "Offshore" = só quem está marcado como Offshore na aba Offshore de
-  // Colaboradores (ver useOffshoreNomesQuery) — pedido dela pra não misturar os dois
-  // universos nas métricas/grade do Dashboard e do Histograma. Lançamentos (edição de
-  // verdade) continua sempre com a lista completa, pra nunca travar o lançamento de quem
-  // ainda não está marcado como Offshore.
-  const [origem, setOrigem] = useState<"geral" | "offshore">("geral");
+  // "Offshore" = só quem está marcado como Offshore na aba Offshore de Colaboradores (ver
+  // useOffshoreNomesQuery) — fica fixo como padrão e sempre em primeiro no seletor (pedido
+  // dela). "Geral" = todo mundo, direto do Drake, exatamente como sempre foi, ainda disponível
+  // como segunda opção. Esse seletor não aparece nem afeta a aba Dashboard (ela continua
+  // sempre com todo mundo) — só entra no Histograma. Lançamentos (edição de verdade) continua
+  // sempre com a lista completa, pra nunca travar o lançamento de quem ainda não está marcado
+  // como Offshore.
+  const [origem, setOrigem] = useState<"geral" | "offshore">("offshore");
+  const [innerTab, setInnerTab] = useState("dashboard");
   const colaboradoresOffshore = useMemo(
     () => colaboradores.filter((c) => offshoreNomes.has(normalizeNomeHistograma(c.nome))),
     [colaboradores, offshoreNomes],
@@ -223,22 +225,24 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
           <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
           {isOperator && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
         </div>
-        <Tabs value={origem} onValueChange={(v) => setOrigem(v as "geral" | "offshore")}>
-          <TabsList>
-            <TabsTrigger value="geral">Geral</TabsTrigger>
-            <TabsTrigger value="offshore">Offshore ({colaboradoresOffshore.length})</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {innerTab !== "dashboard" && (
+          <Tabs value={origem} onValueChange={(v) => setOrigem(v as "geral" | "offshore")}>
+            <TabsList>
+              <TabsTrigger value="offshore">Offshore ({colaboradoresOffshore.length})</TabsTrigger>
+              <TabsTrigger value="geral">Geral</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
       </div>
 
-      <Tabs defaultValue="dashboard">
+      <Tabs value={innerTab} onValueChange={setInnerTab}>
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           {canSeeHistograma && <TabsTrigger value="histograma">Histograma</TabsTrigger>}
           {canSeeLancamentos && <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard" className="mt-4">
-          <DashboardTab colaboradores={colaboradoresView} periodos={periodos} />
+          <DashboardTab colaboradores={colaboradores} periodos={periodos} />
         </TabsContent>
         {canSeeHistograma && (
           <TabsContent value="histograma" className="mt-4">
