@@ -206,17 +206,16 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
   // "Offshore" = só quem está marcado como Offshore na aba Offshore de Colaboradores (ver
   // useOffshoreNomesQuery) — fica fixo como padrão e sempre em primeiro no seletor (pedido
   // dela). "Geral" = todo mundo, direto do Drake, exatamente como sempre foi, ainda disponível
-  // como segunda opção. Esse seletor não aparece nem afeta a aba Dashboard (ela continua
-  // sempre com todo mundo) — só entra no Histograma. Lançamentos (edição de verdade) continua
-  // sempre com a lista completa, pra nunca travar o lançamento de quem ainda não está marcado
-  // como Offshore.
+  // como segunda opção, só na aba Histograma. Dashboard continua sempre com todo mundo, sem
+  // seletor. Lançamentos fica travado em Offshore (sem seletor, sem opção de ver Geral) —
+  // pedido dela: só lança/edita pra quem já está marcado como Offshore.
   const [origem, setOrigem] = useState<"geral" | "offshore">("offshore");
   const [innerTab, setInnerTab] = useState("dashboard");
   const colaboradoresOffshore = useMemo(
     () => colaboradores.filter((c) => offshoreNomes.has(normalizeNomeHistograma(c.nome))),
     [colaboradores, offshoreNomes],
   );
-  const colaboradoresView = origem === "offshore" ? colaboradoresOffshore : colaboradores;
+  const colaboradoresView = innerTab === "lancamentos" ? colaboradoresOffshore : origem === "offshore" ? colaboradoresOffshore : colaboradores;
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
@@ -225,7 +224,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
           <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
           {isOperator && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
         </div>
-        {innerTab !== "dashboard" && (
+        {innerTab === "histograma" && (
           <Tabs value={origem} onValueChange={(v) => setOrigem(v as "geral" | "offshore")}>
             <TabsList>
               <TabsTrigger value="offshore">Offshore ({colaboradoresOffshore.length})</TabsTrigger>
@@ -251,7 +250,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
         )}
         {canSeeLancamentos && (
           <TabsContent value="lancamentos" className="mt-4">
-            <LancamentosTab colaboradores={colaboradores} periodos={periodos} />
+            <LancamentosTab colaboradores={colaboradoresView} periodos={periodos} />
           </TabsContent>
         )}
       </Tabs>
