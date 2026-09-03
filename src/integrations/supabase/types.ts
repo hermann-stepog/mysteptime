@@ -1599,6 +1599,9 @@ export type Database = {
           rh_validated: boolean
           rh_validated_at: string | null
           rh_validated_by: string | null
+          sms_aso_checked: boolean
+          sms_aso_checked_at: string | null
+          sms_aso_checked_by: string | null
           technical_selected_at: string | null
           technical_selected_by: string | null
         }
@@ -1621,6 +1624,9 @@ export type Database = {
           rh_validated?: boolean
           rh_validated_at?: string | null
           rh_validated_by?: string | null
+          sms_aso_checked?: boolean
+          sms_aso_checked_at?: string | null
+          sms_aso_checked_by?: string | null
           technical_selected_at?: string | null
           technical_selected_by?: string | null
         }
@@ -1643,6 +1649,9 @@ export type Database = {
           rh_validated?: boolean
           rh_validated_at?: string | null
           rh_validated_by?: string | null
+          sms_aso_checked?: boolean
+          sms_aso_checked_at?: string | null
+          sms_aso_checked_by?: string | null
           technical_selected_at?: string | null
           technical_selected_by?: string | null
         }
@@ -1737,7 +1746,10 @@ export type Database = {
           quality_validated_at: string | null
           quality_validated_by: string | null
           quantidade: number
+          request_group_id: string | null
           requires_quality_validation: boolean
+          scope_document_name: string | null
+          scope_document_path: string | null
           sequence_number: number | null
           unidade: string | null
           updated_at: string
@@ -1772,7 +1784,10 @@ export type Database = {
           quality_validated_at?: string | null
           quality_validated_by?: string | null
           quantidade?: number
+          request_group_id?: string | null
           requires_quality_validation?: boolean
+          scope_document_name?: string | null
+          scope_document_path?: string | null
           sequence_number?: number | null
           unidade?: string | null
           updated_at?: string
@@ -1807,7 +1822,10 @@ export type Database = {
           quality_validated_at?: string | null
           quality_validated_by?: string | null
           quantidade?: number
+          request_group_id?: string | null
           requires_quality_validation?: boolean
+          scope_document_name?: string | null
+          scope_document_path?: string | null
           sequence_number?: number | null
           unidade?: string | null
           updated_at?: string
