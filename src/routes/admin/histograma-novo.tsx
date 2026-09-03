@@ -825,12 +825,17 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     return colaboradores.filter((c) => ids.has(c.id));
   }, [colaboradores, periodos]);
 
-  // Unidades operacionais já existentes nos períodos importados (Drake) ou lançados manualmente —
-  // usadas como opções da lista suspensa, pra evitar erro de digitação/divergência de nome.
+  // Unidades operacionais já existentes nos períodos importados (Drake) ou lançados manualmente,
+  // somadas às unidades fixas (ex.: SAFE ZEPHYRUS ainda sem período lançado) — usadas como opções
+  // da lista suspensa, pra evitar erro de digitação/divergência de nome.
   const unidadesExistentes = useMemo(
-    () => Array.from(new Set(periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u))).sort(),
+    () => Array.from(new Set([
+      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
+      ...UNIDADES_OPERACIONAIS_FIXAS,
+    ])).sort(),
     [periodos],
   );
+
   // Cor por unidade na tabela de lançamentos — mesma paleta usada no Dashboard, pra ficar
   // fácil identificar visualmente qual unidade é qual sem precisar ler a coluna toda.
   const unidadeCorLancamentos = useMemo(
