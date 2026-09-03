@@ -12,6 +12,7 @@ interface AuthCtx {
   role: AppRole | null;
   profile: { id: string; full_name: string | null; email: string } | null;
   loading: boolean;
+  roleLoaded: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
