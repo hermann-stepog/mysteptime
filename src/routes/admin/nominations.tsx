@@ -1660,10 +1660,20 @@ function SimulacaoTab({
     return m;
   }, [funcoesHistorico]);
 
-  const funcaoOptions = useMemo(
-    () => Array.from(new Set(funcoesHistorico.map((e) => e.funcao).filter((f): f is string => !!f))).sort(),
-    [funcoesHistorico],
-  );
+  // Precisa ser a MESMA prioridade usada em linhasBase (c.funcao || c.funcao_operacao ||
+  // funcoesAno[0]) — antes vinha só de funcoesHistorico, então uma função podia aparecer na
+  // lista sem nunca bater com ninguém (bug relatado: filtrar "Supervisor" não achava
+  // ninguém, porque o cadastral de quem tem essa função no histórico é outro valor).
+  const funcaoOptions = useMemo(() => {
+    const s = new Set<string>();
+    colaboradores.forEach((c) => {
+      if (!colaboradoresOffshore.has(c.id)) return;
+      const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
+      const funcao = c.funcao || c.funcao_operacao || funcoesAno[0] || "—";
+      if (funcao !== "—") s.add(funcao);
+    });
+    return Array.from(s).sort();
+  }, [colaboradores, colaboradoresOffshore, funcoesAnoPorColaborador]);
 
   const dates = useMemo(
     () => (periodoDe && periodoAte && periodoDe <= periodoAte ? generateDateRange(periodoDe, periodoAte) : []),
