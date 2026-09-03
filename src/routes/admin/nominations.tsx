@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -330,16 +330,16 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
         }),
       );
       const merged = ativos.map((n) => ({ ...n, pm_decision: decisionFor(n) }));
-      const gate = canMoveToColumn(nomination, "aptidao", merged);
+      const gate = canMoveToColumn(nomination, "validacao_sms_aso", merged);
       if (!gate.ok) throw new Error(gate.reason ?? "Não é possível avançar ainda.");
 
-      const { error } = await supabase.from("nominations").update({ current_status: "aptidao" }).eq("id", nomination.id);
+      const { error } = await supabase.from("nominations").update({ current_status: "validacao_sms_aso" }).eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id, status: "aptidao",
+        nomination_id: nomination.id, status: "validacao_sms_aso",
         changed_by_name: profile?.full_name ?? profile?.email ?? "Logística", notes: "Decisões de Aprovação PM confirmadas pela Logística",
       });
-      await notifyStageAdvance({ ...nomination, current_status: "aptidao" }, "aptidao");
+      await notifyStageAdvance({ ...nomination, current_status: "validacao_sms_aso" }, "validacao_sms_aso");
     },
     onSuccess: () => {
       notify.success("Decisões enviadas.");
@@ -400,13 +400,15 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
         })}
       </div>
       <Button size="sm" disabled={!todosDecididos} loading={confirmar.isPending} onClick={() => confirmar.mutate()}>
-        <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar decisões e avançar para Aptidão
+        <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar decisões e avançar para Validação SMS (ASO)
       </Button>
     </div>
   );
 }
 
-function AptidaoSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+// Validação SMS (ASO) — mesmo papel (sms) que já cuida do Briefing mais à frente. Checklist
+// por nomeado aprovado, igual ao antigo formato de Aptidão (que virou parte de Validação RH).
+function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
@@ -416,25 +418,25 @@ function AptidaoSection({ nomination, nominees }: { nomination: Nomination; nomi
   const toggleCheck = useMutation({
     mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
       const { error } = await supabase.from("nomination_nominees").update({
-        aptidao_checked: val,
-        aptidao_checked_at: val ? new Date().toISOString() : null,
-        aptidao_checked_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
+        sms_aso_checked: val,
+        sms_aso_checked_at: val ? new Date().toISOString() : null,
+        sms_aso_checked_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
       }).eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
   });
 
-  const todosChecados = aprovados.length > 0 && aprovados.every((n) => n.aptidao_checked);
+  const todosChecados = aprovados.length > 0 && aprovados.every((n) => n.sms_aso_checked);
 
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Aptidão</p>
+      <p className="text-sm font-medium flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Validação SMS (ASO)</p>
       <div className="space-y-1 rounded-md border p-2">
         {aprovados.map((n) => (
           <label key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer">
             <span>{n.colaborador_nome}</span>
-            <Checkbox checked={n.aptidao_checked} disabled={!canAct} onCheckedChange={(v) => toggleCheck.mutate({ nominee: n, val: !!v })} />
+            <Checkbox checked={n.sms_aso_checked} disabled={!canAct} onCheckedChange={(v) => toggleCheck.mutate({ nominee: n, val: !!v })} />
           </label>
         ))}
       </div>
@@ -447,6 +449,8 @@ function AptidaoSection({ nomination, nominees }: { nomination: Nomination; nomi
   );
 }
 
+// Validação RH — desde esta reformulação inclui a checklist de Aptidão (antes era coluna
+// própria do kanban) além da validação/divergência de RH que já existia.
 function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
@@ -454,6 +458,18 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
   const advance = useAdvanceStage();
   const aprovados = nominees.filter((n) => n.is_active && n.pm_decision === "aprovado");
   const [divergenceDraft, setDivergenceDraft] = useState<Record<string, string>>({});
+
+  const toggleAptidaoCheck = useMutation({
+    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
+      const { error } = await supabase.from("nomination_nominees").update({
+        aptidao_checked: val,
+        aptidao_checked_at: val ? new Date().toISOString() : null,
+        aptidao_checked_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
+      }).eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+  });
 
   const validate = useMutation({
     mutationFn: async (nominee: NominationNominee) => {
@@ -493,55 +509,71 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
   });
 
-  const podeAvancar = aprovados.length > 0 && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
+  const todosChecados = aprovados.length > 0 && aprovados.every((n) => n.aptidao_checked);
+  const podeAvancar = todosChecados && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
 
   return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium">Validação RH</p>
+    <div className="space-y-3">
       <div className="space-y-2">
-        {aprovados.map((n) => (
-          <div key={n.id} className="rounded-md border p-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">{n.colaborador_nome}</span>
-              {n.rh_validated ? (
-                <Badge variant="secondary" className="text-emerald-700">Validado</Badge>
-              ) : n.aptidao_divergence ? (
-                <Badge variant="destructive">Divergência</Badge>
-              ) : (
-                <Badge variant="secondary">Pendente</Badge>
-              )}
-            </div>
-            {n.aptidao_divergence ? (
-              <div className="mt-1.5 space-y-1.5 rounded-md border border-red-200 bg-red-50 p-2">
-                <p className="flex items-start gap-1.5 text-xs text-red-800">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /> {n.aptidao_divergence_text}
-                </p>
-                {canAct && (
-                  <Button size="sm" variant="outline" className="h-6 text-xs" loading={resolveDivergence.isPending} onClick={() => resolveDivergence.mutate(n)}>
-                    Marcar como corrigido
-                  </Button>
+        <p className="text-sm font-medium flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Aptidão</p>
+        <div className="space-y-1 rounded-md border p-2">
+          {aprovados.map((n) => (
+            <label key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer">
+              <span>{n.colaborador_nome}</span>
+              <Checkbox checked={n.aptidao_checked} disabled={!canAct} onCheckedChange={(v) => toggleAptidaoCheck.mutate({ nominee: n, val: !!v })} />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Validação RH</p>
+        <div className="space-y-2">
+          {aprovados.map((n) => (
+            <div key={n.id} className="rounded-md border p-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{n.colaborador_nome}</span>
+                {n.rh_validated ? (
+                  <Badge variant="secondary" className="text-emerald-700">Validado</Badge>
+                ) : n.aptidao_divergence ? (
+                  <Badge variant="destructive">Divergência</Badge>
+                ) : (
+                  <Badge variant="secondary">Pendente</Badge>
                 )}
               </div>
-            ) : !n.rh_validated && canAct ? (
-              <div className="mt-1.5 space-y-1.5">
-                <Button size="sm" className="h-6 text-xs" loading={validate.isPending} onClick={() => validate.mutate(n)}>
-                  Validar aptidão
-                </Button>
-                <div className="flex gap-1.5">
-                  <Input
-                    className="h-6 text-xs" placeholder="Descrever divergência..."
-                    value={divergenceDraft[n.id] ?? ""}
-                    onChange={(e) => setDivergenceDraft((p) => ({ ...p, [n.id]: e.target.value }))}
-                  />
-                  <Button size="sm" variant="destructive" className="h-6 shrink-0 text-xs" loading={flagDivergence.isPending} onClick={() => flagDivergence.mutate(n)}>
-                    Sinalizar
-                  </Button>
+              {n.aptidao_divergence ? (
+                <div className="mt-1.5 space-y-1.5 rounded-md border border-red-200 bg-red-50 p-2">
+                  <p className="flex items-start gap-1.5 text-xs text-red-800">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /> {n.aptidao_divergence_text}
+                  </p>
+                  {canAct && (
+                    <Button size="sm" variant="outline" className="h-6 text-xs" loading={resolveDivergence.isPending} onClick={() => resolveDivergence.mutate(n)}>
+                      Marcar como corrigido
+                    </Button>
+                  )}
                 </div>
-              </div>
-            ) : null}
-          </div>
-        ))}
+              ) : !n.rh_validated && canAct ? (
+                <div className="mt-1.5 space-y-1.5">
+                  <Button size="sm" className="h-6 text-xs" loading={validate.isPending} onClick={() => validate.mutate(n)}>
+                    Validar RH
+                  </Button>
+                  <div className="flex gap-1.5">
+                    <Input
+                      className="h-6 text-xs" placeholder="Descrever divergência..."
+                      value={divergenceDraft[n.id] ?? ""}
+                      onChange={(e) => setDivergenceDraft((p) => ({ ...p, [n.id]: e.target.value }))}
+                    />
+                    <Button size="sm" variant="destructive" className="h-6 shrink-0 text-xs" loading={flagDivergence.isPending} onClick={() => flagDivergence.mutate(n)}>
+                      Sinalizar
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
       </div>
+
       {canAct && (
         <Button size="sm" disabled={!podeAvancar} onClick={() => advance.mutate({ nomination, target: "briefing_sms" })} loading={advance.isPending}>
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Briefing
@@ -1043,7 +1075,7 @@ function ManageDialog({
             {nomination.current_status === "aprovacao_tecnica" && <AprovacaoTecnicaSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "nomeados" && <NomeadosSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "aprovacao_pm" && <AprovacaoPmSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "aptidao" && <AptidaoSection nomination={nomination} nominees={nominees} />}
+            {nomination.current_status === "validacao_sms_aso" && <ValidacaoSmsAsoSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "validacao_rh" && <ValidacaoRhSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "briefing_sms" && <BriefingSection nomination={nomination} />}
             {nomination.current_status === "equipe_formada" && <NomeadosSection nomination={nomination} nominees={nominees} />}
@@ -1236,17 +1268,14 @@ function NominationCard({
   nomination,
   highlighted,
   onOpen,
-  onJumpToAptidao,
 }: {
   nomination: Nomination;
   highlighted: boolean;
   onOpen: () => void;
-  onJumpToAptidao?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: nomination.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   const isTerminal = nomination.current_status === "equipe_formada";
-  const isAptidao = nomination.current_status === "aptidao";
 
   return (
     <div
@@ -1255,8 +1284,7 @@ function NominationCard({
       style={style}
       {...listeners}
       {...attributes}
-      onClick={isAptidao && onJumpToAptidao ? onJumpToAptidao : onOpen}
-      title={isAptidao ? "Ir para a aba Aptidão" : undefined}
+      onClick={onOpen}
       className={`cursor-grab animate-in fade-in zoom-in-95 rounded-lg border bg-background p-3.5 shadow-sm duration-300 transition-shadow active:cursor-grabbing hover:shadow-md ${
         isDragging ? "opacity-40" : ""
       } ${highlighted ? "ring-2 ring-primary" : ""}`}
@@ -1267,7 +1295,6 @@ function NominationCard({
           {nomination.quantidade > 1 && <span className="ml-1.5 font-normal text-muted-foreground">×{nomination.quantidade}</span>}
         </p>
         <div className="flex shrink-0 items-center gap-1">
-          {isAptidao && <Stethoscope className="h-4 w-4 shrink-0 text-red-700" />}
           {isTerminal && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
         </div>
       </div>
@@ -1349,7 +1376,6 @@ function KanbanColumn({
   nominations,
   highlightedId,
   onOpen,
-  onJumpToAptidao,
   index = 0,
 }: {
   columnId: NominationStatus;
@@ -1359,7 +1385,6 @@ function KanbanColumn({
   nominations: Nomination[];
   highlightedId: string | null;
   onOpen: (n: Nomination) => void;
-  onJumpToAptidao: (id: string) => void;
   index?: number;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId });
@@ -1384,7 +1409,6 @@ function KanbanColumn({
             nomination={n}
             highlighted={highlightedId === n.id}
             onOpen={() => onOpen(n)}
-            onJumpToAptidao={() => onJumpToAptidao(n.id)}
           />
         ))}
         {nominations.length === 0 && (
@@ -1400,13 +1424,11 @@ function KanbanBoard({
   nomineesByNomination,
   highlightedId,
   onOpen,
-  onJumpToAptidao,
 }: {
   nominations: Nomination[];
   nomineesByNomination: Map<string, NominationNominee[]>;
   highlightedId: string | null;
   onOpen: (n: Nomination) => void;
-  onJumpToAptidao: (id: string) => void;
 }) {
   const { role } = useAuth();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -1461,7 +1483,6 @@ function KanbanBoard({
               nominations={byColumn.get(c.id) ?? []}
               highlightedId={highlightedId}
               onOpen={onOpen}
-              onJumpToAptidao={onJumpToAptidao}
               index={i}
             />
           ),
@@ -1877,17 +1898,11 @@ function SimulacaoTab({
   );
 }
 
-// ── Aptidão ─────────────────────────────────────────────────────────────────────
-// Lista SEMPRE todas as solicitações na etapa "aptidao" (nunca filtra, senão a aba fica
-// "presa" mostrando só a última acessada pelo atalho, mesmo depois de navegar por ela
-// normalmente) — o botão de atalho no card do kanban só rola até e destaca a solicitação
-// específica por alguns segundos, mesmo padrão já usado pro scroll+highlight do kanban.
-
-// Mesma chave/queryFn reaproveitada em vários componentes (AptidaoTab, NominationsPage,
-// ManageDialog) — React Query dedup por chave, então isso não gera requisição extra; o ponto
-// principal é o ManageDialog conseguir ler a versão SEMPRE atualizada da nomeação aberta (ao
-// contrário de receber só um retrato estático via prop, que ficava desatualizado assim que
-// qualquer mutação dentro do próprio dialog avançava a etapa).
+// Mesma chave/queryFn reaproveitada em vários componentes (NominationsPage, ManageDialog) —
+// React Query dedup por chave, então isso não gera requisição extra; o ponto principal é o
+// ManageDialog conseguir ler a versão SEMPRE atualizada da nomeação aberta (ao contrário de
+// receber só um retrato estático via prop, que ficava desatualizado assim que qualquer
+// mutação dentro do próprio dialog avançava a etapa).
 function useAllNominations() {
   return useQuery<Nomination[]>({
     queryKey: ["nominations"],
@@ -1897,46 +1912,6 @@ function useAllNominations() {
       return (data ?? []) as Nomination[];
     },
   });
-}
-
-function AptidaoTab({ focusId }: { focusId: string | null }) {
-  const { data: nominations = [] } = useAllNominations();
-
-  const pendentes = useMemo(() => nominations.filter((n) => n.current_status === "aptidao"), [nominations]);
-
-  const [highlighted, setHighlighted] = useState<string | null>(null);
-  const lastFocusId = useRef<string | null>(null);
-  useEffect(() => {
-    if (!focusId || focusId === lastFocusId.current) return;
-    lastFocusId.current = focusId;
-    setHighlighted(focusId);
-    document.getElementById(`aptidao-card-${focusId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    const t = window.setTimeout(() => setHighlighted((cur) => (cur === focusId ? null : cur)), 2500);
-    return () => window.clearTimeout(t);
-  }, [focusId]);
-
-  return (
-    <div className="space-y-4">
-      {pendentes.length === 0 ? (
-        <EmptyState icon={Stethoscope} title="Nenhuma solicitação aguardando aptidão" />
-      ) : (
-        pendentes.map((n) => <AptidaoCard key={n.id} nomination={n} highlighted={highlighted === n.id} />)
-      )}
-    </div>
-  );
-}
-
-function AptidaoCard({ nomination, highlighted }: { nomination: Nomination; highlighted: boolean }) {
-  const { data: nominees = [] } = useNominees(nomination.id);
-  return (
-    <Card id={`aptidao-card-${nomination.id}`} className={`p-4 transition-shadow ${highlighted ? "ring-2 ring-primary" : ""}`}>
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-sm font-semibold">{nomination.funcao} — {nomination.unidade} {nomination.bsp}</p>
-        <StatusBadge status={nomination.current_status} />
-      </div>
-      <AptidaoSection nomination={nomination} nominees={nominees} />
-    </Card>
-  );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -2358,7 +2333,6 @@ function NominationsPage() {
   const [filterStatus, setFilterStatus] = useState<string>("todos");
   const [search, setSearch]           = useState("");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [aptidaoFocusId, setAptidaoFocusId] = useState<string | null>(null);
   const [simulacaoFocus, setSimulacaoFocus] = useState<Nomination | null>(null);
   const [tab, setTab] = useState("simulacao");
   const { canViewAs, viewAsRole, setViewAsRole } = useViewAs();
@@ -2523,7 +2497,6 @@ function NominationsPage() {
                 nomineesByNomination={nomineesByNomination}
                 highlightedId={highlightedId}
                 onOpen={setSelected}
-                onJumpToAptidao={(id) => { setAptidaoFocusId(id); setTab("aptidao"); }}
               />
             </div>
           )}
@@ -2537,20 +2510,9 @@ function NominationsPage() {
           />
         </TabsContent>
 
-        {/* ── Aptidão ── */}
+        {/* ── Aptidão (Matriz de Qualificação) ── */}
         <TabsContent value="aptidao" className="pt-4">
-          <Tabs defaultValue="pendentes">
-            <TabsList>
-              <TabsTrigger value="pendentes">Pendentes de Nomeação</TabsTrigger>
-              <TabsTrigger value="matriz">Matriz de Qualificação</TabsTrigger>
-            </TabsList>
-            <TabsContent value="pendentes" className="pt-4">
-              <AptidaoTab focusId={aptidaoFocusId} />
-            </TabsContent>
-            <TabsContent value="matriz" className="pt-4">
-              <QualificationEligibilityTab />
-            </TabsContent>
-          </Tabs>
+          <QualificationEligibilityTab />
         </TabsContent>
 
         {/* ── Configurações ── */}

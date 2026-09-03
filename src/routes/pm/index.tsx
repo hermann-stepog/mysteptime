@@ -55,7 +55,8 @@ function StatusBadge({ status }: { status: Nomination["current_status"] }) {
 // ── Checklist de Aprovação PM — único lugar onde o PM pode editar fora da criação ──────
 // Precisa decidir (aprovado/reprovado) TODOS os nomeados ativos antes de conseguir avançar
 // (regra confirmada com a usuária: sem avanço parcial). Ao confirmar, o próprio PM avança o
-// card pra Aptidão (RLS: pm_nominations_advance_from_approval, restrito a essa transição).
+// card pra Validação SMS (ASO) (RLS: pm_nominations_advance_from_approval, restrito a essa
+// transição).
 
 function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; onDone: () => void }) {
   const qc = useQueryClient();
@@ -90,16 +91,16 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
         }),
       );
       const merged = ativos.map((n) => ({ ...n, pm_decision: decisionFor(n) }));
-      const gate = canMoveToColumn(nomination, "aptidao", merged);
+      const gate = canMoveToColumn(nomination, "validacao_sms_aso", merged);
       if (!gate.ok) throw new Error(gate.reason ?? "Não é possível avançar ainda.");
 
-      const { error } = await supabase.from("nominations").update({ current_status: "aptidao" }).eq("id", nomination.id);
+      const { error } = await supabase.from("nominations").update({ current_status: "validacao_sms_aso" }).eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id, status: "aptidao",
+        nomination_id: nomination.id, status: "validacao_sms_aso",
         changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante", notes: "Decisões de Aprovação PM confirmadas",
       });
-      await notifyStageAdvance({ ...nomination, current_status: "aptidao" }, "aptidao");
+      await notifyStageAdvance({ ...nomination, current_status: "validacao_sms_aso" }, "validacao_sms_aso");
     },
     onSuccess: () => {
       notify.success("Decisões enviadas.");
