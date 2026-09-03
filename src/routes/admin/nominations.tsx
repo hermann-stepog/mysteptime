@@ -39,7 +39,10 @@ import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye,
+  Flame, HardHat, Anchor, Cog, Zap, PaintBucket, Search, Gauge,
 } from "lucide-react";
+import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent,
@@ -1504,6 +1507,54 @@ function defaultSimEnd(start: string): string {
   return addDays(start, 6);
 }
 
+// Ícone por função — heurística por palavra-chave (função vem de texto livre do Drake/
+// cadastro, não é um enum fechado), com um ícone genérico de fallback pra quem não bate com
+// nenhuma palavra-chave conhecida.
+function funcaoIcon(funcao: string) {
+  const f = funcao.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase();
+  if (f.includes("SOLDA")) return Flame;
+  if (f.includes("CALDEIREIR")) return HardHat;
+  if (f.includes("IRATA") || f.includes("CORDA")) return Anchor;
+  if (f.includes("MECANIC")) return Cog;
+  if (f.includes("ELETRIC")) return Zap;
+  if (f.includes("PINTOR") || f.includes("PINTURA")) return PaintBucket;
+  if (f.includes("INSPETOR") || f.includes("INSPECAO")) return Search;
+  return User;
+}
+
+// Faixa de cobertura (disponível/total) — mesmo critério pro indicador visual, pro banner de
+// risco e pro gráfico geral: ≥90% verde, 60–89% amarelo, <60% vermelho.
+type CoberturaBand = "alta" | "media" | "baixa";
+function coberturaBand(pct: number): CoberturaBand {
+  if (pct >= 90) return "alta";
+  if (pct >= 60) return "media";
+  return "baixa";
+}
+const COBERTURA_COLOR: Record<CoberturaBand, string> = { alta: "#16a34a", media: "#d97706", baixa: "#dc2626" };
+
+// Cor determinística por texto (mesmo nome/função sempre cai na mesma cor) — só pra dar
+// variedade visual aos avatares e chips, sem nenhum significado por trás da cor em si.
+const CHIP_PALETTE = ["#0f2744", "#1d4ed8", "#0369a1", "#0e7490", "#4d7c0f", "#a16207", "#b45309", "#7c3aed", "#be185d"];
+function corPorTexto(texto: string): string {
+  let hash = 0;
+  for (let i = 0; i < texto.length; i++) hash = (hash * 31 + texto.charCodeAt(i)) >>> 0;
+  return CHIP_PALETTE[hash % CHIP_PALETTE.length];
+}
+function iniciais(nome: string): string {
+  const partes = nome.trim().split(/\s+/);
+  return ((partes[0]?.[0] ?? "") + (partes[partes.length - 1]?.[0] ?? "")).toUpperCase();
+}
+
+// Sanitiza a função pra virar um id de elemento válido (âncora do banner de risco pro scroll).
+function funcaoAnchorId(funcao: string): string {
+  return `sim-funcao-${funcao.replace(/[^a-zA-Z0-9]/g, "-")}`;
+}
+
+const necessarioDisponivelChartConfig = {
+  necessario: { label: "Necessário", color: "#0f2744" },
+  disponivel: { label: "Disponível", color: "#16a34a" },
+} satisfies ChartConfig;
+
 function SimulacaoTab({
   focusNomination, onExitFocus,
 }: {
@@ -1717,8 +1768,137 @@ function SimulacaoTab({
     });
   };
 
+  // ── KPIs do cabeçalho-resumo + gráfico geral ──────────────────────────────────────────
+  // "Necessário" vem das solicitações de Nomeações ainda em aberto (current_status !=
+  // equipe_formada — mesmo critério do "pendingCount" da página), somando a quantidade
+  // pedida por função. Mesma consulta (useAllNominations) já usada no resto da página —
+  // React Query dedup por chave, não gera requisição extra.
+  const { data: nominationsAbertas = [] } = useAllNominations();
+  const necessarioPorFuncao = useMemo(() => {
+    const m = new Map<string, number>();
+    nominationsAbertas
+      .filter((n) => n.current_status !== "equipe_formada")
+      .forEach((n) => m.set(n.funcao, (m.get(n.funcao) ?? 0) + n.quantidade));
+    return m;
+  }, [nominationsAbertas]);
+
+  const standbyCount = statusGroups.find((g) => g.status === "STB")?.pessoas.length ?? 0;
+  const embarcadoCount = (statusGroups.find((g) => g.status === "E")?.pessoas.length ?? 0)
+    + (statusGroups.find((g) => g.status === "DB")?.pessoas.length ?? 0);
+
+  // Cobertura geral = preenchido/necessário só entre as funções com vaga em aberto de
+  // verdade — sem vaga em aberto nenhuma, não tem "taxa" pra mostrar (fica "—").
+  const coberturaGeral = useMemo(() => {
+    let necessarioTotal = 0;
+    let preenchidoTotal = 0;
+    necessarioPorFuncao.forEach((necessario, funcao) => {
+      if (necessario <= 0) return;
+      const disponivel = funcaoCards.find((f) => f.funcao === funcao)?.disponiveis.length ?? 0;
+      necessarioTotal += necessario;
+      preenchidoTotal += Math.min(disponivel, necessario);
+    });
+    return necessarioTotal > 0 ? Math.round((preenchidoTotal / necessarioTotal) * 100) : null;
+  }, [necessarioPorFuncao, funcaoCards]);
+
+  // Risco = mesma métrica do indicador visual por função (disponível/total do quadro),
+  // abaixo de 60% — exemplo dela mesma ("0/3") é essa conta, não a de necessário x disponível.
+  const funcoesCriticas = useMemo(
+    () => funcaoCards.filter((f) => f.total > 0 && (f.disponiveis.length / f.total) * 100 < 60),
+    [funcaoCards],
+  );
+
+  const necessarioDisponivelChartData = useMemo(
+    () => Array.from(necessarioPorFuncao.entries())
+      .map(([funcao, necessario]) => ({
+        funcao,
+        necessario,
+        disponivel: funcaoCards.find((f) => f.funcao === funcao)?.disponiveis.length ?? 0,
+      }))
+      .sort((a, b) => b.necessario - a.necessario),
+    [necessarioPorFuncao, funcaoCards],
+  );
+
   return (
     <div className="space-y-4">
+      {/* ── Cabeçalho-resumo (KPIs) ── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Card className="flex items-center gap-3 p-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-sky-100 text-sky-700">
+            <Clock className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-2xl font-bold leading-none">{standbyCount}</p>
+            <p className="text-xs text-muted-foreground">Standby {statusReferenceDate === hoje ? "(hoje)" : `(${fmtDate(statusReferenceDate)})`}</p>
+          </div>
+        </Card>
+        <Card className="flex items-center gap-3 p-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <Ship className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-2xl font-bold leading-none">{embarcadoCount}</p>
+            <p className="text-xs text-muted-foreground">Embarcado {statusReferenceDate === hoje ? "(hoje)" : `(${fmtDate(statusReferenceDate)})`}</p>
+          </div>
+        </Card>
+        <Card className="flex items-center gap-3 p-4">
+          <div
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: coberturaGeral === null ? "#f1f5f9" : `${COBERTURA_COLOR[coberturaBand(coberturaGeral)]}1a`,
+              color: coberturaGeral === null ? "#64748b" : COBERTURA_COLOR[coberturaBand(coberturaGeral)],
+            }}
+          >
+            <Gauge className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-2xl font-bold leading-none">{coberturaGeral === null ? "—" : `${coberturaGeral}%`}</p>
+            <p className="text-xs text-muted-foreground">Taxa de cobertura geral{coberturaGeral === null ? " (sem vaga em aberto)" : ""}</p>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Alerta de risco: funções com cobertura crítica (<60% disponível/total) ── */}
+      {funcoesCriticas.length > 0 && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-red-800">
+            <AlertTriangle className="h-4 w-4" /> Cobertura crítica ({funcoesCriticas.length})
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {funcoesCriticas.map((f) => (
+              <button
+                key={f.funcao} type="button"
+                className="flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
+                onClick={() => {
+                  setCollapsedFuncoes((current) => { const next = new Set(current); next.delete(f.funcao); return next; });
+                  document.getElementById(funcaoAnchorId(f.funcao))?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+              >
+                {f.funcao} — {f.disponiveis.length}/{f.total}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Gráfico geral: necessário (solicitações em aberto) × disponível, por função ── */}
+      {necessarioDisponivelChartData.length > 0 && (
+        <Card className="p-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Necessário × Disponível por função</p>
+          <div style={{ height: Math.max(160, necessarioDisponivelChartData.length * 44) }}>
+            <ChartContainer config={necessarioDisponivelChartConfig} className="aspect-auto h-full w-full">
+              <RechartsBarChart data={necessarioDisponivelChartData} layout="vertical" margin={{ left: 8 }}>
+                <CartesianGrid horizontal={false} />
+                <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
+                <YAxis type="category" dataKey="funcao" tickLine={false} axisLine={false} fontSize={11} width={140} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="necessario" fill="var(--color-necessario)" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="disponivel" fill="var(--color-disponivel)" radius={[0, 4, 4, 0]} />
+              </RechartsBarChart>
+            </ChartContainer>
+          </div>
+        </Card>
+      )}
+
       {focusNomination && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
           <span>
@@ -1821,29 +2001,54 @@ function SimulacaoTab({
         <Card className="overflow-hidden">
           {funcaoCards.map((f) => {
             const aberto = !collapsedFuncoes.has(f.funcao);
+            const pct = f.total > 0 ? Math.round((f.disponiveis.length / f.total) * 100) : 0;
+            const band = coberturaBand(pct);
+            const Icon = funcaoIcon(f.funcao);
             return (
-              <div key={f.funcao} className="border-b last:border-b-0">
+              <div key={f.funcao} id={funcaoAnchorId(f.funcao)} className="border-b last:border-b-0">
                 <button
-                  type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                  type="button" className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left"
                   aria-expanded={aberto} onClick={() => toggleFuncaoCollapsed(f.funcao)}
                 >
-                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                  <span className="flex min-w-0 flex-1 items-center gap-2 font-semibold">
                     {aberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                    <Layers3 className="h-4 w-4 shrink-0 text-primary" />
+                    <Icon className="h-4 w-4 shrink-0 text-primary" />
                     <span className="truncate">{f.funcao}</span>
                   </span>
-                  <Badge variant="secondary" className="shrink-0 text-xs">{f.disponiveis.length} / {f.total}</Badge>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="h-2 w-20 overflow-hidden rounded-full bg-slate-200 sm:w-28">
+                      <span className="block h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: COBERTURA_COLOR[band] }} />
+                    </span>
+                    <span className="w-14 shrink-0 text-right text-xs font-medium text-muted-foreground">{f.disponiveis.length} / {f.total}</span>
+                  </span>
                 </button>
                 {aberto && (
                   f.disponiveis.length > 0 ? (
                     <div className="divide-y">
                       {f.disponiveis.map((l) => (
                         <div key={l.colaborador.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{l.colaborador.nome}</p>
-                            {l.funcoesAno.length > 0 && (
-                              <p className="text-xs text-muted-foreground">Já embarcou como: {l.funcoesAno.join(", ")}</p>
-                            )}
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <span
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                              style={{ backgroundColor: corPorTexto(l.colaborador.nome) }}
+                            >
+                              {iniciais(l.colaborador.nome)}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">{l.colaborador.nome}</p>
+                              {l.funcoesAno.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {l.funcoesAno.map((fn) => (
+                                    <span
+                                      key={fn} className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                                      style={{ backgroundColor: corPorTexto(fn) }}
+                                    >
+                                      {fn}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                           {focusNomination && (
                             focusNomineeIds.has(l.colaborador.id) ? (
