@@ -72,10 +72,12 @@ function AdminLayout() {
   }
 
   const navRole = viewAsRole ?? role;
+  // "/pm" é outra árvore de rotas (layout próprio, fora de /admin/*) — só entra no menu daqui
+  // quando o papel (real ou simulado) é Solicitante, pra dar um jeito de chegar lá.
   const visibleNav = navRole === "visitante"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
     : navRole === "pm"
-      ? nav.filter((n) => PM_PATHS.includes(n.to))
+      ? [{ to: "/pm", label: "Minhas Solicitações" }, ...nav.filter((n) => PM_PATHS.includes(n.to))]
       : STAGE_ROLES.includes(navRole ?? "")
         ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((navRole === "rh" || navRole === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
         : nav;
