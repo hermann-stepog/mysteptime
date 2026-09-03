@@ -34,6 +34,9 @@ import { notify } from "@/lib/notify";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HistogramaOffshoreNovo } from "@/routes/admin/histograma-novo";
+import { NominationsPage } from "@/routes/admin/nominations";
 
 export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Solicitações"), component: PmHome });
 
@@ -238,21 +241,32 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
 
 // ── Create dialog ─────────────────────────────────────────────────────────────
 
+// Uma solicitação pode pedir várias funções de uma vez (ex.: 2 Soldadores + 1 Caldeireiro) —
+// cada função vira uma nomeação própria no banco/kanban (cada uma segue seu próprio fluxo de
+// aprovação técnica/nomeação), todas compartilhando unidade/BSP/período/projeto/cliente.
+interface FuncaoLinha { funcao: string; quantidade: string; weldType: string; weldMaterial: string }
+function novaLinhaFuncao(): FuncaoLinha {
+  return { funcao: "", quantidade: "1", weldType: "", weldMaterial: "" };
+}
+
 function CreateDialog({ onClose }: { onClose: () => void }) {
   const { user, profile } = useAuth();
   const qc = useQueryClient();
 
-  const [funcao, setFuncao]         = useState("");
-  const [quantidade, setQuantidade] = useState("1");
+  const [linhas, setLinhas]         = useState<FuncaoLinha[]>([novaLinhaFuncao()]);
   const [unidade, setUnidade]       = useState("");
   const [bsp, setBsp]               = useState("");
-  const [weldType, setWeldType]     = useState("");
-  const [weldMaterial, setWeldMaterial] = useState("");
   const [start, setStart]           = useState("");
   const [end, setEnd]               = useState("");
   const [project, setProject]       = useState("");
   const [client, setClient]         = useState("");
   const [notes, setNotes]           = useState("");
+
+  const updateLinha = (i: number, patch: Partial<FuncaoLinha>) => {
+    setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  };
+  const addLinha = () => setLinhas((atual) => [...atual, novaLinhaFuncao()]);
+  const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
 
   const { data: weldConfig = [] } = useQuery<WeldTypeConfig[]>({
     queryKey: ["weld-type-config"],
@@ -289,62 +303,93 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
       ),
   });
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
-  const unidadeOptions = useMemo(
-    () => Array.from(new Set([
-      ...UNIDADES_OPERACIONAIS_FIXAS,
-      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
-    ])).sort(),
-    [periodos],
-  );
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, unidade || "all"), [periodosE, unidade]);
 
-  const showWeld = isSoldador(funcao);
-  const requiresQuality = showWeld
-    ? weldConfig.find((w) => w.weld_type_name === weldType)?.requires_quality_validation ?? false
-    : false;
+  // O Drake grava a mesma unidade com grafias diferentes ao longo do tempo (ex.: "BRAVO" num
+  // período, "Bravo" ou "bravo" noutro) — agrupa por chave maiúscula pra não duplicar a mesma
+  // unidade na lista, e guarda as grafias reais de cada grupo pra filtrar o BSP corretamente
+  // (bspOptionsForUnidade precisa das grafias como estão gravadas, não da versão exibida).
+  const unidadeGroups = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const add = (raw: string) => {
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+      const key = trimmed.toUpperCase();
+      if (!m.has(key)) m.set(key, new Set());
+      m.get(key)!.add(trimmed);
+    };
+    UNIDADES_OPERACIONAIS_FIXAS.forEach(add);
+    periodos.forEach((p) => { if (p.unidade_operacional) add(p.unidade_operacional); });
+    return m;
+  }, [periodos]);
+
+  // Exibição normalizada: só a primeira letra maiúscula (pedido dela) — nunca altera o que
+  // está gravado no banco, só como aparece na lista/valor selecionado.
+  const unidadeOptions = useMemo(
+    () => Array.from(unidadeGroups.keys()).map((k) => k.charAt(0) + k.slice(1).toLowerCase()).sort(),
+    [unidadeGroups],
+  );
+  const bspOptions = useMemo(() => {
+    if (!unidade) return bspOptionsForUnidade(periodosE, "all");
+    const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
+    return bspOptionsForUnidade(periodosE, variantes);
+  }, [periodosE, unidade, unidadeGroups]);
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!funcao.trim()) throw new Error("Selecione a função.");
+      const validas = linhas.filter((l) => l.funcao.trim());
+      if (validas.length === 0) throw new Error("Adicione ao menos uma função.");
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
-      if (showWeld && !weldType) throw new Error("Selecione o tipo de solda.");
-      if (showWeld && !weldMaterial) throw new Error("Selecione o material.");
+      for (const l of validas) {
+        if (isSoldador(l.funcao) && !l.weldType) throw new Error(`Selecione o tipo de solda para ${l.funcao}.`);
+        if (isSoldador(l.funcao) && !l.weldMaterial) throw new Error(`Selecione o material para ${l.funcao}.`);
+      }
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
 
-      const { data, error } = await supabase
-        .from("nominations")
-        .insert({
-          pm_user_id:                 user!.id,
-          pm_name:                    pmName,
-          funcao:                     funcao.trim(),
-          quantidade:                 Math.max(1, Number(quantidade) || 1),
-          unidade,
-          bsp,
-          weld_type:                  showWeld ? weldType || null : null,
-          weld_material:               showWeld ? weldMaterial || null : null,
-          period_start:               start || null,
-          period_end:                 end || null,
-          project:                    project.trim() || null,
-          client:                     client.trim() || null,
-          notes:                      notes.trim() || null,
-          requires_quality_validation: requiresQuality,
-          current_status:              "solicitacao",
-        })
-        .select()
-        .single();
-      if (error) throw error;
+      // Uma nomeação por função — cada uma segue seu próprio fluxo de aprovação/nomeação,
+      // por isso não dá pra combinar num só registro (diferente de um lançamento de viagem
+      // em grupo, onde todos compartilham exatamente o mesmo evento).
+      for (const l of validas) {
+        const showWeldL = isSoldador(l.funcao);
+        const requiresQualityL = showWeldL
+          ? weldConfig.find((w) => w.weld_type_name === l.weldType)?.requires_quality_validation ?? false
+          : false;
 
-      await supabase.from("nomination_status_history").insert({
-        nomination_id:   data.id,
-        status:          "solicitacao",
-        changed_by_name: pmName,
-        notes:           "Solicitação criada pelo solicitante",
-      });
-      await notifyStageAdvance(data as Nomination, "solicitacao");
+        const { data, error } = await supabase
+          .from("nominations")
+          .insert({
+            pm_user_id:                 user!.id,
+            pm_name:                    pmName,
+            funcao:                     l.funcao.trim(),
+            quantidade:                 Math.max(1, Number(l.quantidade) || 1),
+            unidade,
+            bsp,
+            weld_type:                  showWeldL ? l.weldType || null : null,
+            weld_material:               showWeldL ? l.weldMaterial || null : null,
+            period_start:               start || null,
+            period_end:                 end || null,
+            project:                    project.trim() || null,
+            client:                     client.trim() || null,
+            notes:                      notes.trim() || null,
+            requires_quality_validation: requiresQualityL,
+            current_status:              "solicitacao",
+          })
+          .select()
+          .single();
+        if (error) throw error;
+
+        await supabase.from("nomination_status_history").insert({
+          nomination_id:   data.id,
+          status:          "solicitacao",
+          changed_by_name: pmName,
+          notes:           "Solicitação criada pelo solicitante",
+        });
+        await notifyStageAdvance(data as Nomination, "solicitacao");
+      }
     },
     onSuccess: () => {
-      notify.success("Solicitação enviada.");
+      const n = linhas.filter((l) => l.funcao.trim()).length;
+      notify.success(n > 1 ? `${n} solicitações enviadas.` : "Solicitação enviada.");
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });
       onClose();
     },
@@ -359,44 +404,61 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
 
         <div className="space-y-3 py-2">
-          <div className="grid grid-cols-[1fr_90px] gap-3">
-            <div className="space-y-1">
-              <Label>Função *</Label>
-              <SearchableSelect
-                value={funcao}
-                onValueChange={(v) => { setFuncao(v); setWeldType(""); setWeldMaterial(""); }}
-                options={funcaoOptions}
-                placeholder="Buscar função..."
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Qtd. *</Label>
-              <Input type="number" min={1} value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
-            </div>
-          </div>
+          <div className="space-y-3">
+            {linhas.map((l, i) => {
+              const showWeldL = isSoldador(l.funcao);
+              return (
+                <div key={i} className="space-y-2 rounded-md border p-3">
+                  <div className="grid grid-cols-[1fr_90px_auto] items-end gap-3">
+                    <div className="space-y-1">
+                      <Label>Função *</Label>
+                      <SearchableSelect
+                        value={l.funcao}
+                        onValueChange={(v) => updateLinha(i, { funcao: v, weldType: "", weldMaterial: "" })}
+                        options={funcaoOptions}
+                        placeholder="Buscar função..."
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Qtd. *</Label>
+                      <Input type="number" min={1} value={l.quantidade} onChange={(e) => updateLinha(i, { quantidade: e.target.value })} />
+                    </div>
+                    {linhas.length > 1 && (
+                      <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => removeLinha(i)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
 
-          {showWeld && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Tipo de solda *</Label>
-                <Select value={weldType} onValueChange={(v) => { setWeldType(v); setWeldMaterial(""); }}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    {weldConfig.map((w) => <SelectItem key={w.id} value={w.weld_type_name}>{w.weld_type_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Material *</Label>
-                <Select value={weldMaterial} onValueChange={setWeldMaterial} disabled={!weldType}>
-                  <SelectTrigger><SelectValue placeholder={weldType ? "Selecione" : "Escolha o tipo de solda"} /></SelectTrigger>
-                  <SelectContent>
-                    {weldMaterialConfig.map((m) => <SelectItem key={m.id} value={m.material_name}>{m.material_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
+                  {showWeldL && (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Tipo de solda *</Label>
+                        <Select value={l.weldType} onValueChange={(v) => updateLinha(i, { weldType: v, weldMaterial: "" })}>
+                          <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                          <SelectContent>
+                            {weldConfig.map((w) => <SelectItem key={w.id} value={w.weld_type_name}>{w.weld_type_name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Material *</Label>
+                        <Select value={l.weldMaterial} onValueChange={(v) => updateLinha(i, { weldMaterial: v })} disabled={!l.weldType}>
+                          <SelectTrigger><SelectValue placeholder={l.weldType ? "Selecione" : "Escolha o tipo de solda"} /></SelectTrigger>
+                          <SelectContent>
+                            {weldMaterialConfig.map((m) => <SelectItem key={m.id} value={m.material_name}>{m.material_name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <Button type="button" variant="outline" size="sm" onClick={addLinha}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> Adicionar função
+            </Button>
+          </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
@@ -456,9 +518,9 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── PM home ───────────────────────────────────────────────────────────────────
+// ── Minhas Solicitações (aba padrão do ambiente do Solicitante) ────────────────
 
-function PmHome() {
+function MinhasSolicitacoesTab() {
   const { user, profile } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected]     = useState<Nomination | null>(null);
@@ -579,5 +641,31 @@ function PmHome() {
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} />}
       {selected && <NominationDetail nom={selected} onClose={() => setSelected(null)} />}
     </div>
+  );
+}
+
+// ── Ambiente principal do Solicitante ───────────────────────────────────────────
+// Histograma Offshore e Nomeações entram como abas aqui dentro (mesmos componentes já usados
+// em /admin/*, só reaproveitados) em vez de links que levavam pra outro ambiente/header no
+// meio da navegação — pedido dela.
+function PmHome() {
+  const [tab, setTab] = useState("solicitacoes");
+  return (
+    <Tabs value={tab} onValueChange={setTab}>
+      <TabsList>
+        <TabsTrigger value="solicitacoes">Minhas Solicitações</TabsTrigger>
+        <TabsTrigger value="histograma">Histograma Offshore</TabsTrigger>
+        <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+      </TabsList>
+      <TabsContent value="solicitacoes" className="pt-4">
+        <MinhasSolicitacoesTab />
+      </TabsContent>
+      <TabsContent value="histograma" className="pt-4">
+        <HistogramaOffshoreNovo />
+      </TabsContent>
+      <TabsContent value="nomeacoes" className="pt-4">
+        <NominationsPage />
+      </TabsContent>
+    </Tabs>
   );
 }
