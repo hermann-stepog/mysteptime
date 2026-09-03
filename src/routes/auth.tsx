@@ -14,13 +14,16 @@ import { pageTitle } from "@/lib/pageTitle";
 export const Route = createFileRoute("/auth")({ head: () => pageTitle("Login"), component: AuthPage });
 
 function AuthPage() {
-  const { user, role, signIn, signUp, loading } = useAuth();
+  const { user, role, roleLoaded, signIn, signUp, loading } = useAuth();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (loading) return;
     if (user) {
+      // Só redireciona depois que o papel do usuário foi carregado, senão o PM
+      // cai na área do colaborador e fica preso no carregamento.
+      if (!roleLoaded) return;
       if (!role || role === "pending") navigate({ to: "/pending" });
       else if (role === "logistics_operator") navigate({ to: "/admin/histograma-novo" });
       else if (role === "pm") navigate({ to: "/pm" });
