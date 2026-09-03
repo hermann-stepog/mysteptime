@@ -34,6 +34,9 @@ import { notify } from "@/lib/notify";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HistogramaOffshoreNovo } from "@/routes/admin/histograma-novo";
+import { NominationsPage } from "@/routes/admin/nominations";
 
 export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Solicitações"), component: PmHome });
 
@@ -455,9 +458,9 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── PM home ───────────────────────────────────────────────────────────────────
+// ── Minhas Solicitações (aba padrão do ambiente do Solicitante) ────────────────
 
-function PmHome() {
+function MinhasSolicitacoesTab() {
   const { user, profile } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected]     = useState<Nomination | null>(null);
@@ -578,5 +581,31 @@ function PmHome() {
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} />}
       {selected && <NominationDetail nom={selected} onClose={() => setSelected(null)} />}
     </div>
+  );
+}
+
+// ── Ambiente principal do Solicitante ───────────────────────────────────────────
+// Histograma Offshore e Nomeações entram como abas aqui dentro (mesmos componentes já usados
+// em /admin/*, só reaproveitados) em vez de links que levavam pra outro ambiente/header no
+// meio da navegação — pedido dela.
+function PmHome() {
+  const [tab, setTab] = useState("solicitacoes");
+  return (
+    <Tabs value={tab} onValueChange={setTab}>
+      <TabsList>
+        <TabsTrigger value="solicitacoes">Minhas Solicitações</TabsTrigger>
+        <TabsTrigger value="histograma">Histograma Offshore</TabsTrigger>
+        <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+      </TabsList>
+      <TabsContent value="solicitacoes" className="pt-4">
+        <MinhasSolicitacoesTab />
+      </TabsContent>
+      <TabsContent value="histograma" className="pt-4">
+        <HistogramaOffshoreNovo />
+      </TabsContent>
+      <TabsContent value="nomeacoes" className="pt-4">
+        <NominationsPage />
+      </TabsContent>
+    </Tabs>
   );
 }

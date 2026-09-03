@@ -2353,7 +2353,9 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
   );
 }
 
-function NominationsPage() {
+// Exportado pra ser reaproveitado como aba dentro do ambiente do Solicitante (ver
+// src/routes/pm/index.tsx) — mesmo componente, mesmos dados, sem duplicar nada.
+export function NominationsPage() {
   const [selected, setSelected]       = useState<Nomination | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("todos");
   const [search, setSearch]           = useState("");

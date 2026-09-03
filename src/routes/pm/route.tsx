@@ -11,10 +11,11 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pm")({ component: PmLayout });
 
+// Histograma Offshore e Nomeações entraram como abas dentro de "/pm" (ver PmHome) em vez de
+// links pra fora, pra não trocar de ambiente/header no meio da navegação do Solicitante.
 const NAV = [
   { to: "/pm", label: "Minhas Solicitações" },
   { to: "/pm/bms", label: "BMs para Aprovar" },
-  { to: "/admin/histograma-novo", label: "Histograma Offshore" },
 ];
 
 function PmLayout() {
@@ -42,7 +43,7 @@ function PmLayout() {
       className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100/60"
     >
       <header className="sticky top-0 z-10 border-b bg-[#0f2744]/90 backdrop-blur-md border-white/10">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between px-3 py-3 sm:px-4 lg:px-6">
           <div className="flex items-center gap-3">
             <BrandLogo className="h-8 w-auto" />
             <div className="hidden sm:block">
@@ -67,7 +68,7 @@ function PmLayout() {
             </Button>
           </div>
         </div>
-        <div className="mx-auto flex max-w-4xl gap-1 px-4 pb-2">
+        <div className="flex flex-wrap gap-1 px-3 pb-2 sm:px-4 lg:px-6">
           {NAV.map((n) => {
             const active = pathname === n.to;
             return (
@@ -86,7 +87,7 @@ function PmLayout() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-8">
+      <main className="p-4 lg:p-8">
         <AnimatedOutlet />
       </main>
     </motion.div>

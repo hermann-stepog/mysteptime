@@ -132,7 +132,9 @@ function usePeriodosQuery() {
 
 // ─── Main page ─────────────────────────────────────────────────────────────
 
-function HistogramaOffshoreNovo() {
+// Exportado pra ser reaproveitado como aba dentro do ambiente do Solicitante (ver
+// src/routes/pm/index.tsx) — mesmo componente, mesmos dados, sem duplicar nada.
+export function HistogramaOffshoreNovo() {
   const { data: colaboradores = [], isLoading: loadingColabs, error: errorColabs } = useColaboradoresQuery();
   const { data: periodos = [], isLoading: loadingPeriodos, error: errorPeriodos } = usePeriodosQuery();
   const { data: offshoreNomes = new Set<string>() } = useOffshoreNomesQuery();
