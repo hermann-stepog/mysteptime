@@ -27,6 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AuthCtx["profile"]>(null);
   const [loading, setLoading] = useState(true);
 
+  const [roleLoaded, setRoleLoaded] = useState(false);
+
   const loadRole = async (uid: string) => {
     const [{ data: roleRow }, { data: profileRow }] = await Promise.all([
       supabase.from("user_roles").select("role").eq("user_id", uid).maybeSingle(),
