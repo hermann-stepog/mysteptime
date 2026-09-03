@@ -32,6 +32,12 @@ export interface Nomination {
   updated_at: string;
   pm_user_id: string | null;
   pm_name: string | null;
+  // Uma solicitação pode pedir várias funções de uma vez (ver CreateDialog em
+  // src/routes/pm/index.tsx) — cada função vira sua própria linha aqui (segue seu próprio
+  // fluxo de aprovação), mas todas ganham o mesmo request_group_id na hora da criação, pra
+  // "Minhas Solicitações" conseguir agrupar de volta como um único ato de solicitar. Nulo em
+  // solicitações antigas (uma função só, antes desse campo existir).
+  request_group_id: string | null;
   // Legado (pré-reformulação) — não usados mais na criação, mantidos só pro registro antigo.
   colaborador_id: string | null;
   colaborador_nome: string | null;
