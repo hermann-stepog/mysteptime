@@ -5,7 +5,7 @@
 // "BASE" é lançado só pela importação do relatório da base (ver DrakeUpdateCard) — nunca
 // vem do Drake nem é escolhido no formulário manual de período, é sempre derivado do
 // cruzamento desse relatório com quem está de Folga/Standby no momento.
-export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC" | "BASE" | "DB" | "DES" | "LM" | "LMV" | "TR" | "AD" | "FIH" | "AFA" | "FIF" | "FIC" | "FIT" | "FIE" | "FIE" | "FT" | "NS";
+export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC" | "BASE" | "DB" | "DES" | "LM" | "LMV" | "TR" | "AD" | "FIH" | "AFA" | "FIF" | "FIC" | "FIT" | "FIE" | "FT" | "NS";
 
 export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "BASE", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL", "CANC"];
 
@@ -117,7 +117,7 @@ export const TIPO_LABEL: Record<TipoPeriodo, string> = {
 // (Dobra), que nunca são lançados diretamente, só calculados. "DI" (Disponível) foi retirado
 // como status computado — quem não tem período cobrindo o dia (ou tem EC/DI cru) agora
 // aparece como "STB" (Standby), que passou a representar quem está realmente disponível.
-export type ComputedStatus = "P" | "E" | "BASE" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC" | "EC" | "DI" | "LM" | "LMV" | "TR" | "AD" | "AFA" | "FIF" | "FIC" | "FIT" | "FIE" | "FIE" | "FT" | "NS";
+export type ComputedStatus = "P" | "E" | "BASE" | "AT" | "FE" | "STB" | "F" | "TE" | "HTL" | "FIH" | "DDN" | "DES" | "FI" | "DB" | "CANC" | "EC" | "DI" | "LM" | "LMV" | "TR" | "AD" | "AFA" | "FIF" | "FIC" | "FIT" | "FIE" | "FT" | "NS";
 
 export const STATUS_ORDER: ComputedStatus[] = ["P", "E", "BASE", "AT", "FE", "STB", "F", "TE", "HTL", "FIH", "DDN", "DES", "FI", "DB", "CANC", "EC", "DI", "LM", "LMV", "TR", "AD",
   "AFA",
