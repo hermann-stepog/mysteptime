@@ -36,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
     setRole((roleRow?.role as AppRole) ?? "pending");
     setProfile(profileRow ?? null);
+    setRoleLoaded(true);
   };
 
   useEffect(() => {
@@ -43,10 +44,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(sess);
       setUser(sess?.user ?? null);
       if (sess?.user) {
+        setRoleLoaded(false);
         setTimeout(() => loadRole(sess.user.id), 0);
       } else {
         setRole(null);
         setProfile(null);
+        setRoleLoaded(true);
       }
     });
 
