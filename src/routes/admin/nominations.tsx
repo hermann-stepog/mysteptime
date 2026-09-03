@@ -1548,6 +1548,26 @@ function defaultSimEnd(start: string): string {
   return addDays(start, 6);
 }
 
+// A função pedida na solicitação (ex.: "SUPERVISOR") quase nunca é idêntica à função cadastral
+// do colaborador (ex.: "SUPERVISOR DE TUBULAÇÃO OFFSHORE", "SUPERVISOR N I") nem à função com
+// que ele já embarcou. Comparar por igualdade exata zerava a lista de candidatos no modo
+// recrutamento — por isso a comparação é normalizada (sem acento/caixa/pontuação) e aceita
+// que uma contenha a outra, olhando também o histórico de funções do ano.
+function normFuncao(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+
+function funcaoMatchesFilter(funcao: string, funcoesAno: string[], filtro: string): boolean {
+  if (filtro === "all") return true;
+  const alvo = normFuncao(filtro);
+  if (!alvo) return true;
+  return [funcao, ...funcoesAno].some((c) => {
+    const n = normFuncao(c || "");
+    return !!n && (n === alvo || n.includes(alvo) || alvo.includes(n));
+  });
+}
+
+
 function SimulacaoTab({
   focusNomination, onExitFocus,
 }: {
