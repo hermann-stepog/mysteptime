@@ -467,7 +467,11 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                           onChange={(e) => updateLinha(i, { scopeFile: e.target.files?.[0] ?? null })}
                         />
                       </label>
-                      <p className="text-[11px] text-muted-foreground">A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar.</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {l.scopeFile
+                          ? "A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar."
+                          : `Sem documento? Descreva o tipo de serviço no campo Observações abaixo (indicando a função "${l.funcao}").`}
+                      </p>
                     </div>
                   )}
                 </div>
