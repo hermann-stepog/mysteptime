@@ -1720,7 +1720,7 @@ function SimulacaoTab({
         const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket };
       })
-      .filter((l) => filterFuncao === "all" || l.funcao === filterFuncao)
+      .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
   }, [colaboradores, colaboradoresOffshore, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
