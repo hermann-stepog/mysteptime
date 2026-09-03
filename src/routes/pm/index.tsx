@@ -900,15 +900,16 @@ function MinhasSolicitacoesTab() {
 
 // Detalhe de uma solicitação com várias funções — lista cada função com sua etapa/ação
 // própria; clicar numa delas abre o NominationDetail de sempre (edição/exclusão inclusive).
-// Além disso, dá pra excluir a solicitação inteira (todas as funções de uma vez) direto por
-// aqui, sem precisar entrar função por função — mesma regra de "só antes da Logística receber"
-// já usada na exclusão individual (current_status === "solicitacao").
+// Além disso, dá pra editar ou excluir a solicitação inteira (todas as funções de uma vez) direto
+// por aqui, sem precisar entrar função por função — mesma regra de "só antes da Logística
+// receber" já usada na edição/exclusão individual (current_status === "solicitacao").
 function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: () => void }) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Nomination | null>(null);
+  const [editingGroup, setEditingGroup] = useState(false);
   const [confirmandoExclusaoTudo, setConfirmandoExclusaoTudo] = useState(false);
   const primeiro = items[0];
-  const podeExcluirTudo = items.every((n) => n.current_status === "solicitacao");
+  const podeGerenciarGrupo = items.every((n) => n.current_status === "solicitacao");
 
   const excluirTudo = useMutation({
     mutationFn: async () => {
@@ -922,6 +923,8 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir solicitação."),
   });
+
+  if (editingGroup) return <EditGroupDialog items={items} onClose={() => setEditingGroup(false)} onSaved={onClose} />;
 
   if (selected) {
     return (
@@ -938,7 +941,7 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
             <DialogTitle>Solicitação — {primeiro.unidade} {primeiro.bsp}</DialogTitle>
-            {podeExcluirTudo && (
+            {podeGerenciarGrupo && (
               <div className="flex shrink-0 gap-1.5">
                 {confirmandoExclusaoTudo ? (
                   <>
@@ -946,9 +949,12 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
                     <Button size="sm" variant="ghost" onClick={() => setConfirmandoExclusaoTudo(false)}>Cancelar</Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="outline" className="text-red-700 hover:text-red-700" onClick={() => setConfirmandoExclusaoTudo(true)}>
-                    Excluir solicitação
-                  </Button>
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => setEditingGroup(true)}>Editar solicitação</Button>
+                    <Button size="sm" variant="outline" className="text-red-700 hover:text-red-700" onClick={() => setConfirmandoExclusaoTudo(true)}>
+                      Excluir solicitação
+                    </Button>
+                  </>
                 )}
               </div>
             )}
@@ -979,6 +985,245 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
             </button>
           ))}
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Editar a solicitação inteira (todas as funções de uma vez) ─────────────────
+// Mesma forma do CreateDialog (linhas de função + campos compartilhados), pré-preenchida com
+// as funções já existentes do grupo. Permite editar campos compartilhados, editar/remover
+// funções existentes e adicionar novas — tudo sob o mesmo request_group_id. Só chega aqui
+// quando todas as funções ainda estão em "Solicitação" (gate no GroupDetailDialog).
+interface GroupLinha {
+  id: string | null;
+  funcao: string;
+  quantidade: string;
+  scopeFile: File | null;
+  existingScopePath: string | null;
+  existingScopeName: string | null;
+}
+
+function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onClose: () => void; onSaved: () => void }) {
+  const { user, profile } = useAuth();
+  const qc = useQueryClient();
+  const primeiro = items[0];
+
+  const [linhas, setLinhas] = useState<GroupLinha[]>(
+    items.map((n) => ({
+      id: n.id, funcao: n.funcao, quantidade: String(n.quantidade), scopeFile: null,
+      existingScopePath: n.scope_document_path, existingScopeName: n.scope_document_name,
+    })),
+  );
+  const [unidade, setUnidade] = useState(primeiro.unidade ?? "");
+  const [bsp, setBsp]         = useState(primeiro.bsp ?? "");
+  const [start, setStart]     = useState(primeiro.period_start ?? "");
+  const [end, setEnd]         = useState(primeiro.period_end ?? "");
+  const [client, setClient]   = useState(primeiro.client ?? "");
+  const [notes, setNotes]     = useState(primeiro.notes ?? "");
+
+  const updateLinha = (i: number, patch: Partial<GroupLinha>) => {
+    setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  };
+  const addLinha = () => setLinhas((atual) => [...atual, { id: null, funcao: "", quantidade: "1", scopeFile: null, existingScopePath: null, existingScopeName: null }]);
+  const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
+
+  const { funcaoOptions, periodosE, unidadeGroups, unidadeOptions } = useNominationFormData();
+  const bspOptions = useMemo(() => {
+    if (!unidade) return bspOptionsForUnidade(periodosE, "all");
+    const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
+    return bspOptionsForUnidade(periodosE, variantes);
+  }, [periodosE, unidade, unidadeGroups]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const validas = linhas.filter((l) => l.funcao.trim());
+      if (validas.length === 0) throw new Error("Adicione ao menos uma função.");
+      if (!unidade) throw new Error("Selecione a unidade.");
+      if (!bsp) throw new Error("Selecione a BSP.");
+      const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
+      // Solicitações antigas (de antes do agrupamento existir) não têm request_group_id — ao
+      // salvar aqui, todas as funções do grupo ganham um de uma vez, pra passar a se comportar
+      // como uma solicitação única daqui em diante (kanban, Minhas Solicitações etc.).
+      const groupId = primeiro.request_group_id ?? crypto.randomUUID();
+
+      const idsMantidos = new Set(validas.filter((l) => l.id).map((l) => l.id));
+      const removidos = items.filter((n) => !idsMantidos.has(n.id));
+      if (removidos.length > 0) {
+        const { error } = await supabase.from("nominations").delete().in("id", removidos.map((n) => n.id));
+        if (error) throw error;
+      }
+
+      for (const l of validas) {
+        const isWelder = isSoldador(l.funcao);
+        const scopeDocument = l.scopeFile ? await uploadScopeDocument(l.scopeFile) : null;
+        const camposComuns = {
+          unidade, bsp,
+          period_start: start || null,
+          period_end: end || null,
+          client: client || null,
+          notes: notes.trim() || null,
+        };
+
+        if (l.id) {
+          const { error } = await supabase.from("nominations").update({
+            ...camposComuns,
+            request_group_id: groupId,
+            funcao: l.funcao.trim(),
+            quantidade: Math.max(1, Number(l.quantidade) || 1),
+            requires_quality_validation: isWelder,
+            ...(scopeDocument ? { scope_document_path: scopeDocument.path, scope_document_name: scopeDocument.name } : {}),
+          }).eq("id", l.id);
+          if (error) throw error;
+          await supabase.from("nomination_status_history").insert({
+            nomination_id: l.id, status: "solicitacao", changed_by_name: pmName, notes: "Solicitação editada pelo solicitante",
+          });
+        } else {
+          const { data, error } = await supabase.from("nominations").insert({
+            pm_user_id: user!.id,
+            pm_name: pmName,
+            request_group_id: groupId,
+            ...camposComuns,
+            funcao: l.funcao.trim(),
+            quantidade: Math.max(1, Number(l.quantidade) || 1),
+            weld_type: null,
+            weld_material: null,
+            scope_document_path: scopeDocument?.path ?? null,
+            scope_document_name: scopeDocument?.name ?? null,
+            project: null,
+            requires_quality_validation: isWelder,
+            current_status: "solicitacao",
+          }).select().single();
+          if (error) throw error;
+          await supabase.from("nomination_status_history").insert({
+            nomination_id: data.id, status: "solicitacao", changed_by_name: pmName, notes: "Função adicionada à solicitação",
+          });
+          await notifyStageAdvance(data as Nomination, "solicitacao");
+        }
+      }
+    },
+    onSuccess: () => {
+      notify.success("Solicitação atualizada.");
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      onSaved();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao atualizar solicitação."),
+  });
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar solicitação</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          <div className="space-y-3">
+            {linhas.map((l, i) => {
+              const isWelder = isSoldador(l.funcao);
+              return (
+                <div key={i} className="space-y-2 rounded-md border p-3">
+                  <div className="grid grid-cols-[1fr_90px_auto] items-end gap-3">
+                    <div className="space-y-1">
+                      <Label>Função *</Label>
+                      <SearchableSelect
+                        value={l.funcao}
+                        onValueChange={(v) => updateLinha(i, { funcao: v, scopeFile: null })}
+                        options={funcaoOptions}
+                        placeholder="Buscar função..."
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Qtd. *</Label>
+                      <Input type="number" min={1} value={l.quantidade} onChange={(e) => updateLinha(i, { quantidade: e.target.value })} />
+                    </div>
+                    {linhas.length > 1 && (
+                      <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => removeLinha(i)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+
+                  {isWelder && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
+                      {l.existingScopePath && !l.scopeFile && (
+                        <button
+                          type="button" className="mb-1 flex items-center gap-1.5 text-xs text-primary hover:underline"
+                          onClick={() => baixarEscopoDocumento(l.existingScopePath!, l.existingScopeName ?? "escopo-do-servico")}
+                        >
+                          <FileText className="h-3.5 w-3.5" /> {l.existingScopeName ?? "Ver documento atual"}
+                        </button>
+                      )}
+                      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
+                        <Upload className="h-3.5 w-3.5 shrink-0" />
+                        {l.scopeFile ? l.scopeFile.name : l.existingScopePath ? "Substituir arquivo..." : "Selecionar arquivo..."}
+                        <input
+                          type="file" accept={SCOPE_DOCUMENT_TYPES} className="hidden"
+                          onChange={(e) => updateLinha(i, { scopeFile: e.target.files?.[0] ?? null })}
+                        />
+                      </label>
+                      <p className="text-[11px] text-muted-foreground">
+                        {l.scopeFile || l.existingScopePath
+                          ? "A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar."
+                          : `Sem documento? Descreva o tipo de serviço no campo Observações abaixo (indicando a função "${l.funcao}").`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <Button type="button" variant="outline" size="sm" onClick={addLinha}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> Adicionar função
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Unidade *</Label>
+              <Select value={unidade} onValueChange={(v) => { setUnidade(v); setBsp(""); setClient(clienteDaUnidade(v) ?? ""); }}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>BSP *</Label>
+              <Select value={bsp} onValueChange={setBsp} disabled={!unidade}>
+                <SelectTrigger><SelectValue placeholder={unidade ? "Selecione" : "Escolha a unidade"} /></SelectTrigger>
+                <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Data início</Label>
+              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Data fim</Label>
+              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Cliente</Label>
+            <Select value={client} onValueChange={setClient}>
+              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <SelectContent>
+                {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Observações</Label>
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => save.mutate()} loading={save.isPending}>Salvar alterações</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
