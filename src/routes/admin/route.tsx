@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
+import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
-import { LogOut } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
 import { AnimatedOutlet } from "@/components/AnimatedOutlet";
@@ -52,6 +53,9 @@ const RH_SMS_EXTRA_PATHS = ["/admin/passagens-aereas"];
 
 function AdminLayout() {
   const { user, role, loading, signOut, profile } = useAuth();
+  // "Ver como outro papel" (ver useViewAs) só troca o menu abaixo — o gate de acesso real
+  // (isAllowedRole/redirect) continua sempre no papel de verdade, nunca no simulado.
+  const { viewAsRole, setViewAsRole } = useViewAs();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isAllowedRole = role === "logistics_operator" || role === "visitante" || role === "pm" || STAGE_ROLES.includes(role ?? "");
@@ -67,13 +71,15 @@ function AdminLayout() {
     return <AppLoader />;
   }
 
-  const visibleNav = role === "visitante"
+  const navRole = viewAsRole ?? role;
+  const visibleNav = navRole === "visitante"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
-    : role === "pm"
+    : navRole === "pm"
       ? nav.filter((n) => PM_PATHS.includes(n.to))
-      : STAGE_ROLES.includes(role ?? "")
-        ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((role === "rh" || role === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
+      : STAGE_ROLES.includes(navRole ?? "")
+        ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((navRole === "rh" || navRole === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
         : nav;
+  const viewAsLabel = VIEW_AS_ROLES.find((r) => r.value === viewAsRole)?.label;
 
   return (
     <motion.div
@@ -111,6 +117,16 @@ function AdminLayout() {
               );
             })}
           </nav>
+
+          {viewAsLabel && (
+            <button
+              onClick={() => setViewAsRole(null)}
+              title="Voltar ao seu acesso normal"
+              className="mt-1 flex shrink-0 items-center gap-1 rounded-md border border-amber-300/40 bg-amber-400/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
+            >
+              Vendo como: {viewAsLabel}<X className="h-3.5 w-3.5" />
+            </button>
+          )}
 
           <button
             onClick={async () => { await signOut(); navigate({ to: "/auth" }); }}

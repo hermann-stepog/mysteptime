@@ -7,6 +7,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // cast local para não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
+import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import {
   type Nomination, type NominationNominee, type NominationStatusHistory,
   type WeldTypeConfig, type WeldMaterialConfig, type NominationStatus, type PmDecision, type QualityStatus,
@@ -37,7 +38,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
-  ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown,
+  ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -2360,6 +2361,7 @@ function NominationsPage() {
   const [aptidaoFocusId, setAptidaoFocusId] = useState<string | null>(null);
   const [simulacaoFocus, setSimulacaoFocus] = useState<Nomination | null>(null);
   const [tab, setTab] = useState("simulacao");
+  const { canViewAs, viewAsRole, setViewAsRole } = useViewAs();
 
   const goToSimulacao = (nomination: Nomination) => {
     setSimulacaoFocus(nomination);
@@ -2444,6 +2446,27 @@ function NominationsPage() {
             {pendingCount > 0 ? `${pendingCount} em andamento` : "Nenhuma nomeação em andamento"}
           </p>
         </div>
+        {/* Só a conta master vê isto — troca o menu do topo pra pré-visualizar rápido o que
+            cada papel enxerga, sem precisar de um segundo login de teste (ver useViewAs). */}
+        {canViewAs && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Ver como outro papel">
+                <Eye className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setViewAsRole(null)} className={!viewAsRole ? "font-medium" : undefined}>
+                {!viewAsRole && <Check className="mr-2 h-3.5 w-3.5" />}Meu acesso (Operador Logístico)
+              </DropdownMenuItem>
+              {VIEW_AS_ROLES.map((r) => (
+                <DropdownMenuItem key={r.value} onClick={() => setViewAsRole(r.value)} className={viewAsRole === r.value ? "font-medium" : undefined}>
+                  {viewAsRole === r.value && <Check className="mr-2 h-3.5 w-3.5" />}{r.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
