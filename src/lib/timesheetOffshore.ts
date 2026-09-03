@@ -77,7 +77,7 @@ export const EVENTOS_DIA: string[] = ["Embarque", "Desembarque", "Dobra", "Hotel
 
 // Unidades operacionais que sempre aparecem na lista de seleção, mesmo que ainda não tenham
 // nenhum período/embarque lançado no banco.
-export const UNIDADES_OPERACIONAIS_FIXAS: string[] = ["FPSO - BRAVO", "FPSO - FRADE", "TAMANDARÉ", "MAGNA"];
+export const UNIDADES_OPERACIONAIS_FIXAS: string[] = ["FPSO - BRAVO", "FPSO - FRADE", "TAMANDARÉ", "MAGNA", "SAFE ZEPHYRUS"];
 
 export type StatusEntrega = "pendente" | "parcial" | "completo";
 
