@@ -176,15 +176,13 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       } else {
         // Solicitação nova sempre entra no início do fluxo — status_fluxo default do banco
         // ("emitida") é só pra registro histórico lançado direto, não pra quem passa por aqui.
-        // Um lançamento por passageiro: o principal + cada colaborador adicional (unidade/BSP
-        // próprios quando informados, senão herdando os do formulário).
-        const base = { ...payload, status_fluxo: "solicitada" };
-        const linhas = [base, ...pessoas.validas.map((p) => ({
-          ...base,
-          nome_usuario: p.nome.trim(),
-          unidade: p.unidade || base.unidade,
-          bsp: p.bsp || base.bsp,
-        })), ...unidades.validas.map((u) => ({
+        // Colaboradores adicionais (NomeUsuarioMultiField) viajam juntos no MESMO lançamento —
+        // nome combinado, valor único (pedido dela: mesma BSP não duplica o valor, só quando
+        // for BSP diferente é que precisa ratear). Só unidade/BSP extras (UnidadeMultiField)
+        // continuam virando lançamento à parte, por serem de fato outro centro de custo.
+        const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(Boolean);
+        const base = { ...payload, nome_usuario: nomes.join(", "), status_fluxo: "solicitada" };
+        const linhas = [base, ...unidades.validas.map((u) => ({
           ...base,
           unidade: u.unidade,
           bsp: u.bsp || base.bsp,
@@ -195,7 +193,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
-      notify.success(editing ? "Passagem atualizada" : `${1 + pessoas.validas.length + unidades.validas.length} passagem(ns) lançada(s)`);
+      notify.success(editing ? "Passagem atualizada" : `${1 + unidades.validas.length} passagem(ns) lançada(s)`);
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -230,6 +228,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
             label="Colaborador (quem vai viajar)"
             value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
             colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
+            helpText="Os colaboradores adicionados entram no mesmo lançamento, com nome combinado e valor único."
           />
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={f.internacional} onChange={(e) => setF({ ...f, internacional: e.target.checked })} />

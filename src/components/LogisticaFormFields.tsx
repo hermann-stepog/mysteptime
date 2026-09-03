@@ -369,13 +369,17 @@ export function PessoasAdicionaisPanel({ estado, colaboradores, unidadeOptions, 
 // no rótulo: adiciona linhas extras logo abaixo dele.
 
 // Nome do usuário + colaboradores extras (cada um vira um lançamento próprio ao salvar).
-export function NomeUsuarioMultiField({ label = "Nome do usuário", value, onChange, colaboradores, extras, permiteAdicionar = true }: {
+export function NomeUsuarioMultiField({
+  label = "Nome do usuário", value, onChange, colaboradores, extras, permiteAdicionar = true,
+  helpText = "Cada colaborador adicionado gera um lançamento próprio com os mesmos dados.",
+}: {
   label?: string;
   value: string;
   onChange: (v: string) => void;
   colaboradores: { id: string; nome: string }[];
   extras: UsePessoasAdicionaisReturn;
   permiteAdicionar?: boolean;
+  helpText?: string;
 }) {
   return (
     <div>
@@ -398,7 +402,7 @@ export function NomeUsuarioMultiField({ label = "Nome do usuário", value, onCha
               <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => extras.remove(i)}>✕</Button>
             </div>
           ))}
-          <p className="text-[11px] text-muted-foreground">Cada colaborador adicionado gera um lançamento próprio com os mesmos dados.</p>
+          <p className="text-[11px] text-muted-foreground">{helpText}</p>
         </div>
       )}
     </div>
