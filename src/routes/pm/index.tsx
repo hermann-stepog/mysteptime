@@ -17,6 +17,7 @@ import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
+import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -258,7 +259,6 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   const [bsp, setBsp]               = useState("");
   const [start, setStart]           = useState("");
   const [end, setEnd]               = useState("");
-  const [project, setProject]       = useState("");
   const [client, setClient]         = useState("");
   const [notes, setNotes]           = useState("");
 
@@ -368,8 +368,8 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             weld_material:               showWeldL ? l.weldMaterial || null : null,
             period_start:               start || null,
             period_end:                 end || null,
-            project:                    project.trim() || null,
-            client:                     client.trim() || null,
+            project:                    null,
+            client:                     client || null,
             notes:                      notes.trim() || null,
             requires_quality_validation: requiresQualityL,
             current_status:              "solicitacao",
@@ -463,7 +463,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Unidade *</Label>
-              <Select value={unidade} onValueChange={(v) => { setUnidade(v); setBsp(""); }}>
+              <Select value={unidade} onValueChange={(v) => { setUnidade(v); setBsp(""); setClient(clienteDaUnidade(v) ?? ""); }}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
@@ -491,15 +491,14 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
               <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label>Projeto</Label>
-              <Input placeholder="Nome do projeto" value={project} onChange={(e) => setProject(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Cliente</Label>
-              <Input placeholder="Ex.: SBM" value={client} onChange={(e) => setClient(e.target.value)} />
-            </div>
+          <div className="space-y-1">
+            <Label>Cliente</Label>
+            <Select value={client} onValueChange={setClient}>
+              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <SelectContent>
+                {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label>Observações</Label>
