@@ -12,6 +12,7 @@ interface AuthCtx {
   role: AppRole | null;
   profile: { id: string; full_name: string | null; email: string } | null;
   loading: boolean;
+  roleLoaded: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -27,6 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AuthCtx["profile"]>(null);
   const [loading, setLoading] = useState(true);
 
+  const [roleLoaded, setRoleLoaded] = useState(false);
+
   const loadRole = async (uid: string) => {
     const [{ data: roleRow }, { data: profileRow }] = await Promise.all([
       supabase.from("user_roles").select("role").eq("user_id", uid).maybeSingle(),
@@ -34,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
     setRole((roleRow?.role as AppRole) ?? "pending");
     setProfile(profileRow ?? null);
+    setRoleLoaded(true);
   };
 
   useEffect(() => {
@@ -41,10 +45,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(sess);
       setUser(sess?.user ?? null);
       if (sess?.user) {
+        setRoleLoaded(false);
         setTimeout(() => loadRole(sess.user.id), 0);
       } else {
         setRole(null);
         setProfile(null);
+        setRoleLoaded(true);
       }
     });
 
@@ -86,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, session, role, profile, loading, signIn, signUp, signOut, refreshRole }}>
+    <Ctx.Provider value={{ user, session, role, profile, loading, roleLoaded, signIn, signUp, signOut, refreshRole }}>
       {children}
     </Ctx.Provider>
   );
