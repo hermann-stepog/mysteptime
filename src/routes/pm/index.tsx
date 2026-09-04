@@ -29,7 +29,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, CalendarDays, ChevronRight, Check, X, Upload, FileText } from "lucide-react";
+import { Plus, CalendarDays, ChevronRight, Check, X, Upload, FileText, Pencil, Trash2 } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -756,10 +756,30 @@ function statusRepresentante(items: Nomination[]): Nomination["current_status"] 
 
 function MinhasSolicitacoesTab() {
   const { user, profile } = useAuth();
+  const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected]     = useState<Nomination | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<Nomination[] | null>(null);
+  const [editingSingle, setEditingSingle] = useState<Nomination | null>(null);
+  const [editingGroup, setEditingGroup]   = useState<Nomination[] | null>(null);
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [filterStatus, setFilter]   = useState("todos");
+
+  // Excluir direto da linha da lista (sem precisar abrir o card antes) — só funciona enquanto
+  // TODAS as funções da solicitação ainda estão em "Solicitação" (mesma regra de sempre); fora
+  // disso avisa por quê, em vez de simplesmente não fazer nada.
+  const excluirDaLista = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from("nominations").delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      notify.success("Solicitação excluída.");
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      setConfirmDeleteKey(null);
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao excluir solicitação."),
+  });
 
   const { data: nominations = [], isLoading } = useQuery<Nomination[]>({
     queryKey: ["pm-nominations", user?.id],
@@ -857,6 +877,8 @@ function MinhasSolicitacoesTab() {
             const primeiro = items[0];
             const status = statusRepresentante(items);
             const precisaAcao = items.some((n) => n.current_status === "aprovacao_pm");
+            const podeGerenciar = items.every((n) => n.current_status === "solicitacao");
+            const confirmando = confirmDeleteKey === key;
             return (
               <Card
                 key={key}
@@ -880,9 +902,57 @@ function MinhasSolicitacoesTab() {
                       {primeiro.client && <span className="ml-2">{primeiro.client}</span>}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     {precisaAcao && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Ação necessária</Badge>}
                     <StatusBadge status={status} />
+                    {/* Editar/excluir direto na linha, sem precisar abrir o card antes — pedido
+                        dela. Continua só funcionando em "Solicitação" (mesma regra de sempre);
+                        fora disso avisa o motivo em vez de ficar sem reação nenhuma. */}
+                    <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                      {confirmando ? (
+                        <>
+                          <Button
+                            size="sm" variant="destructive" className="h-7 px-2 text-xs"
+                            loading={excluirDaLista.isPending}
+                            onClick={() => excluirDaLista.mutate(items.map((n) => n.id))}
+                          >
+                            Confirmar
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setConfirmDeleteKey(null)}>
+                            Cancelar
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                            title="Editar solicitação"
+                            onClick={() => {
+                              if (!podeGerenciar) {
+                                notify.error("Só é possível editar enquanto a solicitação estiver em \"Solicitação\".");
+                                return;
+                              }
+                              items.length === 1 ? setEditingSingle(items[0]) : setEditingGroup(items);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-700"
+                            title="Excluir solicitação"
+                            onClick={() => {
+                              if (!podeGerenciar) {
+                                notify.error("Só é possível excluir enquanto a solicitação estiver em \"Solicitação\".");
+                                return;
+                              }
+                              setConfirmDeleteKey(key);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </div>
                 </div>
@@ -895,6 +965,12 @@ function MinhasSolicitacoesTab() {
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} />}
       {selected && <NominationDetail nom={selected} onClose={() => setSelected(null)} />}
       {selectedGroup && <GroupDetailDialog items={selectedGroup} onClose={() => setSelectedGroup(null)} />}
+      {editingSingle && (
+        <EditDialog nom={editingSingle} onClose={() => setEditingSingle(null)} onSaved={() => setEditingSingle(null)} />
+      )}
+      {editingGroup && (
+        <EditGroupDialog items={editingGroup} onClose={() => setEditingGroup(null)} onSaved={() => setEditingGroup(null)} />
+      )}
     </div>
   );
 }
