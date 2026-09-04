@@ -1113,6 +1113,18 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           return dir * a.data_fim.localeCompare(b.data_fim);
         case "dias":
           return dir * ((a.dias ?? 0) - (b.dias ?? 0));
+        // Início/Fim da última folga do colaborador (mesmo valor exibido nas colunas):
+        // quem não tem folga registrada fica sempre no fim da lista, nas duas direções.
+        case "inicioFolga":
+        case "fimFolga": {
+          const key = sortColumn === "inicioFolga" ? "data_inicio" : "data_fim";
+          const va = ultimaFolgaPorColaborador.get(a.colaborador_id)?.[key] ?? "";
+          const vb = ultimaFolgaPorColaborador.get(b.colaborador_id)?.[key] ?? "";
+          if (!va && !vb) return 0;
+          if (!va) return 1;
+          if (!vb) return -1;
+          return dir * va.localeCompare(vb);
+        }
         default:
           return 0;
       }
