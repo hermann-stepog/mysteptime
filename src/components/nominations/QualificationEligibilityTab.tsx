@@ -188,6 +188,29 @@ export function QualificationEligibilityTab({
   const fitWithoutWarnings = aptWorkers.filter((worker) => worker.status === "fit").length;
   const fitWithWarnings = aptWorkers.length - fitWithoutWarnings;
 
+  // Só roda no modo recrutamento (focusGroup) — não busca nem renderiza nada fora dele, pra
+  // não mudar em nada o comportamento padrão da aba (consulta livre, sem solicitação). Nomeado
+  // aqui é quem o PM já aprovou pra essa função (mesmo critério usado no resto do fluxo desde
+  // a correção da Aprovação PM — não é todo mundo que já passou pela Simulação como candidato).
+  const { data: focusNominees = [] } = useQuery<{ colaborador_nome: string; is_active: boolean; pm_decision: string }[]>({
+    queryKey: ["aptidao-rh-nomeados", activeFocus?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("nomination_nominees")
+        .select("colaborador_nome, is_active, pm_decision")
+        .eq("nomination_id", activeFocus!.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: Boolean(focusGroup && focusGroup.length > 0 && activeFocus),
+  });
+  const nomeadosDaSolicitacao = useMemo(
+    () => focusNominees.filter((n) => n.is_active && n.pm_decision === "aprovado"),
+    [focusNominees],
+  );
+  const workerParaNomeado = (nomeColaborador: string): WorkerEligibility | null =>
+    evaluation?.workers.find((w) => normalizeMatchText(w.worker.fullName) === normalizeMatchText(nomeColaborador)) ?? null;
+
   return (
     <div className="space-y-4">
       {focusGroup && focusGroup.length > 0 && (
@@ -221,6 +244,69 @@ export function QualificationEligibilityTab({
           )}
         </div>
       )}
+
+      {focusGroup && focusGroup.length > 0 && activeFocus && (
+        <Card className="overflow-hidden">
+          <div className="border-b p-4">
+            <h3 className="font-semibold">Nomeados desta solicitação — {activeFocus.funcao}</h3>
+            <p className="text-xs text-muted-foreground">
+              Aptidão específica de quem foi aprovado pelo PM para esta função, cruzada com a Matriz de Qualificação abaixo.
+            </p>
+          </div>
+          {nomeadosDaSolicitacao.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">Nenhum nomeado aprovado ainda para esta função.</p>
+          ) : !selection ? (
+            <p className="p-4 text-sm text-muted-foreground">Selecione cliente/unidade, grupo, função, tipo de atuação e período abaixo pra conferir.</p>
+          ) : evaluationQuery.isLoading ? (
+            <div className="space-y-2 p-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (
+            <div className="divide-y">
+              {nomeadosDaSolicitacao.map((n) => {
+                const found = workerParaNomeado(n.colaborador_nome);
+                if (!found) {
+                  return (
+                    <div key={n.colaborador_nome} className="flex items-start gap-2 p-3 text-sm">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                      <div>
+                        <p className="font-medium">{n.colaborador_nome}</p>
+                        <p className="text-xs text-amber-700">
+                          Não encontrado na Matriz de Qualificação para "{activeFocus.funcao}" — confira se a função está cadastrada com esse nome exato no Drake (ou se o colaborador está ativo/como funcionário lá).
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+                const bloqueando = found.courses.filter((c) => c.mandatory && (c.status === "expired" || c.status === "missing"));
+                const vencendo = found.courses.filter((c) => c.status === "expires-during-period");
+                return (
+                  <div key={n.colaborador_nome} className="flex items-start justify-between gap-3 p-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">{n.colaborador_nome}</p>
+                      {bloqueando.length > 0 && (
+                        <p className="mt-1 flex items-start gap-1.5 text-xs text-red-700">
+                          <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          Pendente: {bloqueando.map((c) => c.courseName).join(", ")}
+                        </p>
+                      )}
+                      {vencendo.length > 0 && (
+                        <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          Vence no período: {vencendo.map((c) => c.courseName).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <EligibilityBadge status={found.status} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.7fr)]">
         <Card className="space-y-4 p-4">
           <div>
