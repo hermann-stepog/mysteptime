@@ -1723,6 +1723,7 @@ export type Database = {
           briefing_sms_realizado_at: string | null
           briefing_sms_realizado_by: string | null
           bsp: string | null
+          bsp_request_number: number | null
           cancel_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -1761,6 +1762,7 @@ export type Database = {
           briefing_sms_realizado_at?: string | null
           briefing_sms_realizado_by?: string | null
           bsp?: string | null
+          bsp_request_number?: number | null
           cancel_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
@@ -1799,6 +1801,7 @@ export type Database = {
           briefing_sms_realizado_at?: string | null
           briefing_sms_realizado_by?: string | null
           bsp?: string | null
+          bsp_request_number?: number | null
           cancel_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
