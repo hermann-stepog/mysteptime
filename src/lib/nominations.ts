@@ -38,6 +38,11 @@ export interface Nomination {
   // "Minhas Solicitações" conseguir agrupar de volta como um único ato de solicitar. Nulo em
   // solicitações antigas (uma função só, antes desse campo existir).
   request_group_id: string | null;
+  // Numeração da solicitação, por BSP (nunca reinicia, nunca duplica mesmo com dois operadores
+  // em paralelo — atribuído por trigger no banco na primeira função inserida do grupo; as
+  // demais funções do mesmo request_group_id reaproveitam o mesmo número). Vira o título da
+  // solicitação em toda a tela (kanban, Minhas Solicitações etc.) via requestTitle() abaixo.
+  bsp_request_number: number | null;
   // Legado (pré-reformulação) — não usados mais na criação, mantidos só pro registro antigo.
   colaborador_id: string | null;
   colaborador_nome: string | null;
@@ -331,6 +336,16 @@ export function fmtDatetime(iso: string) {
   const dt = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+
+// Título de uma solicitação: número da BSP (sem o prefixo "BSP") + numeração sequencial por
+// BSP (bsp_request_number, atribuído por trigger no banco — ver migration). Usado como título
+// em todo lugar que representa a solicitação como um todo (card do kanban, Minhas Solicitações,
+// dialogs) — mesmo texto tanto pro operador quanto pro solicitante.
+export function requestTitle(n: Pick<Nomination, "bsp" | "bsp_request_number">): string {
+  if (!n.bsp) return "—";
+  const numero = n.bsp_request_number != null ? String(n.bsp_request_number).padStart(3, "0") : "???";
+  return `${n.bsp} - ${numero}`;
 }
 
 // Cobre tanto a nomenclatura em português (base do BM/rates, ex.: "SOLDADOR I") quanto a
