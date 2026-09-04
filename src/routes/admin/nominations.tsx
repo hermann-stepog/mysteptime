@@ -464,7 +464,10 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
   const { profile, role } = useAuth();
   const qc = useQueryClient();
   const canOperate = role === "logistics_operator";
-  const ativos = nominees.filter((n) => n.is_active);
+  // O PM decide só em cima de quem a Aprovação Técnica de fato selecionou (technical_selected_at)
+  // — não em cima de todo mundo que já passou pela Simulação como candidato. Quem decide quem
+  // "concorre" é a Técnica; o PM só aprova ou reprova essa escolha, pessoa por pessoa.
+  const ativos = nominees.filter((n) => n.is_active && n.technical_selected_at);
   const label: Record<PmDecision, { text: string; cls: string }> = {
     pendente: { text: "Pendente", cls: "bg-slate-100 text-slate-600" },
     aprovado: { text: "Aprovado", cls: "bg-emerald-100 text-emerald-700" },

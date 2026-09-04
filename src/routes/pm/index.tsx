@@ -85,7 +85,9 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
       return (data ?? []) as NominationNominee[];
     },
   });
-  const ativos = nominees.filter((n) => n.is_active);
+  // O PM decide só em cima de quem a Aprovação Técnica de fato selecionou (technical_selected_at)
+  // — não em cima de todo mundo que já passou pela Simulação como candidato.
+  const ativos = nominees.filter((n) => n.is_active && n.technical_selected_at);
   const [draft, setDraft] = useState<Record<string, PmDecision>>({});
 
   const decisionFor = (n: NominationNominee): PmDecision => draft[n.id] ?? n.pm_decision;
