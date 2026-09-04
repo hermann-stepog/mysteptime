@@ -1,7 +1,9 @@
-// Fluxo de Nomeações: 10 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
-// de Henrique/Wainer, com um gate de Validação de Qualidade (só quando o tipo de solda
-// exige) que precisa ser marcado antes de avançar dessa coluna. A partir desta reformulação
-// uma solicitação pode ter N colaboradores nomeados (ver NominationNominee) — não é mais 1
+// Fluxo de Nomeações: 11 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
+// de Henrique/Wainer (seleção de candidatos). "Validação de Qualidade" vem logo depois de
+// "Nomeados" — só é obrigatória quando a solicitação exige (requires_quality_validation, hoje
+// só pra Soldador); quando não exige, o avanço de Nomeados já pula direto pra Aprovação PM,
+// sem o card nunca chegar a ficar parado nessa coluna. A partir desta reformulação uma
+// solicitação pode ter N colaboradores nomeados (ver NominationNominee) — não é mais 1
 // colaborador por registro. "Aprovação PM" só libera pra Validação SMS (ASO) quando TODOS os
 // nomeados ativos tiverem sido decididos (aprovado ou reprovado); reprovados voltam pra
 // Aprovação Técnica pra nova indicação. "Validação SMS (ASO)" e a checklist de Aptidão (agora
@@ -19,6 +21,7 @@ export type NominationStatus =
   | "simulacao"
   | "aprovacao_tecnica"
   | "nomeados"
+  | "validacao_qualidade"
   | "aprovacao_pm"
   | "aptidao"
   | "validacao_sms_aso"
@@ -142,12 +145,15 @@ export interface WeldMaterialConfig {
 // as 6 originais; as demais seguem a mesma família pastel, avisar a usuária se quiser trocar
 // algum tom. "Aptidão" saiu daqui (virou checklist dentro de "Validação RH") e entrou
 // "Validação SMS (ASO)", antes de "Validação RH" — mesmo papel (sms) que já cuida do Briefing.
+// "Validação de Qualidade" entra logo depois de "Nomeados" (antes ficava embutida como gate
+// dentro de "Aprovação Técnica") — pedido dela.
 export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; text: string }[] = [
   { id: "solicitacao",         label: "Solicitação",              bg: "#F1EFE8", text: "#2C2C2A" },
   { id: "recebido_logistica",  label: "Recebido pela Logística",  bg: "#EFEDE3", text: "#4A4636" },
   { id: "simulacao",           label: "Simulação",                bg: "#E6F1FB", text: "#0C447C" },
   { id: "aprovacao_tecnica",   label: "Aprovação Técnica",        bg: "#EEEDFE", text: "#3C3489" },
   { id: "nomeados",            label: "Nomeados",                 bg: "#F3E8FD", text: "#5B2A8C" },
+  { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
   { id: "aprovacao_pm",        label: "Aprovação PM",             bg: "#FAEEDA", text: "#633806" },
   { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
   { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
@@ -194,14 +200,14 @@ export function canMoveToColumn(
   const targetIdx = COLUMN_ORDER.indexOf(target);
   if (currentIdx === -1 || targetIdx === -1 || targetIdx <= currentIdx) return { ok: true };
 
-  const aprovacaoTecnicaIdx = COLUMN_ORDER.indexOf("aprovacao_tecnica");
-  const saiDeAprovacaoTecnica = currentIdx <= aprovacaoTecnicaIdx && targetIdx > aprovacaoTecnicaIdx;
-  if (saiDeAprovacaoTecnica && nom.requires_quality_validation && nom.quality_status !== "aprovado") {
+  const validacaoQualidadeIdx = COLUMN_ORDER.indexOf("validacao_qualidade");
+  const saiDeValidacaoQualidade = currentIdx <= validacaoQualidadeIdx && targetIdx > validacaoQualidadeIdx;
+  if (saiDeValidacaoQualidade && nom.requires_quality_validation && nom.quality_status !== "aprovado") {
     return {
       ok: false,
       reason: nom.quality_status === "reprovado"
-        ? "A Qualidade reprovou esta solicitação — não é possível avançar de Aprovação Técnica."
-        : "Aguardando aprovação da Qualidade antes de avançar de Aprovação Técnica.",
+        ? "A Qualidade reprovou esta solicitação — não é possível avançar."
+        : "Aguardando aprovação da Qualidade antes de avançar.",
     };
   }
 
@@ -256,7 +262,7 @@ export function canMoveToColumn(
 // nomeados (linhas em nomination_nominees), por isso é tratada à parte (deleteNominees).
 function nominationFieldsMarkedAt(stage: NominationStatus): Record<string, unknown> | null {
   switch (stage) {
-    case "aprovacao_tecnica":
+    case "validacao_qualidade":
       return {
         quality_status: "pendente", quality_rejection_reason: null,
         quality_validated: false, quality_validated_at: null, quality_validated_by: null,
@@ -364,10 +370,10 @@ export function isSoldador(fn: string) {
 // continua com acesso total em qualquer etapa (não entra neste mapa).
 export const STAGE_ROLE: Partial<Record<NominationStatus, string>> = {
   aprovacao_tecnica: "aprovacao_tecnica",
+  validacao_qualidade: "qualidade",
   validacao_sms_aso: "sms",
   validacao_rh: "rh",
   briefing_sms: "sms",
 };
 
-// Qualidade não é dono de uma coluna própria — atua dentro de Aprovação Técnica (o gate).
 export const QUALIDADE_ROLE = "qualidade";

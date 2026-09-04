@@ -256,7 +256,7 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
           </div>
 
           {nom.requires_quality_validation
-            && ALL_STATUSES.indexOf(nom.current_status) > ALL_STATUSES.indexOf("aprovacao_tecnica") && (
+            && ALL_STATUSES.indexOf(nom.current_status) > ALL_STATUSES.indexOf("validacao_qualidade") && (
             <div
               className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
                 nom.quality_status === "aprovado"
