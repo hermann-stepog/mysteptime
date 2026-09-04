@@ -655,18 +655,6 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
   const aprovados = nominees.filter((n) => n.is_active && n.pm_decision === "aprovado");
   const [divergenceDraft, setDivergenceDraft] = useState<Record<string, string>>({});
 
-  const toggleAptidaoCheck = useMutation({
-    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
-      const { error } = await supabase.from("nomination_nominees").update({
-        aptidao_checked: val,
-        aptidao_checked_at: val ? new Date().toISOString() : null,
-        aptidao_checked_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
-      }).eq("id", nominee.id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
-  });
-
   const validate = useMutation({
     mutationFn: async (nominee: NominationNominee) => {
       const { error } = await supabase.from("nomination_nominees").update({
@@ -705,23 +693,10 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
   });
 
-  const todosChecados = aprovados.length > 0 && aprovados.every((n) => n.aptidao_checked);
-  const podeAvancar = todosChecados && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
+  const podeAvancar = aprovados.length > 0 && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
 
   return (
     <div className="space-y-3">
-      <div className="space-y-2">
-        <p className="text-sm font-medium flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Aptidão</p>
-        <div className="space-y-1 rounded-md border p-2">
-          {aprovados.map((n) => (
-            <label key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer">
-              <span>{n.colaborador_nome}</span>
-              <Checkbox checked={n.aptidao_checked} disabled={!canAct} onCheckedChange={(v) => toggleAptidaoCheck.mutate({ nominee: n, val: !!v })} />
-            </label>
-          ))}
-        </div>
-      </div>
-
       <div className="space-y-2">
         <p className="text-sm font-medium">Validação RH</p>
         <div className="space-y-2">
