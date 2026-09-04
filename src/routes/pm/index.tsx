@@ -580,6 +580,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
+      const pmUserId = await currentAuthUserId();
       // Um id só pra todas as funções desta solicitação — "Minhas Solicitações" agrupa por
       // ele de volta num único cartão, mesmo cada função seguindo seu próprio fluxo aqui.
       const groupId = crypto.randomUUID();
@@ -596,7 +597,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
         const { data, error } = await supabase
           .from("nominations")
           .insert({
-            pm_user_id:                 user!.id,
+            pm_user_id:                 pmUserId,
             pm_name:                    pmName,
             request_group_id:           groupId,
             funcao:                     l.funcao.trim(),
@@ -1131,6 +1132,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
+      const pmUserId = await currentAuthUserId();
       // Solicitações antigas (de antes do agrupamento existir) não têm request_group_id — ao
       // salvar aqui, todas as funções do grupo ganham um de uma vez, pra passar a se comportar
       // como uma solicitação única daqui em diante (kanban, Minhas Solicitações etc.).
@@ -1169,7 +1171,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
           });
         } else {
           const { data, error } = await supabase.from("nominations").insert({
-            pm_user_id: user!.id,
+            pm_user_id: pmUserId,
             pm_name: pmName,
             request_group_id: groupId,
             ...camposComuns,
