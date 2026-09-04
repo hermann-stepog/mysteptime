@@ -1991,9 +1991,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [cliente, setCliente] = useState(initialCliente ?? "all");
   const [tipo, setTipo] = useState(initialTipo ?? "all");
   const [colaboradorId, setColaboradorId] = useState("");
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
 
   const filtered = useMemo(() => {
-    return (trips as Trip[]).filter((t) => {
+    const base = (trips as Trip[]).filter((t) => {
       if (from && t.scheduled_at < from) return false;
       if (to && t.scheduled_at > to + "T23:59:59") return false;
       if (tagId !== "all" && !t.tags.some((x) => x.tag_id === tagId)) return false;
@@ -2002,8 +2003,39 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
-    }).sort((a, b) => compareCarNumber(a.car_number, b.car_number));
-  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId]);
+    });
+
+    if (!sortColumn) return base.sort((a, b) => compareCarNumber(a.car_number, b.car_number));
+
+    const dir = sortDirection === "asc" ? 1 : -1;
+    const txt = (t: Trip): string => {
+      switch (sortColumn) {
+        case "data": return t.scheduled_at ?? "";
+        case "tipo": return t.tipo === "material" ? "Material" : "Pessoas";
+        case "cliente": return [t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ");
+        case "bsp": return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
+        case "etiquetas": return t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", ");
+        case "horario": return t.departure_time ?? "";
+        case "origem": return [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ");
+        case "destino": return [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ");
+        case "conteudo": return t.tipo === "pessoas"
+          ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
+          : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? materialLabel(mat) : null; }).filter(Boolean).join(", ");
+        case "status": return t.status ?? "";
+        default: return "";
+      }
+    };
+
+    return base.sort((a, b) => {
+      if (sortColumn === "carro") return compareCarNumber(a.car_number, b.car_number) * dir;
+      if (sortColumn === "custo") {
+        const va = custoTotal(a) ?? -Infinity;
+        const vb = custoTotal(b) ?? -Infinity;
+        return (va - vb) * dir;
+      }
+      return txt(a).localeCompare(txt(b), "pt-BR", { sensitivity: "base", numeric: true }) * dir;
+    });
+  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
 
   return (
     <div className="space-y-3">
