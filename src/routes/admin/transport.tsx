@@ -2097,18 +2097,18 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Data</TableHead>
-              <TableHead>Carro</TableHead>
-              <TableHead className="hidden md:table-cell">Tipo</TableHead>
-              <TableHead>Cliente</TableHead>
-              <TableHead className="hidden md:table-cell">BSP</TableHead>
-              <TableHead className="hidden xl:table-cell">Etiquetas</TableHead>
-              <TableHead className="hidden lg:table-cell">Horário</TableHead>
-              <TableHead className="hidden lg:table-cell">Origem</TableHead>
-              <TableHead className="hidden lg:table-cell">Destino</TableHead>
-              <TableHead className="hidden xl:table-cell">Pessoas/Materiais</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Custo</TableHead>
+              <SortableHead label="Data" column="data" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Carro" column="carro" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Tipo" column="tipo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+              <SortableHead label="Cliente" column="cliente" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+              <SortableHead label="Etiquetas" column="etiquetas" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
+              <SortableHead label="Horário" column="horario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
+              <SortableHead label="Origem" column="origem" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
+              <SortableHead label="Destino" column="destino" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
+              <SortableHead label="Pessoas/Materiais" column="conteudo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Custo" column="custo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="hidden w-[1%] xl:table-cell"></TableHead>
             </TableRow>
           </TableHeader>
