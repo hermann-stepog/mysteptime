@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -873,6 +873,14 @@ function ManageDialog({
 
           {/* ── Detalhes ── */}
           <TabsContent value="detalhes" className="space-y-4 pt-2">
+            {/* Atalho pro modo recrutamento logo no topo — antes ficava só escondido na aba
+                "Etapa atual" (Efetivo Disponível), fácil de não achar. Continua existindo lá
+                também, pra quem já estiver naquela aba. */}
+            {nomination.current_status === "simulacao" && (
+              <Button size="sm" className="w-full" onClick={() => { onGoToSimulacao(grupoCompleto); onClose(); }}>
+                <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Simular — selecionar candidatos
+              </Button>
+            )}
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
               {nomination.pm_name && (
@@ -1737,10 +1745,17 @@ function SimulacaoTab({
   );
 
   // Entrando em "modo recrutamento": pré-filtra pela função e período da primeira função do
-  // grupo, pra já cair direto na lista certa de candidatos.
+  // grupo, pra já cair direto na lista certa de candidatos. Guardado por ref (não só pela
+  // dependência do efeito) porque "nominations" pode ainda não ter chegado do cache no exato
+  // primeiro render — sem isso, o período/função ficavam no valor padrão se os dados
+  // chegassem depois desse primeiro efeito rodar com o grupo vazio.
   const focusGroupKey = focusGroupIds?.join(",") ?? "";
+  const focusInitializedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!focusGroup || focusGroup.length === 0) { setActiveFocusId(null); return; }
+    if (!focusGroupKey) { focusInitializedKeyRef.current = null; setActiveFocusId(null); return; }
+    if (!focusGroup || focusGroup.length === 0) return;
+    if (focusInitializedKeyRef.current === focusGroupKey) return;
+    focusInitializedKeyRef.current = focusGroupKey;
     const primeira = focusGroup[0];
     setActiveFocusId(primeira.id);
     setFilterFuncao(primeira.funcao);
@@ -1748,8 +1763,7 @@ function SimulacaoTab({
       setPeriodoDe(primeira.period_start);
       setPeriodoAte(primeira.period_end);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusGroupKey]);
+  }, [focusGroup, focusGroupKey]);
 
   const selecionarFuncaoAtiva = (n: Nomination) => {
     setActiveFocusId(n.id);
@@ -1994,7 +2008,7 @@ function SimulacaoTab({
               {focusGroup[0].unidade && ` — ${focusGroup[0].unidade}`}
             </span>
             <Button size="sm" variant="outline" className="h-7 bg-white" onClick={onExitFocus}>
-              <X className="mr-1.5 h-3.5 w-3.5" /> Concluir seleção
+              <X className="mr-1.5 h-3.5 w-3.5" /> Voltar para Nomeações
             </Button>
           </div>
 
@@ -2751,7 +2765,10 @@ export function NominationsPage() {
 
         {/* ── Simulação de disponibilidade ── */}
         <TabsContent value="simulacao" className="pt-4">
-          <SimulacaoTab focusGroupIds={simulacaoFocusIds} onExitFocus={() => setSimulacaoFocusIds(null)} />
+          <SimulacaoTab
+            focusGroupIds={simulacaoFocusIds}
+            onExitFocus={() => { setSimulacaoFocusIds(null); setTab("nomeacoes"); }}
+          />
         </TabsContent>
 
         {/* ── Lista + Kanban lado a lado ── */}
