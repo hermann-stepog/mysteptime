@@ -1983,6 +1983,8 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
   );
 }
 
+type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
+
 function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -1991,9 +1993,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [cliente, setCliente] = useState(initialCliente ?? "all");
   const [tipo, setTipo] = useState(initialTipo ?? "all");
   const [colaboradorId, setColaboradorId] = useState("");
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
 
   const filtered = useMemo(() => {
-    return (trips as Trip[]).filter((t) => {
+    const base = (trips as Trip[]).filter((t) => {
       if (from && t.scheduled_at < from) return false;
       if (to && t.scheduled_at > to + "T23:59:59") return false;
       if (tagId !== "all" && !t.tags.some((x) => x.tag_id === tagId)) return false;
@@ -2002,8 +2005,39 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
-    }).sort((a, b) => compareCarNumber(a.car_number, b.car_number));
-  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId]);
+    });
+
+    if (!sortColumn) return base.sort((a, b) => compareCarNumber(a.car_number, b.car_number));
+
+    const dir = sortDirection === "asc" ? 1 : -1;
+    const txt = (t: Trip): string => {
+      switch (sortColumn) {
+        case "data": return t.scheduled_at ?? "";
+        case "tipo": return t.tipo === "material" ? "Material" : "Pessoas";
+        case "cliente": return [t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ");
+        case "bsp": return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
+        case "etiquetas": return t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", ");
+        case "horario": return t.departure_time ?? "";
+        case "origem": return [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ");
+        case "destino": return [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ");
+        case "conteudo": return t.tipo === "pessoas"
+          ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
+          : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? materialLabel(mat) : null; }).filter(Boolean).join(", ");
+        case "status": return t.status ?? "";
+        default: return "";
+      }
+    };
+
+    return base.sort((a, b) => {
+      if (sortColumn === "carro") return compareCarNumber(a.car_number, b.car_number) * dir;
+      if (sortColumn === "custo") {
+        const va = custoTotal(a) ?? -Infinity;
+        const vb = custoTotal(b) ?? -Infinity;
+        return (va - vb) * dir;
+      }
+      return txt(a).localeCompare(txt(b), "pt-BR", { sensitivity: "base", numeric: true }) * dir;
+    });
+  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
 
   return (
     <div className="space-y-3">
@@ -2063,18 +2097,18 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Data</TableHead>
-              <TableHead>Carro</TableHead>
-              <TableHead className="hidden md:table-cell">Tipo</TableHead>
-              <TableHead>Cliente</TableHead>
-              <TableHead className="hidden md:table-cell">BSP</TableHead>
-              <TableHead className="hidden xl:table-cell">Etiquetas</TableHead>
-              <TableHead className="hidden lg:table-cell">Horário</TableHead>
-              <TableHead className="hidden lg:table-cell">Origem</TableHead>
-              <TableHead className="hidden lg:table-cell">Destino</TableHead>
-              <TableHead className="hidden xl:table-cell">Pessoas/Materiais</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Custo</TableHead>
+              <SortableHead label="Data" column="data" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Carro" column="carro" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Tipo" column="tipo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+              <SortableHead label="Cliente" column="cliente" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+              <SortableHead label="Etiquetas" column="etiquetas" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
+              <SortableHead label="Horário" column="horario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
+              <SortableHead label="Origem" column="origem" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
+              <SortableHead label="Destino" column="destino" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
+              <SortableHead label="Pessoas/Materiais" column="conteudo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Custo" column="custo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="hidden w-[1%] xl:table-cell"></TableHead>
             </TableRow>
           </TableHeader>
