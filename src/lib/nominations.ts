@@ -1,4 +1,4 @@
-// Fluxo de Nomeações: 11 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
+// Fluxo de Nomeações: 12 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
 // de Henrique/Wainer (seleção de candidatos). "Validação de Qualidade" vem logo depois de
 // "Nomeados" — só é obrigatória quando a solicitação exige (requires_quality_validation, hoje
 // só pra Soldador); quando não exige, o avanço de Nomeados já pula direto pra Aprovação PM,
@@ -6,15 +6,20 @@
 // solicitação pode ter N colaboradores nomeados (ver NominationNominee) — não é mais 1
 // colaborador por registro. "Aprovação PM" só libera pra Validação SMS (ASO) quando TODOS os
 // nomeados ativos tiverem sido decididos (aprovado ou reprovado); reprovados voltam pra
-// Aprovação Técnica pra nova indicação. "Validação SMS (ASO)" e a checklist de Aptidão (agora
-// dentro de "Validação RH") exigem cada nomeado aprovado marcado antes de avançar. "Validação
-// RH" também trava se algum nomeado tiver divergência de aptidão sinalizada (resolvida
-// manualmente, ver aptidao_divergence). "Briefing" é o SMS confirmando o briefing; "Equipe
-// Formada — BSP" é o estado terminal.
+// Aprovação Técnica pra nova indicação. "Validação SMS (ASO)" exige cada nomeado aprovado
+// marcado antes de avançar. "Aptidão (RH)" vem logo depois — o card leva a Logística/RH até a
+// aba "Aptidão" (Matriz de Qualificação do Drake) já com a função/unidade/período da
+// solicitação pré-selecionados, pra conferir se os nomeados estão aptos antes de confirmar e
+// seguir pra "Validação RH". "Validação RH" trava se algum nomeado tiver divergência de
+// aptidão sinalizada (resolvida manualmente, ver aptidao_divergence) — o checklist de aptidão
+// por nomeado que já existia ali continua, é um controle diferente (por pessoa) da checagem
+// na Matriz de Qualificação (por função/período, ver AptidaoRhSection). "Briefing" é o SMS
+// confirmando o briefing; "Equipe Formada — BSP" é o estado terminal.
 //
-// "aptidao" deixou de ser uma coluna própria (virou uma checklist dentro de "validacao_rh",
-// ver ValidacaoRhSection) — mantido no tipo só porque nomination_status_history ainda guarda
-// linhas antigas com esse status; nenhuma nomeação deve mais ter current_status = "aptidao".
+// "aptidao" (sem sufixo) deixou de ser uma coluna própria (virou o checklist dentro de
+// "validacao_rh", ver ValidacaoRhSection) — mantido no tipo só porque nomination_status_history
+// ainda guarda linhas antigas com esse status; nenhuma nomeação deve mais ter
+// current_status = "aptidao" (a etapa nova é "aptidao_rh", nome diferente de propósito).
 export type NominationStatus =
   | "solicitacao"
   | "recebido_logistica"
@@ -25,6 +30,7 @@ export type NominationStatus =
   | "aprovacao_pm"
   | "aptidao"
   | "validacao_sms_aso"
+  | "aptidao_rh"
   | "validacao_rh"
   | "briefing_sms"
   | "equipe_formada";
@@ -156,6 +162,7 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
   { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
   { id: "aprovacao_pm",        label: "Aprovação PM",             bg: "#FAEEDA", text: "#633806" },
   { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
+  { id: "aptidao_rh",          label: "Aptidão (RH)",             bg: "#FDEBEA", text: "#8C2F26" },
   { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
   { id: "briefing_sms",        label: "Briefing",                 bg: "#E0F7F5", text: "#0F5E59" },
   { id: "equipe_formada",      label: "Equipe Formada",           bg: "#DCFCE7", text: "#166534" },
@@ -375,6 +382,7 @@ export const STAGE_ROLE: Partial<Record<NominationStatus, string>> = {
   aprovacao_tecnica: "aprovacao_tecnica",
   validacao_qualidade: "qualidade",
   validacao_sms_aso: "sms",
+  aptidao_rh: "rh",
   validacao_rh: "rh",
   briefing_sms: "sms",
 };

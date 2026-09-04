@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -7,9 +7,12 @@ import {
   ChevronsUpDown,
   GraduationCap,
   Users,
+  X,
   XCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { type Nomination, requestTitle } from "@/lib/nominations";
+import { notify } from "@/lib/notify";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -77,7 +80,24 @@ const COURSE_STATUS_LABEL: Record<CourseEligibilityStatus, string> = {
 
 const OPERATION_TYPES = Object.keys(OPERATION_TYPE_LABEL) as OperationType[];
 
-export function QualificationEligibilityTab() {
+// Normaliza pra comparar nome da função/unidade da solicitação (texto livre) com o catálogo
+// da Matriz de Qualificação (vindo do Drake) — mesma ideia de normalizeNomeHistograma, só que
+// local aqui porque não há um ponto compartilhado entre os dois módulos ainda.
+function normalizeMatchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+export function QualificationEligibilityTab({
+  focusGroup, onExitFocus,
+}: {
+  focusGroup?: Nomination[] | null;
+  onExitFocus?: () => void;
+} = {}) {
   const [unitId, setUnitId] = useState("");
   const [jobGroupId, setJobGroupId] = useState("");
   const [jobId, setJobId] = useState("");
@@ -101,6 +121,47 @@ export function QualificationEligibilityTab() {
     () => jobGroups.map((group) => ({ id: group.id, name: group.name })),
     [jobGroups],
   );
+
+  // Modo recrutamento vindo do card "Aptidão (RH)" (mesma ideia do modo da Simulação): tenta
+  // achar na Matriz de Qualificação a unidade/função da solicitação por nome — quando acha,
+  // pré-preenche os filtros; quando não acha (grafia diferente do Drake), avisa e deixa pra
+  // selecionar manualmente, nunca finge um match que não existe.
+  const [activeFocusId, setActiveFocusId] = useState<string | null>(null);
+  const activeFocus = focusGroup?.find((n) => n.id === activeFocusId) ?? focusGroup?.[0] ?? null;
+
+  const aplicarFiltrosDaFuncao = (n: Nomination) => {
+    if (!catalog) return;
+    const unit = catalog.operationalUnits.find((u) => normalizeMatchText(u.name) === normalizeMatchText(n.unidade ?? ""));
+    const job = catalog.jobs.find((j) => normalizeMatchText(j.name) === normalizeMatchText(n.funcao));
+    if (!unit || !job) {
+      notify.error(`Não encontramos "${n.unidade ?? "—"} / ${n.funcao}" na Matriz de Qualificação — selecione manualmente abaixo.`);
+      return;
+    }
+    const group = jobGroups.find((g) => g.jobs.some((j) => j.id === job.id));
+    setUnitId(unit.id);
+    setJobGroupId(group?.id ?? "");
+    setJobId(job.id);
+    setOperationType(/irata/i.test(n.funcao) ? "offshore-irata" : "offshore");
+    if (n.period_start) setStartDate(n.period_start);
+    if (n.period_end) setEndDate(n.period_end);
+  };
+
+  const focusGroupKey = focusGroup?.map((n) => n.id).join(",") ?? "";
+  const focusInitializedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusGroupKey) { focusInitializedKeyRef.current = null; setActiveFocusId(null); return; }
+    if (!catalog || !focusGroup || focusGroup.length === 0) return;
+    if (focusInitializedKeyRef.current === focusGroupKey) return;
+    focusInitializedKeyRef.current = focusGroupKey;
+    setActiveFocusId(focusGroup[0].id);
+    aplicarFiltrosDaFuncao(focusGroup[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, focusGroup, focusGroupKey]);
+
+  const selecionarFuncaoAtiva = (n: Nomination) => {
+    setActiveFocusId(n.id);
+    aplicarFiltrosDaFuncao(n);
+  };
   const invalidPeriod = Boolean(startDate && endDate && startDate > endDate);
   const selection = useMemo<QualificationEligibilitySelection | null>(() => {
     if (!unitId || !jobId || !operationType || !startDate || !endDate || invalidPeriod) {
@@ -129,6 +190,37 @@ export function QualificationEligibilityTab() {
 
   return (
     <div className="space-y-4">
+      {focusGroup && focusGroup.length > 0 && (
+        <div className="space-y-2.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              <GraduationCap className="mr-1.5 inline h-3.5 w-3.5" />
+              Verificando aptidão para: <span className="font-semibold">{requestTitle(focusGroup[0])}</span>
+              {focusGroup[0].unidade && ` — ${focusGroup[0].unidade}`}
+            </span>
+            {onExitFocus && (
+              <Button size="sm" variant="outline" className="h-7 bg-white" onClick={onExitFocus}>
+                <X className="mr-1.5 h-3.5 w-3.5" /> Voltar para Nomeações
+              </Button>
+            )}
+          </div>
+          {focusGroup.length > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              {focusGroup.map((n) => (
+                <button
+                  key={n.id} type="button" onClick={() => selecionarFuncaoAtiva(n)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                    n.id === activeFocus?.id ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-900 hover:bg-blue-100",
+                  )}
+                >
+                  {n.funcao}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.7fr)]">
         <Card className="space-y-4 p-4">
           <div>
