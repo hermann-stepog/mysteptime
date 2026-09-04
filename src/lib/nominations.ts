@@ -339,13 +339,16 @@ export function fmtDatetime(iso: string) {
 }
 
 // Título de uma solicitação: número da BSP (sem o prefixo "BSP") + numeração sequencial por
-// BSP (bsp_request_number, atribuído por trigger no banco — ver migration). Usado como título
-// em todo lugar que representa a solicitação como um todo (card do kanban, Minhas Solicitações,
-// dialogs) — mesmo texto tanto pro operador quanto pro solicitante.
-export function requestTitle(n: Pick<Nomination, "bsp" | "bsp_request_number">): string {
+// BSP (bsp_request_number, atribuído por trigger no banco — ver migration) + ano de criação
+// (últimos 2 dígitos, igual numeração de protocolo/documento — fixo pro ano em que a
+// solicitação nasceu, nunca muda depois). Usado como título em todo lugar que representa a
+// solicitação como um todo (card do kanban, Minhas Solicitações, dialogs) — mesmo texto tanto
+// pro operador quanto pro solicitante.
+export function requestTitle(n: Pick<Nomination, "bsp" | "bsp_request_number" | "created_at">): string {
   if (!n.bsp) return "—";
   const numero = n.bsp_request_number != null ? String(n.bsp_request_number).padStart(3, "0") : "???";
-  return `${n.bsp} - ${numero}`;
+  const anoCurto = String(new Date(n.created_at).getFullYear()).slice(-2);
+  return `${n.bsp} - ${numero}/${anoCurto}`;
 }
 
 // Cobre tanto a nomenclatura em português (base do BM/rates, ex.: "SOLDADOR I") quanto a
