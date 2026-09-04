@@ -42,6 +42,18 @@ export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Sol
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
+// O id do usuário guardado em memória pode ficar defasado quando a sessão expira/é renovada
+// enquanto o formulário está aberto — nesse caso a gravação era recusada pelas regras de
+// acesso do banco (pm_user_id precisa ser igual ao usuário da sessão). Relê a sessão atual
+// na hora de salvar e, se não houver mais sessão, avisa pra entrar de novo.
+async function currentAuthUserId(): Promise<string> {
+  const { data, error } = await supabaseTyped.auth.getUser();
+  if (error || !data.user) {
+    throw new Error("Sua sessão expirou. Entre novamente para enviar a solicitação.");
+  }
+  return data.user.id;
+}
+
 function StatusBadge({ status }: { status: Nomination["current_status"] }) {
   const label = STATUS_LABELS[status] ?? status;
   const c = STATUS_BADGE[status] ?? { bg: "#f1f5f9", text: "#334155" };
@@ -568,6 +580,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
+      const pmUserId = await currentAuthUserId();
       // Um id só pra todas as funções desta solicitação — "Minhas Solicitações" agrupa por
       // ele de volta num único cartão, mesmo cada função seguindo seu próprio fluxo aqui.
       const groupId = crypto.randomUUID();
@@ -584,7 +597,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
         const { data, error } = await supabase
           .from("nominations")
           .insert({
-            pm_user_id:                 user!.id,
+            pm_user_id:                 pmUserId,
             pm_name:                    pmName,
             request_group_id:           groupId,
             funcao:                     l.funcao.trim(),
@@ -1119,6 +1132,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
+      const pmUserId = await currentAuthUserId();
       // Solicitações antigas (de antes do agrupamento existir) não têm request_group_id — ao
       // salvar aqui, todas as funções do grupo ganham um de uma vez, pra passar a se comportar
       // como uma solicitação única daqui em diante (kanban, Minhas Solicitações etc.).
@@ -1157,7 +1171,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
           });
         } else {
           const { data, error } = await supabase.from("nominations").insert({
-            pm_user_id: user!.id,
+            pm_user_id: pmUserId,
             pm_name: pmName,
             request_group_id: groupId,
             ...camposComuns,
