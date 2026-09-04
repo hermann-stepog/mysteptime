@@ -100,17 +100,22 @@ function defaultEnd() {
 // alimentar a exportação a partir do módulo de Relatórios, sem duplicar a consulta.
 async function fetchDiasNoPeriodo(dataInicio: string, dataFim: string): Promise<DiaComEmbarque[]> {
   if (!dataInicio || !dataFim) return [];
+  // Decisão da usuária: nenhum relatório de timesheet traz dado de antes de 2026, mesmo que o
+  // filtro de período (compartilhado com outros módulos em Relatórios) permita escolher uma
+  // data anterior — trava aqui, no ponto único que todos os relatórios de timesheet usam.
+  const de = dataInicio < DRAKE_DATA_CUTOFF ? DRAKE_DATA_CUTOFF : dataInicio;
+  if (de > dataFim) return [];
   // timesheet_semanas/timesheet_dias já passam de 1000 linhas — sem paginação o Supabase corta
   // em silêncio e o relatório sai incompleto sem erro nenhum.
   const semanasNoPeriodo = await selectAllPages<TimesheetSemana>((from, to) =>
     supabase.from("timesheet_semanas").select("*")
-      .lte("data_inicio_semana", dataFim).gte("data_fim_semana", dataInicio).order("id").range(from, to),
+      .lte("data_inicio_semana", dataFim).gte("data_fim_semana", de).order("id").range(from, to),
   );
   const semanaIds = semanasNoPeriodo.map((s) => s.id);
   if (semanaIds.length === 0) return [];
   const diasData = await selectAllPages<TimesheetDia>((from, to) =>
     supabase.from("timesheet_dias").select("*")
-      .in("semana_id", semanaIds).gte("data", dataInicio).lte("data", dataFim).order("id").range(from, to),
+      .in("semana_id", semanaIds).gte("data", de).lte("data", dataFim).order("id").range(from, to),
   );
   const embarqueIdBySemanaId = new Map(semanasNoPeriodo.map((s) => [s.id, s.embarque_id]));
   return diasData.map((d) => ({ ...d, embarque_id: embarqueIdBySemanaId.get(d.semana_id) ?? "" })) as DiaComEmbarque[];
@@ -191,10 +196,11 @@ export async function generateRelatorioRH(
     supabase.from("hist_novo_colaboradores").select("*"),
     selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
     // Folga Indenizada (tipo "FI") já vem pronta do Drake no Histograma — não é lançada aqui,
-    // só somada nesse relatório (mesma coluna 413, mesmo adicional de 100%).
+    // só somada nesse relatório (mesma coluna 413, mesmo adicional de 100%). Mesma trava de
+    // não trazer nada antes de 2026 usada em fetchDiasNoPeriodo, aplicada aqui também.
     selectAllPages<HistNovoPeriodo>((from, to) =>
       supabase.from("hist_novo_periodos").select("*").eq("tipo", "FI")
-        .lte("data_inicio", dataFim).gte("data_fim", dataInicio).order("id").range(from, to),
+        .lte("data_inicio", dataFim).gte("data_fim", dataInicio < DRAKE_DATA_CUTOFF ? DRAKE_DATA_CUTOFF : dataInicio).order("id").range(from, to),
     ),
     selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select("*").gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
   ]);
@@ -1287,20 +1293,15 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
 
   return (
     <div className="space-y-3">
-      {/* "Últimas Atualizações" virou um botão-gatilho de popover dentro dessa mesma linha, em
-          vez de um cartão fixo do lado — como um cartão fixo tem altura própria e as pastilhas
-          de unidade logo abaixo têm altura variável (1 a 3 linhas conforme quantas unidades têm
-          embarque), qualquer jeito de "casar" as duas alturas deixava um vão vazio de um lado
-          ou de outro. Um botão de altura normal na mesma linha dos filtros não tem esse problema. */}
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5 w-36">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+            <Input type="date" className="h-8 text-xs" min={DRAKE_DATA_CUTOFF} value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+            <Input type="date" className="h-8 text-xs" min={DRAKE_DATA_CUTOFF} value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
@@ -1338,25 +1339,6 @@ function EmbarquesTab({ colaboradores, periodos, periodosE, embarques, semanas, 
           </div>
         </div>
       </Card>
-
-      {cardsPorUnidade.length > 0 && (
-        <div className="flex flex-wrap content-start gap-1.5">
-          {cardsPorUnidade.map((unidade) => (
-            <Card
-              key={unidade}
-              role="button" tabIndex={0}
-              onClick={() => { setFilterUnidade(unidade === filterUnidade ? "all" : unidade); setFilterBsp("all"); }}
-              style={{ flex: "1 1 6rem" }}
-              className={cn(
-                "flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-primary/15 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent px-2 py-1.5 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
-                filterUnidade === unidade && "border-primary bg-primary/15 shadow-md",
-              )}
-            >
-              <p className="truncate text-xs font-semibold leading-tight text-primary">{unidade}</p>
-            </Card>
-          ))}
-        </div>
-      )}
 
       <Card>
         <Table>
@@ -1753,11 +1735,11 @@ function PendenciasTab({ colaboradores, periodos, embarques, semanas, unidadeOpt
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5 w-36">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+            <Input type="date" className="h-8 text-xs" min={DRAKE_DATA_CUTOFF} value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
+            <Input type="date" className="h-8 text-xs" min={DRAKE_DATA_CUTOFF} value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
@@ -2814,11 +2796,11 @@ function MedicaoTab({ colaboradores, embarques, periodos }: {
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+            <Input type="date" className="h-8 text-xs" min={DRAKE_DATA_CUTOFF} value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
           </div>
           <div className="space-y-0.5">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+            <Input type="date" className="h-8 text-xs" min={DRAKE_DATA_CUTOFF} value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-48">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade Operacional</Label>
