@@ -1,4 +1,4 @@
-// Fluxo de Nomeações: 11 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
+// Fluxo de Nomeações: 12 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
 // de Henrique/Wainer (seleção de candidatos). "Validação de Qualidade" vem logo depois de
 // "Nomeados" — só é obrigatória quando a solicitação exige (requires_quality_validation, hoje
 // só pra Soldador); quando não exige, o avanço de Nomeados já pula direto pra Aprovação PM,
@@ -6,15 +6,20 @@
 // solicitação pode ter N colaboradores nomeados (ver NominationNominee) — não é mais 1
 // colaborador por registro. "Aprovação PM" só libera pra Validação SMS (ASO) quando TODOS os
 // nomeados ativos tiverem sido decididos (aprovado ou reprovado); reprovados voltam pra
-// Aprovação Técnica pra nova indicação. "Validação SMS (ASO)" e a checklist de Aptidão (agora
-// dentro de "Validação RH") exigem cada nomeado aprovado marcado antes de avançar. "Validação
-// RH" também trava se algum nomeado tiver divergência de aptidão sinalizada (resolvida
-// manualmente, ver aptidao_divergence). "Briefing" é o SMS confirmando o briefing; "Equipe
-// Formada — BSP" é o estado terminal.
+// Aprovação Técnica pra nova indicação. "Validação SMS (ASO)" exige cada nomeado aprovado
+// marcado antes de avançar. "Aptidão (RH)" vem logo depois — o card leva a Logística/RH até a
+// aba "Aptidão" (Matriz de Qualificação do Drake) já com a função/unidade/período da
+// solicitação pré-selecionados, pra conferir se os nomeados estão aptos antes de confirmar e
+// seguir pra "Validação RH". A checklist de aptidão por nomeado que existia dentro de
+// "Validação RH" foi removida (virou essa etapa própria, por função/período, em vez de um
+// campo por pessoa) — "Validação RH" hoje só valida/sinaliza divergência de RH mesmo
+// (aptidao_divergence continua existindo como conceito, resolvida manualmente ali). "Briefing"
+// é o SMS confirmando o briefing; "Equipe Formada — BSP" é o estado terminal.
 //
-// "aptidao" deixou de ser uma coluna própria (virou uma checklist dentro de "validacao_rh",
-// ver ValidacaoRhSection) — mantido no tipo só porque nomination_status_history ainda guarda
-// linhas antigas com esse status; nenhuma nomeação deve mais ter current_status = "aptidao".
+// "aptidao" (sem sufixo) é só histórico — nomination_status_history ainda guarda linhas
+// antigas com esse status de quando ela era uma coluna própria (antes de virar checklist
+// dentro de "validacao_rh", e depois a etapa "aptidao_rh"); nenhuma nomeação deve mais ter
+// current_status = "aptidao".
 export type NominationStatus =
   | "solicitacao"
   | "recebido_logistica"
@@ -25,6 +30,7 @@ export type NominationStatus =
   | "aprovacao_pm"
   | "aptidao"
   | "validacao_sms_aso"
+  | "aptidao_rh"
   | "validacao_rh"
   | "briefing_sms"
   | "equipe_formada";
@@ -156,6 +162,7 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
   { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
   { id: "aprovacao_pm",        label: "Aprovação PM",             bg: "#FAEEDA", text: "#633806" },
   { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
+  { id: "aptidao_rh",          label: "Aptidão (RH)",             bg: "#FDEBEA", text: "#8C2F26" },
   { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
   { id: "briefing_sms",        label: "Briefing",                 bg: "#E0F7F5", text: "#0F5E59" },
   { id: "equipe_formada",      label: "Equipe Formada",           bg: "#DCFCE7", text: "#166534" },
@@ -238,18 +245,16 @@ export function canMoveToColumn(
     }
   }
 
-  // Aptidão virou uma checklist dentro de Validação RH (não é mais coluna própria) — por
-  // isso o mesmo gate de saída de Validação RH exige tanto ela quanto a ausência de
-  // divergência, que já existia antes.
+  // A checklist de aptidão por nomeado saiu daqui — a checagem de aptidão agora é a etapa
+  // própria "Aptidão (RH)", logo antes desta (consulta por função/período na Matriz de
+  // Qualificação, não mais um campo por pessoa). Validação RH mantém só a validação/
+  // divergência de RH que já existia.
   const validacaoRhIdx = COLUMN_ORDER.indexOf("validacao_rh");
   const saiDeValidacaoRh = currentIdx <= validacaoRhIdx && targetIdx > validacaoRhIdx;
   if (saiDeValidacaoRh) {
     const aprovados = activeNominees(nominees).filter((n) => n.pm_decision === "aprovado");
     if (aprovados.some((n) => n.aptidao_divergence)) {
       return { ok: false, reason: "Há divergência de aptidão pendente — resolva antes de avançar." };
-    }
-    if (aprovados.length > 0 && !aprovados.every((n) => n.aptidao_checked)) {
-      return { ok: false, reason: "Marque a aptidão de todos os nomeados aprovados antes de avançar." };
     }
     if (aprovados.length > 0 && !aprovados.every((n) => n.rh_validated)) {
       return { ok: false, reason: "Valide o RH de todos os nomeados aprovados antes de avançar." };
@@ -290,9 +295,7 @@ function nomineeFieldsMarkedAt(stage: NominationStatus): Record<string, unknown>
     case "validacao_sms_aso":
       return { sms_aso_checked: false, sms_aso_checked_at: null, sms_aso_checked_by: null };
     case "validacao_rh":
-      // Checklist de aptidão + validação/divergência de RH, ambas dentro desta mesma etapa.
       return {
-        aptidao_checked: false, aptidao_checked_at: null, aptidao_checked_by: null,
         rh_validated: false, rh_validated_at: null, rh_validated_by: null,
         aptidao_divergence: false, aptidao_divergence_text: null, aptidao_divergence_flagged_at: null,
       };
@@ -375,6 +378,7 @@ export const STAGE_ROLE: Partial<Record<NominationStatus, string>> = {
   aprovacao_tecnica: "aprovacao_tecnica",
   validacao_qualidade: "qualidade",
   validacao_sms_aso: "sms",
+  aptidao_rh: "rh",
   validacao_rh: "rh",
   briefing_sms: "sms",
 };
