@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   type Nomination, type NominationNominee, type NominationStatusHistory, type PmDecision,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES,
-  fmtDate, fmtDatetime, isSoldador, canMoveToColumn,
+  fmtDate, fmtDatetime, isSoldador, canMoveToColumn, requestTitle,
 } from "@/lib/nominations";
 import { notifyStageAdvance } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -200,7 +200,7 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle>{nom.funcao}</DialogTitle>
+            <DialogTitle>{requestTitle(nom)} — {nom.funcao}</DialogTitle>
             {podeEditar && (
               <div className="flex shrink-0 gap-1.5">
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Editar</Button>
@@ -349,7 +349,7 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Editar solicitação</DialogTitle>
+          <DialogTitle>Editar solicitação {requestTitle(nom)}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3 py-2">
@@ -865,8 +865,12 @@ function MinhasSolicitacoesTab() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-semibold">{requestTitle(primeiro)}</p>
+                    <p className="truncate text-xs font-medium text-foreground/90">
+                      {items.map((n) => n.funcao + (n.quantidade > 1 ? ` ×${n.quantidade}` : "")).join(", ")}
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      {primeiro.unidade} {primeiro.bsp}
+                      {primeiro.unidade}
                       {primeiro.period_start && primeiro.period_end && (
                         <span className="ml-2 inline-flex items-center gap-1">
                           <CalendarDays className="h-3 w-3" />
@@ -874,9 +878,6 @@ function MinhasSolicitacoesTab() {
                         </span>
                       )}
                       {primeiro.client && <span className="ml-2">{primeiro.client}</span>}
-                    </p>
-                    <p className="truncate text-sm font-semibold">
-                      {items.map((n) => n.funcao + (n.quantidade > 1 ? ` ×${n.quantidade}` : "")).join(", ")}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -940,7 +941,7 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle>Solicitação — {primeiro.unidade} {primeiro.bsp}</DialogTitle>
+            <DialogTitle>Solicitação {requestTitle(primeiro)}</DialogTitle>
             {podeGerenciarGrupo && (
               <div className="flex shrink-0 gap-1.5">
                 {confirmandoExclusaoTudo ? (
@@ -1114,7 +1115,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Editar solicitação</DialogTitle>
+          <DialogTitle>Editar solicitação {requestTitle(primeiro)}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3 py-2">

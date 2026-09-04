@@ -12,7 +12,7 @@ import {
   type Nomination, type NominationNominee, type NominationStatusHistory,
   type WeldTypeConfig, type WeldMaterialConfig, type NominationStatus, type PmDecision, type QualityStatus,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE, QUALIDADE_ROLE,
-  columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador,
+  columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador, requestTitle,
 } from "@/lib/nominations";
 import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyQualityRejection } from "@/lib/nominationEmails";
 import { cn, matchesNameSearch } from "@/lib/utils";
@@ -168,11 +168,31 @@ function useNominees(nominationId: string | undefined) {
   });
 }
 
+// Nomeados de várias funções de uma vez (mesma solicitação, mesmo request_group_id) — usado
+// pelo modo recrutamento em grupo da Simulação, que precisa ver quem já foi adicionado em CADA
+// função do grupo pra mostrar o progresso das abas, mesmo sem estar olhando pra ela agora.
+function useNomineesForGroup(nominationIds: string[]) {
+  const key = [...nominationIds].sort().join(",");
+  return useQuery<NominationNominee[]>({
+    queryKey: ["nominations-group-nominees", key],
+    enabled: nominationIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("nomination_nominees")
+        .select("*")
+        .in("nomination_id", nominationIds)
+        .order("created_at");
+      if (error) throw error;
+      return (data ?? []) as NominationNominee[];
+    },
+  });
+}
+
 // ── Manage dialog ─────────────────────────────────────────────────────────────
 
 // A seleção de candidatos em si acontece na aba Simulação (grade completa, com filtros) —
 // aqui é só um resumo de quem já foi adicionado + o atalho que leva pra lá em "modo
-// recrutamento" pra essa solicitação específica (ver SimulacaoTab/focusNomination).
+// recrutamento" pro grupo inteiro da solicitação (ver SimulacaoTab/focusGroupIds).
 function EfetivoDisponivelSection({
   nomination, nominees, onGoToSimulacao,
 }: {
@@ -632,7 +652,7 @@ function ManageDialog({
 }: {
   nomination: Nomination;
   onClose: () => void;
-  onGoToSimulacao: (nomination: Nomination) => void;
+  onGoToSimulacao: (group: Nomination[]) => void;
 }) {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
@@ -660,6 +680,9 @@ function ManageDialog({
   const advanceGroupTo = (target: NominationStatus, extraPatch?: Record<string, unknown>) => {
     groupSiblings.forEach((sibling) => advance.mutate({ nomination: sibling, target, extraPatch }));
   };
+  // Grupo completo (esta função + irmãs) — a Simulação precisa de todas de uma vez, pra
+  // selecionar candidatos de cada função sem sair e voltar ao modo recrutamento por função.
+  const grupoCompleto = [nomination, ...groupSiblings];
 
   const { data: history = [] } = useQuery<NominationStatusHistory[]>({
     queryKey: ["nominations", nomination.id, "history"],
@@ -790,7 +813,7 @@ function ManageDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start justify-between gap-2 pr-6">
-            <DialogTitle className="text-base">{nomination.funcao}</DialogTitle>
+            <DialogTitle className="text-base">{requestTitle(nomination)} — {nomination.funcao}</DialogTitle>
             {canOperate && (
               <div className="flex items-center gap-0.5 shrink-0">
                 {(earlierStages.length > 0 || laterStages.length > 0) && (
@@ -898,7 +921,7 @@ function ManageDialog({
                   onClick={() => {
                     advance.mutate(
                       { nomination, target: "simulacao" },
-                      { onSuccess: () => { onGoToSimulacao(nomination); onClose(); } },
+                      { onSuccess: () => { onGoToSimulacao(grupoCompleto); onClose(); } },
                     );
                     advanceGroupTo("simulacao");
                   }}
@@ -1108,7 +1131,7 @@ function ManageDialog({
               <EfetivoDisponivelSection
                 nomination={nomination}
                 nominees={nominees}
-                onGoToSimulacao={() => { onGoToSimulacao(nomination); onClose(); }}
+                onGoToSimulacao={() => { onGoToSimulacao(grupoCompleto); onClose(); }}
               />
             )}
             {nomination.current_status === "aprovacao_tecnica" && <AprovacaoTecnicaSection nomination={nomination} nominees={nominees} />}
@@ -1347,16 +1370,19 @@ function NominationCard({
         } ${highlighted ? "ring-2 ring-primary" : ""}`}
       >
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-semibold leading-tight">
-            {isGroup
-              ? items.map((n) => `${n.funcao}${n.quantidade > 1 ? ` ×${n.quantidade}` : ""}`).join(", ")
-              : (<>{first.funcao}{first.quantidade > 1 && <span className="ml-1.5 font-normal text-muted-foreground">×{first.quantidade}</span>}</>)}
-          </p>
+          <p className="text-sm font-semibold leading-tight">{requestTitle(first)}</p>
           <div className="flex shrink-0 items-center gap-1">
             {isTerminal && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
           </div>
         </div>
-        {first.bsp && <p className="mt-0.5 text-xs text-muted-foreground">{first.unidade} — {first.bsp}</p>}
+        <div className="mt-1 space-y-0.5">
+          {items.map((n) => (
+            <p key={n.id} className="text-xs font-medium text-foreground/90">
+              {n.funcao}{n.quantidade > 1 && <span className="ml-1 font-normal text-muted-foreground">×{n.quantidade}</span>}
+            </p>
+          ))}
+        </div>
+        {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
         {first.period_start && first.period_end && (
           <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(first.period_start)} – {fmtDate(first.period_end)}</p>
         )}
@@ -1371,7 +1397,7 @@ function NominationCard({
         <Dialog open onOpenChange={(o) => !o && setPickerOpen(false)}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>Funções desta solicitação</DialogTitle>
+              <DialogTitle>{requestTitle(first)} — Funções desta solicitação</DialogTitle>
             </DialogHeader>
             <div className="divide-y rounded-md border">
               {items.map((n) => (
@@ -1663,9 +1689,9 @@ function funcaoMatchesFilter(funcao: string, funcoesAno: string[], filtro: strin
 
 
 function SimulacaoTab({
-  focusNomination, onExitFocus,
+  focusGroupIds, onExitFocus,
 }: {
-  focusNomination: Nomination | null;
+  focusGroupIds: string[] | null;
   onExitFocus: () => void;
 }) {
   const hoje = todayStr();
@@ -1685,35 +1711,64 @@ function SimulacaoTab({
   };
 
   const qc = useQueryClient();
-  const { data: focusNominees = [] } = useNominees(focusNomination?.id);
-  const focusNomineeIds = useMemo(
-    () => new Set(focusNominees.filter((n) => n.is_active).map((n) => n.colaborador_id)),
-    [focusNominees],
+
+  // Relê da mesma query cacheada de nominations (não guarda retrato próprio) — assim o grupo
+  // em foco (função, quantidade, status) sempre reflete o que foi editado durante a própria
+  // sessão de recrutamento, inclusive a quantidade ajustada mais abaixo.
+  const { data: allNominationsForFocus = [] } = useAllNominations();
+  const focusGroup = useMemo(
+    () => (focusGroupIds ? allNominationsForFocus.filter((n) => focusGroupIds.includes(n.id)) : null),
+    [allNominationsForFocus, focusGroupIds],
   );
 
-  // Entrando em "modo recrutamento": pré-filtra pela função e período da solicitação, pra
-  // já cair direto na lista certa de candidatos.
+  const { data: focusNomineesAll = [] } = useNomineesForGroup(focusGroupIds ?? []);
+
+  // Função ativa dentro do grupo — pra qual "Adicionar" leva agora. Trocar de função pelas
+  // abas do banner não sai do modo recrutamento nem perde o que já foi selecionado nas outras
+  // (pedido dela: "tudo dentro de um único cartão, sem separar um de cada vez").
+  const [activeFocusId, setActiveFocusId] = useState<string | null>(null);
+  const activeFocus = focusGroup?.find((n) => n.id === activeFocusId) ?? focusGroup?.[0] ?? null;
+
+  const focusNomineeIds = useMemo(
+    () => new Set(
+      focusNomineesAll.filter((n) => n.is_active && n.nomination_id === activeFocus?.id).map((n) => n.colaborador_id),
+    ),
+    [focusNomineesAll, activeFocus?.id],
+  );
+
+  // Entrando em "modo recrutamento": pré-filtra pela função e período da primeira função do
+  // grupo, pra já cair direto na lista certa de candidatos.
+  const focusGroupKey = focusGroupIds?.join(",") ?? "";
   useEffect(() => {
-    if (!focusNomination) return;
-    setFilterFuncao(focusNomination.funcao);
-    if (focusNomination.period_start && focusNomination.period_end) {
-      setPeriodoDe(focusNomination.period_start);
-      setPeriodoAte(focusNomination.period_end);
+    if (!focusGroup || focusGroup.length === 0) { setActiveFocusId(null); return; }
+    const primeira = focusGroup[0];
+    setActiveFocusId(primeira.id);
+    setFilterFuncao(primeira.funcao);
+    if (primeira.period_start && primeira.period_end) {
+      setPeriodoDe(primeira.period_start);
+      setPeriodoAte(primeira.period_end);
     }
-  }, [focusNomination?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusGroupKey]);
+
+  const selecionarFuncaoAtiva = (n: Nomination) => {
+    setActiveFocusId(n.id);
+    setFilterFuncao(n.funcao);
+  };
 
   const addNominee = useMutation({
     mutationFn: async (c: { id: string; nome: string }) => {
-      if (!focusNomination) return;
+      if (!activeFocus) return;
       const { error } = await supabase.from("nomination_nominees").insert({
-        nomination_id: focusNomination.id,
+        nomination_id: activeFocus.id,
         colaborador_id: c.id,
         colaborador_nome: c.nome,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["nominations", focusNomination?.id, "nominees"] });
+      qc.invalidateQueries({ queryKey: ["nominations-group-nominees"] });
+      qc.invalidateQueries({ queryKey: ["nominations", activeFocus?.id, "nominees"] });
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao adicionar candidato."),
   });
@@ -1722,16 +1777,40 @@ function SimulacaoTab({
   // remover pelo Efetivo Disponível — mesma remoção (exclui a linha de nomination_nominees).
   const undoAddNominee = useMutation({
     mutationFn: async (colaboradorId: string) => {
-      const nominee = focusNominees.find((n) => n.colaborador_id === colaboradorId && n.is_active);
+      const nominee = focusNomineesAll.find(
+        (n) => n.colaborador_id === colaboradorId && n.is_active && n.nomination_id === activeFocus?.id,
+      );
       if (!nominee) return;
       const { error } = await supabase.from("nomination_nominees").delete().eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["nominations", focusNomination?.id, "nominees"] });
+      qc.invalidateQueries({ queryKey: ["nominations-group-nominees"] });
+      qc.invalidateQueries({ queryKey: ["nominations", activeFocus?.id, "nominees"] });
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao desfazer."),
   });
+
+  // Ajuste de quantidade direto no banner, sem precisar abrir o card — "quantas pessoas
+  // quisermos para cada função" (pedido dela). Rascunho local só pra digitação não travar
+  // enquanto o valor confirmado (n.quantidade) ainda não voltou da query invalidada.
+  const [qtyDraft, setQtyDraft] = useState<Record<string, string>>({});
+  const updateQuantidade = useMutation({
+    mutationFn: async ({ id, quantidade }: { id: string; quantidade: number }) => {
+      const { error } = await supabase.from("nominations").update({ quantidade }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations"] }),
+    onError: (err: Error) => notify.error(err.message || "Erro ao atualizar quantidade."),
+  });
+  const quantidadeExibida = (n: Nomination) => qtyDraft[n.id] ?? String(n.quantidade);
+  const confirmarQuantidade = (n: Nomination) => {
+    const raw = qtyDraft[n.id];
+    if (raw === undefined) return;
+    const val = Math.max(1, Number(raw) || n.quantidade);
+    setQtyDraft((d) => { const next = { ...d }; delete next[n.id]; return next; });
+    if (val !== n.quantidade) updateQuantidade.mutate({ id: n.id, quantidade: val });
+  };
 
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
     queryKey: ["sim-colaboradores"],
@@ -1906,17 +1985,53 @@ function SimulacaoTab({
 
   return (
     <div className="space-y-4">
-      {focusNomination && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-          <span>
-            <UserPlus className="mr-1.5 inline h-3.5 w-3.5" />
-            Selecionando candidatos para: <span className="font-semibold">{focusNomination.funcao}</span>
-            {focusNomination.unidade && ` — ${focusNomination.unidade}`}
-            {focusNomination.bsp && ` ${focusNomination.bsp}`}
-          </span>
-          <Button size="sm" variant="outline" className="h-7 bg-white" onClick={onExitFocus}>
-            <X className="mr-1.5 h-3.5 w-3.5" /> Concluir seleção
-          </Button>
+      {focusGroup && focusGroup.length > 0 && (
+        <div className="space-y-2.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              <UserPlus className="mr-1.5 inline h-3.5 w-3.5" />
+              Selecionando candidatos para: <span className="font-semibold">{requestTitle(focusGroup[0])}</span>
+              {focusGroup[0].unidade && ` — ${focusGroup[0].unidade}`}
+            </span>
+            <Button size="sm" variant="outline" className="h-7 bg-white" onClick={onExitFocus}>
+              <X className="mr-1.5 h-3.5 w-3.5" /> Concluir seleção
+            </Button>
+          </div>
+
+          {/* Uma aba por função do grupo — trocar aqui muda pra quem "Adicionar" vale, sem sair
+              do modo recrutamento nem perder a seleção já feita nas outras funções. */}
+          <div className="flex flex-wrap gap-1.5">
+            {focusGroup.map((n) => {
+              const count = focusNomineesAll.filter((x) => x.nomination_id === n.id && x.is_active).length;
+              const ativo = n.id === activeFocus?.id;
+              return (
+                <button
+                  key={n.id} type="button" onClick={() => selecionarFuncaoAtiva(n)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                    ativo ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-900 hover:bg-blue-100",
+                  )}
+                >
+                  {n.funcao}
+                  <span className={cn("rounded-full px-1.5 text-[10px]", ativo ? "bg-white/20" : "bg-blue-100")}>
+                    {count}/{n.quantidade}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {activeFocus && (
+            <div className="flex items-center gap-2 text-xs">
+              <Label className="text-blue-900">Quantidade para {activeFocus.funcao}:</Label>
+              <Input
+                type="number" min={1} className="h-7 w-16 bg-white text-xs"
+                value={quantidadeExibida(activeFocus)}
+                onChange={(e) => setQtyDraft((d) => ({ ...d, [activeFocus.id]: e.target.value }))}
+                onBlur={() => confirmarQuantidade(activeFocus)}
+              />
+            </div>
+          )}
         </div>
       )}
       <div className="flex flex-wrap items-end gap-2">
@@ -2032,7 +2147,7 @@ function SimulacaoTab({
                               <p className="text-xs text-muted-foreground">Já embarcou como: {l.funcoesAno.join(", ")}</p>
                             )}
                           </div>
-                          {focusNomination && (
+                          {activeFocus && (
                             focusNomineeIds.has(l.colaborador.id) ? (
                               <Button
                                 size="sm" variant="ghost" title="Clique para desfazer"
@@ -2506,12 +2621,15 @@ export function NominationsPage() {
   const [filterStatus, setFilterStatus] = useState<string>("todos");
   const [search, setSearch]           = useState("");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [simulacaoFocus, setSimulacaoFocus] = useState<Nomination | null>(null);
+  // Guarda só os ids do grupo (não os objetos) — o SimulacaoTab relê da mesma query cacheada
+  // de nominations, assim quantidade/status editados durante a Simulação aparecem na hora, sem
+  // depender de um retrato antigo passado por aqui.
+  const [simulacaoFocusIds, setSimulacaoFocusIds] = useState<string[] | null>(null);
   const [tab, setTab] = useState("simulacao");
   const { canViewAs, viewAsRole, setViewAsRole } = useViewAs();
 
-  const goToSimulacao = (nomination: Nomination) => {
-    setSimulacaoFocus(nomination);
+  const goToSimulacao = (group: Nomination[]) => {
+    setSimulacaoFocusIds(group.map((n) => n.id));
     setTab("simulacao");
   };
 
@@ -2633,7 +2751,7 @@ export function NominationsPage() {
 
         {/* ── Simulação de disponibilidade ── */}
         <TabsContent value="simulacao" className="pt-4">
-          <SimulacaoTab focusNomination={simulacaoFocus} onExitFocus={() => setSimulacaoFocus(null)} />
+          <SimulacaoTab focusGroupIds={simulacaoFocusIds} onExitFocus={() => setSimulacaoFocusIds(null)} />
         </TabsContent>
 
         {/* ── Lista + Kanban lado a lado ── */}
