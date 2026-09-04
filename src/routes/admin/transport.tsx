@@ -1879,6 +1879,7 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
           <Input type="date" value={to} min={from || undefined} onChange={(e) => { const v = e.target.value; setTo(v); if (v < from) setFrom(v); }} className="h-9 w-40" />
         </div>
         <Button variant="outline" size="icon" onClick={() => shift(1)}><ChevronRight className="h-4 w-4" /></Button>
+        <Button variant="outline" size="sm" className="h-9" onClick={() => { const hoje = todayISO(); setFrom(hoje); setTo(hoje); }}>Hoje</Button>
         <span className="ml-2 text-sm text-muted-foreground">
           {singleDay ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`} · {rangeTrips.length} viagem(ns) · {totalCarros} carro(s)
         </span>
