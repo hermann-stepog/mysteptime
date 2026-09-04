@@ -214,15 +214,18 @@ export function canMoveToColumn(
   const aprovacaoPmIdx = COLUMN_ORDER.indexOf("aprovacao_pm");
   const saiDeAprovacaoPm = currentIdx <= aprovacaoPmIdx && targetIdx > aprovacaoPmIdx;
   if (saiDeAprovacaoPm) {
-    const ativos = activeNominees(nominees);
+    // O PM decide só em cima de quem a Aprovação Técnica de fato selecionou
+    // (technical_selected_at) — não em cima de todo mundo que já passou pela Simulação como
+    // candidato. Quem escolhe quem "concorre" é a Técnica; o PM só aprova ou reprova.
+    const ativos = activeNominees(nominees).filter((n) => n.technical_selected_at);
     if (ativos.length === 0) {
-      return { ok: false, reason: "Nenhum colaborador nomeado nesta solicitação." };
+      return { ok: false, reason: "Nenhum colaborador selecionado pela Aprovação Técnica nesta solicitação." };
     }
     if (ativos.some((n) => n.pm_decision === "pendente")) {
-      return { ok: false, reason: "Aguardando o PM decidir todos os nomeados antes de avançar." };
+      return { ok: false, reason: "Aguardando o PM decidir todos os selecionados antes de avançar." };
     }
     if (!ativos.some((n) => n.pm_decision === "aprovado")) {
-      return { ok: false, reason: "Nenhum nomeado foi aprovado pelo PM." };
+      return { ok: false, reason: "Nenhum selecionado foi aprovado pelo PM." };
     }
   }
 
