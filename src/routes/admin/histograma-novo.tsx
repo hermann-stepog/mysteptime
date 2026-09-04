@@ -1287,8 +1287,8 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               <SortableHead label="Início" column="inicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Fim" column="fim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Dias" column="dias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <TableHead>Início Folga</TableHead>
-              <TableHead>Fim Folga</TableHead>
+              <SortableHead label="Início Folga" column="inicioFolga" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Fim Folga" column="fimFolga" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
