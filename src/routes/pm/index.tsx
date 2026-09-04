@@ -42,6 +42,18 @@ export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Sol
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
+// O id do usuário guardado em memória pode ficar defasado quando a sessão expira/é renovada
+// enquanto o formulário está aberto — nesse caso a gravação era recusada pelas regras de
+// acesso do banco (pm_user_id precisa ser igual ao usuário da sessão). Relê a sessão atual
+// na hora de salvar e, se não houver mais sessão, avisa pra entrar de novo.
+async function currentAuthUserId(): Promise<string> {
+  const { data, error } = await supabaseTyped.auth.getUser();
+  if (error || !data.user) {
+    throw new Error("Sua sessão expirou. Entre novamente para enviar a solicitação.");
+  }
+  return data.user.id;
+}
+
 function StatusBadge({ status }: { status: Nomination["current_status"] }) {
   const label = STATUS_LABELS[status] ?? status;
   const c = STATUS_BADGE[status] ?? { bg: "#f1f5f9", text: "#334155" };
