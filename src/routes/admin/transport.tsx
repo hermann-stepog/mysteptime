@@ -1983,6 +1983,8 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
   );
 }
 
+type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
+
 function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
