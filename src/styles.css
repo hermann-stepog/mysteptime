@@ -151,6 +151,18 @@
     font-feature-settings: "cv11", "ss01";
   }
   h1, h2, h3, h4, h5, h6 { font-family: "JUST Sans", "Barlow", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+
+  /* Esconde as setinhas nativas de <input type="number"> em todo o app — apareciam como uma
+     barrinha estranha do lado do campo (ex.: "Valor" em Transporte/Hospedagem/etc.), sem
+     mudar em nada a digitação ou a validação do campo. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
 }
 
 /* Impressão do Boletim de Medição ("Baixar PDF") — esconde o restante da página e pagina
