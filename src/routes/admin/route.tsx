@@ -40,6 +40,11 @@ const VISITANTE_PATHS = ["/admin/transport", "/admin/timesheet-offshore", ...NAO
 
 const PM_PATHS = NAO_OPERADOR_PATHS;
 
+// Admin Master: acesso total dentro de Nomeações (ver FULL_NOMINATIONS_ACCESS_ROLES em
+// admin/nominations.tsx), mas no menu só enxerga o mesmo recorte de quem não é operador —
+// não é um operador logístico de verdade, é só autonomia de teste dentro de Nomeações.
+const ADM_MASTER_PATHS = NAO_OPERADOR_PATHS;
+
 // Papéis de etapa do fluxo de Nomeações (Aprovação Técnica/Qualidade/RH/SMS) — a ação real (o
 // que cada um pode editar dentro de Nomeações) continua restrita por etapa via RLS, isso aqui
 // só decide o que aparece no menu.
@@ -58,7 +63,7 @@ function AdminLayout() {
   const { viewAsRole, setViewAsRole } = useViewAs();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isAllowedRole = role === "logistics_operator" || role === "visitante" || role === "pm" || STAGE_ROLES.includes(role ?? "");
+  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "pm" || STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;
@@ -76,9 +81,11 @@ function AdminLayout() {
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
     : navRole === "pm"
       ? nav.filter((n) => PM_PATHS.includes(n.to))
-      : STAGE_ROLES.includes(navRole ?? "")
-        ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((navRole === "rh" || navRole === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
-        : nav;
+      : navRole === "adm_master"
+        ? nav.filter((n) => ADM_MASTER_PATHS.includes(n.to))
+        : STAGE_ROLES.includes(navRole ?? "")
+          ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((navRole === "rh" || navRole === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
+          : nav;
   const viewAsLabel = VIEW_AS_ROLES.find((r) => r.value === viewAsRole)?.label;
 
   return (

@@ -95,13 +95,17 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
   );
 }
 
-// Papel logado pode agir na etapa atual da solicitação? `logistics_operator` sempre pode
-// (Logística de Pessoal continua com acesso total, fallback/admin); os demais papéis só na
-// própria etapa (ver STAGE_ROLE em lib/nominations.ts, inclusive Qualidade em
-// "validacao_qualidade").
+// Papéis com acesso total a qualquer etapa de Nomeações: `logistics_operator` (Logística de
+// Pessoal, fallback/admin) e `adm_master` (acesso equivalente, mas só dentro de Nomeações —
+// usado para dar autonomia de teste a alguém sem torná-lo operador logístico de verdade).
+const FULL_NOMINATIONS_ACCESS_ROLES = ["logistics_operator", "adm_master"];
+
+// Papel logado pode agir na etapa atual da solicitação? Quem está em FULL_NOMINATIONS_ACCESS_ROLES
+// sempre pode; os demais papéis só na própria etapa (ver STAGE_ROLE em lib/nominations.ts,
+// inclusive Qualidade em "validacao_qualidade").
 function useCanActOnStage(status: NominationStatus): boolean {
   const { role } = useAuth();
-  if (role === "logistics_operator") return true;
+  if (FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "")) return true;
   return STAGE_ROLE[status] === role;
 }
 
@@ -307,7 +311,7 @@ function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nominat
 
 function NomeadosSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
   const { role } = useAuth();
-  const canAct = role === "logistics_operator";
+  const canAct = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
   const advance = useAdvanceStage();
   const selecionados = nominees.filter((n) => n.is_active && n.technical_selected_at);
   // Validação de Qualidade só é obrigatória quando a solicitação exige (soldador) — caso
@@ -464,7 +468,7 @@ function ValidacaoQualidadeSection({ nomination }: { nomination: Nomination }) {
 function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
-  const canOperate = role === "logistics_operator";
+  const canOperate = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
   // O PM decide só em cima de quem a Aprovação Técnica de fato selecionou (technical_selected_at)
   // — não em cima de todo mundo que já passou pela Simulação como candidato. Quem decide quem
   // "concorre" é a Técnica; o PM só aprova ou reprova essa escolha, pessoa por pessoa.
@@ -805,7 +809,7 @@ function ManageDialog({
   const { data: allNominations } = useAllNominations();
   const nomination = allNominations?.find((n) => n.id === initialNomination.id) ?? initialNomination;
   const { data: nominees = [] } = useNominees(nomination.id);
-  const canOperate = role === "logistics_operator";
+  const canOperate = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
 
   // Demais funções da mesma solicitação (mesmo request_group_id) ainda na mesma etapa — os
   // avanços "administrativos" abaixo (sem decisão por pessoa: Recebido/Simulação/Aprovação
@@ -1627,7 +1631,7 @@ function KanbanBoard({
     const current = group[0].current_status;
     if (current === target) return;
 
-    if (role !== "logistics_operator" && STAGE_ROLE[current] !== role) {
+    if (!FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "") && STAGE_ROLE[current] !== role) {
       notify.error("Você não tem permissão para mover este card.");
       return;
     }
