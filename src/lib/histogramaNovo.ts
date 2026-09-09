@@ -864,13 +864,20 @@ export type OldBucket = "E" | "P" | "BASE" | "D" | "B" | "FO" | "FE" | "TE" | "I
 // (substituiu o antigo "DI"), por isso cai no balde "B" (Disponível), não mais em "IND".
 export function toOldBucket(status: ComputedStatus): OldBucket {
   switch (status) {
-    // Folga Indenizada: o colaborador embarcou (fisicamente a bordo) num dia que também caía
-    // como folga — pra taxa de ocupação/POB ele conta como embarcado normalmente, a folga vira
-    // só uma questão de compensação (pagamento), não de presença física.
+    // Folga Indenizada (em qualquer variante — Hotel, Cancelamento, Treinamento, Trabalho
+    // Externo): o colaborador embarcou durante o que seria a folga dele — inclusive FIH, que é
+    // quando o voo de embarque foi transferido e ele ficou no hotel aguardando, mas o
+    // compromisso de embarque na folga já vale. Pra taxa de ocupação/POB conta como embarcado
+    // normalmente; a folga indenizada é só uma questão de compensação (pagamento), não de
+    // ausência de presença/compromisso.
     case "E":
     case "DB":
     case "FI":
     case "FIF":
+    case "FIH":
+    case "FIC":
+    case "FIT":
+    case "FIE":
       return "E";
     case "P":
       return "P";
