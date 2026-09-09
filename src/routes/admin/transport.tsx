@@ -440,6 +440,13 @@ function parseCarro(car_number: string): { carro_opcao: string; carro_future_num
   return { carro_opcao: "Outro", carro_future_num: "", carro_outro: v };
 }
 
+// Nome do transporte sem o número (ex.: "Future 05" -> "Future") — usado no Quadro Detalhado,
+// onde a coluna mostra só o transporte, não qual unidade numerada dele foi usada na viagem.
+function nomeTransporte(car_number: string): string {
+  const { carro_opcao } = parseCarro(car_number);
+  return carro_opcao === "Outro" || carro_opcao === "" ? car_number : carro_opcao;
+}
+
 function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; columns: Column[]; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   type FormState = {
@@ -589,17 +596,22 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <Label>Transporte</Label>
               <div className="flex gap-2">
-                <Select value={f.carro_opcao} onValueChange={setCarroOpcao}>
-                  <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>{CARRO_OPCOES.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
-                </Select>
-                {f.carro_opcao === "Future" && (
-                  <Select value={f.carro_future_num} onValueChange={setCarroFutureNum}>
-                    <SelectTrigger className="w-20"><SelectValue placeholder="Nº" /></SelectTrigger>
-                    <SelectContent>{Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                <div className="flex-1">
+                  <Label>Transporte</Label>
+                  <Select value={f.carro_opcao} onValueChange={setCarroOpcao}>
+                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectContent>{CARRO_OPCOES.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                   </Select>
+                </div>
+                {f.carro_opcao === "Future" && (
+                  <div className="w-20">
+                    <Label>Número</Label>
+                    <Select value={f.carro_future_num} onValueChange={setCarroFutureNum}>
+                      <SelectTrigger><SelectValue placeholder="Nº" /></SelectTrigger>
+                      <SelectContent>{Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 )}
               </div>
               {f.carro_opcao === "Outro" && (
@@ -2142,7 +2154,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
           <TableHeader>
             <TableRow>
               <SortableHead label="Data" column="data" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Carro" column="carro" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Transporte" column="carro" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Tipo" column="tipo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
               <SortableHead label="Cliente" column="cliente" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
@@ -2160,7 +2172,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
             {filtered.map((t) => (
               <TableRow key={t.id} className="cursor-pointer" onClick={() => onEdit(t)}>
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
-                <TableCell>{toDisplayCase(t.car_number)}</TableCell>
+                <TableCell>{toDisplayCase(nomeTransporte(t.car_number))}</TableCell>
                 <TableCell className="hidden md:table-cell">{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
                 <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell className="hidden md:table-cell">{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
