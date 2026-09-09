@@ -12,6 +12,7 @@ import {
   buildWorkerKey,
   catalogAnnualPositionOccurrences,
   type AnnualPositionWorkerRow,
+  type DrakePositionConflict,
   type EmbarkationSourceRow,
 } from "@/lib/histograma/drake-snapshot";
 import { importAnnualPositionSnapshot } from "@/lib/histograma/import-annual-position.server";
@@ -39,6 +40,9 @@ export interface AnnualPositionSyncResult {
   skippedExistingDays: number;
   processedWorkers: number;
   novosColaboradores: number;
+  /** Dias descartados por posições conflitantes do Drake (cadastro duplicado) — ver
+   * consolidateAnnualPositionRows em drake-snapshot.ts. Vazio na imensa maioria das execuções. */
+  positionConflicts: DrakePositionConflict[];
 }
 
 export interface AnnualPositionSyncHooks {
@@ -269,6 +273,7 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     skippedExistingDays: result.skippedExistingDays,
     processedWorkers: workers.length,
     novosColaboradores,
+    positionConflicts: snapshot.conflicts ?? [],
   };
 }
 
