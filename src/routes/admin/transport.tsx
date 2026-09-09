@@ -2086,7 +2086,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         <div><Label className="text-xs">De</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" /></div>
         <div><Label className="text-xs">Até</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" /></div>
         <div>
-          <Label className="text-xs">Carro</Label>
+          <Label className="text-xs">Transporte</Label>
           <Select value={carro} onValueChange={setCarro}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
