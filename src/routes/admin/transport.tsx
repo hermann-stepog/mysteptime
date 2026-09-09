@@ -11,11 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2, Check, ChevronsUpDown, ChevronsDownUp, Upload, AlertTriangle, Building2, Ship, Layers3, Wallet } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2, Check, ChevronsUpDown, ChevronsDownUp, Upload, AlertTriangle, Building2, Ship, Layers3, Wallet, Download } from "lucide-react";
 import { parsePlanilhaCustos, parseCustoBRL, parseDataBR, parseUnidadeBsp, splitNomes, parseBooleanoSN, parseBooleanoSimNao, type LinhaCustoBruta } from "@/lib/importCustos";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { notify } from "@/lib/notify";
@@ -128,6 +128,35 @@ function compareCarNumber(a: string, b: string) {
   return a.localeCompare(b);
 }
 
+// Monta a linha de planilha de uma viagem — compartilhado entre o export do módulo de
+// Relatórios (generateRelatorioTransporte, busca tudo do zero) e o botão de exportar do
+// Quadro Detalhado (exporta só o que já está filtrado na tela, sem nova consulta).
+function tripToRelatorioRow(t: Trip, tagsById: Map<string, Tag>, collabsById: Map<string, Collaborator>, materialsById: Map<string, Material>) {
+  return {
+    Data: fmtDate(t.scheduled_at),
+    Carro: t.car_number,
+    Tipo: t.tipo === "material" ? "Material" : "Pessoas",
+    Cliente: t.cliente ?? "",
+    "Cliente 2": t.cliente_2 ?? "",
+    "Cliente 3": t.cliente_3 ?? "",
+    BSP: t.bsp ?? "",
+    "BSP 2": t.bsp_2 ?? "",
+    "BSP 3": t.bsp_3 ?? "",
+    Unidade: t.unidade ?? "",
+    Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
+    Horário: fmtTime(t.scheduled_at),
+    Origem: [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; "),
+    Destino: [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; "),
+    Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
+    Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
+    Observações: t.notes ?? "",
+    Status: STATUS_LABEL[t.status],
+    Custo: t.custo ?? "",
+    "Custo 2": t.custo_2 ?? "",
+    "Custo 3": t.custo_3 ?? "",
+  };
+}
+
 // Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
 // Busca os próprios dados (não depende de nenhuma tela já aberta) e já baixa tudo, sem
 // diálogo de opções — igual ao resto dos cartões de Relatórios.
@@ -150,29 +179,7 @@ export async function generateRelatorioTransporte(dataInicio?: string, dataFim?:
   const collabsById = new Map(((collabs ?? []) as Collaborator[]).map((c) => [c.id, c]));
   const materialsById = new Map(((materials ?? []) as Material[]).map((m) => [m.id, m]));
 
-  const rows = ((trips ?? []) as Trip[]).map((t) => ({
-    Data: fmtDate(t.scheduled_at),
-    Carro: t.car_number,
-    Tipo: t.tipo === "material" ? "Material" : "Pessoas",
-    Cliente: t.cliente ?? "",
-    "Cliente 2": t.cliente_2 ?? "",
-    "Cliente 3": t.cliente_3 ?? "",
-    BSP: t.bsp ?? "",
-    "BSP 2": t.bsp_2 ?? "",
-    "BSP 3": t.bsp_3 ?? "",
-    Unidade: t.unidade ?? "",
-    Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
-    Horário: fmtTime(t.scheduled_at),
-    Origem: [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; "),
-    Destino: [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; "),
-    Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
-    Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
-    Observações: t.notes ?? "",
-    Status: STATUS_LABEL[t.status],
-    Custo: t.custo ?? "",
-    "Custo 2": t.custo_2 ?? "",
-    "Custo 3": t.custo_3 ?? "",
-  }));
+  const rows = ((trips ?? []) as Trip[]).map((t) => tripToRelatorioRow(t, tagsById, collabsById, materialsById));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Transporte");
@@ -2039,6 +2046,19 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
     });
   }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
 
+  // Soma o custo de tudo que está filtrado na tela agora (recalcula sozinho a cada mudança de
+  // filtro, inclusive o período De/Até) — não é só das linhas "Realizado", é o total exibido.
+  const totalCusto = useMemo(() => filtered.reduce((sum, t) => sum + (custoTotal(t) ?? 0), 0), [filtered]);
+
+  const exportarFiltrado = () => {
+    const rows = filtered.map((t) => tripToRelatorioRow(t, tagsById, collabsById, materialsById));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Transporte");
+    const periodo = from || to ? `_${from || "inicio"}_a_${to || "hoje"}` : "";
+    XLSX.writeFile(wb, `transporte_detalhado${periodo}_${todayISO()}.xlsx`);
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
@@ -2092,6 +2112,11 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
           <Label className="text-xs">Colaborador</Label>
           <ColaboradorFiltroCombobox value={colaboradorId} onChange={setColaboradorId} />
         </div>
+        <div className="ml-auto">
+          <Button type="button" variant="outline" size="sm" onClick={exportarFiltrado}>
+            <Download className="mr-1.5 h-3.5 w-3.5" />Exportar planilha
+          </Button>
+        </div>
       </div>
       <Card className="overflow-x-auto">
         <Table>
@@ -2142,6 +2167,25 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
             ))}
             {filtered.length === 0 && <EmptyStateRow colSpan={12} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
           </TableBody>
+          {filtered.length > 0 && (
+            <TableFooter>
+              <TableRow>
+                <TableCell className="font-medium">Total ({filtered.length} {filtered.length === 1 ? "viagem" : "viagens"})</TableCell>
+                <TableCell></TableCell>
+                <TableCell className="hidden md:table-cell"></TableCell>
+                <TableCell></TableCell>
+                <TableCell className="hidden md:table-cell"></TableCell>
+                <TableCell className="hidden xl:table-cell"></TableCell>
+                <TableCell className="hidden lg:table-cell"></TableCell>
+                <TableCell className="hidden lg:table-cell"></TableCell>
+                <TableCell className="hidden lg:table-cell"></TableCell>
+                <TableCell className="hidden xl:table-cell"></TableCell>
+                <TableCell></TableCell>
+                <TableCell className="font-semibold">{fmtMoney(totalCusto)}</TableCell>
+                <TableCell className="hidden xl:table-cell"></TableCell>
+              </TableRow>
+            </TableFooter>
+          )}
         </Table>
       </Card>
     </div>
