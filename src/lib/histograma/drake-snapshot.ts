@@ -23,10 +23,24 @@ export interface DrakePeriodSnapshotRow {
   derivedFromEmbarkation?: boolean;
 }
 
+export interface DrakePositionConflict {
+  workerKey: string;
+  empresa: string;
+  matricula: string;
+  date: string;
+}
+
 export interface DrakeHistogramSnapshot {
   source: DrakeSnapshotSource;
   workers: DrakeWorkerSnapshotRow[];
   periods: DrakePeriodSnapshotRow[];
+  /**
+   * Dias em que o Drake devolveu duas posições diferentes para a mesma identidade (empresa +
+   * matrícula) — normalmente um cadastro duplicado no Drake. Em vez de travar a sincronização
+   * inteira, esse dia específico fica de fora (nada é inventado) e o resto segue normalmente;
+   * ver consolidateAnnualPositionRows.
+   */
+  conflicts?: DrakePositionConflict[];
 }
 
 export interface EmbarkationSourceRow {
@@ -186,7 +200,7 @@ export function buildAnnualPositionSnapshot(
   rows: AnnualPositionWorkerRow[],
   options: AnnualPositionSnapshotOptions = {},
 ): DrakeHistogramSnapshot {
-  const consolidatedRows = consolidateAnnualPositionRows(rows);
+  const { rows: consolidatedRows, conflicts } = consolidateAnnualPositionRows(rows);
   const workers = consolidatedRows.map((row) => ({
     workerKey: buildWorkerKey(row.empresa, row.matricula),
     matricula: row.matricula,
@@ -273,6 +287,7 @@ export function buildAnnualPositionSnapshot(
     source: "drake",
     workers: buildWorkers(workers.map((worker) => ({ ...worker, referenceDate: "9999-12-31" }))),
     periods: deduplicatePeriods(periods),
+    conflicts: conflicts.length > 0 ? conflicts : undefined,
   };
 }
 
@@ -395,18 +410,28 @@ interface AnnualPositionWorkerGroup {
   funcao: string | null;
   funcaoOperacao: string | null;
   positionsByDate: Map<string, AnnualPositionDayRow>;
+  conflictedDates: Set<string>;
+}
+
+interface ConsolidateAnnualPositionRowsResult {
+  rows: AnnualPositionWorkerRow[];
+  conflicts: DrakePositionConflict[];
 }
 
 /**
  * O Worker Dashboard pode devolver mais de um UUID do Drake para a mesma identidade de negócio
  * (empresa + matrícula). A grade possui um único colaborador para essa identidade, portanto as
- * fichas idênticas são consolidadas antes de gerar períodos. Divergências no mesmo dia cancelam
- * a sincronização antes de qualquer escrita no banco.
+ * fichas idênticas são consolidadas antes de gerar períodos. Uma divergência no mesmo dia (ex.:
+ * cadastro duplicado no Drake) normalmente indica erro de cadastro no próprio Drake — em vez de
+ * cancelar a sincronização inteira por causa de um único dia de um único colaborador, esse dia
+ * fica de fora (nada é inventado, nenhum dos dois lados é escolhido) e é reportado em
+ * `conflicts` pra alguém revisar direto no Drake; o resto da sincronização segue normalmente.
  */
 function consolidateAnnualPositionRows(
   rows: AnnualPositionWorkerRow[],
-): AnnualPositionWorkerRow[] {
+): ConsolidateAnnualPositionRowsResult {
   const groups = new Map<string, AnnualPositionWorkerGroup>();
+  const conflictsByKey = new Map<string, DrakePositionConflict>();
   const orderedRows = [...rows].sort((left, right) =>
     left.drakeWorkerId.localeCompare(right.drakeWorkerId),
   );
@@ -424,6 +449,7 @@ function consolidateAnnualPositionRows(
         funcao: row.funcao,
         funcaoOperacao: row.funcaoOperacao,
         positionsByDate: new Map<string, AnnualPositionDayRow>(),
+        conflictedDates: new Set<string>(),
       };
       groups.set(workerKey, group);
     }
@@ -444,20 +470,29 @@ function consolidateAnnualPositionRows(
     if (!group.funcaoOperacao && row.funcaoOperacao) group.funcaoOperacao = row.funcaoOperacao;
 
     for (const day of row.positions) {
+      if (group.conflictedDates.has(day.date)) continue;
       const existing = group.positionsByDate.get(day.date);
       if (!existing) {
         group.positionsByDate.set(day.date, { ...day });
         continue;
       }
       if (annualPositionDayFingerprint(existing) !== annualPositionDayFingerprint(day)) {
-        throw new Error(
-          `O Drake devolveu posições conflitantes para ${row.empresa}/${row.matricula} em ${day.date}. O banco não foi alterado.`,
-        );
+        group.positionsByDate.delete(day.date);
+        group.conflictedDates.add(day.date);
+        const conflictKey = `${workerKey}|${day.date}`;
+        if (!conflictsByKey.has(conflictKey)) {
+          conflictsByKey.set(conflictKey, {
+            workerKey,
+            empresa: row.empresa,
+            matricula: row.matricula,
+            date: day.date,
+          });
+        }
       }
     }
   }
 
-  return [...groups.values()]
+  const consolidatedRows = [...groups.values()]
     .map((group) => ({
       drakeWorkerId: [...group.drakeWorkerIds].sort()[0]!,
       matricula: group.matricula,
@@ -474,6 +509,12 @@ function consolidateAnnualPositionRows(
         buildWorkerKey(right.empresa, right.matricula),
       ),
     );
+
+  const conflicts = [...conflictsByKey.values()].sort(
+    (left, right) => left.workerKey.localeCompare(right.workerKey) || left.date.localeCompare(right.date),
+  );
+
+  return { rows: consolidatedRows, conflicts };
 }
 
 function annualPositionDayFingerprint(day: AnnualPositionDayRow): string {

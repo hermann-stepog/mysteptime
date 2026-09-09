@@ -198,16 +198,25 @@ describe("ficha anual de posição do Drake", () => {
     });
   });
 
-  it("interrompe quando UUIDs da mesma identidade divergem no mesmo dia", () => {
-    const first = worker([day("2026-08-06", "E", "EMBARQUE", "RAIA", "BSP A")]);
+  it("descarta o dia (sem travar a sincronização) quando UUIDs da mesma identidade divergem", () => {
+    const first = worker([
+      day("2026-08-05", "E", "EMBARQUE", "RAIA", "BSP A"),
+      day("2026-08-06", "E", "EMBARQUE", "RAIA", "BSP A"),
+    ]);
     const conflict = {
       ...worker([day("2026-08-06", "F", "FOLGA", null, null)]),
       drakeWorkerId: "worker-conflict",
     };
 
-    expect(() => buildAnnualPositionSnapshot([first, conflict])).toThrow(
-      /posições conflitantes.*2026-08-06/i,
-    );
+    const snapshot = buildAnnualPositionSnapshot([first, conflict]);
+
+    // O dia ambíguo (06/08) não aparece em nenhum período — nem como E, nem como F.
+    expect(snapshot.periods.some((p) => p.dataInicio <= "2026-08-06" && p.dataFim >= "2026-08-06")).toBe(false);
+    // O dia sem ambiguidade (05/08) continua sincronizado normalmente.
+    expect(snapshot.periods).toContainEqual(expect.objectContaining({ tipo: "E", dataInicio: "2026-08-05", dataFim: "2026-08-05" }));
+    expect(snapshot.conflicts).toEqual([
+      { workerKey: expect.any(String), empresa: "STEP", matricula: "900378", date: "2026-08-06" },
+    ]);
   });
 
   it("não mistura períodos quando unidade ou contrato mudam", () => {

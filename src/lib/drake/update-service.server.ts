@@ -213,6 +213,9 @@ async function updateDrakeDataInner(
     await emit("annual-position-completed", { status: "completed" });
     await emit("finalizing", { status: "completed" });
 
+    // Mocks antigos de testes podem não preencher esse campo — trata como "sem conflito".
+    const positionConflicts = summary.positionConflicts ?? [];
+
     const result: DrakeUpdateResult = {
       scope,
       created: summary.createdWorkers,
@@ -223,6 +226,7 @@ async function updateDrakeDataInner(
       totalDurationMs: Date.now() - startedAtMs,
       skipped: summary.skippedExistingDays,
       novosColaboradores: summary.novosColaboradores,
+      positionConflicts,
     };
 
     logger.info("drake-update", "Atualizacao da ficha anual Drake concluida", {
@@ -234,16 +238,28 @@ async function updateDrakeDataInner(
       removedStaleEvents: summary.removedStaleEvents,
       preservedExistingEvents: summary.preservedExistingEvents,
       skippedExistingDays: summary.skippedExistingDays,
+      positionConflicts: positionConflicts.length,
     });
+    // Posições conflitantes (cadastro duplicado no Drake) não impedem a sincronização de
+    // completar, mas o resultado não é 100% fiel ao Drake enquanto o duplicado não for
+    // corrigido lá — status "partial" deixa isso visível no Log de Sincronização em vez de
+    // aparecer como um "success" comum.
+    const hasConflicts = positionConflicts.length > 0;
     await recordDrakeSyncRun(db, {
       startedAtMs,
-      status: "success",
+      status: hasConflicts ? "partial" : "success",
       triggeredBy: trigger.triggeredBy,
       triggeredByLabel: trigger.triggeredByLabel,
       embarquesCriados: summary.createdWorkers,
       embarquesAtualizados: summary.updatedWorkers,
       embarquesEventos: summary.synchronizedEvents,
       skipped: summary.skippedExistingDays,
+      errorMessage: hasConflicts
+        ? `Posições conflitantes do Drake (cadastro duplicado?), dia(s) ignorado(s) até corrigir lá:\n` +
+          positionConflicts
+            .map((c) => `- ${c.empresa}/${c.matricula} em ${c.date}`)
+            .join("\n")
+        : undefined,
     });
     return result;
   } catch (error: unknown) {

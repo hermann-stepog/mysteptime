@@ -151,6 +151,7 @@ export interface DrakeUpdateResult {
   annualPositionEvents?: number;
   annualPositionWorkers?: number;
   removedStaleEvents?: number;
+  positionConflicts?: import("@/lib/histograma/drake-snapshot").DrakePositionConflict[];
 }
 
 export type DrakeProgressEvent = {
