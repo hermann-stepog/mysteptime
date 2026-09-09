@@ -1999,8 +1999,16 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [status, setStatus] = useState(initialStatus ?? "all");
   const [cliente, setCliente] = useState(initialCliente ?? "all");
   const [tipo, setTipo] = useState(initialTipo ?? "all");
+  const [carro, setCarro] = useState("all");
   const [colaboradorId, setColaboradorId] = useState("");
   const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
+
+  // Carro é texto livre (Uber, Motorista X, Future NN, etc.), não um cadastro fixo — a lista
+  // de opções vem dos próprios dados carregados, não de uma constante como CLIENTES.
+  const carroOptions = useMemo(
+    () => Array.from(new Set((trips as Trip[]).map((t) => t.car_number))).sort(compareCarNumber),
+    [trips],
+  );
 
   const filtered = useMemo(() => {
     const base = (trips as Trip[]).filter((t) => {
@@ -2010,6 +2018,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (status !== "all" && t.status !== status) return false;
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
+      if (carro !== "all" && t.car_number !== carro) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
     });
@@ -2044,7 +2053,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       }
       return txt(a).localeCompare(txt(b), "pt-BR", { sensitivity: "base", numeric: true }) * dir;
     });
-  }, [trips, from, to, tagId, status, cliente, tipo, colaboradorId, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
+  }, [trips, from, to, tagId, status, cliente, tipo, carro, colaboradorId, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
 
   // Soma o custo de tudo que está filtrado na tela agora (recalcula sozinho a cada mudança de
   // filtro, inclusive o período De/Até) — não é só das linhas "Realizado", é o total exibido.
@@ -2064,6 +2073,16 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       <div className="flex flex-wrap items-end gap-2">
         <div><Label className="text-xs">De</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" /></div>
         <div><Label className="text-xs">Até</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" /></div>
+        <div>
+          <Label className="text-xs">Carro</Label>
+          <Select value={carro} onValueChange={setCarro}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              {carroOptions.map((c) => <SelectItem key={c} value={c}>{toDisplayCase(c)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
         <div>
           <Label className="text-xs">Tipo</Label>
           <Select value={tipo} onValueChange={setTipo}>
