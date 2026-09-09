@@ -631,7 +631,6 @@ export function mapAnnualPositionType(
   occurrenceType: string | null,
 ): string {
   const code = normalizeIdentityPart(acronym);
-  const text = normalizeIdentityPart(`${description} ${occurrenceType ?? ""}`);
 
   if (!code) {
     throw new Error(
@@ -719,7 +718,10 @@ export function mapAnnualPositionType(
       return "HTL";
 
     case "EC":
-      return text.includes("EMBARQUE CANCELADO") ? "CANC" : "EC";
+      // "EC" e "Embarque Cancelado" foram fundidos num único Evento (CANC é quem sobrevive,
+      // já com sigla exibida "EC" — ver DISPLAY_ABBR em histogramaNovo.ts): qualquer
+      // ocorrência "EC" do Drake, com qualquer descrição, mapeia direto pra CANC agora.
+      return "CANC";
 
     case "CANC":
       return "CANC";
