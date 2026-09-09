@@ -228,13 +228,20 @@ export function buildAnnualPositionSnapshot(
     for (const [index, typedDay] of days.entries()) {
       const { day } = typedDay;
       assertPeriod(day.date, day.date, day.occurrenceDescription, workerKey);
-      const next = days[index + 1];
+      // O desembarque é o dia SEGUINTE ao último "E" — nunca o próprio último dia embarcado
+      // (esse continua "E", igual o Drake mostra). Por isso o gatilho olha pra TRÁS (o dia
+      // anterior era mesmo o fim de um embarque?), não pra frente: se o dia anterior era "E" e
+      // hoje não é continuação (nem "E" nem "DB"), hoje vira o desembarque calculado pelo dia
+      // da semana (DES em dia útil, DDN em fim de semana/feriado) — mesmo que o Drake já tenha
+      // mandado uma sigla própria pra hoje (ex.: DDN explícito), porque o resultado é idêntico
+      // nesse caso e evita duplicar um dia de transição que o Drake já não contava como "E".
+      const previous = days[index - 1];
       const closesEmbarkationSequence =
-        typedDay.tipo === "E" &&
-        next != null &&
-        addIsoDay(day.date, 1) === next.day.date &&
-        next.tipo !== "E" &&
-        next.tipo !== "DB";
+        previous != null &&
+        previous.tipo === "E" &&
+        addIsoDay(previous.day.date, 1) === day.date &&
+        typedDay.tipo !== "E" &&
+        typedDay.tipo !== "DB";
       const tipo = closesEmbarkationSequence
         ? disembarkationTypeForDate(day.date)
         : typedDay.tipo;

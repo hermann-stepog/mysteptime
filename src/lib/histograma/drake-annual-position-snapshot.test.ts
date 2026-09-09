@@ -34,25 +34,27 @@ describe("ficha anual de posição do Drake", () => {
     expect(snapshot.source).toBe("drake");
     expect(snapshot.workers).toHaveLength(1);
     expect(snapshot.periods).toHaveLength(3);
+    // O desembarque cai no dia SEGUINTE ao último "E" (03/04, sexta) — os dois dias
+    // embarcados (01 e 02/04) continuam "E", intactos, igual o Drake informou.
     expect(snapshot.periods[0]).toMatchObject({
       tipo: "E",
       dataInicio: "2026-04-01",
-      dataFim: "2026-04-01",
+      dataFim: "2026-04-02",
       unidadeOperacional: "RAIA",
       centroDeCusto: "BSP 26-100",
-      dias: 1,
+      dias: 2,
     });
     expect(snapshot.periods[1]).toMatchObject({
       tipo: "DES",
-      dataInicio: "2026-04-02",
-      dataFim: "2026-04-02",
+      dataInicio: "2026-04-03",
+      dataFim: "2026-04-03",
       dias: 1,
     });
     expect(snapshot.periods[2]).toMatchObject({
       tipo: "F",
-      dataInicio: "2026-04-03",
+      dataInicio: "2026-04-04",
       dataFim: "2026-04-04",
-      dias: 2,
+      dias: 1,
     });
   });
 
@@ -129,12 +131,15 @@ describe("ficha anual de posição do Drake", () => {
   });
 
   it("deriva o timesheet 1:1 dos dias E e D informados pelo Drake", () => {
+    // O desembarque calculado cai no dia SEGUINTE ao último "E" (04/04, sábado — por isso
+    // vira DDN, não DES) — os três primeiros dias continuam exatamente como o Drake informou
+    // (Embarque, Dobra, Embarque), sem nenhum "Desembarque" inventado no meio deles.
     const snapshot = buildAnnualPositionSnapshot([
       worker([
         day("2026-04-01", "E", "EMBARQUE", "RAIA", "BSP 26-100"),
         day("2026-04-02", "D", "DOBRA", "RAIA", "BSP 26-100"),
         day("2026-04-03", "E", "EMBARQUE", "RAIA", "BSP 26-100"),
-        day("2026-04-04", "F", "FOLGA", null, null),
+        day("2026-04-04", "F", "FOLGA", "RAIA", "BSP 26-100"),
       ]),
     ]);
 
@@ -143,13 +148,14 @@ describe("ficha anual de posição do Drake", () => {
     expect(plans).toHaveLength(1);
     expect(plans[0]).toMatchObject({
       dataInicio: "2026-04-01",
-      dataFim: "2026-04-03",
+      dataFim: "2026-04-04",
       unidadeOperacional: "RAIA",
       centroDeCusto: "BSP 26-100",
       days: [
         { data: "2026-04-01", evento: "Embarque", bsp: "BSP 26-100" },
         { data: "2026-04-02", evento: "Dobra", bsp: "BSP 26-100" },
-        { data: "2026-04-03", evento: "Desembarque", bsp: "BSP 26-100" },
+        { data: "2026-04-03", evento: "Embarque", bsp: "BSP 26-100" },
+        { data: "2026-04-04", evento: "Desembarque", bsp: "BSP 26-100" },
       ],
     });
   });
