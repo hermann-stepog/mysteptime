@@ -1,13 +1,25 @@
 // Tipos que podem ser lançados diretamente (import Drake ou formulário manual).
 // "DI" substitui o antigo "D" (Disponível); "FI" agora significa Folga Indenizada
-// (era Feriado — removido do módulo). "EC" continua lançável, mas na grade sempre
-// aparece computado como DI (ver computeDayStatus).
+// (era Feriado — removido do módulo).
+// "EC" (Empresa em Casa) foi fundido em "CANC" — eram dois Eventos pro mesmo conceito na
+// prática; CANC já é quem tem status próprio e sigla exibida "EC" (ver DISPLAY_ABBR), então
+// sobrevive como o código único. "EC" continua no tipo (dado histórico antigo pode existir
+// até a migração de dados rodar) e computeDayStatus continua tratando um "EC" cru como
+// Standby, mas não é mais oferecido em nenhuma lista de lançamento/edição — ver TIPO_ORDER.
 // "BASE" é lançado só pela importação do relatório da base (ver DrakeUpdateCard) — nunca
 // vem do Drake nem é escolhido no formulário manual de período, é sempre derivado do
 // cruzamento desse relatório com quem está de Folga/Standby no momento.
 export type TipoPeriodo = "P" | "E" | "F" | "FE" | "STB" | "AT" | "EC" | "DDN" | "TE" | "DI" | "FI" | "HTL" | "CANC" | "BASE" | "DB" | "DES" | "LM" | "LMV" | "TR" | "AD" | "FIH" | "AFA" | "FIF" | "FIC" | "FIT" | "FIE" | "FT" | "NS";
 
-export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "BASE", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL", "CANC"];
+// Lista completa (inclui "EC" e "DI" pra manter registros históricos filtráveis/visíveis) —
+// usada pelo filtro de Evento da aba Lançamentos. Pra atribuir um tipo (criar/editar um
+// período), use TIPO_ORDER_ATRIBUIVEL logo abaixo, que tira os dois de circulação.
+export const TIPO_ORDER: TipoPeriodo[] = ["P", "E", "BASE", "F", "FE", "STB", "AT", "EC", "DDN", "TE", "DI", "FI", "HTL", "CANC", "DB", "TR", "FIH", "FIC"];
+
+// "DI" (Disponível) e "EC" (fundido em CANC) saem da lista de atribuição — não é mais
+// possível lançar/editar um período para nenhum dos dois, mas os dois continuam em
+// TIPO_ORDER (histórico permanece visível/filtrável, nada foi apagado).
+export const TIPO_ORDER_ATRIBUIVEL: TipoPeriodo[] = TIPO_ORDER.filter((t) => t !== "DI" && t !== "EC");
 
 const TIPO_VALIDOS: readonly TipoPeriodo[] = [
   ...TIPO_ORDER,

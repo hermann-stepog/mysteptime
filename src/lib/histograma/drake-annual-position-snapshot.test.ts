@@ -236,8 +236,10 @@ describe("ficha anual de posição do Drake", () => {
     expect(mapAnnualPositionType("FE", "FÉRIAS", null)).toBe("FE");
     expect(mapAnnualPositionType("H", "HOTEL", null)).toBe("HTL");
     expect(mapAnnualPositionType("FIH", "FOLGA INDENIZADA HOTEL", "StandBy")).toBe("FIH");
+    // "EC" e "Embarque Cancelado" foram fundidos num único Evento (CANC) — qualquer
+    // ocorrência "EC" do Drake mapeia pra CANC agora, independente da descrição.
     expect(mapAnnualPositionType("EC", "EMBARQUE CANCELADO", null)).toBe("CANC");
-    expect(mapAnnualPositionType("EC", "EMPRESA EM CASA", null)).toBe("EC");
+    expect(mapAnnualPositionType("EC", "EMPRESA EM CASA", null)).toBe("CANC");
     expect(mapAnnualPositionType("DES", "DESEMBARQUE", null)).toBe("DES");
     expect(mapAnnualPositionType("LM", "LICENCA MEDICA", null)).toBe("LM");
     expect(mapAnnualPositionType("TR", "TREINAMENTO", null)).toBe("TR");

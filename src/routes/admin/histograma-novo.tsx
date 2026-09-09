@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
 import { useAuth } from "@/hooks/useAuth";
@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
-  TIPO_ORDER, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
+  TIPO_ORDER, TIPO_ORDER_ATRIBUIVEL, TIPO_COLOR, TIPO_LABEL, getContrastText, isTipoPeriodo, displayAbbr,
   STATUS_ORDER, STATUS_COLOR, STATUS_LABEL, computeDayStatus, getComputedColor, getComputedLabel,
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
@@ -797,6 +797,37 @@ const EVENTO_FILTRO_OPTIONS: { value: string; label: string }[] = [
   { value: EVENTO_FILTER_DESEMBARQUE, label: "DES — Desembarque" },
 ];
 
+// Regra nova: quando um período "E" (Embarcado) termina, lança sozinho 1 dia de "DES"
+// (Desembarque) no dia seguinte ao último dia embarcado — a não ser que esse dia já esteja
+// coberto por outro período (manual ou sincronizado do Drake) daquele colaborador, caso em
+// que não faz nada (ex.: o colaborador já embarca de novo no dia seguinte, sem folga entre
+// um embarque e outro). Só se aplica a "E" lançado aqui manualmente — o "E" que vem do Drake
+// já tem seu próprio desembarque calculado na sincronização (ver closesEmbarkationSequence
+// em drake-snapshot.ts).
+async function autoLancarDesembarque(periodo: HistNovoPeriodo, qc: QueryClient): Promise<void> {
+  if (periodo.tipo !== "E") return;
+  const diaSeguinte = addDays(periodo.data_fim, 1);
+  const todos = qc.getQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"]) ?? [];
+  const jaCoberto = todos.some((p) =>
+    p.id !== periodo.id &&
+    p.colaborador_id === periodo.colaborador_id &&
+    p.data_inicio <= diaSeguinte && p.data_fim >= diaSeguinte,
+  );
+  if (jaCoberto) return;
+  const { data, error } = await supabase.from("hist_novo_periodos").insert({
+    colaborador_id: periodo.colaborador_id,
+    unidade_operacional: periodo.unidade_operacional,
+    bsp: periodo.bsp,
+    tipo: "DES",
+    data_inicio: diaSeguinte,
+    data_fim: diaSeguinte,
+    dias: 1,
+    origem: "manual",
+  }).select("*").single();
+  if (error) { notify.error(`Não consegui lançar o desembarque automático: ${error.message}`); return; }
+  qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => (old ? [data as HistNovoPeriodo, ...old] : [data as HistNovoPeriodo]));
+}
+
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
   const today = todayStr();
@@ -964,6 +995,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       notify.success(novos.length > 1 ? "Períodos lançados" : "Período lançado");
       setForm({ colaboradorIds: [], tipo: "P", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
       setFormBspManual(false);
+      novos.forEach((novo) => { void autoLancarDesembarque(novo, qc); });
     },
     onError: (e: any) => notify.error(e.message),
   });
@@ -1017,6 +1049,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
       qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => old?.map((p) => (p.id === atualizado.id ? atualizado : p)) ?? old);
       notify.success("Período atualizado");
       setEditing(null);
+      void autoLancarDesembarque(atualizado, qc);
     },
     onError: (e: any) => notify.error(e.message),
   });
@@ -1395,7 +1428,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                   >
                     <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {TIPO_ORDER.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
+                      {TIPO_ORDER_ATRIBUIVEL.map((t) => <SelectItem key={t} value={t}>{displayAbbr(t)} — {TIPO_LABEL[t]}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
