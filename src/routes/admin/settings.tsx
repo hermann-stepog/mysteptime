@@ -429,9 +429,15 @@ function Users() {
     },
   });
   const setRole = async (userId: string, role: string, existingId?: string) => {
-    if (existingId) await supabase.from("user_roles").update({ role: role as any }).eq("id", existingId);
-    else await supabase.from("user_roles").insert({ user_id: userId, role: role as any });
+    // Sem .select(), o Supabase não devolve as linhas afetadas — um update que não bate em
+    // nenhuma linha (RLS, id desatualizado etc.) volta sem erro e com data vazio, então sem
+    // checar os dois a tela mostrava "Papel atualizado" mesmo quando nada mudou de verdade.
+    const { data, error } = existingId
+      ? await supabase.from("user_roles").update({ role: role as any }).eq("id", existingId).select()
+      : await supabase.from("user_roles").insert({ user_id: userId, role: role as any }).select();
+    if (error) { notify.error(error.message); return; }
     qc.invalidateQueries({ queryKey: ["users-with-roles"] });
+    if (!data || data.length === 0) { notify.error("O papel não foi salvo — a linha do usuário não foi encontrada. Atualize a página e tente de novo."); return; }
     notify.success("Papel atualizado");
   };
 
