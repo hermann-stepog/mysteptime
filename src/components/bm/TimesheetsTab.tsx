@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
-import { CalendarRange, CheckCircle2, ChevronRight, Download, RotateCcw, Users } from "lucide-react";
+import { CalendarRange, CheckCircle2, ChevronRight, CircleAlert, Download, RotateCcw, Users } from "lucide-react";
 import { selectAllPagesSequential, selectInChunks } from "@/lib/supabasePaginate";
 import { EVENTOS_DIA, computeHorasDia, suggestAdicionalNoturno } from "@/lib/timesheetOffshore";
 import { cn } from "@/lib/utils";
@@ -163,25 +163,27 @@ function montarLinhasRelatorioMedicao(
 }
 
 function baixarRelatorioMedicao(rows: RelatorioMedicaoRow[], de: string, ate: string): void {
-  const header = ["Colaborador", "Função", "Unidade", "BSP", "Início", "Fim", "Dias preenchidos", "Horas normais", "Horas extras", "Total de horas"];
-  const criarAba = (items: RelatorioMedicaoRow[], titulo: string) => {
-    const values = [
-      ["STEP Oil & Gas"],
-      [`${titulo} — ${fmtData(de)} a ${fmtData(ate)}`],
-      [],
-      header,
-      ...items.map((item) => [item.colaborador, item.funcao, item.unidade, item.bsp, fmtData(item.periodoInicio), fmtData(item.periodoFim),
-        item.diasPreenchidos, item.horasNormais, item.horasExtras, item.totalHoras]),
-    ];
-    const sheet = XLSX.utils.aoa_to_sheet(values);
-    sheet["!cols"] = [{ wch: 32 }, { wch: 24 }, { wch: 30 }, { wch: 18 }, { wch: 13 }, { wch: 13 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
-    sheet["!autofilter"] = { ref: `A4:J${Math.max(4, values.length)}` };
-    sheet["!freeze"] = { xSplit: 0, ySplit: 4 };
-    return sheet;
-  };
+  // Uma aba só, com a coluna "Medido" (em vez de duas abas separadas) — dá pra ver/filtrar
+  // tudo junto, e ordena com "Não" primeiro pra chamar atenção pro que ainda falta medir.
+  const header = ["Colaborador", "Função", "Unidade", "BSP", "Início", "Fim", "Dias preenchidos", "Horas normais", "Horas extras", "Total de horas", "Medido"];
+  const ordenados = [...rows].sort((a, b) =>
+    Number(a.medido) - Number(b.medido)
+    || a.colaborador.localeCompare(b.colaborador, "pt-BR")
+    || a.periodoInicio.localeCompare(b.periodoInicio));
+  const values = [
+    ["STEP Oil & Gas"],
+    [`Status de Medição — ${fmtData(de)} a ${fmtData(ate)}`],
+    [],
+    header,
+    ...ordenados.map((item) => [item.colaborador, item.funcao, item.unidade, item.bsp, fmtData(item.periodoInicio), fmtData(item.periodoFim),
+      item.diasPreenchidos, item.horasNormais, item.horasExtras, item.totalHoras, item.medido ? "Sim" : "Não"]),
+  ];
+  const sheet = XLSX.utils.aoa_to_sheet(values);
+  sheet["!cols"] = [{ wch: 32 }, { wch: 24 }, { wch: 30 }, { wch: 18 }, { wch: 13 }, { wch: 13 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 10 }];
+  sheet["!autofilter"] = { ref: `A4:K${Math.max(4, values.length)}` };
+  sheet["!freeze"] = { xSplit: 0, ySplit: 4 };
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, criarAba(rows.filter((row) => row.medido), "Colaboradores já medidos"), "Já medidos");
-  XLSX.utils.book_append_sheet(workbook, criarAba(rows.filter((row) => !row.medido), "Colaboradores ainda não medidos"), "Não medidos");
+  XLSX.utils.book_append_sheet(workbook, sheet, "Status de Medição");
   XLSX.writeFile(workbook, `Relatorio_Status_Medicao_${de}_a_${ate}.xlsx`);
 }
 
@@ -566,12 +568,19 @@ export function TimesheetsTab() {
                             salvarFuncao.mutate({ ids: g.dias.map((d) => d.id), funcao: valor });
                           }}
                         />
-                        {jaMedido && (
+                        {jaMedido ? (
                           <span
                             className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success animate-pulse"
                             title="Este colaborador já foi medido em pelo menos um BM nesse período"
                           >
                             <CheckCircle2 className="h-3 w-3" />Já medido
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                            title="Nenhum BM gerado ainda cobre este colaborador nesse período"
+                          >
+                            <CircleAlert className="h-3 w-3" />Não medido
                           </span>
                         )}
                       </p>
