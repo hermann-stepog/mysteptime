@@ -45,11 +45,12 @@ import {
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade,
   toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
-  calcularHistoricoOcupacaoColaborador, getColaboradoresComMultiploEmbarque,
+  calcularHistoricoOcupacaoColaborador, getColaboradoresComMultiploEmbarque, getColaboradoresComEmbarque,
   type OldBucket,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
   type HistoricoOcupacaoColaborador,
 } from "@/lib/histogramaNovo";
+import { getOffshoreData } from "@/lib/api/smartsheet.functions";
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS, resolverFuncaoEmbarque } from "@/lib/timesheetOffshore";
 import { pageTitle } from "@/lib/pageTitle";
@@ -204,6 +205,9 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
   // continua exclusiva do operador de logística.
   const canSeeHistograma = true;
   const canSeeLancamentos = isOperator;
+  // Planejamento de Transporte é uma ferramenta operacional pra logística programar
+  // carro/passagem de quem embarca ou desembarca — mesma exclusividade de Lançamentos.
+  const canSeePlanejamento = isOperator;
 
   // "Offshore" = só quem está marcado como Offshore na aba Offshore de Colaboradores (ver
   // useOffshoreNomesQuery) — fica fixo como padrão e sempre em primeiro no seletor (pedido
@@ -227,7 +231,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
           <h1 className="text-2xl font-semibold">Histograma Offshore</h1>
           {isOperator && <p className="text-sm text-muted-foreground">Lançamentos e histograma anual por colaborador.</p>}
         </div>
-        {innerTab !== "dashboard" && (
+        {innerTab !== "dashboard" && innerTab !== "planejamento" && (
           <Tabs value={origem} onValueChange={(v) => setOrigem(v as "geral" | "offshore")}>
             <TabsList>
               <TabsTrigger value="offshore">Offshore ({colaboradoresOffshore.length})</TabsTrigger>
@@ -242,6 +246,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           {canSeeHistograma && <TabsTrigger value="histograma">Histograma</TabsTrigger>}
           {canSeeLancamentos && <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>}
+          {canSeePlanejamento && <TabsTrigger value="planejamento">Planejamento de Transporte</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard" className="mt-4">
           <DashboardTab colaboradores={colaboradores} periodos={periodos} />
@@ -254,6 +259,11 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
         {canSeeLancamentos && (
           <TabsContent value="lancamentos" className="mt-4">
             <LancamentosTab colaboradores={colaboradores} periodos={periodos} />
+          </TabsContent>
+        )}
+        {canSeePlanejamento && (
+          <TabsContent value="planejamento" className="mt-4">
+            <PlanejamentoTransporteTab colaboradores={colaboradores} periodos={periodos} />
           </TabsContent>
         )}
       </Tabs>
@@ -826,6 +836,231 @@ async function autoLancarDesembarque(periodo: HistNovoPeriodo, qc: QueryClient):
   }).select("*").single();
   if (error) { notify.error(`Não consegui lançar o desembarque automático: ${error.message}`); return; }
   qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => (old ? [data as HistNovoPeriodo, ...old] : [data as HistNovoPeriodo]));
+}
+
+// ─── Planejamento de Transporte ─────────────────────────────────────────────
+// Lista todo colaborador com Função de Embarque no Drake (getColaboradoresComEmbarque — mesmo
+// critério de "é offshore de verdade" já usado em outros lugares), pra ajudar a logística a
+// programar carro/passagem de quem vai embarcar ou desembarcar. Status/Unidade/BSP/datas vêm
+// todos do mesmo cálculo que o resto do Histograma já usa (computeDayStatus) — nada de lógica
+// paralela. Especialidade é a única informação que não existe no Drake: vem da integração
+// Smartsheet já usada na aba Offshore de Colaboradores (ver src/lib/smartsheet.ts), cruzada
+// por nome — sem tabela nova, só leitura de algo que já existe.
+interface LinhaPlanejamento {
+  colaborador: HistNovoColaborador;
+  periodoAtual: HistNovoPeriodo | null;
+  unidadeAtual: string;
+  status: ComputedStatus;
+  funcaoEmbarque: string;
+  especialidade: string;
+  embarque: string | null;
+  desembarque: string | null;
+  folgaInicio: string | null;
+  folgaFim: string | null;
+  feriasInicio: string | null;
+  feriasFim: string | null;
+  proximaData: string;
+}
+
+function BspPlanejamentoCell({ periodo, periodos, onSave }: { periodo: HistNovoPeriodo | null; periodos: HistNovoPeriodo[]; onSave: (bsp: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [valor, setValor] = useState(periodo ? (bspDoPeriodo(periodo) ?? "") : "");
+  const opcoes = useMemo(() => bspOptionsForUnidade(periodos, periodo?.unidade_operacional ?? "all"), [periodos, periodo?.unidade_operacional]);
+
+  if (!periodo) return <span className="text-muted-foreground">—</span>;
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) { setValor(bspDoPeriodo(periodo) ?? ""); setManual(false); } }}>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded px-1.5 py-0.5 text-left hover:bg-muted">
+          {bspDoPeriodo(periodo) || <span className="text-muted-foreground">Definir BSP</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 space-y-2" align="start">
+        {opcoes.length > 0 && !manual ? (
+          <BspCombobox options={opcoes} value={valor} onChange={setValor} onManual={() => setManual(true)} />
+        ) : (
+          <Input value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Nº do BSP" />
+        )}
+        <Button size="sm" className="w-full" onClick={() => { onSave(valor); setOpen(false); }}>Salvar</Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
+  const qc = useQueryClient();
+  const today = todayStr();
+
+  // Mesma fonte de Função de Embarque já usada em Lançamentos/Nomeações (ver resolverFuncaoEmbarque).
+  const { data: timesheetEmbarques = [] } = useQuery({
+    queryKey: ["timesheet-embarques"],
+    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) =>
+      supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+  });
+  const embarquesByColaboradorId = useMemo(() => {
+    const m = new Map<string, TimesheetEmbarque[]>();
+    timesheetEmbarques.forEach((e) => { if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []); m.get(e.colaborador_id)!.push(e); });
+    return m;
+  }, [timesheetEmbarques]);
+
+  const { data: smartsheetPeople = [] } = useQuery({
+    queryKey: ["smartsheet-offshore-people"],
+    queryFn: () => getOffshoreData(),
+    staleTime: 5 * 60_000,
+  });
+  const especialidadeByNome = useMemo(() => {
+    const m = new Map<string, string>();
+    smartsheetPeople.forEach((p) => { if (p.especialidade) m.set(normalizeNomeHistograma(p.name), p.especialidade); });
+    return m;
+  }, [smartsheetPeople]);
+
+  const periodosPorColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodos.forEach((p) => { if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []); m.get(p.colaborador_id)!.push(p); });
+    return m;
+  }, [periodos]);
+
+  const colaboradoresComEmbarque = useMemo(() => getColaboradoresComEmbarque(periodos), [periodos]);
+
+  const updateBsp = useMutation({
+    mutationFn: async ({ periodoId, bsp }: { periodoId: string; bsp: string }) => {
+      const { error } = await supabase.from("hist_novo_periodos").update({ bsp: bsp.trim() || null }).eq("id", periodoId);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] }); notify.success("BSP atualizado"); },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const [busca, setBusca] = useState("");
+  const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+
+  const linhas: LinhaPlanejamento[] = useMemo(() => {
+    return colaboradores
+      .filter((c) => colaboradoresComEmbarque.has(c.id))
+      .map((c): LinhaPlanejamento => {
+        const meusPeriodos = periodosPorColaborador.get(c.id) ?? [];
+        const statusHoje = computeDayStatus(meusPeriodos, today);
+        const periodoAtual = statusHoje.periodo ?? null;
+        const unidadeAtual = periodoAtual?.unidade_operacional || STATUS_LABEL[statusHoje.status];
+        const funcaoEmbarque = resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao);
+        const especialidade = especialidadeByNome.get(normalizeNomeHistograma(c.nome)) ?? "";
+
+        // Ciclo mais próximo: o embarque "E" real (não Programado) que ainda não terminou —
+        // o que está em curso, se houver, senão o próximo a começar.
+        const cicloAtualOuProximo = meusPeriodos
+          .filter((p) => p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO && p.data_fim >= today)
+          .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
+        const embarque = cicloAtualOuProximo?.data_inicio ?? null;
+        const desembarque = cicloAtualOuProximo?.data_fim ?? null;
+
+        const proximaFolga = meusPeriodos
+          .filter((p) => p.tipo === "F" && p.data_fim >= today)
+          .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
+        const proximasFerias = meusPeriodos
+          .filter((p) => p.tipo === "FE" && p.data_fim >= today)
+          .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
+
+        const datasFuturas = [embarque, desembarque, proximaFolga?.data_fim ?? null, proximasFerias?.data_inicio ?? null]
+          .filter((d): d is string => !!d && d >= today);
+        const proximaData = datasFuturas.length ? datasFuturas.sort()[0] : "9999-12-31";
+
+        return {
+          colaborador: c, periodoAtual, unidadeAtual, status: statusHoje.status, funcaoEmbarque, especialidade,
+          embarque, desembarque,
+          folgaInicio: proximaFolga?.data_inicio ?? null, folgaFim: proximaFolga?.data_fim ?? null,
+          feriasInicio: proximasFerias?.data_inicio ?? null, feriasFim: proximasFerias?.data_fim ?? null,
+          proximaData,
+        };
+      })
+      .filter((l) => !busca.trim() || matchesNameSearch(l.colaborador.nome, busca) || l.colaborador.matricula.includes(busca.trim()))
+      .filter((l) => filterUnidade === "all" || l.unidadeAtual === filterUnidade)
+      .filter((l) => filterStatus === "all" || l.status === filterStatus)
+      .sort((a, b) => a.proximaData.localeCompare(b.proximaData) || a.colaborador.nome.localeCompare(b.colaborador.nome));
+  }, [colaboradores, colaboradoresComEmbarque, periodosPorColaborador, embarquesByColaboradorId, especialidadeByNome, today, busca, filterUnidade, filterStatus]);
+
+  const unidadesExistentes = useMemo(() => Array.from(new Set(linhas.map((l) => l.unidadeAtual).filter(Boolean))).sort(), [linhas]);
+  const statusExistentes = useMemo(() => Array.from(new Set(linhas.map((l) => l.status))), [linhas]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="w-56">
+          <Label className="text-xs">Nome ou Matrícula</Label>
+          <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar..." />
+        </div>
+        <div>
+          <Label className="text-xs">Unidade</Label>
+          <Select value={filterUnidade} onValueChange={setFilterUnidade}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas</SelectItem>
+              {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Status</Label>
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              {statusExistentes.map((s) => <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <Card className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Matrícula</TableHead>
+              <TableHead>Nome</TableHead>
+              <TableHead>Unidade/Localização</TableHead>
+              <TableHead>BSP</TableHead>
+              <TableHead>Função</TableHead>
+              <TableHead>Especialidade</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Embarque</TableHead>
+              <TableHead>Desembarque</TableHead>
+              <TableHead>Início Folga</TableHead>
+              <TableHead>Fim Folga</TableHead>
+              <TableHead>Início Férias</TableHead>
+              <TableHead>Fim Férias</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {linhas.map((l) => (
+              <TableRow key={l.colaborador.id}>
+                <TableCell>{l.colaborador.matricula}</TableCell>
+                <TableCell className="font-medium">{l.colaborador.nome}</TableCell>
+                <TableCell>{l.unidadeAtual || "—"}</TableCell>
+                <TableCell>
+                  <BspPlanejamentoCell
+                    periodo={l.periodoAtual}
+                    periodos={periodos}
+                    onSave={(bsp) => l.periodoAtual && updateBsp.mutate({ periodoId: l.periodoAtual.id, bsp })}
+                  />
+                </TableCell>
+                <TableCell>{l.funcaoEmbarque}</TableCell>
+                <TableCell>{l.especialidade || "—"}</TableCell>
+                <TableCell>{STATUS_LABEL[l.status]}</TableCell>
+                <TableCell>{l.embarque ? fmtDateHeadcount(l.embarque) : "—"}</TableCell>
+                <TableCell>{l.desembarque ? fmtDateHeadcount(l.desembarque) : "—"}</TableCell>
+                <TableCell>{l.folgaInicio ? fmtDateHeadcount(l.folgaInicio) : "—"}</TableCell>
+                <TableCell>{l.folgaFim ? fmtDateHeadcount(l.folgaFim) : "—"}</TableCell>
+                <TableCell>{l.feriasInicio ? fmtDateHeadcount(l.feriasInicio) : "—"}</TableCell>
+                <TableCell>{l.feriasFim ? fmtDateHeadcount(l.feriasFim) : "—"}</TableCell>
+              </TableRow>
+            ))}
+            {linhas.length === 0 && <EmptyStateRow colSpan={13} icon={Users} title="Nenhum colaborador encontrado" description="Ajuste os filtros de busca." />}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
 }
 
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
