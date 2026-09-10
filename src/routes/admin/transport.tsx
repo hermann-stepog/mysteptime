@@ -2032,8 +2032,11 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   // lista de opções vem dos próprios dados carregados, não de uma constante como CLIENTES.
   // As opções mostram só o nome (nomeTransporte), igual à coluna da tabela — sem o número
   // específico de cada "Future" — então filtrar por "Future" pega todos eles de uma vez.
+  // toDisplayCase normaliza maiúsculo/minúsculo também ("UBER"/"Uber"/"uber" viram uma opção
+  // só) — sem isso, o mesmo transporte digitado com capitalização diferente em momentos
+  // diferentes aparecia duplicado na lista.
   const carroOptions = useMemo(
-    () => Array.from(new Set((trips as Trip[]).map((t) => nomeTransporte(t.car_number)))).sort(compareCarNumber),
+    () => Array.from(new Set((trips as Trip[]).map((t) => toDisplayCase(nomeTransporte(t.car_number))))).sort(compareCarNumber),
     [trips],
   );
 
@@ -2045,7 +2048,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (status !== "all" && t.status !== status) return false;
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
-      if (carro !== "all" && nomeTransporte(t.car_number) !== carro) return false;
+      if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
     });
@@ -2106,7 +2109,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {carroOptions.map((c) => <SelectItem key={c} value={c}>{toDisplayCase(c)}</SelectItem>)}
+              {carroOptions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
