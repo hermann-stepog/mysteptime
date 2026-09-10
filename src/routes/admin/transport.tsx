@@ -435,6 +435,11 @@ function parseCarro(car_number: string): { carro_opcao: string; carro_future_num
   const v = car_number.trim();
   if (!v) return { carro_opcao: "", carro_future_num: "", carro_outro: "", carro_outro_num: "" };
   if (CARRO_PRESETS.includes(v)) return { carro_opcao: v, carro_future_num: "", carro_outro: "", carro_outro_num: "" };
+  // Variante tipo "Uber - SMS", "Uber -  Alguma coisa": o sufixo depois do traço é só ruído de
+  // digitação (motivo/depto anotado junto por engano), não um número de unidade — trata como
+  // o preset puro e descarta o sufixo.
+  const presetComSufixo = CARRO_PRESETS.find((preset) => new RegExp(`^${preset}\\s*-\\s*.+$`, "i").test(v));
+  if (presetComSufixo) return { carro_opcao: presetComSufixo, carro_future_num: "", carro_outro: "", carro_outro_num: "" };
   const futureMatch = /^Future\s+(\d{1,2})$/i.exec(v);
   if (futureMatch) return { carro_opcao: "Future", carro_future_num: futureMatch[1], carro_outro: "", carro_outro_num: "" };
   // Qualquer outro transporte digitado em "Outro" também pode ter um número no final (ex.:
