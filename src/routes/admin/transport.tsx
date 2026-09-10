@@ -2015,10 +2015,12 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [colaboradorId, setColaboradorId] = useState("");
   const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
 
-  // Carro é texto livre (Uber, Motorista X, Future NN, etc.), não um cadastro fixo — a lista
-  // de opções vem dos próprios dados carregados, não de uma constante como CLIENTES.
+  // Transporte é texto livre (Uber, Motorista X, Future NN, etc.), não um cadastro fixo — a
+  // lista de opções vem dos próprios dados carregados, não de uma constante como CLIENTES.
+  // As opções mostram só o nome (nomeTransporte), igual à coluna da tabela — sem o número
+  // específico de cada "Future" — então filtrar por "Future" pega todos eles de uma vez.
   const carroOptions = useMemo(
-    () => Array.from(new Set((trips as Trip[]).map((t) => t.car_number))).sort(compareCarNumber),
+    () => Array.from(new Set((trips as Trip[]).map((t) => nomeTransporte(t.car_number)))).sort(compareCarNumber),
     [trips],
   );
 
@@ -2030,7 +2032,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (status !== "all" && t.status !== status) return false;
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
-      if (carro !== "all" && t.car_number !== carro) return false;
+      if (carro !== "all" && nomeTransporte(t.car_number) !== carro) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
       return true;
     });
