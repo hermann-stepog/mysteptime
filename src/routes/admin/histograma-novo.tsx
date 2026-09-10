@@ -853,13 +853,43 @@ interface LinhaPlanejamento {
   status: ComputedStatus;
   funcaoEmbarque: string;
   especialidade: string;
+  // Guarda o período de origem de cada par de datas (não só a string), pra permitir editar a
+  // data direto na célula (como na planilha do Smartsheet) — sem isso não teria como saber
+  // qual linha de hist_novo_periodos atualizar.
+  cicloPeriodo: HistNovoPeriodo | null;
   embarque: string | null;
   desembarque: string | null;
+  folgaPeriodo: HistNovoPeriodo | null;
   folgaInicio: string | null;
   folgaFim: string | null;
+  feriasPeriodo: HistNovoPeriodo | null;
   feriasInicio: string | null;
   feriasFim: string | null;
   proximaData: string;
+}
+
+// Célula de data editável (Embarque/Desembarque/Folga/Férias) — mesmo padrão de
+// BspPlanejamentoCell: clique abre um popover com o campo de data, "Salvar" grava. Sem
+// período de origem (ninguém programado ainda), mostra só "—", sem edição possível.
+function DatePlanejamentoCell({ periodo, valor, onSave }: { periodo: HistNovoPeriodo | null; valor: string | null; onSave: (novaData: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState(valor ?? "");
+
+  if (!periodo || !valor) return <span className="text-muted-foreground">—</span>;
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setInput(valor); }}>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded px-1.5 py-0.5 text-left hover:bg-muted">
+          {fmtDateHeadcount(valor)}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 space-y-2" align="start">
+        <Input type="date" value={input} onChange={(e) => setInput(e.target.value)} />
+        <Button size="sm" className="w-full" onClick={() => { if (input) onSave(input); setOpen(false); }}>Salvar</Button>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function BspPlanejamentoCell({ periodo, periodos, onSave }: { periodo: HistNovoPeriodo | null; periodos: HistNovoPeriodo[]; onSave: (bsp: string) => void }) {
@@ -1159,48 +1189,65 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
     onError: (e: any) => notify.error(e.message),
   });
 
+  // Edita a data de embarque/desembarque/folga/férias direto na célula — mesmo dado
+  // (hist_novo_periodos) que Lançamentos edita, só que sem abrir o dialog inteiro. Recalcula
+  // "dias" a partir do novo intervalo, igual ao updatePeriodo de Lançamentos.
+  const updatePeriodoData = useMutation({
+    mutationFn: async ({ periodo, field, valor }: { periodo: HistNovoPeriodo; field: "data_inicio" | "data_fim"; valor: string }) => {
+      const novoInicio = field === "data_inicio" ? valor : periodo.data_inicio;
+      const novoFim = field === "data_fim" ? valor : periodo.data_fim;
+      const dias = Math.round((new Date(novoFim).getTime() - new Date(novoInicio).getTime()) / 86400000) + 1;
+      const patch = field === "data_inicio" ? { data_inicio: valor } : { data_fim: valor };
+      const { error } = await supabase.from("hist_novo_periodos").update({ ...patch, dias: dias > 0 ? dias : null }).eq("id", periodo.id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] }); notify.success("Data atualizada"); },
+    onError: (e: any) => notify.error(e.message),
+  });
+
   // Mesmo padrão de Lançamentos: os "*Input" guardam o que está sendo escolhido, e os
   // "filter*" só passam a valer depois de clicar em "Buscar".
   const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
   const [unidadeInput, setUnidadeInput] = useState<string[]>([]);
   const [bspInput, setBspInput] = useState<string[]>([]);
   const [funcaoInput, setFuncaoInput] = useState<string[]>([]);
+  const [especialidadeInput, setEspecialidadeInput] = useState<string[]>([]);
   const [statusInput, setStatusInput] = useState<string[]>([]);
-  const [deInput, setDeInput] = useState("");
-  const [ateInput, setAteInput] = useState("");
+  const DATE_RANGE_VAZIO = { embarqueDe: "", embarqueAte: "", desembarqueDe: "", desembarqueAte: "", folgaDe: "", folgaAte: "", feriasDe: "", feriasAte: "" };
+  const [dateRangeInput, setDateRangeInput] = useState(DATE_RANGE_VAZIO);
   const [filterColaborador, setFilterColaborador] = useState<string[]>([]);
   const [filterUnidade, setFilterUnidade] = useState<string[]>([]);
   const [filterBsp, setFilterBsp] = useState<string[]>([]);
   const [filterFuncao, setFilterFuncao] = useState<string[]>([]);
+  const [filterEspecialidade, setFilterEspecialidade] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
-  const [filterDe, setFilterDe] = useState("");
-  const [filterAte, setFilterAte] = useState("");
+  const [dateRangeFilter, setDateRangeFilter] = useState(DATE_RANGE_VAZIO);
   const bspInputOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeInput), [periodos, unidadeInput]);
   const aplicarFiltro = () => {
     setFilterColaborador(colaboradorInput);
     setFilterUnidade(unidadeInput);
     setFilterBsp(bspInput);
     setFilterFuncao(funcaoInput);
+    setFilterEspecialidade(especialidadeInput);
     setFilterStatus(statusInput);
-    setFilterDe(deInput);
-    setFilterAte(ateInput);
+    setDateRangeFilter(dateRangeInput);
   };
   const limparFiltros = () => {
     setColaboradorInput([]);
     setUnidadeInput([]);
     setBspInput([]);
     setFuncaoInput([]);
+    setEspecialidadeInput([]);
     setStatusInput([]);
-    setDeInput("");
-    setAteInput("");
+    setDateRangeInput(DATE_RANGE_VAZIO);
 
     setFilterColaborador([]);
     setFilterUnidade([]);
     setFilterBsp([]);
     setFilterFuncao([]);
+    setFilterEspecialidade([]);
     setFilterStatus([]);
-    setFilterDe("");
-    setFilterAte("");
+    setDateRangeFilter(DATE_RANGE_VAZIO);
   };
 
   // Lista completa (sem filtro nenhum) — as opções dos combobox vêm sempre dela, não da lista
@@ -1235,15 +1282,16 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
 
       return {
         colaborador: c, periodoAtual, unidadeAtual, status: statusHoje.status, funcaoEmbarque, especialidade,
-        embarque, desembarque,
-        folgaInicio: proximaFolga?.data_inicio ?? null, folgaFim: proximaFolga?.data_fim ?? null,
-        feriasInicio: proximasFerias?.data_inicio ?? null, feriasFim: proximasFerias?.data_fim ?? null,
+        cicloPeriodo: cicloAtualOuProximo, embarque, desembarque,
+        folgaPeriodo: proximaFolga, folgaInicio: proximaFolga?.data_inicio ?? null, folgaFim: proximaFolga?.data_fim ?? null,
+        feriasPeriodo: proximasFerias, feriasInicio: proximasFerias?.data_inicio ?? null, feriasFim: proximasFerias?.data_fim ?? null,
         proximaData,
       };
     });
   }, [colaboradoresParaPlanejamento, periodosPorColaborador, embarquesByColaboradorId, especialidadeByNome, today]);
 
   const unidadesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.unidadeAtual).filter(Boolean))).sort(), [linhasBase]);
+  const especialidadesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.especialidade).filter(Boolean))).sort(), [linhasBase]);
   const statusLabelsExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => STATUS_LABEL[l.status]))).sort(), [linhasBase]);
 
   const linhas: LinhaPlanejamento[] = useMemo(() => {
@@ -1255,11 +1303,18 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
         return b != null && filterBsp.includes(b);
       })())
       .filter((l) => filterFuncao.length === 0 || filterFuncao.includes(l.funcaoEmbarque))
+      .filter((l) => filterEspecialidade.length === 0 || filterEspecialidade.includes(l.especialidade))
       .filter((l) => filterStatus.length === 0 || filterStatus.includes(STATUS_LABEL[l.status]))
-      .filter((l) => !filterDe || l.proximaData >= filterDe)
-      .filter((l) => !filterAte || l.proximaData <= filterAte)
+      .filter((l) => !dateRangeFilter.embarqueDe || (l.embarque != null && l.embarque >= dateRangeFilter.embarqueDe))
+      .filter((l) => !dateRangeFilter.embarqueAte || (l.embarque != null && l.embarque <= dateRangeFilter.embarqueAte))
+      .filter((l) => !dateRangeFilter.desembarqueDe || (l.desembarque != null && l.desembarque >= dateRangeFilter.desembarqueDe))
+      .filter((l) => !dateRangeFilter.desembarqueAte || (l.desembarque != null && l.desembarque <= dateRangeFilter.desembarqueAte))
+      .filter((l) => !dateRangeFilter.folgaDe || (l.folgaFim != null && l.folgaFim >= dateRangeFilter.folgaDe))
+      .filter((l) => !dateRangeFilter.folgaAte || (l.folgaInicio != null && l.folgaInicio <= dateRangeFilter.folgaAte))
+      .filter((l) => !dateRangeFilter.feriasDe || (l.feriasFim != null && l.feriasFim >= dateRangeFilter.feriasDe))
+      .filter((l) => !dateRangeFilter.feriasAte || (l.feriasInicio != null && l.feriasInicio <= dateRangeFilter.feriasAte))
       .sort((a, b) => a.proximaData.localeCompare(b.proximaData) || a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [linhasBase, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterStatus, filterDe, filterAte]);
+  }, [linhasBase, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, dateRangeFilter]);
 
   return (
     <div className="space-y-3">
@@ -1288,16 +1343,12 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
             <StringMultiCombobox options={funcoesExistentes} value={funcaoInput} onChange={setFuncaoInput} searchPlaceholder="Buscar função..." emptyLabel="Nenhuma função encontrada." />
           </div>
           <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Especialidade</Label>
+            <StringMultiCombobox options={especialidadesExistentes} value={especialidadeInput} onChange={setEspecialidadeInput} placeholder="Todas" searchPlaceholder="Buscar especialidade..." emptyLabel="Nenhuma especialidade encontrada." />
+          </div>
+          <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
             <StringMultiCombobox options={statusLabelsExistentes} value={statusInput} onChange={setStatusInput} placeholder="Todos" searchPlaceholder="Buscar status..." emptyLabel="Nenhum status encontrado." />
-          </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-            <Input type="date" className="h-8 text-xs" value={deInput} onChange={(e) => setDeInput(e.target.value)} />
-          </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-            <Input type="date" className="h-8 text-xs" value={ateInput} onChange={(e) => setAteInput(e.target.value)} />
           </div>
           <Button size="sm" className="h-8" onClick={aplicarFiltro}>
             <Search className="mr-1.5 h-3.5 w-3.5" />Buscar
@@ -1310,6 +1361,53 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
             <Users className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="font-bold">{linhas.length}</span>
             <span className="text-muted-foreground">colaborador(es)</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-t pt-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Embarque</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.embarqueDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, embarqueDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.embarqueAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, embarqueAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Desembarque</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.desembarqueDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, desembarqueDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.desembarqueAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, desembarqueAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Folga</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.folgaDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, folgaDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.folgaAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, folgaAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Férias</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.feriasDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, feriasDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.feriasAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, feriasAte: e.target.value })} />
+            </div>
           </div>
         </div>
       </Card>
@@ -1348,12 +1446,42 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
                 <TableCell>{l.funcaoEmbarque}</TableCell>
                 <TableCell>{l.especialidade || "—"}</TableCell>
                 <TableCell>{STATUS_LABEL[l.status]}</TableCell>
-                <TableCell>{l.embarque ? fmtDateHeadcount(l.embarque) : "—"}</TableCell>
-                <TableCell>{l.desembarque ? fmtDateHeadcount(l.desembarque) : "—"}</TableCell>
-                <TableCell>{l.folgaInicio ? fmtDateHeadcount(l.folgaInicio) : "—"}</TableCell>
-                <TableCell>{l.folgaFim ? fmtDateHeadcount(l.folgaFim) : "—"}</TableCell>
-                <TableCell>{l.feriasInicio ? fmtDateHeadcount(l.feriasInicio) : "—"}</TableCell>
-                <TableCell>{l.feriasFim ? fmtDateHeadcount(l.feriasFim) : "—"}</TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.cicloPeriodo} valor={l.embarque}
+                    onSave={(valor) => l.cicloPeriodo && updatePeriodoData.mutate({ periodo: l.cicloPeriodo, field: "data_inicio", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.cicloPeriodo} valor={l.desembarque}
+                    onSave={(valor) => l.cicloPeriodo && updatePeriodoData.mutate({ periodo: l.cicloPeriodo, field: "data_fim", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.folgaPeriodo} valor={l.folgaInicio}
+                    onSave={(valor) => l.folgaPeriodo && updatePeriodoData.mutate({ periodo: l.folgaPeriodo, field: "data_inicio", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.folgaPeriodo} valor={l.folgaFim}
+                    onSave={(valor) => l.folgaPeriodo && updatePeriodoData.mutate({ periodo: l.folgaPeriodo, field: "data_fim", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.feriasPeriodo} valor={l.feriasInicio}
+                    onSave={(valor) => l.feriasPeriodo && updatePeriodoData.mutate({ periodo: l.feriasPeriodo, field: "data_inicio", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.feriasPeriodo} valor={l.feriasFim}
+                    onSave={(valor) => l.feriasPeriodo && updatePeriodoData.mutate({ periodo: l.feriasPeriodo, field: "data_fim", valor })}
+                  />
+                </TableCell>
               </TableRow>
             ))}
             {linhas.length === 0 && <EmptyStateRow colSpan={13} icon={Users} title="Nenhum colaborador encontrado" description="Ajuste os filtros de busca." />}
