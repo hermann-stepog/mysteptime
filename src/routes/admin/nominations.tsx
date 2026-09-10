@@ -39,6 +39,7 @@ import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
+  Upload, PlaneTakeoff, TimerReset, ListChecks,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -51,13 +52,17 @@ import {
   generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
   displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, bspOptionsForUnidade,
   getColaboradoresComEmbarque, bspDoPeriodo, normalizeUnidadeOperacional,
-  type ComputedStatus, type HistNovoPeriodo,
+  type ComputedStatus, type HistNovoPeriodo, type HistNovoColaborador,
 } from "@/lib/histogramaNovo";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
 import { resolverFuncaoEmbarque, type TimesheetEmbarque } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
+import {
+  IMPORT_STAGE_OPTIONS, parseNominationWorkbook, validateNominationImportRows, buildImportBackfill,
+  importedStagePath, type NominationImportRow, type NominationImportAccepted, type NominationImportRejection,
+} from "@/lib/nominationImport";
 
 export const Route = createFileRoute("/admin/nominations")({ head: () => pageTitle("Nomeações"), component: NominationsPage });
 
@@ -2622,6 +2627,429 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
   );
 }
 
+// ─── Próximas Nomeações ──────────────────────────────────────────────────────
+// Visão consolidada (não é kanban, é lista) de todo colaborador já vinculado a uma nomeação —
+// do estágio "Nomeados" até "Equipe Formada", nunca antes disso (etapas anteriores ainda não
+// têm colaborador definido pra listar aqui) — mais a importação por planilha. Reaproveita
+// integralmente o status/etapa que o kanban já controla (current_status, ALL_STATUSES,
+// STATUS_LABELS/STATUS_BADGE) — não inventa nenhuma lógica de etapa paralela.
+const PROXIMAS_NOMEACOES_STAGES: NominationStatus[] = KANBAN_COLUMNS
+  .map((c) => c.id)
+  .filter((id) => ALL_STATUSES.indexOf(id) >= ALL_STATUSES.indexOf("nomeados"));
+
+// Quantos dias parada na MESMA etapa atual sem avançar já é motivo de alerta — ajustável.
+const DIAS_PARADO_ALERTA = 5;
+
+interface LinhaProximaNomeacao {
+  nomination: Nomination;
+  nominee: NominationNominee;
+}
+
+// Data em que a nomeação entrou na etapa em que está hoje — a linha de nomination_status_history
+// mais recente com status igual ao current_status atual (pode ter mais de uma se ela voltou e
+// avançou de novo); sem nenhuma linha correspondente (não deveria acontecer, useAdvanceStage
+// sempre grava uma), cai pra created_at.
+function stageEnteredAt(nomination: Nomination, history: NominationStatusHistory[]): string {
+  const matches = history.filter((h) => h.nomination_id === nomination.id && h.status === nomination.current_status);
+  if (matches.length === 0) return nomination.created_at;
+  return matches.reduce((latest, h) => (h.changed_at > latest ? h.changed_at : latest), matches[0].changed_at);
+}
+
+function ProximasNomeacoesTab({ nominations, nomineesByNomination }: {
+  nominations: Nomination[];
+  nomineesByNomination: Map<string, NominationNominee[]>;
+}) {
+  const { role } = useAuth();
+  const canImport = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
+  const today = todayStr();
+  const [importOpen, setImportOpen] = useState(false);
+
+  const { data: history = [] } = useQuery<NominationStatusHistory[]>({
+    queryKey: ["nomination-status-history-all"],
+    queryFn: () =>
+      selectAllPages<NominationStatusHistory>((from, to) =>
+        supabase.from("nomination_status_history").select("*").range(from, to),
+      ),
+  });
+
+  // Elegíveis: current_status em [Nomeados..Equipe Formada] (a mesma faixa que a importação
+  // aceita como etapa de destino) e outcome != "cancelada" — "Cancelado" não é uma etapa própria
+  // do kanban (ver src/lib/nominations.ts), é um outcome sobre a etapa terminal Equipe Formada.
+  const elegiveis = useMemo(
+    () => nominations.filter((n) =>
+      PROXIMAS_NOMEACOES_STAGES.includes(n.current_status) &&
+      !(n.current_status === "equipe_formada" && n.outcome === "cancelada"),
+    ),
+    [nominations],
+  );
+
+  // Uma linha por colaborador ativo (não por solicitação) — Função/Unidade/BSP/Data de
+  // Embarque/Etapa são do cabeçalho da nomeação, compartilhados por todos os nomeados dela.
+  const linhasBase = useMemo(() => {
+    const out: LinhaProximaNomeacao[] = [];
+    elegiveis.forEach((n) => {
+      (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).forEach((nominee) => out.push({ nomination: n, nominee }));
+    });
+    return out;
+  }, [elegiveis, nomineesByNomination]);
+
+  const [busca, setBusca] = useState("");
+  const [filterUnidade, setFilterUnidade] = useState("");
+  const [filterBsp, setFilterBsp] = useState("");
+  const [filterFuncao, setFilterFuncao] = useState("");
+
+  const unidadesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.nomination.unidade).filter((v): v is string => !!v))).sort(), [linhasBase]);
+  const bspsExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.nomination.bsp).filter((v): v is string => !!v))).sort(), [linhasBase]);
+  const funcoesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.nomination.funcao).filter(Boolean))).sort(), [linhasBase]);
+
+  const linhas = useMemo(() => {
+    return linhasBase
+      .filter((l) => !busca.trim() || matchesNameSearch(l.nominee.colaborador_nome, busca))
+      .filter((l) => !filterUnidade || l.nomination.unidade === filterUnidade)
+      .filter((l) => !filterBsp || l.nomination.bsp === filterBsp)
+      .filter((l) => !filterFuncao || l.nomination.funcao === filterFuncao)
+      .sort((a, b) => (a.nomination.period_start ?? "9999-12-31").localeCompare(b.nomination.period_start ?? "9999-12-31") || a.nominee.colaborador_nome.localeCompare(b.nominee.colaborador_nome));
+  }, [linhasBase, busca, filterUnidade, filterBsp, filterFuncao]);
+
+  // Contadores do mini-painel — sobre linhasBase (não sobre `linhas` filtrada), pra sempre
+  // retratarem o conjunto elegível inteiro, independente do filtro de busca da tabela abaixo.
+  const contadores = useMemo(() => {
+    const emAte = (dias: number) => linhasBase.filter((l) => {
+      if (!l.nomination.period_start) return false;
+      const d = diasAteData(l.nomination.period_start, today);
+      return d >= 0 && d <= dias;
+    }).length;
+    const paradas = linhasBase.filter((l) => diasAteData(today, stageEnteredAt(l.nomination, history).slice(0, 10)) >= DIAS_PARADO_ALERTA).length;
+    const porEtapa = PROXIMAS_NOMEACOES_STAGES.map((stage) => ({
+      stage,
+      // Distribuição por SOLICITAÇÃO (não por colaborador) — retrata quantos cards existem
+      // hoje em cada coluna do kanban, igual à contagem que já se vê lá.
+      count: elegiveis.filter((n) => n.current_status === stage).length,
+    }));
+    return { em7: emAte(7), em15: emAte(15), em30: emAte(30), paradas, porEtapa };
+  }, [linhasBase, elegiveis, history, today]);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5"><PlaneTakeoff className="h-3.5 w-3.5" /> Embarque em até 7 dias</p>
+          <p className="mt-1 text-2xl font-semibold">{contadores.em7}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5"><PlaneTakeoff className="h-3.5 w-3.5" /> Embarque em até 15 dias</p>
+          <p className="mt-1 text-2xl font-semibold">{contadores.em15}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5"><PlaneTakeoff className="h-3.5 w-3.5" /> Embarque em até 30 dias</p>
+          <p className="mt-1 text-2xl font-semibold">{contadores.em30}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5"><TimerReset className="h-3.5 w-3.5" /> Paradas há mais de {DIAS_PARADO_ALERTA} dias</p>
+          <p className="mt-1 text-2xl font-semibold">{contadores.paradas}</p>
+        </Card>
+      </div>
+
+      <Card className="p-4">
+        <p className="mb-2 text-xs font-medium text-muted-foreground flex items-center gap-1.5"><ListChecks className="h-3.5 w-3.5" /> Distribuição por etapa</p>
+        <div className="flex flex-wrap gap-2">
+          {contadores.porEtapa.map(({ stage, count }) => (
+            <span key={stage} className="inline-flex items-center gap-1.5 rounded-full border border-black/5 px-2.5 py-1 text-xs" style={{ backgroundColor: STATUS_BADGE[stage]?.bg, color: STATUS_BADGE[stage]?.text }}>
+              {STATUS_LABELS[stage]}<span className="font-semibold">{count}</span>
+            </span>
+          ))}
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="w-56">
+          <Label className="text-xs">Colaborador</Label>
+          <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome..." />
+        </div>
+        <div className="w-48">
+          <Label className="text-xs">Unidade</Label>
+          <SearchableSelect value={filterUnidade} onValueChange={setFilterUnidade} options={unidadesExistentes} placeholder="Todas" />
+        </div>
+        <div className="w-40">
+          <Label className="text-xs">BSP</Label>
+          <SearchableSelect value={filterBsp} onValueChange={setFilterBsp} options={bspsExistentes} placeholder="Todos" />
+        </div>
+        <div className="w-48">
+          <Label className="text-xs">Função</Label>
+          <SearchableSelect value={filterFuncao} onValueChange={setFilterFuncao} options={funcoesExistentes} placeholder="Todas" />
+        </div>
+        {(filterUnidade || filterBsp || filterFuncao || busca) && (
+          <Button size="sm" variant="outline" onClick={() => { setBusca(""); setFilterUnidade(""); setFilterBsp(""); setFilterFuncao(""); }}>
+            <X className="mr-1.5 h-3.5 w-3.5" /> Limpar filtros
+          </Button>
+        )}
+        {canImport && (
+          <Button size="sm" className="ml-auto" onClick={() => setImportOpen(true)}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar planilha
+          </Button>
+        )}
+      </div>
+
+      <Card className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Colaborador</TableHead>
+              <TableHead>Função</TableHead>
+              <TableHead>Unidade</TableHead>
+              <TableHead>BSP</TableHead>
+              <TableHead>Data de Embarque</TableHead>
+              <TableHead>Etapa atual</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {linhas.map((l) => (
+              <TableRow key={l.nominee.id}>
+                <TableCell className="font-medium">{l.nominee.colaborador_nome}</TableCell>
+                <TableCell>{l.nomination.funcao}</TableCell>
+                <TableCell>{l.nomination.unidade ?? "—"}</TableCell>
+                <TableCell>{l.nomination.bsp ?? "—"}</TableCell>
+                <TableCell>{l.nomination.period_start ? fmtDate(l.nomination.period_start) : "—"}</TableCell>
+                <TableCell><StatusBadge status={l.nomination.current_status} /></TableCell>
+              </TableRow>
+            ))}
+            {linhas.length === 0 && <EmptyStateRow colSpan={6} icon={Ship} title="Nenhuma nomeação encontrada" description="Ajuste os filtros acima." />}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {importOpen && <ImportarPlanilhaDialog nominations={nominations} nomineesByNomination={nomineesByNomination} onClose={() => setImportOpen(false)} />}
+    </div>
+  );
+}
+
+type ImportStep = "escolher" | "conferindo" | "confirmado";
+
+function ImportarPlanilhaDialog({ nominations, nomineesByNomination, onClose }: {
+  nominations: Nomination[];
+  nomineesByNomination: Map<string, NominationNominee[]>;
+  onClose: () => void;
+}) {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<ImportStep>("escolher");
+  const [rows, setRows] = useState<NominationImportRow[]>([]);
+  const [aceitas, setAceitas] = useState<NominationImportAccepted[]>([]);
+  const [rejeitadas, setRejeitadas] = useState<NominationImportRejection[]>([]);
+  const [resultado, setResultado] = useState<{ importadas: number; falhas: number } | null>(null);
+  const [lendoArquivo, setLendoArquivo] = useState(false);
+
+  // Colaborador já tem nomeação ativa em andamento? "Ativa" = nominee is_active numa nomination
+  // cujo estágio ainda não é o terminal (equipe_formada) — concluída ou cancelada, tanto faz,
+  // já não bloqueia uma nova nomeação futura pra essa pessoa.
+  const colaboradoresComNomeacaoAtivaIds = useMemo(() => {
+    const ids = new Set<string>();
+    nominations.forEach((n) => {
+      if (n.current_status === "equipe_formada") return;
+      (nomineesByNomination.get(n.id) ?? []).forEach((nn) => { if (nn.is_active) ids.add(nn.colaborador_id); });
+    });
+    return ids;
+  }, [nominations, nomineesByNomination]);
+
+  const handleFile = async (file: File) => {
+    setLendoArquivo(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const parsedRows = parseNominationWorkbook(buf);
+      const { data: colabs, error } = await supabase
+        .from("hist_novo_colaboradores")
+        .select("id, matricula, nome, empresa, funcao, funcao_operacao");
+      if (error) throw error;
+      const { aceitas: ok, rejeitadas: no } = validateNominationImportRows(parsedRows, (colabs ?? []) as HistNovoColaborador[], colaboradoresComNomeacaoAtivaIds);
+      setRows(parsedRows);
+      setAceitas(ok);
+      setRejeitadas(no);
+      setStep("conferindo");
+    } catch (err: any) {
+      notify.error(err.message ?? "Erro ao ler a planilha.");
+    } finally {
+      setLendoArquivo(false);
+    }
+  };
+
+  const importar = useMutation({
+    mutationFn: async () => {
+      const importedAtIso = new Date().toISOString();
+      const autorLabel = profile?.full_name ?? profile?.email ?? "Sistema";
+      const dataImportacaoFmt = fmtDate(importedAtIso.slice(0, 10));
+      let importadas = 0;
+      let falhas = 0;
+
+      for (const { row, colaborador } of aceitas) {
+        const targetStage = row.etapaAtual!;
+        const isWelder = isSoldador(row.funcao);
+        const { nominationPatch, nomineePatch } = buildImportBackfill(targetStage, isWelder, importedAtIso);
+
+        // 1. Nasce sempre em "Nomeados" (ponto de partida — colaborador já vinculado). Datas
+        //    e demais campos do cabeçalho vêm direto da planilha.
+        const { data: nomInserted, error: nomErr } = await supabase.from("nominations").insert({
+          pm_name: row.solicitante,
+          funcao: row.funcao,
+          quantidade: 1,
+          project: row.clienteProjeto,
+          unidade: row.unidade,
+          bsp: row.bsp,
+          weld_type: isWelder ? row.tipoSolda : null,
+          weld_material: isWelder ? row.materialSolda : null,
+          period_start: row.dataEmbarque,
+          notes: row.notas,
+          current_status: "nomeados",
+          requires_quality_validation: isWelder,
+          logistics_received_at: importedAtIso,
+          logistics_received_by: "Importado via planilha",
+        }).select("id").single();
+        if (nomErr || !nomInserted) { falhas++; continue; }
+        const nominationId = nomInserted.id as string;
+
+        // 2. Vínculo real com o cadastro do Drake (colaborador_id), já com os campos que as
+        //    etapas puladas deixariam marcados.
+        const { error: nomineeErr } = await supabase.from("nomination_nominees").insert({
+          nomination_id: nominationId,
+          colaborador_id: colaborador.id,
+          colaborador_nome: colaborador.nome,
+          is_active: true,
+          ...nomineePatch,
+        });
+        if (nomineeErr) { falhas++; continue; }
+
+        // 3. Uma linha de histórico por etapa do caminho Nomeados -> etapa de destino, cada
+        //    uma com a nota de importação — nunca simulando uma aprovação manual de verdade.
+        const caminho = importedStagePath(targetStage, isWelder);
+        for (const stage of caminho) {
+          await supabase.from("nomination_status_history").insert({
+            nomination_id: nominationId,
+            status: stage,
+            changed_by_name: autorLabel,
+            notes: `Importado via planilha em ${dataImportacaoFmt}`,
+          });
+        }
+
+        // 4. Só atualiza current_status (e o patch do cabeçalho, ex.: quality_status/outcome
+        //    já resolvidos) se o destino for além de "Nomeados" — sem isso o card já nasceu na
+        //    etapa certa. Esse UPDATE (nunca um INSERT) também é o que garante o trigger de
+        //    sequence_number quando o destino é "equipe_formada" (o trigger só roda em UPDATE).
+        //    Nunca dispara e-mail de avanço (notifyStageAdvance) pra nenhuma etapa pulada; a
+        //    partir da PRÓXIMA mudança real de etapa, feita por alguém depois da importação, os
+        //    e-mails voltam a disparar normalmente pelo fluxo padrão (useAdvanceStage).
+        if (targetStage !== "nomeados") {
+          await supabase.from("nominations").update({ current_status: targetStage, ...nominationPatch }).eq("id", nominationId);
+        }
+
+        importadas++;
+      }
+
+      return { importadas, falhas };
+    },
+    onSuccess: (r) => {
+      setResultado(r);
+      setStep("confirmado");
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nomination-nominees-all"] });
+      qc.invalidateQueries({ queryKey: ["nomination-status-history-all"] });
+    },
+    onError: (err: any) => notify.error(err.message ?? "Erro ao importar."),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader><DialogTitle>Importar planilha — Próximas Nomeações</DialogTitle></DialogHeader>
+
+        {step === "escolher" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Colunas esperadas: Matrícula, Empresa (opcional, recomendada se a matrícula se repetir em outra empresa),
+              Nome do Colaborador, Função, Unidade, BSP, Data de Embarque, Etapa Atual
+              ({IMPORT_STAGE_OPTIONS.map((o) => o.label).join(", ")}), Solicitante (PM),
+              Cliente/Projeto (opcional), Notas (opcional), Tipo de Solda e Material de Solda (só quando Função for Soldador).
+            </p>
+            <input
+              ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
+            />
+            <Button onClick={() => fileRef.current?.click()} loading={lendoArquivo}>
+              <Upload className="mr-1.5 h-3.5 w-3.5" /> Escolher arquivo
+            </Button>
+          </div>
+        )}
+
+        {step === "conferindo" && (
+          <div className="space-y-3">
+            <div className="flex gap-4 text-sm">
+              <span className="font-medium text-emerald-700">{aceitas.length} linha(s) pronta(s) pra importar</span>
+              {rejeitadas.length > 0 && <span className="font-medium text-destructive">{rejeitadas.length} linha(s) rejeitada(s)</span>}
+            </div>
+            {rejeitadas.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow><TableHead>Linha</TableHead><TableHead>Matrícula</TableHead><TableHead>Nome</TableHead><TableHead>Motivo</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rejeitadas.map((r) => (
+                      <TableRow key={r.rowNumber}>
+                        <TableCell>{r.rowNumber}</TableCell>
+                        <TableCell>{r.matricula || "—"}</TableCell>
+                        <TableCell>{r.nome || "—"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.motivo}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {aceitas.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow><TableHead>Colaborador</TableHead><TableHead>Função</TableHead><TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Etapa</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {aceitas.map(({ row, colaborador }) => (
+                      <TableRow key={row.rowNumber}>
+                        <TableCell>{colaborador.nome}</TableCell>
+                        <TableCell>{row.funcao}</TableCell>
+                        <TableCell>{row.unidade}</TableCell>
+                        <TableCell>{row.bsp}</TableCell>
+                        <TableCell>{IMPORT_STAGE_OPTIONS.find((o) => o.value === row.etapaAtual)?.label}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === "confirmado" && resultado && (
+          <div className="space-y-2 text-sm">
+            <p className="font-medium text-emerald-700">{resultado.importadas} nomeação(ões) importada(s) com sucesso.</p>
+            {resultado.falhas > 0 && <p className="font-medium text-destructive">{resultado.falhas} linha(s) falharam ao gravar — tente novamente só com elas.</p>}
+          </div>
+        )}
+
+        <DialogFooter>
+          {step === "conferindo" && (
+            <>
+              <Button variant="outline" onClick={onClose}>Cancelar</Button>
+              <Button onClick={() => importar.mutate()} loading={importar.isPending} disabled={aceitas.length === 0}>
+                Confirmar importação ({aceitas.length})
+              </Button>
+            </>
+          )}
+          {(step === "escolher" || step === "confirmado") && <Button variant="outline" onClick={onClose}>Fechar</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Exportado pra ser reaproveitado como aba dentro do ambiente do Solicitante (ver
 // src/routes/pm/index.tsx) — mesmo componente, mesmos dados, sem duplicar nada.
 export function NominationsPage() {
@@ -2746,6 +3174,9 @@ export function NominationsPage() {
         <TabsList>
           <TabsTrigger value="simulacao">Simulação</TabsTrigger>
           <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+          <TabsTrigger value="proximas">
+            <PlaneTakeoff className="mr-1.5 h-3.5 w-3.5" /> Próximas Nomeações
+          </TabsTrigger>
           <TabsTrigger value="clientes">
             <Building2 className="mr-1.5 h-3.5 w-3.5" /> Equipes Embarcadas
           </TabsTrigger>
@@ -2802,6 +3233,11 @@ export function NominationsPage() {
               />
             </div>
           )}
+        </TabsContent>
+
+        {/* ── Próximas Nomeações (lista consolidada + importação por planilha) ── */}
+        <TabsContent value="proximas" className="pt-4">
+          <ProximasNomeacoesTab nominations={nominations} nomineesByNomination={nomineesByNomination} />
         </TabsContent>
 
         <TabsContent value="clientes" className="pt-4">
