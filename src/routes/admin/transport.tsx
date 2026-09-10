@@ -431,26 +431,33 @@ function ClientSelect({ label, value, onChange }: { label: string; value: string
 const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
-function parseCarro(car_number: string): { carro_opcao: string; carro_future_num: string; carro_outro: string } {
+function parseCarro(car_number: string): { carro_opcao: string; carro_future_num: string; carro_outro: string; carro_outro_num: string } {
   const v = car_number.trim();
-  if (!v) return { carro_opcao: "", carro_future_num: "", carro_outro: "" };
-  if (CARRO_PRESETS.includes(v)) return { carro_opcao: v, carro_future_num: "", carro_outro: "" };
+  if (!v) return { carro_opcao: "", carro_future_num: "", carro_outro: "", carro_outro_num: "" };
+  if (CARRO_PRESETS.includes(v)) return { carro_opcao: v, carro_future_num: "", carro_outro: "", carro_outro_num: "" };
   const futureMatch = /^Future\s+(\d{1,2})$/i.exec(v);
-  if (futureMatch) return { carro_opcao: "Future", carro_future_num: futureMatch[1], carro_outro: "" };
-  return { carro_opcao: "Outro", carro_future_num: "", carro_outro: v };
+  if (futureMatch) return { carro_opcao: "Future", carro_future_num: futureMatch[1], carro_outro: "", carro_outro_num: "" };
+  // Qualquer outro transporte digitado em "Outro" também pode ter um número no final (ex.:
+  // "Motorista Step 01") — separa igual ao Future, pra não ficar preso só a esse caso.
+  const numeroMatch = /^(.*\S)\s+(\d{1,3})$/.exec(v);
+  if (numeroMatch) return { carro_opcao: "Outro", carro_future_num: "", carro_outro: numeroMatch[1], carro_outro_num: numeroMatch[2] };
+  return { carro_opcao: "Outro", carro_future_num: "", carro_outro: v, carro_outro_num: "" };
 }
 
-// Nome do transporte sem o número (ex.: "Future 05" -> "Future") — usado no Quadro Detalhado,
-// onde a coluna mostra só o transporte, não qual unidade numerada dele foi usada na viagem.
+// Nome do transporte sem o número (ex.: "Future 05" -> "Future", "Motorista Step 01" ->
+// "Motorista Step") — usado no Quadro Detalhado, onde a coluna/filtro mostram só o tipo de
+// transporte, não qual unidade numerada dele foi usada na viagem.
 function nomeTransporte(car_number: string): string {
-  const { carro_opcao } = parseCarro(car_number);
-  return carro_opcao === "Outro" || carro_opcao === "" ? car_number : carro_opcao;
+  const { carro_opcao, carro_outro } = parseCarro(car_number);
+  if (carro_opcao === "Outro") return carro_outro || car_number;
+  if (carro_opcao === "") return car_number;
+  return carro_opcao;
 }
 
 function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; columns: Column[]; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   type FormState = {
-    id?: string; car_number: string; carro_opcao: string; carro_future_num: string; carro_outro: string; column_id: string; scheduled_at: string;
+    id?: string; car_number: string; carro_opcao: string; carro_future_num: string; carro_outro: string; carro_outro_num: string; column_id: string; scheduled_at: string;
     departure_time: string; arrival_time: string;
     origin: string; destination: string;
     origens_extras: string[]; destinos_extras: string[];
@@ -483,7 +490,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
     };
     return {
-      car_number: "", carro_opcao: "", carro_future_num: "", carro_outro: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
+      car_number: "", carro_opcao: "", carro_future_num: "", carro_outro: "", carro_outro_num: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "", arrival_time: "",
       origin: "", destination: "",
       origens_extras: [], destinos_extras: [],
@@ -570,11 +577,12 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
   const setCarroOpcao = (opcao: string) => {
     if (opcao === "Future") setF({ ...f, carro_opcao: opcao, car_number: f.carro_future_num ? `Future ${f.carro_future_num}` : "" });
-    else if (opcao === "Outro") setF({ ...f, carro_opcao: opcao, car_number: f.carro_outro });
+    else if (opcao === "Outro") setF({ ...f, carro_opcao: opcao, car_number: [f.carro_outro, f.carro_outro_num].filter(Boolean).join(" ") });
     else setF({ ...f, carro_opcao: opcao, car_number: opcao });
   };
   const setCarroFutureNum = (num: string) => setF({ ...f, carro_future_num: num, car_number: `Future ${num}` });
-  const setCarroOutro = (val: string) => setF({ ...f, carro_outro: val, car_number: val });
+  const setCarroOutro = (val: string) => setF({ ...f, carro_outro: val, car_number: [val, f.carro_outro_num].filter(Boolean).join(" ") });
+  const setCarroOutroNum = (num: string) => setF({ ...f, carro_outro_num: num, car_number: [f.carro_outro, num].filter(Boolean).join(" ") });
 
   const del = useMutation({
     mutationFn: async () => {
@@ -615,7 +623,12 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
                 )}
               </div>
               {f.carro_opcao === "Outro" && (
-                <Input className="mt-2" value={f.carro_outro} onChange={(e) => setCarroOutro(e.target.value)} placeholder="Especifique o transporte" />
+                <div className="mt-2 flex gap-2">
+                  <Input className="flex-1" value={f.carro_outro} onChange={(e) => setCarroOutro(e.target.value)} placeholder="Especifique o transporte" />
+                  <div className="w-20">
+                    <Input value={f.carro_outro_num} onChange={(e) => setCarroOutroNum(e.target.value)} placeholder="Número" />
+                  </div>
+                </div>
               )}
             </div>
             <div>
