@@ -39,7 +39,6 @@ import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  GraduationCap,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -613,44 +612,16 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
         ))}
       </div>
       {canAct && (
-        <Button size="sm" disabled={!todosChecados} onClick={() => advance.mutate({ nomination, target: "aptidao_rh" })} loading={advance.isPending}>
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Aptidão (RH)
+        <Button size="sm" disabled={!todosChecados} onClick={() => advance.mutate({ nomination, target: "validacao_rh" })} loading={advance.isPending}>
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Validação RH
         </Button>
       )}
     </div>
   );
 }
 
-// Aptidão (RH): não é um checklist por pessoa (isso continua dentro de Validação RH, ver
-// comentário abaixo) — é uma consulta por função/período na Matriz de Qualificação do Drake
-// (aba Aptidão), pra conferir se os nomeados atendem os requisitos antes de confirmar.
-function AptidaoRhSection({ nomination, onGoToAptidao }: { nomination: Nomination; onGoToAptidao: () => void }) {
-  const canAct = useCanActOnStage(nomination.current_status);
-  const advance = useAdvanceStage();
-  return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium flex items-center gap-1.5"><GraduationCap className="h-4 w-4" /> Aptidão (RH)</p>
-      <p className="text-xs text-muted-foreground">
-        Confira a aptidão de {nomination.funcao} na Matriz de Qualificação (aba Aptidão) antes de avançar.
-      </p>
-      {canAct && (
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={onGoToAptidao}>
-            <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Verificar aptidão
-          </Button>
-          <Button size="sm" onClick={() => advance.mutate({ nomination, target: "validacao_rh" })} loading={advance.isPending}>
-            <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar aptidão e avançar para Validação RH
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Validação RH — desde esta reformulação inclui a checklist de Aptidão por nomeado (antes era
-// coluna própria do kanban) além da validação/divergência de RH que já existia. Diferente da
-// nova etapa "Aptidão (RH)" logo antes dela: aqui é um controle por pessoa (aptidao_checked),
-// lá é uma consulta por função/período na Matriz de Qualificação do Drake.
+// Validação RH — inclui a checklist de Aptidão por nomeado (aptidao_checked/aptidao_divergence)
+// além da validação/divergência de RH que já existia.
 function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
@@ -791,12 +762,10 @@ function ManageDialog({
   nomination: initialNomination,
   onClose,
   onGoToSimulacao,
-  onGoToAptidao,
 }: {
   nomination: Nomination;
   onClose: () => void;
   onGoToSimulacao: (group: Nomination[]) => void;
-  onGoToAptidao: (group: Nomination[]) => void;
 }) {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
@@ -989,11 +958,6 @@ function ManageDialog({
                 <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Simular — selecionar candidatos
               </Button>
             )}
-            {nomination.current_status === "aptidao_rh" && (
-              <Button size="sm" className="w-full" onClick={() => { onGoToAptidao(grupoCompleto); onClose(); }}>
-                <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Verificar aptidão na Matriz de Qualificação
-              </Button>
-            )}
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
               {nomination.pm_name && (
@@ -1176,9 +1140,6 @@ function ManageDialog({
             {nomination.current_status === "validacao_qualidade" && <ValidacaoQualidadeSection nomination={nomination} />}
             {nomination.current_status === "aprovacao_pm" && <AprovacaoPmSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "validacao_sms_aso" && <ValidacaoSmsAsoSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "aptidao_rh" && (
-              <AptidaoRhSection nomination={nomination} onGoToAptidao={() => { onGoToAptidao(grupoCompleto); onClose(); }} />
-            )}
             {nomination.current_status === "validacao_rh" && <ValidacaoRhSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "briefing_sms" && <BriefingSection nomination={nomination} />}
             {nomination.current_status === "equipe_formada" && <NomeadosSection nomination={nomination} nominees={nominees} />}
@@ -2672,10 +2633,6 @@ export function NominationsPage() {
   // de nominations, assim quantidade/status editados durante a Simulação aparecem na hora, sem
   // depender de um retrato antigo passado por aqui.
   const [simulacaoFocusIds, setSimulacaoFocusIds] = useState<string[] | null>(null);
-  // Mesma ideia do modo recrutamento da Simulação, mas pra aba Aptidão (Matriz de
-  // Qualificação): guarda o grupo (já resolvido, essa aba não tem query própria de nominations
-  // pra reler os ids) que veio do card "Aptidão (RH)", pra ela abrir já filtrada.
-  const [aptidaoFocusIds, setAptidaoFocusIds] = useState<string[] | null>(null);
   const [tab, setTab] = useState("simulacao");
   const { canViewAs, viewAsRole, setViewAsRole } = useViewAs();
 
@@ -2684,17 +2641,7 @@ export function NominationsPage() {
     setTab("simulacao");
   };
 
-  const goToAptidao = (group: Nomination[]) => {
-    setAptidaoFocusIds(group.map((n) => n.id));
-    setTab("aptidao");
-  };
-
   const { data: nominations = [], isLoading } = useAllNominations();
-
-  const aptidaoFocusGroup = useMemo(
-    () => (aptidaoFocusIds ? nominations.filter((n) => aptidaoFocusIds.includes(n.id)) : null),
-    [nominations, aptidaoFocusIds],
-  );
 
   const { data: allNominees = [] } = useQuery<NominationNominee[]>({
     queryKey: ["nomination-nominees-all"],
@@ -2867,7 +2814,7 @@ export function NominationsPage() {
 
         {/* ── Aptidão (Matriz de Qualificação) ── */}
         <TabsContent value="aptidao" className="pt-4">
-          <QualificationEligibilityTab focusGroup={aptidaoFocusGroup} onExitFocus={() => { setAptidaoFocusIds(null); setTab("nomeacoes"); }} />
+          <QualificationEligibilityTab />
         </TabsContent>
 
         {/* ── Configurações ── */}
@@ -2888,7 +2835,6 @@ export function NominationsPage() {
           nomination={selected}
           onClose={() => setSelected(null)}
           onGoToSimulacao={goToSimulacao}
-          onGoToAptidao={goToAptidao}
         />
       )}
     </div>
