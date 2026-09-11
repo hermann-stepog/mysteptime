@@ -4,16 +4,17 @@ import { logger } from "./logger";
 import { runScheduledDrakeUpdate } from "./run-drake-update.server";
 import { getDrakeSchedulerConfig } from "./scheduler-config.server";
 import {
-  DRAKE_SCHEDULE_ALREADY_CLAIMED,
   DRAKE_UPDATE_ALREADY_RUNNING,
   type DrakeUpdateTrigger,
 } from "./update-types";
 
-type ScheduledTrigger = Extract<DrakeUpdateTrigger, "scheduled-interval">;
+type ScheduledTrigger = Extract<
+  DrakeUpdateTrigger,
+  "scheduled-midnight" | "scheduled-noon"
+>;
 
 type DueSchedule = {
   key: string;
-  scheduledFor: string;
   trigger: ScheduledTrigger;
 };
 
@@ -31,29 +32,42 @@ function getGlobalState(): GlobalSchedulerState {
   return global[GLOBAL_KEY];
 }
 
-/** Retorna a janela periódica que contém o instante informado. */
-export function getDueDrakeSchedule(
-  now = new Date(),
-  intervalMinutes = getDrakeSchedulerConfig().intervalMinutes,
-): DueSchedule {
-  const intervalMs = intervalMinutes * 60_000;
-  const slot = Math.floor(now.getTime() / intervalMs);
-  const scheduledFor = new Date(slot * intervalMs).toISOString();
+function zonedParts(now: Date, timezone: string) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  ) as Record<string, string>;
   return {
-    key: `drake:${intervalMinutes}:${slot}`,
-    scheduledFor,
-    trigger: "scheduled-interval",
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
   };
 }
 
-async function safeRunScheduled(schedule: DueSchedule): Promise<void> {
+/** Retorna a janela mais recente que ja venceu no fuso configurado. */
+export function getDueDrakeSchedule(
+  now = new Date(),
+  timezone = getDrakeSchedulerConfig().timezone,
+): DueSchedule {
+  const parts = zonedParts(now, timezone);
+  const noonReached = parts.hour > 12 || (parts.hour === 12 && parts.minute >= 30);
+  const trigger: ScheduledTrigger = noonReached ? "scheduled-noon" : "scheduled-midnight";
+  return { key: `${parts.date}:${trigger}`, trigger };
+}
+
+async function safeRunScheduled(trigger: ScheduledTrigger): Promise<void> {
   try {
-    await runScheduledDrakeUpdate(schedule.trigger, {
-      scheduleSlot: {
-        key: schedule.key,
-        scheduledFor: schedule.scheduledFor,
-      },
-    });
+    await runScheduledDrakeUpdate(trigger);
   } catch (error: unknown) {
     const code =
       error instanceof DrakeIntegrationError
@@ -63,20 +77,13 @@ async function safeRunScheduled(schedule: DueSchedule): Promise<void> {
           : "";
     if (code === DRAKE_UPDATE_ALREADY_RUNNING) {
       logger.info("drake-scheduler", "Execucao automatica ignorada", {
-        trigger: schedule.trigger,
+        trigger,
         reason: "update-already-running",
       });
       return;
     }
-    if (code === DRAKE_SCHEDULE_ALREADY_CLAIMED) {
-      logger.info("drake-scheduler", "Janela automatica ja processada por outra instancia", {
-        trigger: schedule.trigger,
-        scheduleKey: schedule.key,
-      });
-      return;
-    }
     logger.error("drake-scheduler", "Falha isolada na execucao automatica", {
-      trigger: schedule.trigger,
+      trigger,
       errorCode: code || "UNKNOWN",
       sanitizedMessage:
         error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
@@ -92,7 +99,7 @@ export async function runDueDrakeSchedule(now = new Date()): Promise<boolean> {
   const config = getDrakeSchedulerConfig();
   if (!config.enabled) return false;
 
-  const due = getDueDrakeSchedule(now, config.intervalMinutes);
+  const due = getDueDrakeSchedule(now, config.timezone);
   const state = getGlobalState();
   if (state.attemptedSlots.has(due.key)) return false;
   state.attemptedSlots.add(due.key);
@@ -105,11 +112,9 @@ export async function runDueDrakeSchedule(now = new Date()): Promise<boolean> {
 
   logger.info("drake-scheduler", "Janela automatica iniciada pelo Lovable", {
     trigger: due.trigger,
-    intervalMinutes: config.intervalMinutes,
-    scheduledFor: due.scheduledFor,
     timezone: config.timezone,
   });
-  await safeRunScheduled(due);
+  await safeRunScheduled(due.trigger);
   return true;
 }
 
