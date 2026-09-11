@@ -192,6 +192,7 @@ export const DRAKE_AVAILABILITY_IMPORT_FAILED = "DRAKE_AVAILABILITY_IMPORT_FAILE
 export const DRAKE_ANNUAL_POSITION_SYNC_FAILED = "DRAKE_ANNUAL_POSITION_SYNC_FAILED";
 export const DRAKE_TEMP_STORAGE_ERROR = "DRAKE_TEMP_STORAGE_ERROR";
 export const DRAKE_UPDATE_ALREADY_RUNNING = "DRAKE_UPDATE_ALREADY_RUNNING";
+export const DRAKE_SCHEDULE_ALREADY_CLAIMED = "DRAKE_SCHEDULE_ALREADY_CLAIMED";
 export const DRAKE_BROWSER_MODE_INVALID = "DRAKE_BROWSER_MODE_INVALID";
 export const DRAKE_REMOTE_BROWSER_NOT_CONFIGURED = "DRAKE_REMOTE_BROWSER_NOT_CONFIGURED";
 export const DRAKE_REMOTE_BROWSER_CONNECTION_FAILED = "DRAKE_REMOTE_BROWSER_CONNECTION_FAILED";
@@ -210,6 +211,7 @@ export const MYSTEPTIME_AUTOMATION_INTERACTIVE_AUTH_REQUIRED =
 
 export type DrakeUpdateTrigger =
   | "manual"
+  | "scheduled-interval"
   | "scheduled-midnight"
   | "scheduled-noon"
   | "scheduled-test";
@@ -246,6 +248,7 @@ export const DRAKE_ERROR_MESSAGES: Record<string, string> = {
   [DRAKE_UPDATE_IN_PROGRESS]: "Já existe uma atualização em andamento.",
   [DRAKE_TEMP_STORAGE_ERROR]: "Não foi possível preparar os arquivos temporários da atualização.",
   [DRAKE_UPDATE_ALREADY_RUNNING]: "Já existe uma atualização em andamento.",
+  [DRAKE_SCHEDULE_ALREADY_CLAIMED]: "Esta janela de atualização já foi processada.",
   [DRAKE_SESSION_TRANSFER_FAILED]:
     "A sessão do Drake foi criada, mas não pôde ser transferida para o cliente de integração.",
   [DRAKE_CLIENT_NOT_FOUND]: "O ambiente configurado não foi encontrado na conta do Drake.",
