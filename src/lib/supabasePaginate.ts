@@ -5,34 +5,42 @@
 // de 1000 linhas. `buildQuery` monta a query do zero a cada página (não reaproveita builder),
 // só trocando o `.range(from, to)` do final.
 //
-// Busca a 1ª página primeiro; se ela vier cheia (sinal de que há mais), dispara as páginas
-// seguintes em paralelo (em vez de uma de cada vez) — reduz um carregamento de ~15-20s em
-// telas com tabelas grandes (ex.: Timesheet Offshore) pra pouco mais que o tempo de uma única
-// requisição. MAX_PAGES cobre até 40.000 linhas, bem acima das maiores tabelas do app hoje
-// (timesheet_dias, a maior, tem uns 25.000); páginas além do fim real só voltam vazias — uma
-// consulta indexada rápida, não um problema mesmo disparando várias em paralelo.
+// Busca páginas em pequenos lotes paralelos e interrompe no primeiro lote que chega ao fim.
+// Antes, qualquer resultado com 1.000+ linhas disparava imediatamente outras 39 requisições,
+// mesmo quando a tabela tinha apenas 1.001 linhas. A concorrência limitada mantém a velocidade
+// nas tabelas grandes sem saturar o navegador/PostgREST nas telas que montam várias consultas.
 export async function selectAllPages<T>(
-  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
 ): Promise<T[]> {
   const PAGE = 1000;
   const MAX_PAGES = 40;
+  const CONCURRENT_PAGES = 4;
 
   const primeira = await buildQuery(0, PAGE - 1);
   if (primeira.error) throw primeira.error;
   const primeiraData = (primeira.data ?? []) as T[];
   if (primeiraData.length < PAGE) return primeiraData;
 
-  const resto = await Promise.all(
-    Array.from({ length: MAX_PAGES - 1 }, (_, i) => {
-      const pagina = i + 1;
-      return Promise.resolve(buildQuery(pagina * PAGE, pagina * PAGE + PAGE - 1));
-    }),
-  );
-
   const all = [...primeiraData];
-  for (const { data, error } of resto) {
-    if (error) throw error;
-    if (data && data.length) all.push(...(data as T[]));
+  for (let firstPage = 1; firstPage < MAX_PAGES; firstPage += CONCURRENT_PAGES) {
+    const pageNumbers = Array.from(
+      { length: Math.min(CONCURRENT_PAGES, MAX_PAGES - firstPage) },
+      (_, index) => firstPage + index,
+    );
+    const batch = await Promise.all(
+      pageNumbers.map((pageNumber) =>
+        Promise.resolve(buildQuery(pageNumber * PAGE, pageNumber * PAGE + PAGE - 1)),
+      ),
+    );
+
+    let reachedEnd = false;
+    for (const { data, error } of batch) {
+      if (error) throw error;
+      const rows = (data ?? []) as T[];
+      if (!reachedEnd) all.push(...rows);
+      if (rows.length < PAGE) reachedEnd = true;
+    }
+    if (reachedEnd) return all;
   }
   return all;
 }
@@ -42,7 +50,7 @@ export async function selectAllPages<T>(
 // abrir dezenas de requisições simultâneas no navegador e transformar uma falha transitória
 // (limite de conexões/rate limit) em um resultado aparentemente vazio.
 export async function selectAllPagesSequential<T>(
-  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
 ): Promise<T[]> {
   const PAGE = 1000;
   const MAX_PAGES = 40;
@@ -65,7 +73,7 @@ export async function selectAllPagesSequential<T>(
 // PostgREST. Um mês de timesheet pode ter milhares de IDs de semana distintos.
 export async function selectInChunks<T, V>(
   values: V[],
-  buildQuery: (chunk: V[]) => PromiseLike<{ data: T[] | null; error: any }>,
+  buildQuery: (chunk: V[]) => PromiseLike<{ data: T[] | null; error: unknown }>,
   chunkSize = 200,
 ): Promise<T[]> {
   const all: T[] = [];

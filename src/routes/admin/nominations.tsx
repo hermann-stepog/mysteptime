@@ -148,7 +148,7 @@ function useAdvanceStage() {
       await notifyStageAdvance({ ...nomination, current_status: target }, target);
     },
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations"], exact: true });
       qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "history"] });
       qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "nominees"] });
     },
@@ -373,7 +373,7 @@ function ValidacaoQualidadeSection({ nomination }: { nomination: Nomination }) {
       if (status === "reprovado") await notifyQualityRejection(nomination, reason?.trim() || null);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations"], exact: true });
       qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "history"] });
     },
     onError: () => notify.error("Erro ao atualizar."),
@@ -515,7 +515,7 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
     },
     onSuccess: () => {
       notify.success("Decisões enviadas.");
-      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations"], exact: true });
       qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
       setDraft({});
     },
@@ -896,7 +896,7 @@ function ManageDialog({
     },
     onSuccess: () => {
       notify.success("Solicitação cancelada.");
-      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations"], exact: true });
       setShowCancel(false);
       onClose();
     },
@@ -910,7 +910,7 @@ function ManageDialog({
     },
     onSuccess: () => {
       notify.success("Nomeação excluída.");
-      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations"], exact: true });
       onClose();
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir nomeação."),
@@ -1847,7 +1847,7 @@ function SimulacaoTab({
       const { error } = await supabase.from("nominations").update({ quantidade }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations"], exact: true }),
     onError: (err: Error) => notify.error(err.message || "Erro ao atualizar quantidade."),
   });
   const quantidadeExibida = (n: Nomination) => qtyDraft[n.id] ?? String(n.quantidade);
@@ -1959,7 +1959,7 @@ function SimulacaoTab({
     [periodoDe, periodoAte],
   );
 
-  const linhasBase = useMemo(() => {
+  const linhasComStatus = useMemo(() => {
     return colaboradores
       .map((c) => {
         const periodos = periodosPorColaborador.get(c.id) ?? [];
@@ -1974,11 +1974,17 @@ function SimulacaoTab({
         const todosDisponivel = codigos.every((s) => s === "STB");
         const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket };
-      })
+      });
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates]);
+
+  // Filtros de texto/função reaproveitam a matriz de status já calculada. Antes, cada tecla
+  // digitada reconstruía todos os dias de todos os colaboradores mesmo sem mudar o período.
+  const linhasBase = useMemo(() => {
+    return linhasComStatus
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
+  }, [linhasComStatus, filterFuncao, searchNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui

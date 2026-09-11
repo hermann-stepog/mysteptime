@@ -109,10 +109,12 @@ export function QualificationEligibilityTab({
   const catalogQuery = useQuery({
     queryKey: ["qualification-eligibility", "filter-catalog"],
     queryFn: () => fetchQualificationFilterCatalog(supabase),
+    staleTime: 30 * 60_000,
   });
   const syncStateQuery = useQuery({
     queryKey: ["qualification-eligibility", "sync-state"],
     queryFn: () => fetchQualificationSyncState(supabase),
+    staleTime: 60_000,
   });
   const catalog = catalogQuery.data;
   const jobGroups = useMemo(() => groupQualificationJobs(catalog?.jobs ?? []), [catalog?.jobs]);

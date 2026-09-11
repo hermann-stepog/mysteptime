@@ -12,4 +12,25 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    build: {
+      rollupOptions: {
+        output: {
+          // Planilhas e gráficos são grandes e usados apenas em telas específicas. Mantê-los
+          // fora do núcleo permite que o login/menu carreguem sem baixar esses pacotes e faz
+          // o navegador reutilizá-los entre as rotas que realmente precisam deles.
+          manualChunks(id) {
+            if (id.includes("node_modules/xlsx/")) return "vendor-xlsx";
+            if (
+              id.includes("node_modules/recharts/") ||
+              id.includes("node_modules/d3-") ||
+              id.includes("node_modules/@visx/")
+            ) {
+              return "vendor-charts";
+            }
+          },
+        },
+      },
+    },
+  },
 });
