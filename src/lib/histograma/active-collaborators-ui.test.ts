@@ -26,6 +26,19 @@ describe("visibilidade de colaboradores inativos", () => {
     expect(source.match(/!!r\.colaborador/g)).toHaveLength(2);
   });
 
+  it("Nomeações lista todos os colaboradores ativos sem exigir embarque confirmado", () => {
+    const source = readFileSync(resolve("src/routes/admin/nominations.tsx"), "utf8");
+    const simulationStart = source.indexOf("function SimulacaoTab(");
+    const simulationEnd = source.indexOf("function useAllNominations()", simulationStart);
+    const simulationSource = source.slice(simulationStart, simulationEnd);
+
+    expect(simulationSource).toContain('["sim-colaboradores", "ativos"]');
+    expect(simulationSource).toContain('.from("hist_novo_colaboradores")');
+    expect(simulationSource).toContain('.eq("ativo", true)');
+    expect(simulationSource).not.toContain("getColaboradoresComEmbarque");
+    expect(simulationSource).not.toContain("colaboradoresOffshore");
+  });
+
   it("separa no cache o cadastro completo da lista reduzida de nomes", () => {
     const histogram = readFileSync(resolve("src/routes/admin/histograma-novo.tsx"), "utf8");
     const timesheet = readFileSync(resolve("src/routes/admin/timesheet-offshore.tsx"), "utf8");

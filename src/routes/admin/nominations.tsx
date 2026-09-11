@@ -51,7 +51,7 @@ import { pageTitle } from "@/lib/pageTitle";
 import {
   generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
   displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, bspOptionsForUnidade,
-  getColaboradoresComEmbarque, bspDoPeriodo, normalizeUnidadeOperacional,
+  bspDoPeriodo, normalizeUnidadeOperacional,
   type ComputedStatus, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
@@ -1859,12 +1859,15 @@ function SimulacaoTab({
     if (val !== n.quantidade) updateQuantidade.mutate({ id: n.id, quantidade: val });
   };
 
+  // A seleção de candidatos em Nomeações parte do cadastro ativo completo. Ter histórico de
+  // embarque ajuda a calcular a disponibilidade, mas não determina se a pessoa pode aparecer.
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
-    queryKey: ["sim-colaboradores"],
+    queryKey: ["sim-colaboradores", "ativos"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("hist_novo_colaboradores")
         .select("id, nome, funcao, funcao_operacao")
+        .eq("ativo", true)
         .order("nome");
       if (error) throw error;
       return (data ?? []) as SimColaborador[];
@@ -1921,11 +1924,6 @@ function SimulacaoTab({
     return m;
   }, [periodosTodos]);
 
-  // Nomeações é só pra quem embarca (offshore) — mesmo critério já usado pra filtrar o
-  // import "Na Base" (tipo="E" confirmado, não só "Programado"), não o "tem qualquer período"
-  // do Dashboard (que deixaria passar onshore com férias/atestado lançado).
-  const colaboradoresOffshore = useMemo(() => getColaboradoresComEmbarque(periodosTodos), [periodosTodos]);
-
   // Já vem ordenado por data_inicio desc (mais recente primeiro) pela query.
   const funcoesAnoPorColaborador = useMemo(() => {
     const m = new Map<string, string[]>();
@@ -1945,7 +1943,6 @@ function SimulacaoTab({
   const funcaoOptions = useMemo(() => {
     const s = new Set<string>();
     colaboradores.forEach((c) => {
-      if (!colaboradoresOffshore.has(c.id)) return;
       const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
       const funcao = c.funcao || c.funcao_operacao || funcoesAno[0] || "—";
       if (funcao !== "—") s.add(funcao);
@@ -1954,7 +1951,7 @@ function SimulacaoTab({
     // ainda assim precisa aparecer selecionada no filtro.
     if (filterFuncao !== "all") s.add(filterFuncao);
     return Array.from(s).sort();
-  }, [colaboradores, colaboradoresOffshore, funcoesAnoPorColaborador, filterFuncao]);
+  }, [colaboradores, funcoesAnoPorColaborador, filterFuncao]);
 
 
   const dates = useMemo(
@@ -1964,7 +1961,6 @@ function SimulacaoTab({
 
   const linhasBase = useMemo(() => {
     return colaboradores
-      .filter((c) => colaboradoresOffshore.has(c.id))
       .map((c) => {
         const periodos = periodosPorColaborador.get(c.id) ?? [];
         const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
@@ -1982,7 +1978,7 @@ function SimulacaoTab({
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, colaboradoresOffshore, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
