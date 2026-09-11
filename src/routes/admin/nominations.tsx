@@ -1863,15 +1863,16 @@ function SimulacaoTab({
   // embarque ajuda a calcular a disponibilidade, mas não determina se a pessoa pode aparecer.
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
     queryKey: ["sim-colaboradores", "ativos"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("hist_novo_colaboradores")
-        .select("id, nome, funcao, funcao_operacao")
-        .eq("ativo", true)
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as SimColaborador[];
-    },
+    queryFn: () =>
+      selectAllPages<SimColaborador>((from, to) =>
+        supabase
+          .from("hist_novo_colaboradores")
+          .select("id, nome, funcao, funcao_operacao")
+          .eq("ativo", true)
+          .order("nome")
+          .order("id")
+          .range(from, to),
+      ),
   });
 
   // Períodos autoritativos da operação (relatórios Drake de Embarque/Disponibilidade e

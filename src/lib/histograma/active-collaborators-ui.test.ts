@@ -33,8 +33,10 @@ describe("visibilidade de colaboradores inativos", () => {
     const simulationSource = source.slice(simulationStart, simulationEnd);
 
     expect(simulationSource).toContain('["sim-colaboradores", "ativos"]');
+    expect(simulationSource).toContain("selectAllPages<SimColaborador>");
     expect(simulationSource).toContain('.from("hist_novo_colaboradores")');
     expect(simulationSource).toContain('.eq("ativo", true)');
+    expect(simulationSource).toContain(".range(from, to)");
     expect(simulationSource).not.toContain("getColaboradoresComEmbarque");
     expect(simulationSource).not.toContain("colaboradoresOffshore");
   });
