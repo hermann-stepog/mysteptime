@@ -6,12 +6,15 @@ import {
   authenticateMyStepTimeAutomationUser,
   discardMyStepTimeAutomationAuthContext,
 } from "./mysteptime-automation-auth.server";
-import {
-  tryAcquireDrakeUpdateLock,
-  releaseDrakeUpdateLock,
-} from "./update-lock.server";
+import { tryAcquireDrakeUpdateLock, releaseDrakeUpdateLock } from "./update-lock.server";
 import { updateDrakeData } from "./update-service.server";
 import {
+  completeDrakeScheduleSlot,
+  tryClaimDrakeScheduleSlot,
+  type DrakeScheduleSlot,
+} from "./scheduler-slots.server";
+import {
+  DRAKE_SCHEDULE_ALREADY_CLAIMED,
   DRAKE_UPDATE_ALREADY_RUNNING,
   type DrakeProgressCallback,
   type DrakeProgressEvent,
@@ -53,6 +56,7 @@ const TRIGGER_LABEL: Record<DrakeUpdateTrigger, string> = {
   manual: "Atualização manual",
   "scheduled-midnight": "Agendamento automático (00h)",
   "scheduled-noon": "Agendamento automático (12h)",
+  "scheduled-interval": "Atualização periódica automática",
   "scheduled-test": "Teste do agendamento automático",
 };
 
@@ -63,9 +67,7 @@ const TRIGGER_LABEL: Record<DrakeUpdateTrigger, string> = {
  * Agendamento automático Drake executado no processo Node.
  * Não utiliza endpoint HTTP, segredo próprio ou sessão de usuário do navegador.
  */
-export async function runDrakeUpdate(
-  options: RunDrakeUpdateOptions,
-): Promise<DrakeUpdateResult> {
+export async function runDrakeUpdate(options: RunDrakeUpdateOptions): Promise<DrakeUpdateResult> {
   const acquireLock = options.acquireLock !== false;
   let lockHeld = false;
 
@@ -116,7 +118,7 @@ export type RunScheduledDrakeUpdateResult = {
  */
 export async function runScheduledDrakeUpdate(
   trigger: Exclude<DrakeUpdateTrigger, "manual">,
-  options?: { onProgress?: DrakeProgressCallback },
+  options?: { onProgress?: DrakeProgressCallback; scheduleSlot?: DrakeScheduleSlot },
 ): Promise<RunScheduledDrakeUpdateResult> {
   if (!tryAcquireDrakeUpdateLock()) {
     throw new DrakeIntegrationError({
@@ -127,20 +129,55 @@ export async function runScheduledDrakeUpdate(
   }
 
   let accessToken: string | undefined;
+  let claimedSlot = false;
+  let db: SupabaseClient | undefined;
   try {
     const session = await authenticateMyStepTimeAutomationUser();
     accessToken = session.accessToken;
 
     const { createUserClient } = await import("@/lib/supabase/app-auth.server");
-    const db = createUserClient(accessToken);
+    db = createUserClient(accessToken);
+
+    if (options?.scheduleSlot) {
+      claimedSlot = await tryClaimDrakeScheduleSlot(db, options.scheduleSlot, session.userId);
+      if (!claimedSlot) {
+        throw new DrakeIntegrationError({
+          code: DRAKE_SCHEDULE_ALREADY_CLAIMED,
+          message: "Esta janela de atualização já foi processada por outra instância.",
+          stage: "queued",
+        });
+      }
+    }
 
     const result = await runDrakeUpdate({
       trigger,
       db,
       onProgress: options?.onProgress,
       acquireLock: false,
+      triggeredBy: session.userId,
     });
+    if (claimedSlot && options?.scheduleSlot) {
+      await completeDrakeScheduleSlot(db, options.scheduleSlot.key, "success");
+    }
     return { result, trigger };
+  } catch (error: unknown) {
+    if (claimedSlot && db && options?.scheduleSlot) {
+      await completeDrakeScheduleSlot(
+        db,
+        options.scheduleSlot.key,
+        "error",
+        error instanceof Error ? error.message : String(error),
+      ).catch((slotError: unknown) => {
+        logger.warn("drake-scheduler", "Falha ao registrar resultado da janela automática", {
+          scheduleKey: options.scheduleSlot?.key,
+          sanitizedMessage:
+            slotError instanceof Error
+              ? slotError.message.slice(0, 300)
+              : String(slotError).slice(0, 300),
+        });
+      });
+    }
+    throw error;
   } finally {
     accessToken = undefined;
     discardMyStepTimeAutomationAuthContext();

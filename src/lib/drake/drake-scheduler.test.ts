@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DRAKE_CRON_MIDNIGHT,
-  DRAKE_CRON_NOON,
+  DRAKE_SCHEDULER_INTERVAL_MINUTES_DEFAULT,
+  DRAKE_SCHEDULER_INTERVAL_MINUTES_MAX,
+  DRAKE_SCHEDULER_INTERVAL_MINUTES_MIN,
   DRAKE_SCHEDULER_TIMEZONE_DEFAULT,
   getDrakeSchedulerConfig,
 } from "./scheduler-config.server";
@@ -12,15 +13,25 @@ import {
   MYSTEPTIME_AUTOMATION_LOGIN_FAILED,
 } from "./update-types";
 
-describe("Drake scheduler crons", () => {
-  it("cron da meia-noite é 0 0 * * *", () => {
-    expect(DRAKE_CRON_MIDNIGHT).toBe("0 0 * * *");
-    expect(getDrakeSchedulerConfig().cronMidnight).toBe("0 0 * * *");
+describe("Drake scheduler interval", () => {
+  afterEach(() => {
+    delete process.env.DRAKE_SCHEDULER_INTERVAL_MINUTES;
   });
 
-  it("cron das 12:30 é 30 12 * * *", () => {
-    expect(DRAKE_CRON_NOON).toBe("30 12 * * *");
-    expect(getDrakeSchedulerConfig().cronNoon).toBe("30 12 * * *");
+  it("usa 60 minutos por padrão", () => {
+    expect(DRAKE_SCHEDULER_INTERVAL_MINUTES_DEFAULT).toBe(60);
+    expect(getDrakeSchedulerConfig().intervalMinutes).toBe(60);
+  });
+
+  it("aceita intervalo configurável dentro dos limites seguros", () => {
+    process.env.DRAKE_SCHEDULER_INTERVAL_MINUTES = "30";
+    expect(getDrakeSchedulerConfig().intervalMinutes).toBe(30);
+
+    process.env.DRAKE_SCHEDULER_INTERVAL_MINUTES = "1";
+    expect(getDrakeSchedulerConfig().intervalMinutes).toBe(DRAKE_SCHEDULER_INTERVAL_MINUTES_MIN);
+
+    process.env.DRAKE_SCHEDULER_INTERVAL_MINUTES = "99999";
+    expect(getDrakeSchedulerConfig().intervalMinutes).toBe(DRAKE_SCHEDULER_INTERVAL_MINUTES_MAX);
   });
 
   it("timezone é America/Sao_Paulo", () => {
@@ -35,6 +46,7 @@ describe("Drake scheduler crons", () => {
 describe("Drake scheduler registration", () => {
   afterEach(() => {
     delete process.env.DRAKE_SCHEDULER_ENABLED;
+    delete process.env.DRAKE_SCHEDULER_INTERVAL_MINUTES;
     delete process.env.DRAKE_SCHEDULER_TIMEZONE;
     vi.doUnmock("./run-drake-update.server");
     vi.resetModules();
@@ -49,6 +61,7 @@ describe("Drake scheduler registration", () => {
 
   it("executa cada janela uma única vez por isolate", async () => {
     process.env.DRAKE_SCHEDULER_ENABLED = "true";
+    process.env.DRAKE_SCHEDULER_INTERVAL_MINUTES = "60";
     process.env.DRAKE_SCHEDULER_TIMEZONE = "America/Sao_Paulo";
     const runScheduledDrakeUpdate = vi.fn().mockResolvedValue({});
     vi.doMock("./run-drake-update.server", () => ({ runScheduledDrakeUpdate }));
@@ -56,10 +69,16 @@ describe("Drake scheduler registration", () => {
     const scheduler = await import("./drake-scheduler.server");
     scheduler.__resetDrakeSchedulerForTests();
     const now = new Date("2026-07-31T16:00:00.000Z");
-    expect(scheduler.getDueDrakeSchedule(now).trigger).toBe("scheduled-noon");
+    expect(scheduler.getDueDrakeSchedule(now).trigger).toBe("scheduled-interval");
     expect(await scheduler.runDueDrakeSchedule(now)).toBe(true);
     expect(await scheduler.runDueDrakeSchedule(now)).toBe(false);
     expect(runScheduledDrakeUpdate).toHaveBeenCalledTimes(1);
+    expect(runScheduledDrakeUpdate).toHaveBeenCalledWith(
+      "scheduled-interval",
+      expect.objectContaining({
+        scheduleSlot: expect.objectContaining({ key: expect.stringContaining("drake:60:") }),
+      }),
+    );
   });
 });
 
@@ -69,6 +88,7 @@ describe("runDrakeUpdate / runScheduledDrakeUpdate", () => {
     vi.resetModules();
     vi.doUnmock("./update-service.server");
     vi.doUnmock("./mysteptime-automation-auth.server");
+    vi.doUnmock("./scheduler-slots.server");
     vi.doUnmock("@/lib/supabase/app-auth.server");
   });
 
@@ -205,11 +225,8 @@ describe("runDrakeUpdate / runScheduledDrakeUpdate", () => {
       updateDrakeData: vi.fn().mockResolvedValue({}),
     }));
     const { runDrakeUpdate } = await import("./run-drake-update.server");
-    const {
-      tryAcquireDrakeUpdateLock,
-      releaseDrakeUpdateLock,
-      isDrakeUpdateLocked,
-    } = await import("./update-lock.server");
+    const { tryAcquireDrakeUpdateLock, releaseDrakeUpdateLock, isDrakeUpdateLocked } =
+      await import("./update-lock.server");
     releaseDrakeUpdateLock();
     expect(tryAcquireDrakeUpdateLock()).toBe(true);
     await expect(
@@ -316,10 +333,44 @@ describe("scheduler boundaries", () => {
 
   it("próximas ocorrências ficam no futuro", () => {
     const now = new Date("2026-07-20T16:00:00.000Z");
-    const times = getNextDrakeScheduleTimes(now, "America/Sao_Paulo");
-    expect(times.cronMidnight).toBe("0 0 * * *");
-    expect(times.cronNoon).toBe("30 12 * * *");
-    expect(Date.parse(times.nextMidnight)).toBeGreaterThan(now.getTime());
-    expect(Date.parse(times.nextNoon)).toBeGreaterThan(now.getTime());
+    const times = getNextDrakeScheduleTimes(now, "America/Sao_Paulo", 60);
+    expect(times.intervalMinutes).toBe(60);
+    expect(Date.parse(times.currentSlotStartedAt)).toBeLessThanOrEqual(now.getTime());
+    expect(Date.parse(times.nextRunEligibleAt)).toBeGreaterThan(now.getTime());
+  });
+
+  it("janela persistente já reservada não executa a atualização", async () => {
+    vi.resetModules();
+    const updateDrakeData = vi.fn();
+    vi.doMock("./update-service.server", () => ({ updateDrakeData }));
+    vi.doMock("./mysteptime-automation-auth.server", () => ({
+      authenticateMyStepTimeAutomationUser: vi.fn().mockResolvedValue({
+        accessToken: "tok",
+        userId: "user-1",
+      }),
+      discardMyStepTimeAutomationAuthContext: vi.fn(),
+    }));
+    vi.doMock("@/lib/supabase/app-auth.server", () => ({
+      createUserClient: vi.fn().mockReturnValue({}),
+    }));
+    vi.doMock("./scheduler-slots.server", () => ({
+      tryClaimDrakeScheduleSlot: vi.fn().mockResolvedValue(false),
+      completeDrakeScheduleSlot: vi.fn(),
+    }));
+
+    const { runScheduledDrakeUpdate } = await import("./run-drake-update.server");
+    const { releaseDrakeUpdateLock, isDrakeUpdateLocked } = await import("./update-lock.server");
+    releaseDrakeUpdateLock();
+
+    await expect(
+      runScheduledDrakeUpdate("scheduled-interval", {
+        scheduleSlot: {
+          key: "drake:60:123",
+          scheduledFor: "2026-09-11T12:00:00.000Z",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "DRAKE_SCHEDULE_ALREADY_CLAIMED" });
+    expect(updateDrakeData).not.toHaveBeenCalled();
+    expect(isDrakeUpdateLocked()).toBe(false);
   });
 });
