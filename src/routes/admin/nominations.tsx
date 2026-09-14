@@ -2784,22 +2784,33 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
     onError: (e: any) => notify.error(e.message),
   });
 
+  // Equipe Formada (não Cancelado) some sozinha do Mapa 5 dias depois da data programada de
+  // embarque (period_start) — passado esse prazo já não é mais operacionalmente relevante pra
+  // uma tela de planejamento. Não apaga a nomeação de verdade, só some da visão do Mapa.
+  const nominationsVisiveis = useMemo(() => {
+    const hoje = todayStr();
+    return nominations.filter((n) => {
+      if (n.current_status !== "equipe_formada" || n.outcome === "cancelada" || !n.period_start) return true;
+      return diasAteData(n.period_start, hoje) >= -5;
+    });
+  }, [nominations]);
+
   const bsps = useMemo(
-    () => Array.from(new Set(nominations.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort((a, b) =>
+    () => Array.from(new Set(nominationsVisiveis.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort((a, b) =>
       a === MAPA_SEM_BSP ? 1 : b === MAPA_SEM_BSP ? -1 : a.localeCompare(b),
     ),
-    [nominations],
+    [nominationsVisiveis],
   );
 
   const porBsp = useMemo(() => {
     const m = new Map<string, Nomination[]>();
-    nominations.forEach((n) => {
+    nominationsVisiveis.forEach((n) => {
       const b = n.bsp?.trim() || MAPA_SEM_BSP;
       if (!m.has(b)) m.set(b, []);
       m.get(b)!.push(n);
     });
     return m;
-  }, [nominations]);
+  }, [nominationsVisiveis]);
 
   const matriz = useMemo(() => {
     const m = new Map<string, Map<string, Nomination[]>>();
@@ -2878,7 +2889,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo.
+          Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo. Equipe Formada some daqui automaticamente 5 dias após a data programada de embarque.
         </p>
         <Button size="sm" variant="outline" onClick={() => sincronizarProgramados.mutate()} loading={sincronizarProgramados.isPending}>
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do Histograma
@@ -2994,7 +3005,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                   {MAPA_COLUNAS.map((col) => (
                     <td key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
                   ))}
-                  <td className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominations.length}</td>
+                  <td className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominationsVisiveis.length}</td>
                 </tr>
               </tfoot>
             )}
