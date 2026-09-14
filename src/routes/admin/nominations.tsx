@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -2821,6 +2821,40 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
     return m;
   }, [bsps, porBsp]);
 
+  // Efeito cascata Cliente -> Unidade -> BSP em cima da mesma matriz de sempre (não recalcula
+  // nada novo, só reagrupa os BSPs que já existem) — mesmo padrão visual de "Equipes
+  // Embarcadas" (ChevronDown/ChevronRight, tudo aberto por padrão, só os Sets guardam o que
+  // foi recolhido).
+  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
+  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
+  const toggleCollapsedMapa = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const cascataClienteUnidadeBsp = useMemo(() => {
+    const porCliente = new Map<string, Map<string, string[]>>();
+    bsps.forEach((b) => {
+      const unidade = unidadePorBsp.get(b) ?? "Sem unidade";
+      const cliente = unidade !== "Sem unidade" ? (clienteDaUnidade(unidade) ?? "Cliente não identificado") : "Cliente não identificado";
+      if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
+      const porUnidade = porCliente.get(cliente)!;
+      if (!porUnidade.has(unidade)) porUnidade.set(unidade, []);
+      porUnidade.get(unidade)!.push(b);
+    });
+    return Array.from(porCliente.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([cliente, porUnidade]) => ({
+        cliente,
+        unidades: Array.from(porUnidade.entries()).sort((a, b) => a[0].localeCompare(b[0])),
+      }));
+  }, [bsps, unidadePorBsp]);
+
+  const totalColunas = MAPA_COLUNAS.length + 2;
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2844,50 +2878,86 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
               </tr>
             </thead>
             <tbody>
-              {bsps.map((b) => {
-                const porColuna = matriz.get(b)!;
-                const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
-                const unidade = unidadePorBsp.get(b);
+              {cascataClienteUnidadeBsp.map(({ cliente, unidades }) => {
+                const clienteOpen = !collapsedClientes.has(cliente);
                 return (
-                  <tr key={b}>
-                    <td className="sticky left-0 z-10 bg-card px-2 py-1.5 align-top">
-                      <div className="font-medium">{b}</div>
-                      {unidade && <div className="text-[11px] text-muted-foreground">{unidade}</div>}
-                    </td>
-                    {MAPA_COLUNAS.map((col) => {
-                      const rows = porColuna.get(col.key) ?? [];
-                      const { bg, text } = mapaHeatColor(rows.length, maxCount);
-                      const equipe = rows.flatMap((n) => (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).map((nn) => nn.colaborador_nome));
-                      const celula = (
+                  <Fragment key={cliente}>
+                    <tr>
+                      <td colSpan={totalColunas} className="sticky left-0 z-10 bg-slate-50 px-2 py-1.5 text-left">
                         <button
-                          type="button"
-                          disabled={rows.length === 0}
-                          onClick={() => setDrill({ bsp: b, coluna: col })}
-                          className="h-10 w-full min-w-14 rounded font-semibold disabled:cursor-default"
-                          style={{ backgroundColor: bg, color: text }}
+                          type="button" className="flex items-center gap-2 rounded p-0.5 font-semibold hover:bg-slate-200"
+                          aria-expanded={clienteOpen} onClick={() => toggleCollapsedMapa(setCollapsedClientes, cliente)}
                         >
-                          {rows.length || ""}
+                          {clienteOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          <Building2 className="h-4 w-4 shrink-0 text-primary" /> {cliente}
                         </button>
-                      );
+                      </td>
+                    </tr>
+                    {clienteOpen && unidades.map(([unidade, bspList]) => {
+                      const unidadeKey = `${cliente}::${unidade}`;
+                      const unidadeOpen = !collapsedUnidades.has(unidadeKey);
                       return (
-                        <td key={col.key} className="p-0 text-center">
-                          {rows.length === 0 ? celula : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>{celula}</TooltipTrigger>
-                              <TooltipContent className="max-w-xs">
-                                {equipe.length > 0 ? equipe.join(", ") : "Equipe ainda não definida"}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </td>
+                        <Fragment key={unidadeKey}>
+                          <tr>
+                            <td colSpan={totalColunas} className="sticky left-0 z-10 bg-sky-50/60 px-2 py-1.5 text-left">
+                              <button
+                                type="button" className="flex items-center gap-2 rounded p-0.5 pl-6 font-semibold text-sky-950 hover:bg-sky-100"
+                                aria-expanded={unidadeOpen} onClick={() => toggleCollapsedMapa(setCollapsedUnidades, unidadeKey)}
+                              >
+                                {unidadeOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                <Ship className="h-4 w-4 shrink-0 text-sky-700" /> {unidade}
+                                <span className="text-xs font-normal text-muted-foreground">({bspList.length} BSP)</span>
+                              </button>
+                            </td>
+                          </tr>
+                          {unidadeOpen && bspList.map((b) => {
+                            const porColuna = matriz.get(b)!;
+                            const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
+                            return (
+                              <tr key={b}>
+                                <td className="sticky left-0 z-10 bg-card px-2 py-1.5 pl-9 align-top">
+                                  <div className="font-medium">{b}</div>
+                                </td>
+                                {MAPA_COLUNAS.map((col) => {
+                                  const rows = porColuna.get(col.key) ?? [];
+                                  const { bg, text } = mapaHeatColor(rows.length, maxCount);
+                                  const equipe = rows.flatMap((n) => (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).map((nn) => nn.colaborador_nome));
+                                  const celula = (
+                                    <button
+                                      type="button"
+                                      disabled={rows.length === 0}
+                                      onClick={() => setDrill({ bsp: b, coluna: col })}
+                                      className="h-10 w-full min-w-14 rounded font-semibold disabled:cursor-default"
+                                      style={{ backgroundColor: bg, color: text }}
+                                    >
+                                      {rows.length || ""}
+                                    </button>
+                                  );
+                                  return (
+                                    <td key={col.key} className="p-0 text-center">
+                                      {rows.length === 0 ? celula : (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>{celula}</TooltipTrigger>
+                                          <TooltipContent className="max-w-xs">
+                                            {equipe.length > 0 ? equipe.join(", ") : "Equipe ainda não definida"}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                <td className="px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
                       );
                     })}
-                    <td className="px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
-                  </tr>
+                  </Fragment>
                 );
               })}
               {bsps.length === 0 && (
-                <tr><td colSpan={MAPA_COLUNAS.length + 2}><EmptyStateRow colSpan={MAPA_COLUNAS.length + 2} icon={Layers3} title="Nenhuma nomeação encontrada" /></td></tr>
+                <tr><td colSpan={totalColunas}><EmptyStateRow colSpan={totalColunas} icon={Layers3} title="Nenhuma nomeação encontrada" /></td></tr>
               )}
             </tbody>
             {bsps.length > 0 && (
