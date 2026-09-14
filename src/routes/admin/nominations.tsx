@@ -2922,15 +2922,23 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                                   const rows = porColuna.get(col.key) ?? [];
                                   const { bg, text } = mapaHeatColor(rows.length, maxCount);
                                   const equipe = rows.flatMap((n) => (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).map((nn) => nn.colaborador_nome));
+                                  // Data de embarque mais próxima entre as nomeações da célula — quando há mais
+                                  // de uma, mostra a que vem primeiro (a que mais importa pra logística agora).
+                                  const proximaData = rows.map((n) => n.period_start).filter((d): d is string => !!d).sort()[0] ?? null;
                                   const celula = (
                                     <button
                                       type="button"
                                       disabled={rows.length === 0}
                                       onClick={() => setDrill({ bsp: b, coluna: col })}
-                                      className="h-10 w-full min-w-14 rounded font-semibold disabled:cursor-default"
+                                      className="h-12 w-full min-w-16 rounded font-semibold disabled:cursor-default"
                                       style={{ backgroundColor: bg, color: text }}
                                     >
-                                      {rows.length || ""}
+                                      {rows.length > 0 && (
+                                        <span className="flex flex-col items-center leading-tight">
+                                          <span>{rows.length}</span>
+                                          {proximaData && <span className="text-[9px] font-normal opacity-80">{fmtDate(proximaData).slice(0, 5)}</span>}
+                                        </span>
+                                      )}
                                     </button>
                                   );
                                   return (
