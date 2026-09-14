@@ -846,6 +846,10 @@ async function autoLancarDesembarque(periodo: HistNovoPeriodo, qc: QueryClient):
 // paralela. Especialidade é a única informação que não existe no Drake: vem da integração
 // Smartsheet já usada na aba Offshore de Colaboradores (ver src/lib/smartsheet.ts), cruzada
 // por nome — sem tabela nova, só leitura de algo que já existe.
+type PlanejamentoSortColumn =
+  | "matricula" | "nome" | "unidade" | "bsp" | "funcao" | "especialidade" | "status"
+  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim";
+
 interface LinhaPlanejamento {
   colaborador: HistNovoColaborador;
   periodoAtual: HistNovoPeriodo | null;
@@ -1205,6 +1209,9 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
     onError: (e: any) => notify.error(e.message),
   });
 
+  // Ordenação clicável no cabeçalho — mesmo componente/padrão de Lançamentos (SortableHead).
+  const { sortColumn, sortDirection, toggleSort } = useTableSort<PlanejamentoSortColumn>();
+
   // Mesmo padrão de Lançamentos: os "*Input" guardam o que está sendo escolhido, e os
   // "filter*" só passam a valer depois de clicar em "Buscar".
   const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
@@ -1313,8 +1320,27 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
       .filter((l) => !dateRangeFilter.folgaAte || (l.folgaInicio != null && l.folgaInicio <= dateRangeFilter.folgaAte))
       .filter((l) => !dateRangeFilter.feriasDe || (l.feriasFim != null && l.feriasFim >= dateRangeFilter.feriasDe))
       .filter((l) => !dateRangeFilter.feriasAte || (l.feriasInicio != null && l.feriasInicio <= dateRangeFilter.feriasAte))
-      .sort((a, b) => a.proximaData.localeCompare(b.proximaData) || a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [linhasBase, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, dateRangeFilter]);
+      .sort((a, b) => {
+        if (!sortColumn) return a.proximaData.localeCompare(b.proximaData) || a.colaborador.nome.localeCompare(b.colaborador.nome);
+        const dir = sortDirection === "asc" ? 1 : -1;
+        switch (sortColumn) {
+          case "matricula": return dir * a.colaborador.matricula.localeCompare(b.colaborador.matricula);
+          case "nome": return dir * a.colaborador.nome.localeCompare(b.colaborador.nome);
+          case "unidade": return dir * a.unidadeAtual.localeCompare(b.unidadeAtual);
+          case "bsp": return dir * ((a.periodoAtual ? bspDoPeriodo(a.periodoAtual) : null) ?? "").localeCompare((b.periodoAtual ? bspDoPeriodo(b.periodoAtual) : null) ?? "");
+          case "funcao": return dir * a.funcaoEmbarque.localeCompare(b.funcaoEmbarque);
+          case "especialidade": return dir * a.especialidade.localeCompare(b.especialidade);
+          case "status": return dir * STATUS_LABEL[a.status].localeCompare(STATUS_LABEL[b.status]);
+          case "embarque": return dir * (a.embarque ?? "").localeCompare(b.embarque ?? "");
+          case "desembarque": return dir * (a.desembarque ?? "").localeCompare(b.desembarque ?? "");
+          case "folgaInicio": return dir * (a.folgaInicio ?? "").localeCompare(b.folgaInicio ?? "");
+          case "folgaFim": return dir * (a.folgaFim ?? "").localeCompare(b.folgaFim ?? "");
+          case "feriasInicio": return dir * (a.feriasInicio ?? "").localeCompare(b.feriasInicio ?? "");
+          case "feriasFim": return dir * (a.feriasFim ?? "").localeCompare(b.feriasFim ?? "");
+          default: return 0;
+        }
+      });
+  }, [linhasBase, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, dateRangeFilter, sortColumn, sortDirection]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `linhas`, já com todos os
   // filtros aplicados, não a base inteira.
@@ -1441,19 +1467,19 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Matrícula</TableHead>
-              <TableHead>Nome</TableHead>
-              <TableHead>Unidade/Localização</TableHead>
-              <TableHead>BSP</TableHead>
-              <TableHead>Função</TableHead>
-              <TableHead>Especialidade</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Embarque</TableHead>
-              <TableHead>Desembarque</TableHead>
-              <TableHead>Início Folga</TableHead>
-              <TableHead>Fim Folga</TableHead>
-              <TableHead>Início Férias</TableHead>
-              <TableHead>Fim Férias</TableHead>
+              <SortableHead label="Matrícula" column="matricula" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Nome" column="nome" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Unidade/Localização" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Especialidade" column="especialidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Embarque" column="embarque" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Desembarque" column="desembarque" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Início Folga" column="folgaInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Fim Folga" column="folgaFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Início Férias" column="feriasInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Fim Férias" column="feriasFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
             </TableRow>
           </TableHeader>
           <TableBody>
