@@ -33,7 +33,7 @@ import {
 } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import {
-  Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X, Filter,
+  Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
   Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight,
 } from "lucide-react";
@@ -868,99 +868,6 @@ interface LinhaPlanejamento {
   proximaData: string;
 }
 
-type ColunaPlanejamento =
-  | "matricula" | "nome" | "unidade" | "bsp" | "funcao" | "especialidade" | "status"
-  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim";
-
-const COLUNAS_PLANEJAMENTO: { key: ColunaPlanejamento; label: string }[] = [
-  { key: "matricula", label: "Matrícula" },
-  { key: "nome", label: "Nome" },
-  { key: "unidade", label: "Unidade/Localização" },
-  { key: "bsp", label: "BSP" },
-  { key: "funcao", label: "Função" },
-  { key: "especialidade", label: "Especialidade" },
-  { key: "status", label: "Status" },
-  { key: "embarque", label: "Embarque" },
-  { key: "desembarque", label: "Desembarque" },
-  { key: "folgaInicio", label: "Início Folga" },
-  { key: "folgaFim", label: "Fim Folga" },
-  { key: "feriasInicio", label: "Início Férias" },
-  { key: "feriasFim", label: "Fim Férias" },
-];
-
-// Valor exibido de cada coluna — o filtro por coluna (ver ColumnHeaderFilter) filtra em cima
-// exatamente deste texto, igual ao que aparece na célula.
-function colunaValorPlanejamento(l: LinhaPlanejamento, key: ColunaPlanejamento): string {
-  switch (key) {
-    case "matricula": return l.colaborador.matricula;
-    case "nome": return l.colaborador.nome;
-    case "unidade": return l.unidadeAtual || "—";
-    case "bsp": return (l.periodoAtual ? bspDoPeriodo(l.periodoAtual) : null) ?? "—";
-    case "funcao": return l.funcaoEmbarque;
-    case "especialidade": return l.especialidade || "—";
-    case "status": return STATUS_LABEL[l.status];
-    case "embarque": return l.embarque ? fmtDateHeadcount(l.embarque) : "—";
-    case "desembarque": return l.desembarque ? fmtDateHeadcount(l.desembarque) : "—";
-    case "folgaInicio": return l.folgaInicio ? fmtDateHeadcount(l.folgaInicio) : "—";
-    case "folgaFim": return l.folgaFim ? fmtDateHeadcount(l.folgaFim) : "—";
-    case "feriasInicio": return l.feriasInicio ? fmtDateHeadcount(l.feriasInicio) : "—";
-    case "feriasFim": return l.feriasFim ? fmtDateHeadcount(l.feriasFim) : "—";
-  }
-}
-
-// Filtro embutido no cabeçalho da coluna, igual à planilha do Smartsheet — clique no funil abre
-// a lista de valores distintos daquela coluna (com busca), cada um com checkbox; desmarcar um
-// valor tira ele da tela. `selected === null` é o estado padrão "sem filtro" (tudo marcado);
-// vira um Set só quando o usuário mexe. Ficar com um Set do mesmo tamanho de `options` de novo
-// volta pra null automaticamente, pra não achar que o filtro está ativo sem estar.
-function ColumnHeaderFilter({ label, options, selected, onChange }: {
-  label: string; options: string[]; selected: Set<string> | null; onChange: (next: Set<string> | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ativo = selected !== null;
-  const efetivo = selected ?? new Set(options);
-  const toggle = (v: string) => {
-    const next = new Set(efetivo);
-    if (next.has(v)) next.delete(v); else next.add(v);
-    onChange(next.size === options.length ? null : next);
-  };
-  return (
-    <div className="flex items-center gap-1">
-      <span className="whitespace-nowrap">{label}</span>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button type="button" className={cn("rounded p-0.5 hover:bg-muted", ativo && "text-primary")}>
-            <Filter className={cn("h-3.5 w-3.5", ativo && "fill-current")} />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-56 p-0" align="start">
-          <Command>
-            <CommandInput placeholder="Buscar..." className="text-xs" />
-            <div className="flex items-center justify-between border-b px-2 py-1.5 text-[11px]">
-              <button type="button" className="text-primary hover:underline" onClick={() => onChange(null)}>Marcar todos</button>
-              <button type="button" className="text-primary hover:underline" onClick={() => onChange(new Set())}>Limpar</button>
-            </div>
-            <CommandList>
-              <CommandEmpty>Nenhum valor encontrado.</CommandEmpty>
-              <CommandGroup>
-                {options.map((o) => {
-                  const isChecked = efetivo.has(o);
-                  return (
-                    <CommandItem key={o} value={o} onSelect={() => toggle(o)} className="text-xs">
-                      {isChecked ? <Check className="mr-2 h-3.5 w-3.5 shrink-0" /> : <span className="mr-2 h-3.5 w-3.5 shrink-0" />}
-                      <span className="flex-1 truncate">{o}</span>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
 // Célula de data editável (Embarque/Desembarque/Folga/Férias) — mesmo padrão de
 // BspPlanejamentoCell: clique abre um popover com o campo de data, "Salvar" grava. Sem
 // período de origem (ninguém programado ainda), mostra só "—", sem edição possível.
@@ -1268,6 +1175,10 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
     () => colaboradores.filter((c) => colaboradoresComEmbarque.has(c.id)),
     [colaboradores, colaboradoresComEmbarque],
   );
+  const funcoesExistentes = useMemo(
+    () => Array.from(new Set(colaboradoresParaPlanejamento.map((c) => resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao)))).sort(),
+    [colaboradoresParaPlanejamento, today, embarquesByColaboradorId],
+  );
 
   const updateBsp = useMutation({
     mutationFn: async ({ periodoId, bsp }: { periodoId: string; bsp: string }) => {
@@ -1294,12 +1205,53 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
     onError: (e: any) => notify.error(e.message),
   });
 
-  // Filtro embutido no cabeçalho de cada coluna, igual à planilha do Smartsheet (ver
-  // ColumnHeaderFilter) — ausência de chave = sem filtro nessa coluna.
-  const [columnFilters, setColumnFilters] = useState<Partial<Record<ColunaPlanejamento, Set<string>>>>({});
+  // Mesmo padrão de Lançamentos: os "*Input" guardam o que está sendo escolhido, e os
+  // "filter*" só passam a valer depois de clicar em "Buscar".
+  const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
+  const [unidadeInput, setUnidadeInput] = useState<string[]>([]);
+  const [bspInput, setBspInput] = useState<string[]>([]);
+  const [funcaoInput, setFuncaoInput] = useState<string[]>([]);
+  const [especialidadeInput, setEspecialidadeInput] = useState<string[]>([]);
+  const [statusInput, setStatusInput] = useState<string[]>([]);
+  const DATE_RANGE_VAZIO = { embarqueDe: "", embarqueAte: "", desembarqueDe: "", desembarqueAte: "", folgaDe: "", folgaAte: "", feriasDe: "", feriasAte: "" };
+  const [dateRangeInput, setDateRangeInput] = useState(DATE_RANGE_VAZIO);
+  const [filterColaborador, setFilterColaborador] = useState<string[]>([]);
+  const [filterUnidade, setFilterUnidade] = useState<string[]>([]);
+  const [filterBsp, setFilterBsp] = useState<string[]>([]);
+  const [filterFuncao, setFilterFuncao] = useState<string[]>([]);
+  const [filterEspecialidade, setFilterEspecialidade] = useState<string[]>([]);
+  const [filterStatus, setFilterStatus] = useState<string[]>([]);
+  const [dateRangeFilter, setDateRangeFilter] = useState(DATE_RANGE_VAZIO);
+  const bspInputOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeInput), [periodos, unidadeInput]);
+  const aplicarFiltro = () => {
+    setFilterColaborador(colaboradorInput);
+    setFilterUnidade(unidadeInput);
+    setFilterBsp(bspInput);
+    setFilterFuncao(funcaoInput);
+    setFilterEspecialidade(especialidadeInput);
+    setFilterStatus(statusInput);
+    setDateRangeFilter(dateRangeInput);
+  };
+  const limparFiltros = () => {
+    setColaboradorInput([]);
+    setUnidadeInput([]);
+    setBspInput([]);
+    setFuncaoInput([]);
+    setEspecialidadeInput([]);
+    setStatusInput([]);
+    setDateRangeInput(DATE_RANGE_VAZIO);
 
-  // Lista completa (sem filtro nenhum) — as opções de cada filtro de coluna vêm sempre dela,
-  // não da lista já filtrada, senão escolher um filtro reduziria as opções dos outros.
+    setFilterColaborador([]);
+    setFilterUnidade([]);
+    setFilterBsp([]);
+    setFilterFuncao([]);
+    setFilterEspecialidade([]);
+    setFilterStatus([]);
+    setDateRangeFilter(DATE_RANGE_VAZIO);
+  };
+
+  // Lista completa (sem filtro nenhum) — as opções dos combobox vêm sempre dela, não da lista
+  // já filtrada, senão escolher um filtro reduziria as opções dos outros filtros.
   const linhasBase: LinhaPlanejamento[] = useMemo(() => {
     return colaboradoresParaPlanejamento.map((c): LinhaPlanejamento => {
       const meusPeriodos = periodosPorColaborador.get(c.id) ?? [];
@@ -1338,56 +1290,170 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
     });
   }, [colaboradoresParaPlanejamento, periodosPorColaborador, embarquesByColaboradorId, especialidadeByNome, today]);
 
-  // Opções de cada filtro de coluna — sempre os valores distintos de linhasBase (não de
-  // `linhas` já filtrada), senão escolher um filtro reduziria as opções dos outros.
-  const opcoesPorColuna = useMemo(() => {
-    const result = {} as Record<ColunaPlanejamento, string[]>;
-    COLUNAS_PLANEJAMENTO.forEach((c) => {
-      result[c.key] = Array.from(new Set(linhasBase.map((l) => colunaValorPlanejamento(l, c.key)))).sort();
-    });
-    return result;
-  }, [linhasBase]);
+  const unidadesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.unidadeAtual).filter(Boolean))).sort(), [linhasBase]);
+  const especialidadesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.especialidade).filter(Boolean))).sort(), [linhasBase]);
+  const statusLabelsExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => STATUS_LABEL[l.status]))).sort(), [linhasBase]);
 
   const linhas: LinhaPlanejamento[] = useMemo(() => {
     return linhasBase
-      .filter((l) => COLUNAS_PLANEJAMENTO.every(({ key }) => {
-        const filtro = columnFilters[key];
-        return !filtro || filtro.has(colunaValorPlanejamento(l, key));
-      }))
+      .filter((l) => filterColaborador.length === 0 || filterColaborador.includes(l.colaborador.id))
+      .filter((l) => filterUnidade.length === 0 || filterUnidade.includes(l.unidadeAtual))
+      .filter((l) => filterBsp.length === 0 || (() => {
+        const b = l.periodoAtual ? bspDoPeriodo(l.periodoAtual) : null;
+        return b != null && filterBsp.includes(b);
+      })())
+      .filter((l) => filterFuncao.length === 0 || filterFuncao.includes(l.funcaoEmbarque))
+      .filter((l) => filterEspecialidade.length === 0 || filterEspecialidade.includes(l.especialidade))
+      .filter((l) => filterStatus.length === 0 || filterStatus.includes(STATUS_LABEL[l.status]))
+      .filter((l) => !dateRangeFilter.embarqueDe || (l.embarque != null && l.embarque >= dateRangeFilter.embarqueDe))
+      .filter((l) => !dateRangeFilter.embarqueAte || (l.embarque != null && l.embarque <= dateRangeFilter.embarqueAte))
+      .filter((l) => !dateRangeFilter.desembarqueDe || (l.desembarque != null && l.desembarque >= dateRangeFilter.desembarqueDe))
+      .filter((l) => !dateRangeFilter.desembarqueAte || (l.desembarque != null && l.desembarque <= dateRangeFilter.desembarqueAte))
+      .filter((l) => !dateRangeFilter.folgaDe || (l.folgaFim != null && l.folgaFim >= dateRangeFilter.folgaDe))
+      .filter((l) => !dateRangeFilter.folgaAte || (l.folgaInicio != null && l.folgaInicio <= dateRangeFilter.folgaAte))
+      .filter((l) => !dateRangeFilter.feriasDe || (l.feriasFim != null && l.feriasFim >= dateRangeFilter.feriasDe))
+      .filter((l) => !dateRangeFilter.feriasAte || (l.feriasInicio != null && l.feriasInicio <= dateRangeFilter.feriasAte))
       .sort((a, b) => a.proximaData.localeCompare(b.proximaData) || a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [linhasBase, columnFilters]);
+  }, [linhasBase, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, dateRangeFilter]);
 
-  const filtrosAtivos = Object.keys(columnFilters).length;
+  // Exporta exatamente o que está na tela — mesmas linhas/ordem de `linhas`, já com todos os
+  // filtros aplicados, não a base inteira.
+  const exportarPlanejamento = () => {
+    const rows = linhas.map((l) => ({
+      Matrícula: l.colaborador.matricula,
+      Nome: l.colaborador.nome,
+      "Unidade/Localização": l.unidadeAtual || "—",
+      BSP: (l.periodoAtual ? bspDoPeriodo(l.periodoAtual) : null) ?? "—",
+      Função: l.funcaoEmbarque,
+      Especialidade: l.especialidade || "—",
+      Status: STATUS_LABEL[l.status],
+      Embarque: l.embarque ? fmtDateHeadcount(l.embarque) : "—",
+      Desembarque: l.desembarque ? fmtDateHeadcount(l.desembarque) : "—",
+      "Início Folga": l.folgaInicio ? fmtDateHeadcount(l.folgaInicio) : "—",
+      "Fim Folga": l.folgaFim ? fmtDateHeadcount(l.folgaFim) : "—",
+      "Início Férias": l.feriasInicio ? fmtDateHeadcount(l.feriasInicio) : "—",
+      "Fim Férias": l.feriasFim ? fmtDateHeadcount(l.feriasFim) : "—",
+    }));
+    if (rows.length === 0) { notify.error("Nenhum colaborador pra exportar com os filtros atuais."); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Planejamento de Transporte");
+    XLSX.writeFile(wb, `planejamento_transporte_${todayStr()}.xlsx`);
+  };
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 px-1">
-        <Users className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">{linhas.length} de {linhasBase.length} colaborador(es)</span>
-        {filtrosAtivos > 0 && (
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setColumnFilters({})}>
-            <X className="mr-1 h-3 w-3" /> Limpar filtros ({filtrosAtivos})
+      <Card className="p-3 space-y-3">
+        <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
+          <div className="space-y-0.5 w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+            <ColaboradoresMultiCombobox colaboradores={colaboradoresParaPlanejamento} value={colaboradorInput} onChange={setColaboradorInput} compact />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
+            <StringMultiCombobox
+              options={unidadesExistentes} value={unidadeInput}
+              onChange={(v) => { setUnidadeInput(v); setBspInput([]); }}
+              placeholder="Todas" searchPlaceholder="Buscar unidade..." emptyLabel="Nenhuma unidade encontrada."
+            />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <StringMultiCombobox options={bspInputOptions} value={bspInput} onChange={setBspInput} searchPlaceholder="Buscar BSP..." emptyLabel="Nenhum BSP encontrado." />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
+            <StringMultiCombobox options={funcoesExistentes} value={funcaoInput} onChange={setFuncaoInput} searchPlaceholder="Buscar função..." emptyLabel="Nenhuma função encontrada." />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Especialidade</Label>
+            <StringMultiCombobox options={especialidadesExistentes} value={especialidadeInput} onChange={setEspecialidadeInput} placeholder="Todas" searchPlaceholder="Buscar especialidade..." emptyLabel="Nenhuma especialidade encontrada." />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
+            <StringMultiCombobox options={statusLabelsExistentes} value={statusInput} onChange={setStatusInput} placeholder="Todos" searchPlaceholder="Buscar status..." emptyLabel="Nenhum status encontrado." />
+          </div>
+          <Button size="sm" className="h-8" onClick={aplicarFiltro}>
+            <Search className="mr-1.5 h-3.5 w-3.5" />Buscar
           </Button>
-        )}
-      </div>
+          <Button type="button" size="sm" variant="outline" className="h-8" onClick={limparFiltros}>
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            Limpar filtros
+          </Button>
+          <Button size="sm" variant="outline" className="h-8" onClick={exportarPlanejamento}>
+            <Download className="mr-1.5 h-3.5 w-3.5" />Exportar
+          </Button>
+          <div className="flex items-center gap-1.5 rounded px-2 py-0.5 h-8 text-[11px] bg-muted border border-border/60" title="Total de colaboradores na lista filtrada">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-bold">{linhas.length}</span>
+            <span className="text-muted-foreground">colaborador(es)</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-t pt-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Embarque</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.embarqueDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, embarqueDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.embarqueAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, embarqueAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Desembarque</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.desembarqueDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, desembarqueDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.desembarqueAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, desembarqueAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Folga</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.folgaDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, folgaDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.folgaAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, folgaAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Férias</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.feriasDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, feriasDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.feriasAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, feriasAte: e.target.value })} />
+            </div>
+          </div>
+        </div>
+      </Card>
       <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
-              {COLUNAS_PLANEJAMENTO.map((c) => (
-                <TableHead key={c.key}>
-                  <ColumnHeaderFilter
-                    label={c.label}
-                    options={opcoesPorColuna[c.key]}
-                    selected={columnFilters[c.key] ?? null}
-                    onChange={(next) => setColumnFilters((prev) => {
-                      const updated = { ...prev };
-                      if (next === null) delete updated[c.key]; else updated[c.key] = next;
-                      return updated;
-                    })}
-                  />
-                </TableHead>
-              ))}
+              <TableHead>Matrícula</TableHead>
+              <TableHead>Nome</TableHead>
+              <TableHead>Unidade/Localização</TableHead>
+              <TableHead>BSP</TableHead>
+              <TableHead>Função</TableHead>
+              <TableHead>Especialidade</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Embarque</TableHead>
+              <TableHead>Desembarque</TableHead>
+              <TableHead>Início Folga</TableHead>
+              <TableHead>Fim Folga</TableHead>
+              <TableHead>Início Férias</TableHead>
+              <TableHead>Fim Férias</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
