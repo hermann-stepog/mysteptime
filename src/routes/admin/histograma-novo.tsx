@@ -246,7 +246,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, offshoreNomes 
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           {canSeeHistograma && <TabsTrigger value="histograma">Histograma</TabsTrigger>}
           {canSeeLancamentos && <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>}
-          {canSeePlanejamento && <TabsTrigger value="planejamento">Planejamento de Transporte</TabsTrigger>}
+          {canSeePlanejamento && <TabsTrigger value="planejamento">Planejamento de Embarque</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard" className="mt-4">
           <DashboardTab colaboradores={colaboradores} periodos={periodos} />
@@ -1363,8 +1363,8 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
     if (rows.length === 0) { notify.error("Nenhum colaborador pra exportar com os filtros atuais."); return; }
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Planejamento de Transporte");
-    XLSX.writeFile(wb, `planejamento_transporte_${todayStr()}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Planejamento de Embarque");
+    XLSX.writeFile(wb, `planejamento_embarque_${todayStr()}.xlsx`);
   };
 
   return (
