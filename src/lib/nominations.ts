@@ -1,4 +1,4 @@
-// Fluxo de Nomeações: 12 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
+// Fluxo de Nomeações: 11 fases fixas de kanban. "Aprovação Técnica" representa a aprovação
 // de Henrique/Wainer (seleção de candidatos). "Validação de Qualidade" vem logo depois de
 // "Nomeados" — só é obrigatória quando a solicitação exige (requires_quality_validation, hoje
 // só pra Soldador); quando não exige, o avanço de Nomeados já pula direto pra Aprovação PM,
@@ -7,19 +7,17 @@
 // colaborador por registro. "Aprovação PM" só libera pra Validação SMS (ASO) quando TODOS os
 // nomeados ativos tiverem sido decididos (aprovado ou reprovado); reprovados voltam pra
 // Aprovação Técnica pra nova indicação. "Validação SMS (ASO)" exige cada nomeado aprovado
-// marcado antes de avançar. "Aptidão (RH)" vem logo depois — o card leva a Logística/RH até a
-// aba "Aptidão" (Matriz de Qualificação do Drake) já com a função/unidade/período da
-// solicitação pré-selecionados, pra conferir se os nomeados estão aptos antes de confirmar e
-// seguir pra "Validação RH". A checklist de aptidão por nomeado que existia dentro de
-// "Validação RH" foi removida (virou essa etapa própria, por função/período, em vez de um
-// campo por pessoa) — "Validação RH" hoje só valida/sinaliza divergência de RH mesmo
-// (aptidao_divergence continua existindo como conceito, resolvida manualmente ali). "Briefing"
-// é o SMS confirmando o briefing; "Equipe Formada — BSP" é o estado terminal.
+// marcado antes de avançar, e libera direto pra "Validação RH" (a checklist de aptidão por
+// nomeado que existia ali continua — "Validação RH" valida/sinaliza divergência de RH e
+// aptidão junto, aptidao_divergence resolvida manualmente ali). "Briefing" é o SMS confirmando
+// o briefing; "Equipe Formada" é o estado terminal.
 //
-// "aptidao" (sem sufixo) é só histórico — nomination_status_history ainda guarda linhas
-// antigas com esse status de quando ela era uma coluna própria (antes de virar checklist
-// dentro de "validacao_rh", e depois a etapa "aptidao_rh"); nenhuma nomeação deve mais ter
-// current_status = "aptidao".
+// "aptidao" e "aptidao_rh" (sem coluna própria hoje) são só histórico — nomination_status_
+// history ainda guarda linhas antigas com esses status (de quando "aptidao" era coluna própria,
+// depois virou checklist dentro de "validacao_rh", depois virou a etapa própria "aptidao_rh"
+// por função/período na Matriz de Qualificação — removida do kanban a pedido da usuária,
+// mantendo só a aba "Aptidão"/Matriz de Qualificação como consulta avulsa); nenhuma nomeação
+// deve mais ter current_status = "aptidao" nem "aptidao_rh".
 export type NominationStatus =
   | "solicitacao"
   | "recebido_logistica"
@@ -149,10 +147,11 @@ export interface WeldMaterialConfig {
 
 // Colunas do kanban, na ordem fixa do processo — cores conforme definidas com a usuária pra
 // as 6 originais; as demais seguem a mesma família pastel, avisar a usuária se quiser trocar
-// algum tom. "Aptidão" saiu daqui (virou checklist dentro de "Validação RH") e entrou
-// "Validação SMS (ASO)", antes de "Validação RH" — mesmo papel (sms) que já cuida do Briefing.
-// "Validação de Qualidade" entra logo depois de "Nomeados" (antes ficava embutida como gate
-// dentro de "Aprovação Técnica") — pedido dela.
+// algum tom. "Validação de Qualidade" entra logo depois de "Nomeados" (antes ficava embutida
+// como gate dentro de "Aprovação Técnica") — pedido dela. "Aptidão (RH)" saiu daqui (etapa
+// removida do kanban a pedido da usuária — a aba "Aptidão"/Matriz de Qualificação continua
+// existindo normalmente como consulta avulsa, só deixou de ser um checkpoint obrigatório do
+// fluxo); "Validação SMS (ASO)" libera direto pra "Validação RH" agora.
 export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; text: string }[] = [
   { id: "solicitacao",         label: "Solicitação",              bg: "#F1EFE8", text: "#2C2C2A" },
   { id: "recebido_logistica",  label: "Recebido pela Logística",  bg: "#EFEDE3", text: "#4A4636" },
@@ -162,7 +161,6 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
   { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
   { id: "aprovacao_pm",        label: "Aprovação PM",             bg: "#FAEEDA", text: "#633806" },
   { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
-  { id: "aptidao_rh",          label: "Aptidão (RH)",             bg: "#FDEBEA", text: "#8C2F26" },
   { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
   { id: "briefing_sms",        label: "Briefing",                 bg: "#E0F7F5", text: "#0F5E59" },
   { id: "equipe_formada",      label: "Equipe Formada",           bg: "#DCFCE7", text: "#166534" },
@@ -170,17 +168,19 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
 
 const COLUMN_ORDER: NominationStatus[] = KANBAN_COLUMNS.map((c) => c.id);
 
-// "aptidao" não tem mais coluna própria, mas nomination_status_history ainda guarda linhas
-// antigas com esse status — mantém o rótulo/cor de exibição pra elas não quebrarem no
-// histórico, sem entrar em ALL_STATUSES nem em nenhum filtro/seleção do kanban.
+// "aptidao" e "aptidao_rh" não têm mais coluna própria, mas nomination_status_history ainda
+// guarda linhas antigas com esses status — mantém o rótulo/cor de exibição pra elas não
+// quebrarem no histórico, sem entrar em ALL_STATUSES nem em nenhum filtro/seleção do kanban.
 export const STATUS_LABELS: Record<NominationStatus, string> = {
   ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, c.label])) as Record<NominationStatus, string>),
   aptidao: "Aptidão",
+  aptidao_rh: "Aptidão (RH)",
 };
 
 export const STATUS_BADGE: Record<NominationStatus, { bg: string; text: string }> = {
   ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, { bg: c.bg, text: c.text }])) as Record<NominationStatus, { bg: string; text: string }>),
   aptidao: { bg: "#FDEBEA", text: "#8C2F26" },
+  aptidao_rh: { bg: "#FDEBEA", text: "#8C2F26" },
 };
 
 export const ALL_STATUSES: NominationStatus[] = [...COLUMN_ORDER];
@@ -245,10 +245,6 @@ export function canMoveToColumn(
     }
   }
 
-  // A checklist de aptidão por nomeado saiu daqui — a checagem de aptidão agora é a etapa
-  // própria "Aptidão (RH)", logo antes desta (consulta por função/período na Matriz de
-  // Qualificação, não mais um campo por pessoa). Validação RH mantém só a validação/
-  // divergência de RH que já existia.
   const validacaoRhIdx = COLUMN_ORDER.indexOf("validacao_rh");
   const saiDeValidacaoRh = currentIdx <= validacaoRhIdx && targetIdx > validacaoRhIdx;
   if (saiDeValidacaoRh) {
@@ -378,7 +374,6 @@ export const STAGE_ROLE: Partial<Record<NominationStatus, string>> = {
   aprovacao_tecnica: "aprovacao_tecnica",
   validacao_qualidade: "qualidade",
   validacao_sms_aso: "sms",
-  aptidao_rh: "rh",
   validacao_rh: "rh",
   briefing_sms: "sms",
 };
