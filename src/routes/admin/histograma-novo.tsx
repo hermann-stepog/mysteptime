@@ -853,13 +853,43 @@ interface LinhaPlanejamento {
   status: ComputedStatus;
   funcaoEmbarque: string;
   especialidade: string;
+  // Guarda o período de origem de cada par de datas (não só a string), pra permitir editar a
+  // data direto na célula (como na planilha do Smartsheet) — sem isso não teria como saber
+  // qual linha de hist_novo_periodos atualizar.
+  cicloPeriodo: HistNovoPeriodo | null;
   embarque: string | null;
   desembarque: string | null;
+  folgaPeriodo: HistNovoPeriodo | null;
   folgaInicio: string | null;
   folgaFim: string | null;
+  feriasPeriodo: HistNovoPeriodo | null;
   feriasInicio: string | null;
   feriasFim: string | null;
   proximaData: string;
+}
+
+// Célula de data editável (Embarque/Desembarque/Folga/Férias) — mesmo padrão de
+// BspPlanejamentoCell: clique abre um popover com o campo de data, "Salvar" grava. Sem
+// período de origem (ninguém programado ainda), mostra só "—", sem edição possível.
+function DatePlanejamentoCell({ periodo, valor, onSave }: { periodo: HistNovoPeriodo | null; valor: string | null; onSave: (novaData: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState(valor ?? "");
+
+  if (!periodo || !valor) return <span className="text-muted-foreground">—</span>;
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setInput(valor); }}>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded px-1.5 py-0.5 text-left hover:bg-muted">
+          {fmtDateHeadcount(valor)}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 space-y-2" align="start">
+        <Input type="date" value={input} onChange={(e) => setInput(e.target.value)} />
+        <Button size="sm" className="w-full" onClick={() => { if (input) onSave(input); setOpen(false); }}>Salvar</Button>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function BspPlanejamentoCell({ periodo, periodos, onSave }: { periodo: HistNovoPeriodo | null; periodos: HistNovoPeriodo[]; onSave: (bsp: string) => void }) {
@@ -886,6 +916,224 @@ function BspPlanejamentoCell({ periodo, periodos, onSave }: { periodo: HistNovoP
         <Button size="sm" className="w-full" onClick={() => { onSave(valor); setOpen(false); }}>Salvar</Button>
       </PopoverContent>
     </Popover>
+  );
+}
+
+// Card de "Lançar período manualmente" (só "Programado" por hora — decisão explícita da
+// usuária) — reaproveitado em Lançamentos e em Planejamento de Transporte, pra não duplicar
+// form/mutation/diálogos de conflito em dois lugares.
+function LancarPeriodoProgramadoCard({ colaboradores, periodos, onEditarPeriodo }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; onEditarPeriodo?: (p: HistNovoPeriodo) => void }) {
+  const qc = useQueryClient();
+  const colaboradorById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
+  const colaboradoresComMultiploEmbarque = useMemo(() => {
+    const ids = getColaboradoresComMultiploEmbarque(periodos);
+    return colaboradores.filter((c) => ids.has(c.id));
+  }, [colaboradores, periodos]);
+  const unidadesExistentes = useMemo(
+    () => Array.from(new Set([
+      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
+      ...UNIDADES_OPERACIONAIS_FIXAS,
+    ])).sort(),
+    [periodos],
+  );
+
+  const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "P" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+  const [formBspManual, setFormBspManual] = useState(false);
+  const formBspOptions = useMemo(() => bspOptionsForUnidade(periodos, form.unidade_operacional || "all"), [periodos, form.unidade_operacional]);
+
+  const createPeriodo = useMutation({
+    mutationFn: async (colaboradorIds: string[]) => {
+      if (colaboradorIds.length === 0) throw new Error("Selecione ao menos um colaborador.");
+      if (!form.data_inicio || !form.data_fim) throw new Error("Informe as datas de início e fim.");
+
+      const diasTotal = Math.round((new Date(form.data_fim).getTime() - new Date(form.data_inicio).getTime()) / 86400000) + 1;
+      const registros: any[] = [];
+      for (const colaboradorId of colaboradorIds) {
+        const base = {
+          colaborador_id: colaboradorId,
+          unidade_operacional: normalizeUnidadeOperacional(form.unidade_operacional),
+          bsp: form.bsp.trim() || null,
+        };
+        if (form.tipo === "P") {
+          registros.push({ ...base, tipo: "P", data_inicio: form.data_inicio, data_fim: form.data_inicio, dias: 1, origem: "manual" });
+        } else {
+          registros.push({ ...base, tipo: form.tipo, data_inicio: form.data_inicio, data_fim: form.data_fim, dias: diasTotal > 0 ? diasTotal : null, origem: "manual" });
+        }
+      }
+
+      const { data, error } = await supabase.from("hist_novo_periodos").insert(registros).select("*");
+      if (error) throw error;
+      return (data ?? []) as HistNovoPeriodo[];
+    },
+    onSuccess: (novos) => {
+      qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => (old ? [...novos, ...old] : novos));
+      notify.success(novos.length > 1 ? "Períodos lançados" : "Período lançado");
+      setForm({ colaboradorIds: [], tipo: "P", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
+      setFormBspManual(false);
+      novos.forEach((novo) => { void autoLancarDesembarque(novo, qc); });
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  // Antes de lançar, avisa se algum colaborador selecionado já tem período sobrepondo a data
+  // pedida (evita duplicar Programado/Embarcado) e se está de folga/férias/atestado nesse
+  // intervalo (deixa continuar mesmo assim, caso seja intencional).
+  const [conflitosProgramados, setConflitosProgramados] = useState<HistNovoPeriodo[]>([]);
+  const [avisosAusencia, setAvisosAusencia] = useState<HistNovoPeriodo[]>([]);
+
+  const handleLancarClick = () => {
+    if (form.colaboradorIds.length === 0) { notify.error("Selecione ao menos um colaborador."); return; }
+    if (!form.data_inicio || !form.data_fim) { notify.error("Informe as datas de início e fim."); return; }
+    const conflitos: HistNovoPeriodo[] = [];
+    const ausencias: HistNovoPeriodo[] = [];
+    for (const colaboradorId of form.colaboradorIds) {
+      const sobrepondo = periodos.filter((p) =>
+        p.colaborador_id === colaboradorId && p.data_fim >= form.data_inicio && p.data_inicio <= form.data_fim,
+      );
+      const programado = sobrepondo.find((p) => p.tipo === "P" || p.tipo === "E");
+      if (programado) { conflitos.push(programado); continue; }
+      const ausencia = sobrepondo.find((p) => p.tipo === "F" || p.tipo === "FE" || p.tipo === "AT");
+      if (ausencia) ausencias.push(ausencia);
+    }
+    if (conflitos.length > 0) { setConflitosProgramados(conflitos); return; }
+    if (ausencias.length > 0) { setAvisosAusencia(ausencias); return; }
+    createPeriodo.mutate(form.colaboradorIds);
+  };
+
+  return (
+    <>
+      <Card className="flex flex-col p-4 space-y-3">
+        <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
+        <div className="flex flex-1 flex-col justify-between gap-4">
+          <div>
+            <Label className="text-xs">Colaborador(es)</Label>
+            <ColaboradoresMultiCombobox colaboradores={colaboradoresComMultiploEmbarque} value={form.colaboradorIds} onChange={(ids) => setForm({ ...form, colaboradorIds: ids })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Tipo</Label>
+              {/* Só "Programado" por hora — decisão explícita da usuária, restrita a este
+                  formulário de lançamento manual (o select de edição de período existente
+                  continua com a lista completa). */}
+              <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo, ...(v === "P" ? { data_fim: form.data_inicio } : {}) })}>
+                <SelectTrigger className="h-11 text-base"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="P">{displayAbbr("P")} — {TIPO_LABEL.P}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Unidade Operacional</Label>
+              <Select value={form.unidade_operacional} onValueChange={(v) => { setForm({ ...form, unidade_operacional: v, bsp: "" }); setFormBspManual(false); }}>
+                <SelectTrigger className="h-11 text-base"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">BSP</Label>
+              {formBspOptions.length > 0 && !formBspManual ? (
+                <BspCombobox
+                  options={formBspOptions} value={form.bsp}
+                  onChange={(v) => setForm({ ...form, bsp: v })}
+                  onManual={() => setFormBspManual(true)}
+                />
+              ) : (
+                <Input className="h-11 text-base" value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
+              )}
+            </div>
+            <div>
+              <Label className="text-xs">Data início</Label>
+              <Input
+                className="h-11 text-base" type="date" value={form.data_inicio}
+                onChange={(e) => setForm({ ...form, data_inicio: e.target.value, ...(form.tipo === "P" ? { data_fim: e.target.value } : {}) })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Data fim</Label>
+              <Input
+                className="h-11 text-base" type="date" value={form.data_fim} disabled={form.tipo === "P"}
+                onChange={(e) => setForm({ ...form, data_fim: e.target.value })}
+              />
+              {form.tipo === "P" && <p className="mt-1 text-[11px] text-muted-foreground">Programado existe só no dia da Data início.</p>}
+            </div>
+          </div>
+          <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>
+            {form.colaboradorIds.length > 1 ? `Lançar período (${form.colaboradorIds.length} colaboradores)` : "Lançar período"}
+          </Button>
+        </div>
+      </Card>
+
+      <AlertDialog open={conflitosProgramados.length > 0} onOpenChange={(o) => !o && setConflitosProgramados([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {conflitosProgramados.length === 1 ? "Esse período já está programado" : "Alguns colaboradores já têm período nessa data"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {conflitosProgramados.length === 1 ? (
+                <div>{colaboradorById.get(conflitosProgramados[0].colaborador_id)?.nome ?? "Colaborador"} já tem {getPeriodoLabel(conflitosProgramados[0])} lançado de {fmtData(conflitosProgramados[0].data_inicio)} a {fmtData(conflitosProgramados[0].data_fim)}. Deseja editar esse período em vez de criar um novo?</div>
+              ) : (
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {conflitosProgramados.map((p) => (
+                    <li key={p.id}>{colaboradorById.get(p.colaborador_id)?.nome ?? "Colaborador"} — já tem {getPeriodoLabel(p)} de {fmtData(p.data_inicio)} a {fmtData(p.data_fim)}</li>
+                  ))}
+                </ul>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConflitosProgramados([])}>Cancelar</AlertDialogCancel>
+            {conflitosProgramados.length === 1 ? (
+              onEditarPeriodo && (
+                <AlertDialogAction onClick={() => { onEditarPeriodo(conflitosProgramados[0]); setConflitosProgramados([]); }}>Editar período</AlertDialogAction>
+              )
+            ) : (() => {
+              const idsComConflito = new Set(conflitosProgramados.map((p) => p.colaborador_id));
+              const idsSemConflito = form.colaboradorIds.filter((id) => !idsComConflito.has(id));
+              return idsSemConflito.length > 0 && (
+                <AlertDialogAction onClick={() => { createPeriodo.mutate(idsSemConflito); setConflitosProgramados([]); }}>
+                  Lançar para os demais ({idsSemConflito.length})
+                </AlertDialogAction>
+              );
+            })()}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={avisosAusencia.length > 0} onOpenChange={(o) => !o && setAvisosAusencia([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {avisosAusencia.length === 1
+                ? `${colaboradorById.get(avisosAusencia[0].colaborador_id)?.nome ?? "Colaborador"} está ${AUSENCIA_LABEL[avisosAusencia[0].tipo as "F" | "FE" | "AT"]} nesse período`
+                : "Alguns colaboradores estão de folga/férias/atestado nesse período"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {avisosAusencia.length === 1 ? (
+                <div>{fmtData(avisosAusencia[0].data_inicio)} a {fmtData(avisosAusencia[0].data_fim)}. Deseja continuar com a programação mesmo assim?</div>
+              ) : (
+                <div className="space-y-1.5">
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {avisosAusencia.map((p) => (
+                      <li key={p.id}>{colaboradorById.get(p.colaborador_id)?.nome ?? "Colaborador"} — {AUSENCIA_LABEL[p.tipo as "F" | "FE" | "AT"]} de {fmtData(p.data_inicio)} a {fmtData(p.data_fim)}</li>
+                    ))}
+                  </ul>
+                  <div>Deseja continuar com a programação mesmo assim, para todos os selecionados?</div>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setAvisosAusencia([])}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { createPeriodo.mutate(form.colaboradorIds); setAvisosAusencia([]); }}>Continuar mesmo assim</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -923,6 +1171,14 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
   }, [periodos]);
 
   const colaboradoresComEmbarque = useMemo(() => getColaboradoresComEmbarque(periodos), [periodos]);
+  const colaboradoresParaPlanejamento = useMemo(
+    () => colaboradores.filter((c) => colaboradoresComEmbarque.has(c.id)),
+    [colaboradores, colaboradoresComEmbarque],
+  );
+  const funcoesExistentes = useMemo(
+    () => Array.from(new Set(colaboradoresParaPlanejamento.map((c) => resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao)))).sort(),
+    [colaboradoresParaPlanejamento, today, embarquesByColaboradorId],
+  );
 
   const updateBsp = useMutation({
     mutationFn: async ({ periodoId, bsp }: { periodoId: string; bsp: string }) => {
@@ -933,85 +1189,228 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
     onError: (e: any) => notify.error(e.message),
   });
 
-  const [busca, setBusca] = useState("");
-  const [filterUnidade, setFilterUnidade] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
+  // Edita a data de embarque/desembarque/folga/férias direto na célula — mesmo dado
+  // (hist_novo_periodos) que Lançamentos edita, só que sem abrir o dialog inteiro. Recalcula
+  // "dias" a partir do novo intervalo, igual ao updatePeriodo de Lançamentos.
+  const updatePeriodoData = useMutation({
+    mutationFn: async ({ periodo, field, valor }: { periodo: HistNovoPeriodo; field: "data_inicio" | "data_fim"; valor: string }) => {
+      const novoInicio = field === "data_inicio" ? valor : periodo.data_inicio;
+      const novoFim = field === "data_fim" ? valor : periodo.data_fim;
+      const dias = Math.round((new Date(novoFim).getTime() - new Date(novoInicio).getTime()) / 86400000) + 1;
+      const patch = field === "data_inicio" ? { data_inicio: valor } : { data_fim: valor };
+      const { error } = await supabase.from("hist_novo_periodos").update({ ...patch, dias: dias > 0 ? dias : null }).eq("id", periodo.id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["hist-novo-periodos"] }); notify.success("Data atualizada"); },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  // Mesmo padrão de Lançamentos: os "*Input" guardam o que está sendo escolhido, e os
+  // "filter*" só passam a valer depois de clicar em "Buscar".
+  const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
+  const [unidadeInput, setUnidadeInput] = useState<string[]>([]);
+  const [bspInput, setBspInput] = useState<string[]>([]);
+  const [funcaoInput, setFuncaoInput] = useState<string[]>([]);
+  const [especialidadeInput, setEspecialidadeInput] = useState<string[]>([]);
+  const [statusInput, setStatusInput] = useState<string[]>([]);
+  const DATE_RANGE_VAZIO = { embarqueDe: "", embarqueAte: "", desembarqueDe: "", desembarqueAte: "", folgaDe: "", folgaAte: "", feriasDe: "", feriasAte: "" };
+  const [dateRangeInput, setDateRangeInput] = useState(DATE_RANGE_VAZIO);
+  const [filterColaborador, setFilterColaborador] = useState<string[]>([]);
+  const [filterUnidade, setFilterUnidade] = useState<string[]>([]);
+  const [filterBsp, setFilterBsp] = useState<string[]>([]);
+  const [filterFuncao, setFilterFuncao] = useState<string[]>([]);
+  const [filterEspecialidade, setFilterEspecialidade] = useState<string[]>([]);
+  const [filterStatus, setFilterStatus] = useState<string[]>([]);
+  const [dateRangeFilter, setDateRangeFilter] = useState(DATE_RANGE_VAZIO);
+  const bspInputOptions = useMemo(() => bspOptionsForUnidade(periodos, unidadeInput), [periodos, unidadeInput]);
+  const aplicarFiltro = () => {
+    setFilterColaborador(colaboradorInput);
+    setFilterUnidade(unidadeInput);
+    setFilterBsp(bspInput);
+    setFilterFuncao(funcaoInput);
+    setFilterEspecialidade(especialidadeInput);
+    setFilterStatus(statusInput);
+    setDateRangeFilter(dateRangeInput);
+  };
+  const limparFiltros = () => {
+    setColaboradorInput([]);
+    setUnidadeInput([]);
+    setBspInput([]);
+    setFuncaoInput([]);
+    setEspecialidadeInput([]);
+    setStatusInput([]);
+    setDateRangeInput(DATE_RANGE_VAZIO);
+
+    setFilterColaborador([]);
+    setFilterUnidade([]);
+    setFilterBsp([]);
+    setFilterFuncao([]);
+    setFilterEspecialidade([]);
+    setFilterStatus([]);
+    setDateRangeFilter(DATE_RANGE_VAZIO);
+  };
+
+  // Lista completa (sem filtro nenhum) — as opções dos combobox vêm sempre dela, não da lista
+  // já filtrada, senão escolher um filtro reduziria as opções dos outros filtros.
+  const linhasBase: LinhaPlanejamento[] = useMemo(() => {
+    return colaboradoresParaPlanejamento.map((c): LinhaPlanejamento => {
+      const meusPeriodos = periodosPorColaborador.get(c.id) ?? [];
+      const statusHoje = computeDayStatus(meusPeriodos, today);
+      const periodoAtual = statusHoje.periodo ?? null;
+      const unidadeAtual = periodoAtual?.unidade_operacional || STATUS_LABEL[statusHoje.status];
+      const funcaoEmbarque = resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao);
+      const especialidade = especialidadeByNome.get(normalizeNomeHistograma(c.nome)) ?? "";
+
+      // Ciclo mais próximo: o embarque "E" real (não Programado) que ainda não terminou —
+      // o que está em curso, se houver, senão o próximo a começar.
+      const cicloAtualOuProximo = meusPeriodos
+        .filter((p) => p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO && p.data_fim >= today)
+        .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
+      const embarque = cicloAtualOuProximo?.data_inicio ?? null;
+      const desembarque = cicloAtualOuProximo?.data_fim ?? null;
+
+      const proximaFolga = meusPeriodos
+        .filter((p) => p.tipo === "F" && p.data_fim >= today)
+        .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
+      const proximasFerias = meusPeriodos
+        .filter((p) => p.tipo === "FE" && p.data_fim >= today)
+        .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
+
+      const datasFuturas = [embarque, desembarque, proximaFolga?.data_fim ?? null, proximasFerias?.data_inicio ?? null]
+        .filter((d): d is string => !!d && d >= today);
+      const proximaData = datasFuturas.length ? datasFuturas.sort()[0] : "9999-12-31";
+
+      return {
+        colaborador: c, periodoAtual, unidadeAtual, status: statusHoje.status, funcaoEmbarque, especialidade,
+        cicloPeriodo: cicloAtualOuProximo, embarque, desembarque,
+        folgaPeriodo: proximaFolga, folgaInicio: proximaFolga?.data_inicio ?? null, folgaFim: proximaFolga?.data_fim ?? null,
+        feriasPeriodo: proximasFerias, feriasInicio: proximasFerias?.data_inicio ?? null, feriasFim: proximasFerias?.data_fim ?? null,
+        proximaData,
+      };
+    });
+  }, [colaboradoresParaPlanejamento, periodosPorColaborador, embarquesByColaboradorId, especialidadeByNome, today]);
+
+  const unidadesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.unidadeAtual).filter(Boolean))).sort(), [linhasBase]);
+  const especialidadesExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => l.especialidade).filter(Boolean))).sort(), [linhasBase]);
+  const statusLabelsExistentes = useMemo(() => Array.from(new Set(linhasBase.map((l) => STATUS_LABEL[l.status]))).sort(), [linhasBase]);
 
   const linhas: LinhaPlanejamento[] = useMemo(() => {
-    return colaboradores
-      .filter((c) => colaboradoresComEmbarque.has(c.id))
-      .map((c): LinhaPlanejamento => {
-        const meusPeriodos = periodosPorColaborador.get(c.id) ?? [];
-        const statusHoje = computeDayStatus(meusPeriodos, today);
-        const periodoAtual = statusHoje.periodo ?? null;
-        const unidadeAtual = periodoAtual?.unidade_operacional || STATUS_LABEL[statusHoje.status];
-        const funcaoEmbarque = resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao);
-        const especialidade = especialidadeByNome.get(normalizeNomeHistograma(c.nome)) ?? "";
-
-        // Ciclo mais próximo: o embarque "E" real (não Programado) que ainda não terminou —
-        // o que está em curso, se houver, senão o próximo a começar.
-        const cicloAtualOuProximo = meusPeriodos
-          .filter((p) => p.tipo === "E" && p.origem !== ORIGEM_PROGRAMADO && p.data_fim >= today)
-          .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
-        const embarque = cicloAtualOuProximo?.data_inicio ?? null;
-        const desembarque = cicloAtualOuProximo?.data_fim ?? null;
-
-        const proximaFolga = meusPeriodos
-          .filter((p) => p.tipo === "F" && p.data_fim >= today)
-          .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
-        const proximasFerias = meusPeriodos
-          .filter((p) => p.tipo === "FE" && p.data_fim >= today)
-          .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0] ?? null;
-
-        const datasFuturas = [embarque, desembarque, proximaFolga?.data_fim ?? null, proximasFerias?.data_inicio ?? null]
-          .filter((d): d is string => !!d && d >= today);
-        const proximaData = datasFuturas.length ? datasFuturas.sort()[0] : "9999-12-31";
-
-        return {
-          colaborador: c, periodoAtual, unidadeAtual, status: statusHoje.status, funcaoEmbarque, especialidade,
-          embarque, desembarque,
-          folgaInicio: proximaFolga?.data_inicio ?? null, folgaFim: proximaFolga?.data_fim ?? null,
-          feriasInicio: proximasFerias?.data_inicio ?? null, feriasFim: proximasFerias?.data_fim ?? null,
-          proximaData,
-        };
-      })
-      .filter((l) => !busca.trim() || matchesNameSearch(l.colaborador.nome, busca) || l.colaborador.matricula.includes(busca.trim()))
-      .filter((l) => filterUnidade === "all" || l.unidadeAtual === filterUnidade)
-      .filter((l) => filterStatus === "all" || l.status === filterStatus)
+    return linhasBase
+      .filter((l) => filterColaborador.length === 0 || filterColaborador.includes(l.colaborador.id))
+      .filter((l) => filterUnidade.length === 0 || filterUnidade.includes(l.unidadeAtual))
+      .filter((l) => filterBsp.length === 0 || (() => {
+        const b = l.periodoAtual ? bspDoPeriodo(l.periodoAtual) : null;
+        return b != null && filterBsp.includes(b);
+      })())
+      .filter((l) => filterFuncao.length === 0 || filterFuncao.includes(l.funcaoEmbarque))
+      .filter((l) => filterEspecialidade.length === 0 || filterEspecialidade.includes(l.especialidade))
+      .filter((l) => filterStatus.length === 0 || filterStatus.includes(STATUS_LABEL[l.status]))
+      .filter((l) => !dateRangeFilter.embarqueDe || (l.embarque != null && l.embarque >= dateRangeFilter.embarqueDe))
+      .filter((l) => !dateRangeFilter.embarqueAte || (l.embarque != null && l.embarque <= dateRangeFilter.embarqueAte))
+      .filter((l) => !dateRangeFilter.desembarqueDe || (l.desembarque != null && l.desembarque >= dateRangeFilter.desembarqueDe))
+      .filter((l) => !dateRangeFilter.desembarqueAte || (l.desembarque != null && l.desembarque <= dateRangeFilter.desembarqueAte))
+      .filter((l) => !dateRangeFilter.folgaDe || (l.folgaFim != null && l.folgaFim >= dateRangeFilter.folgaDe))
+      .filter((l) => !dateRangeFilter.folgaAte || (l.folgaInicio != null && l.folgaInicio <= dateRangeFilter.folgaAte))
+      .filter((l) => !dateRangeFilter.feriasDe || (l.feriasFim != null && l.feriasFim >= dateRangeFilter.feriasDe))
+      .filter((l) => !dateRangeFilter.feriasAte || (l.feriasInicio != null && l.feriasInicio <= dateRangeFilter.feriasAte))
       .sort((a, b) => a.proximaData.localeCompare(b.proximaData) || a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, colaboradoresComEmbarque, periodosPorColaborador, embarquesByColaboradorId, especialidadeByNome, today, busca, filterUnidade, filterStatus]);
-
-  const unidadesExistentes = useMemo(() => Array.from(new Set(linhas.map((l) => l.unidadeAtual).filter(Boolean))).sort(), [linhas]);
-  const statusExistentes = useMemo(() => Array.from(new Set(linhas.map((l) => l.status))), [linhas]);
+  }, [linhasBase, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, dateRangeFilter]);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="w-56">
-          <Label className="text-xs">Nome ou Matrícula</Label>
-          <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar..." />
+      <LancarPeriodoProgramadoCard colaboradores={colaboradores} periodos={periodos} />
+
+      <Card className="p-3 space-y-3">
+        <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
+          <div className="space-y-0.5 w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+            <ColaboradoresMultiCombobox colaboradores={colaboradoresParaPlanejamento} value={colaboradorInput} onChange={setColaboradorInput} compact />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
+            <StringMultiCombobox
+              options={unidadesExistentes} value={unidadeInput}
+              onChange={(v) => { setUnidadeInput(v); setBspInput([]); }}
+              placeholder="Todas" searchPlaceholder="Buscar unidade..." emptyLabel="Nenhuma unidade encontrada."
+            />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <StringMultiCombobox options={bspInputOptions} value={bspInput} onChange={setBspInput} searchPlaceholder="Buscar BSP..." emptyLabel="Nenhum BSP encontrado." />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
+            <StringMultiCombobox options={funcoesExistentes} value={funcaoInput} onChange={setFuncaoInput} searchPlaceholder="Buscar função..." emptyLabel="Nenhuma função encontrada." />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Especialidade</Label>
+            <StringMultiCombobox options={especialidadesExistentes} value={especialidadeInput} onChange={setEspecialidadeInput} placeholder="Todas" searchPlaceholder="Buscar especialidade..." emptyLabel="Nenhuma especialidade encontrada." />
+          </div>
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
+            <StringMultiCombobox options={statusLabelsExistentes} value={statusInput} onChange={setStatusInput} placeholder="Todos" searchPlaceholder="Buscar status..." emptyLabel="Nenhum status encontrado." />
+          </div>
+          <Button size="sm" className="h-8" onClick={aplicarFiltro}>
+            <Search className="mr-1.5 h-3.5 w-3.5" />Buscar
+          </Button>
+          <Button type="button" size="sm" variant="outline" className="h-8" onClick={limparFiltros}>
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            Limpar filtros
+          </Button>
+          <div className="flex items-center gap-1.5 rounded px-2 py-0.5 h-8 text-[11px] bg-muted border border-border/60" title="Total de colaboradores na lista filtrada">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-bold">{linhas.length}</span>
+            <span className="text-muted-foreground">colaborador(es)</span>
+          </div>
         </div>
-        <div>
-          <Label className="text-xs">Unidade</Label>
-          <Select value={filterUnidade} onValueChange={setFilterUnidade}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-            </SelectContent>
-          </Select>
+
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-t pt-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Embarque</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.embarqueDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, embarqueDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.embarqueAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, embarqueAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Desembarque</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.desembarqueDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, desembarqueDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.desembarqueAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, desembarqueAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Folga</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.folgaDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, folgaDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.folgaAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, folgaAte: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">Férias</span>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">De</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.feriasDe} onChange={(e) => setDateRangeInput({ ...dateRangeInput, feriasDe: e.target.value })} />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] text-muted-foreground/70">Até</Label>
+              <Input type="date" className="h-8 text-xs" value={dateRangeInput.feriasAte} onChange={(e) => setDateRangeInput({ ...dateRangeInput, feriasAte: e.target.value })} />
+            </div>
+          </div>
         </div>
-        <div>
-          <Label className="text-xs">Status</Label>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {statusExistentes.map((s) => <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      </Card>
       <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -1047,12 +1446,42 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
                 <TableCell>{l.funcaoEmbarque}</TableCell>
                 <TableCell>{l.especialidade || "—"}</TableCell>
                 <TableCell>{STATUS_LABEL[l.status]}</TableCell>
-                <TableCell>{l.embarque ? fmtDateHeadcount(l.embarque) : "—"}</TableCell>
-                <TableCell>{l.desembarque ? fmtDateHeadcount(l.desembarque) : "—"}</TableCell>
-                <TableCell>{l.folgaInicio ? fmtDateHeadcount(l.folgaInicio) : "—"}</TableCell>
-                <TableCell>{l.folgaFim ? fmtDateHeadcount(l.folgaFim) : "—"}</TableCell>
-                <TableCell>{l.feriasInicio ? fmtDateHeadcount(l.feriasInicio) : "—"}</TableCell>
-                <TableCell>{l.feriasFim ? fmtDateHeadcount(l.feriasFim) : "—"}</TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.cicloPeriodo} valor={l.embarque}
+                    onSave={(valor) => l.cicloPeriodo && updatePeriodoData.mutate({ periodo: l.cicloPeriodo, field: "data_inicio", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.cicloPeriodo} valor={l.desembarque}
+                    onSave={(valor) => l.cicloPeriodo && updatePeriodoData.mutate({ periodo: l.cicloPeriodo, field: "data_fim", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.folgaPeriodo} valor={l.folgaInicio}
+                    onSave={(valor) => l.folgaPeriodo && updatePeriodoData.mutate({ periodo: l.folgaPeriodo, field: "data_inicio", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.folgaPeriodo} valor={l.folgaFim}
+                    onSave={(valor) => l.folgaPeriodo && updatePeriodoData.mutate({ periodo: l.folgaPeriodo, field: "data_fim", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.feriasPeriodo} valor={l.feriasInicio}
+                    onSave={(valor) => l.feriasPeriodo && updatePeriodoData.mutate({ periodo: l.feriasPeriodo, field: "data_inicio", valor })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <DatePlanejamentoCell
+                    periodo={l.feriasPeriodo} valor={l.feriasFim}
+                    onSave={(valor) => l.feriasPeriodo && updatePeriodoData.mutate({ periodo: l.feriasPeriodo, field: "data_fim", valor })}
+                  />
+                </TableCell>
               </TableRow>
             ))}
             {linhas.length === 0 && <EmptyStateRow colSpan={13} icon={Users} title="Nenhum colaborador encontrado" description="Ajuste os filtros de busca." />}
@@ -1135,14 +1564,6 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     return m;
   }, [periodos]);
 
-  const [form, setForm] = useState({ colaboradorIds: [] as string[], tipo: "P" as TipoPeriodo, unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
-  // BSP em lista quando a unidade escolhida já tem BSP conhecido (evita erro de digitação);
-  // "Outro" volta pro campo livre pra um BSP novo que ainda não apareceu nessa unidade.
-  const [formBspManual, setFormBspManual] = useState(false);
-  // Sem Unidade escolhida ainda, mostra todos os BSPs já vistos no Drake (sentinela "all")
-  // em vez de lista vazia — deixa buscar o BSP primeiro e preencher a Unidade depois, se
-  // preferir nessa ordem.
-  const formBspOptions = useMemo(() => bspOptionsForUnidade(periodos, form.unidade_operacional || "all"), [periodos, form.unidade_operacional]);
   // Os campos de filtro só valem depois de clicar em "Buscar" — os "*Input" guardam o que o
   // usuário está digitando/selecionando, e os "filter*" guardam o que realmente filtra a tabela.
   const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
@@ -1190,77 +1611,6 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   // Ordenação clicável no cabeçalho — aplicada só nos períodos já filtrados na tela; sem
   // coluna escolhida, mantém a ordem padrão (data de início, mais antiga primeiro).
   const { sortColumn, sortDirection, toggleSort } = useTableSort<LancamentosSortColumn>();
-
-  const createPeriodo = useMutation({
-    mutationFn: async (colaboradorIds: string[]) => {
-      if (colaboradorIds.length === 0) throw new Error("Selecione ao menos um colaborador.");
-      if (!form.data_inicio || !form.data_fim) throw new Error("Informe as datas de início e fim.");
-
-      const diasTotal = Math.round((new Date(form.data_fim).getTime() - new Date(form.data_inicio).getTime()) / 86400000) + 1;
-      const registros: any[] = [];
-      for (const colaboradorId of colaboradorIds) {
-        const base = {
-          colaborador_id: colaboradorId,
-          unidade_operacional: normalizeUnidadeOperacional(form.unidade_operacional),
-          bsp: form.bsp.trim() || null,
-        };
-        if (form.tipo === "P") {
-          // Programado existe só no dia exato do lançamento — nenhuma projeção pros dias
-          // seguintes. Se depois o Drake confirmar o embarque real dessa pessoa, ele aparece
-          // com suas próprias datas normalmente; até lá, não há nenhum status ocupando os
-          // dias seguintes.
-          registros.push({ ...base, tipo: "P", data_inicio: form.data_inicio, data_fim: form.data_inicio, dias: 1, origem: "manual" });
-        } else {
-          registros.push({ ...base, tipo: form.tipo, data_inicio: form.data_inicio, data_fim: form.data_fim, dias: diasTotal > 0 ? diasTotal : null, origem: "manual" });
-        }
-      }
-
-      const { data, error } = await supabase.from("hist_novo_periodos").insert(registros).select("*");
-      if (error) throw error;
-      return (data ?? []) as HistNovoPeriodo[];
-    },
-    onSuccess: (novos) => {
-      // Atualiza o cache direto em vez de invalidar/refazer a busca inteira — com ~5 mil
-      // períodos carregados (39 requisições em paralelo pra paginar tudo de novo), invalidar
-      // a cada período lançado deixava a tela travando por vários segundos a cada clique,
-      // pra só acrescentar 1 ou 2 linhas nesse universo. Já sabemos exatamente o que foi
-      // inserido (o insert devolve a linha via .select()), então só precisa somar ao array já
-      // carregado.
-      qc.setQueryData<HistNovoPeriodo[]>(["hist-novo-periodos"], (old) => (old ? [...novos, ...old] : novos));
-      notify.success(novos.length > 1 ? "Períodos lançados" : "Período lançado");
-      setForm({ colaboradorIds: [], tipo: "P", unidade_operacional: "", bsp: "", data_inicio: "", data_fim: "" });
-      setFormBspManual(false);
-      novos.forEach((novo) => { void autoLancarDesembarque(novo, qc); });
-    },
-    onError: (e: any) => notify.error(e.message),
-  });
-
-  // Antes de lançar, avisa se algum colaborador selecionado já tem período sobrepondo a data
-  // pedida — evita criar um "Programado"/"Embarcado" duplicado sem querer (com um só
-  // colaborador, oferece editar o existente; com vários, lista quem está em conflito e deixa
-  // lançar só para os demais) e avisa se algum está de folga/férias/atestado nesse intervalo
-  // (deixa continuar mesmo assim, caso seja intencional — ex.: corrigir uma folga marcada errada).
-  const [conflitosProgramados, setConflitosProgramados] = useState<HistNovoPeriodo[]>([]);
-  const [avisosAusencia, setAvisosAusencia] = useState<HistNovoPeriodo[]>([]);
-
-  const handleLancarClick = () => {
-    if (form.colaboradorIds.length === 0) { notify.error("Selecione ao menos um colaborador."); return; }
-    if (!form.data_inicio || !form.data_fim) { notify.error("Informe as datas de início e fim."); return; }
-    const conflitos: HistNovoPeriodo[] = [];
-    const ausencias: HistNovoPeriodo[] = [];
-    for (const colaboradorId of form.colaboradorIds) {
-      const sobrepondo = periodos.filter((p) =>
-        p.colaborador_id === colaboradorId && p.data_fim >= form.data_inicio && p.data_inicio <= form.data_fim,
-      );
-      const programado = sobrepondo.find((p) => p.tipo === "P" || p.tipo === "E");
-      if (programado) { conflitos.push(programado); continue; }
-      const ausencia = sobrepondo.find((p) => p.tipo === "F" || p.tipo === "FE" || p.tipo === "AT");
-      if (ausencia) ausencias.push(ausencia);
-    }
-    if (conflitos.length > 0) { setConflitosProgramados(conflitos); return; }
-    if (ausencias.length > 0) { setAvisosAusencia(ausencias); return; }
-    createPeriodo.mutate(form.colaboradorIds);
-  };
 
   const updatePeriodo = useMutation({
     mutationFn: async (p: HistNovoPeriodo) => {
@@ -1438,70 +1788,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </div>
         </div>
 
-        <Card className="flex flex-col p-4 space-y-3">
-          <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
-          <div className="flex flex-1 flex-col justify-between gap-4">
-            <div>
-              <Label className="text-xs">Colaborador(es)</Label>
-              <ColaboradoresMultiCombobox colaboradores={colaboradoresComMultiploEmbarque} value={form.colaboradorIds} onChange={(ids) => setForm({ ...form, colaboradorIds: ids })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Tipo</Label>
-                {/* Só "Programado" por hora — decisão explícita da usuária, restrita a este
-                    formulário de lançamento manual (o select de edição de período existente,
-                    mais abaixo, continua com a lista completa). */}
-                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as TipoPeriodo, ...(v === "P" ? { data_fim: form.data_inicio } : {}) })}>
-                  <SelectTrigger className="h-11 text-base"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="P">{displayAbbr("P")} — {TIPO_LABEL.P}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Unidade Operacional</Label>
-                <Select value={form.unidade_operacional} onValueChange={(v) => { setForm({ ...form, unidade_operacional: v, bsp: "" }); setFormBspManual(false); }}>
-                  <SelectTrigger className="h-11 text-base"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    {unidadesExistentes.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label className="text-xs">BSP</Label>
-                {formBspOptions.length > 0 && !formBspManual ? (
-                  <BspCombobox
-                    options={formBspOptions} value={form.bsp}
-                    onChange={(v) => setForm({ ...form, bsp: v })}
-                    onManual={() => setFormBspManual(true)}
-                  />
-                ) : (
-                  <Input className="h-11 text-base" value={form.bsp} onChange={(e) => setForm({ ...form, bsp: e.target.value })} placeholder="Nº do BSP" />
-                )}
-              </div>
-              <div>
-                <Label className="text-xs">Data início</Label>
-                <Input
-                  className="h-11 text-base" type="date" value={form.data_inicio}
-                  onChange={(e) => setForm({ ...form, data_inicio: e.target.value, ...(form.tipo === "P" ? { data_fim: e.target.value } : {}) })}
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Data fim</Label>
-                <Input
-                  className="h-11 text-base" type="date" value={form.data_fim} disabled={form.tipo === "P"}
-                  onChange={(e) => setForm({ ...form, data_fim: e.target.value })}
-                />
-                {form.tipo === "P" && <p className="mt-1 text-[11px] text-muted-foreground">Programado existe só no dia da Data início.</p>}
-              </div>
-            </div>
-            <Button onClick={handleLancarClick} loading={createPeriodo.isPending}>
-              {form.colaboradorIds.length > 1 ? `Lançar período (${form.colaboradorIds.length} colaboradores)` : "Lançar período"}
-            </Button>
-          </div>
-        </Card>
+        <LancarPeriodoProgramadoCard colaboradores={colaboradores} periodos={periodos} onEditarPeriodo={setEditing} />
       </div>
 
       {/* ── Tabela de períodos ── */}
@@ -1711,71 +1998,6 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={conflitosProgramados.length > 0} onOpenChange={(o) => !o && setConflitosProgramados([])}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {conflitosProgramados.length === 1 ? "Esse período já está programado" : "Alguns colaboradores já têm período nessa data"}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              {conflitosProgramados.length === 1 ? (
-                <div>{colaboradorById.get(conflitosProgramados[0].colaborador_id)?.nome ?? "Colaborador"} já tem {getPeriodoLabel(conflitosProgramados[0])} lançado de {fmtData(conflitosProgramados[0].data_inicio)} a {fmtData(conflitosProgramados[0].data_fim)}. Deseja editar esse período em vez de criar um novo?</div>
-              ) : (
-                <ul className="list-disc space-y-0.5 pl-4">
-                  {conflitosProgramados.map((p) => (
-                    <li key={p.id}>{colaboradorById.get(p.colaborador_id)?.nome ?? "Colaborador"} — já tem {getPeriodoLabel(p)} de {fmtData(p.data_inicio)} a {fmtData(p.data_fim)}</li>
-                  ))}
-                </ul>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setConflitosProgramados([])}>Cancelar</AlertDialogCancel>
-            {conflitosProgramados.length === 1 ? (
-              <AlertDialogAction onClick={() => { setEditing(conflitosProgramados[0]); setConflitosProgramados([]); }}>Editar período</AlertDialogAction>
-            ) : (() => {
-              const idsComConflito = new Set(conflitosProgramados.map((p) => p.colaborador_id));
-              const idsSemConflito = form.colaboradorIds.filter((id) => !idsComConflito.has(id));
-              return idsSemConflito.length > 0 && (
-                <AlertDialogAction onClick={() => { createPeriodo.mutate(idsSemConflito); setConflitosProgramados([]); }}>
-                  Lançar para os demais ({idsSemConflito.length})
-                </AlertDialogAction>
-              );
-            })()}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={avisosAusencia.length > 0} onOpenChange={(o) => !o && setAvisosAusencia([])}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {avisosAusencia.length === 1
-                ? `${colaboradorById.get(avisosAusencia[0].colaborador_id)?.nome ?? "Colaborador"} está ${AUSENCIA_LABEL[avisosAusencia[0].tipo as "F" | "FE" | "AT"]} nesse período`
-                : "Alguns colaboradores estão de folga/férias/atestado nesse período"}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              {avisosAusencia.length === 1 ? (
-                <div>{fmtData(avisosAusencia[0].data_inicio)} a {fmtData(avisosAusencia[0].data_fim)}. Deseja continuar com a programação mesmo assim?</div>
-              ) : (
-                <div className="space-y-1.5">
-                  <ul className="list-disc space-y-0.5 pl-4">
-                    {avisosAusencia.map((p) => (
-                      <li key={p.id}>{colaboradorById.get(p.colaborador_id)?.nome ?? "Colaborador"} — {AUSENCIA_LABEL[p.tipo as "F" | "FE" | "AT"]} de {fmtData(p.data_inicio)} a {fmtData(p.data_fim)}</li>
-                    ))}
-                  </ul>
-                  <div>Deseja continuar com a programação mesmo assim, para todos os selecionados?</div>
-                </div>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setAvisosAusencia([])}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { createPeriodo.mutate(form.colaboradorIds); setAvisosAusencia([]); }}>Continuar mesmo assim</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
