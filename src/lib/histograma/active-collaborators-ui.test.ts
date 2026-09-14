@@ -9,7 +9,6 @@ const operationalSources = [
   "src/routes/admin/passagens-aereas.tsx",
   "src/routes/admin/nominations.tsx",
   "src/routes/pm/index.tsx",
-  "src/components/histograma/DrakeUpdateCard.tsx",
   "src/routes/admin/bm.tsx",
   "src/components/bm/TimesheetsTab.tsx",
   "src/lib/bmExcel.ts",

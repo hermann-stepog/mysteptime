@@ -2752,6 +2752,15 @@ function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): 
   return folga ? { status: "F", periodo: folga } : result;
 }
 
+// "Na Base" deixou de depender da importação manual do relatório da portaria (ver
+// DrakeUpdateCard, removida) — agora é lido direto da mesma Unidade/Localização que já
+// aparece em Planejamento de Embarque: quando o período que está valendo hoje pro colaborador
+// tem "BASE" como unidade operacional (valor real vindo do Drake), ele conta como Na Base,
+// independente de qual seja o status/tipo desse período.
+function ehUnidadeBase(unidade: string | null | undefined): boolean {
+  return (unidade ?? "").trim().toUpperCase() === "BASE";
+}
+
 function DashboardTab({ colaboradores, periodos }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[];
 }) {
@@ -2896,13 +2905,14 @@ function DashboardTab({ colaboradores, periodos }: {
   const kpis = useMemo(() => {
     let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0, folga = 0, naBase = 0, ocupados = 0;
     activeColaboradores.forEach((c) => {
-      const bucket = toOldBucket(computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status);
+      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      const bucket = toOldBucket(result.status);
       if (bucket === "E") embarcados++;
       else if (bucket === "FO") folga++;
       else if (bucket === "P") programados++;
-      else if (bucket === "BASE") naBase++;
       else if (bucket === "B") disponiveis++;
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
+      if (ehUnidadeBase(result.periodo?.unidade_operacional)) naBase++;
       if (isOcupadoBucket(bucket)) ocupados++;
     });
     const total = activeColaboradores.length;
@@ -2912,11 +2922,8 @@ function DashboardTab({ colaboradores, periodos }: {
 
   const colaboradoresNaBase = useMemo(() => activeColaboradores
     .filter((c) => {
-      const status = computeStatusParaDashboard(
-        periodosByColaborador.get(c.id) ?? [],
-        pobReferenceDate,
-      ).status;
-      return toOldBucket(status) === "BASE";
+      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      return ehUnidadeBase(result.periodo?.unidade_operacional);
     })
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
   [activeColaboradores, periodosByColaborador, pobReferenceDate]);
