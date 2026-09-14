@@ -39,7 +39,7 @@ import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Upload, PlaneTakeoff, TimerReset, ListChecks,
+  Upload, PlaneTakeoff, TimerReset, ListChecks, Grid3x3,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -3050,6 +3050,177 @@ function ImportarPlanilhaDialog({ nominations, nomineesByNomination, onClose }: 
   );
 }
 
+// ─── Mapa das Nomeações ──────────────────────────────────────────────────────
+// Matriz Unidade x Etapa — cada célula é quantas nomeações (solicitações, não colaboradores)
+// estão hoje naquela combinação, com intensidade de cor proporcional à contagem (mapa de
+// calor). Cobre TODAS as etapas do kanban (diferente de "Próximas Nomeações", que só cobre de
+// Nomeados em diante) — é o retrato completo do funil, do pedido até o fim. A coluna terminal
+// "Equipe Formada" do kanban vira duas aqui (Equipe Formada / Cancelado), distinguidas pelo
+// outcome, só pra esta visão — não mexe no modelo real (outcome continua um campo, não uma
+// etapa própria, ver src/lib/nominations.ts).
+const MAPA_SEM_UNIDADE = "Sem unidade";
+
+type MapaColuna = { key: string; label: string; match: (n: Nomination) => boolean };
+
+const MAPA_COLUNAS: MapaColuna[] = [
+  ...KANBAN_COLUMNS.filter((c) => c.id !== "equipe_formada").map((c): MapaColuna => ({
+    key: c.id, label: c.label, match: (n) => n.current_status === c.id,
+  })),
+  { key: "equipe_formada", label: "Equipe Formada", match: (n) => n.current_status === "equipe_formada" && n.outcome !== "cancelada" },
+  { key: "cancelado", label: "Cancelado", match: (n) => n.current_status === "equipe_formada" && n.outcome === "cancelada" },
+];
+
+// Escala de calor azul — de quase transparente (0 ou pouquíssimas) até azul forte (a célula
+// com mais nomeações da matriz inteira). Sem contraste calculado à parte: acima de 55% de
+// intensidade já é escuro o bastante pra pedir texto branco.
+function mapaHeatColor(count: number, max: number): { bg: string; text: string } {
+  if (count === 0) return { bg: "transparent", text: "#94a3b8" };
+  const t = max > 0 ? count / max : 0;
+  const alpha = 0.12 + t * 0.78;
+  return { bg: `rgba(37, 99, 235, ${alpha.toFixed(2)})`, text: t > 0.55 ? "#ffffff" : "#1e3a8a" };
+}
+
+function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
+  nominations: Nomination[];
+  nomineesByNomination: Map<string, NominationNominee[]>;
+}) {
+  const [drill, setDrill] = useState<{ unidade: string; coluna: MapaColuna } | null>(null);
+
+  const unidades = useMemo(
+    () => Array.from(new Set(nominations.map((n) => n.unidade?.trim() || MAPA_SEM_UNIDADE))).sort((a, b) =>
+      a === MAPA_SEM_UNIDADE ? 1 : b === MAPA_SEM_UNIDADE ? -1 : a.localeCompare(b),
+    ),
+    [nominations],
+  );
+
+  const porUnidade = useMemo(() => {
+    const m = new Map<string, Nomination[]>();
+    nominations.forEach((n) => {
+      const u = n.unidade?.trim() || MAPA_SEM_UNIDADE;
+      if (!m.has(u)) m.set(u, []);
+      m.get(u)!.push(n);
+    });
+    return m;
+  }, [nominations]);
+
+  const matriz = useMemo(() => {
+    const m = new Map<string, Map<string, Nomination[]>>();
+    unidades.forEach((u) => {
+      const porColuna = new Map<string, Nomination[]>();
+      const doUnidade = porUnidade.get(u) ?? [];
+      MAPA_COLUNAS.forEach((col) => porColuna.set(col.key, doUnidade.filter(col.match)));
+      m.set(u, porColuna);
+    });
+    return m;
+  }, [unidades, porUnidade]);
+
+  const maxCount = useMemo(() => {
+    let max = 0;
+    matriz.forEach((porColuna) => porColuna.forEach((rows) => { if (rows.length > max) max = rows.length; }));
+    return max;
+  }, [matriz]);
+
+  const totalPorColuna = useMemo(() => {
+    const m = new Map<string, number>();
+    MAPA_COLUNAS.forEach((col) => m.set(col.key, Array.from(matriz.values()).reduce((sum, porColuna) => sum + (porColuna.get(col.key)?.length ?? 0), 0)));
+    return m;
+  }, [matriz]);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Quantas nomeações existem hoje em cada Unidade x Etapa — quanto mais forte a cor, mais nomeações ali. Clique numa célula pra ver quais são.
+      </p>
+      <Card className="overflow-x-auto p-2">
+        <table className="w-full border-separate border-spacing-1 text-sm">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Unidade</th>
+              {MAPA_COLUNAS.map((col) => (
+                <th key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
+              ))}
+              <th className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {unidades.map((u) => {
+              const porColuna = matriz.get(u)!;
+              const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
+              const cliente = u !== MAPA_SEM_UNIDADE ? clienteDaUnidade(u) : null;
+              return (
+                <tr key={u}>
+                  <td className="sticky left-0 z-10 bg-card px-2 py-1.5 align-top">
+                    <div className="font-medium">{u}</div>
+                    {cliente && <div className="text-[11px] text-muted-foreground">{cliente}</div>}
+                  </td>
+                  {MAPA_COLUNAS.map((col) => {
+                    const rows = porColuna.get(col.key) ?? [];
+                    const { bg, text } = mapaHeatColor(rows.length, maxCount);
+                    return (
+                      <td key={col.key} className="p-0 text-center">
+                        <button
+                          type="button"
+                          disabled={rows.length === 0}
+                          onClick={() => setDrill({ unidade: u, coluna: col })}
+                          className="h-10 w-full min-w-14 rounded font-semibold disabled:cursor-default"
+                          style={{ backgroundColor: bg, color: text }}
+                        >
+                          {rows.length || ""}
+                        </button>
+                      </td>
+                    );
+                  })}
+                  <td className="px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
+                </tr>
+              );
+            })}
+            {unidades.length === 0 && (
+              <tr><td colSpan={MAPA_COLUNAS.length + 2}><EmptyStateRow colSpan={MAPA_COLUNAS.length + 2} icon={Layers3} title="Nenhuma nomeação encontrada" /></td></tr>
+            )}
+          </tbody>
+          {unidades.length > 0 && (
+            <tfoot>
+              <tr>
+                <td className="sticky left-0 z-10 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
+                {MAPA_COLUNAS.map((col) => (
+                  <td key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
+                ))}
+                <td className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominations.length}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </Card>
+
+      <Dialog open={!!drill} onOpenChange={(o) => !o && setDrill(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{drill?.unidade} — {drill?.coluna.label}</DialogTitle>
+          </DialogHeader>
+          {drill && (
+            <div className="max-h-96 space-y-2 overflow-y-auto">
+              {(matriz.get(drill.unidade)?.get(drill.coluna.key) ?? []).map((n) => {
+                const equipe = (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active);
+                return (
+                  <div key={n.id} className="rounded-md border p-2.5 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{requestTitle(n)} — {n.funcao}</span>
+                      <span className="text-xs text-muted-foreground">{n.period_start ? fmtDate(n.period_start) : "Sem data"}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {n.bsp ? `BSP ${n.bsp}` : "Sem BSP"} · {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // Exportado pra ser reaproveitado como aba dentro do ambiente do Solicitante (ver
 // src/routes/pm/index.tsx) — mesmo componente, mesmos dados, sem duplicar nada.
 export function NominationsPage() {
@@ -3177,6 +3348,9 @@ export function NominationsPage() {
           <TabsTrigger value="proximas">
             <PlaneTakeoff className="mr-1.5 h-3.5 w-3.5" /> Próximas Nomeações
           </TabsTrigger>
+          <TabsTrigger value="mapa">
+            <Grid3x3 className="mr-1.5 h-3.5 w-3.5" /> Mapa
+          </TabsTrigger>
           <TabsTrigger value="clientes">
             <Building2 className="mr-1.5 h-3.5 w-3.5" /> Equipes Embarcadas
           </TabsTrigger>
@@ -3238,6 +3412,11 @@ export function NominationsPage() {
         {/* ── Próximas Nomeações (lista consolidada + importação por planilha) ── */}
         <TabsContent value="proximas" className="pt-4">
           <ProximasNomeacoesTab nominations={nominations} nomineesByNomination={nomineesByNomination} />
+        </TabsContent>
+
+        {/* ── Mapa das Nomeações (matriz Unidade x Etapa) ── */}
+        <TabsContent value="mapa" className="pt-4">
+          <MapaNomeacoesTab nominations={nominations} nomineesByNomination={nomineesByNomination} />
         </TabsContent>
 
         <TabsContent value="clientes" className="pt-4">
