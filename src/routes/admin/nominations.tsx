@@ -2832,11 +2832,10 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   }, [bsps, porBsp]);
 
   // Efeito cascata Cliente -> Unidade -> BSP em cima da mesma matriz de sempre (não recalcula
-  // nada novo, só reagrupa os BSPs que já existem) — mesmo padrão visual de "Equipes
-  // Embarcadas" (ChevronDown/ChevronRight, tudo aberto por padrão, só os Sets guardam o que
-  // foi recolhido).
-  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
-  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
+  // nada novo, só reagrupa os BSPs que já existem) — diferente de "Equipes Embarcadas" (que
+  // começa tudo aberto), aqui começa tudo FECHADO — os Sets guardam o que foi expandido.
+  const [expandedClientes, setExpandedClientes] = useState<Set<string>>(new Set());
+  const [expandedUnidades, setExpandedUnidades] = useState<Set<string>>(new Set());
   const toggleCollapsedMapa = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
     setter((current) => {
       const next = new Set(current);
@@ -2889,14 +2888,14 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
             </thead>
             <tbody>
               {cascataClienteUnidadeBsp.map(({ cliente, unidades }) => {
-                const clienteOpen = !collapsedClientes.has(cliente);
+                const clienteOpen = expandedClientes.has(cliente);
                 return (
                   <Fragment key={cliente}>
                     <tr>
                       <td colSpan={totalColunas} className="sticky left-0 z-10 bg-slate-50 px-2 py-1.5 text-left">
                         <button
                           type="button" className="flex items-center gap-2 rounded p-0.5 font-semibold hover:bg-slate-200"
-                          aria-expanded={clienteOpen} onClick={() => toggleCollapsedMapa(setCollapsedClientes, cliente)}
+                          aria-expanded={clienteOpen} onClick={() => toggleCollapsedMapa(setExpandedClientes, cliente)}
                         >
                           {clienteOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           <Building2 className="h-4 w-4 shrink-0 text-primary" /> {cliente}
@@ -2905,14 +2904,14 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                     </tr>
                     {clienteOpen && unidades.map(([unidade, bspList]) => {
                       const unidadeKey = `${cliente}::${unidade}`;
-                      const unidadeOpen = !collapsedUnidades.has(unidadeKey);
+                      const unidadeOpen = expandedUnidades.has(unidadeKey);
                       return (
                         <Fragment key={unidadeKey}>
                           <tr>
                             <td colSpan={totalColunas} className="sticky left-0 z-10 bg-sky-50/60 px-2 py-1.5 text-left">
                               <button
                                 type="button" className="flex items-center gap-2 rounded p-0.5 pl-6 font-semibold text-sky-950 hover:bg-sky-100"
-                                aria-expanded={unidadeOpen} onClick={() => toggleCollapsedMapa(setCollapsedUnidades, unidadeKey)}
+                                aria-expanded={unidadeOpen} onClick={() => toggleCollapsedMapa(setExpandedUnidades, unidadeKey)}
                               >
                                 {unidadeOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                 <Ship className="h-4 w-4 shrink-0 text-sky-700" /> {unidade}
