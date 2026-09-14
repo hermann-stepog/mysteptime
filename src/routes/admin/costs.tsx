@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { CLIENTES, clienteDaUnidade, unidadeCanonica } from "@/lib/clientes";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
+import { rateiosDaHospedagem } from "@/lib/hospedagem";
 // Funil do registry customizado @bklit (visx + d3) — o Bar/Pie desse mesmo registry batem num
 // bug real da versão alpha de @visx/responsive nesse projeto (ParentSize nunca mede o
 // container, gráfico fica em branco) — só o Funnel, que não depende desse hook, funciona.
@@ -139,7 +140,7 @@ function useCustosBrutosQuery() {
   const { data: ratesMap = new Map(), isLoading: l1 } = useRatesBspMapQuery();
   const { data: hospedagens = [], isLoading: l2 } = useQuery({
     queryKey: ["consolidada-hospedagens"],
-    queryFn: async () => (await db.from("hospedagens").select("id, check_in, check_out, unidade, bsp, bsp_2, bsp_3, nome_usuario, valor_total, valor_2, valor_3")).data ?? [],
+    queryFn: async () => (await db.from("hospedagens").select("id, check_in, check_out, unidade, unidade_2, unidade_3, bsp, bsp_2, bsp_3, nome_usuario, valor_total, valor_2, valor_3")).data ?? [],
   });
   const { data: trips = [], isLoading: l3 } = useQuery({
     queryKey: ["consolidada-transport-trips"],
@@ -168,17 +169,12 @@ function useCustosBrutosQuery() {
   const brutos = useMemo(() => {
     const out: LancamentoBruto[] = [];
 
-    // Rateio por centro de custo (BSP): igual ao Transporte, até 3 BSPs por lançamento —
-    // bsp/bsp_2/bsp_3, cada um com sua fatia. Sem rateio (valor_2/valor_3 nulos), a 1ª perna
-    // absorve o valor_total inteiro e as outras duas somem no filtro de valor zerado.
+    // Cada hospedagem é um único lançamento financeiro. As pernas abaixo só distribuem esse
+    // valor entre unidade/BSPs; quantidade de hóspedes não cria novos custos.
     (hospedagens as any[]).forEach((h) => {
-      const v2 = h.valor_2 ?? 0;
-      const v3 = h.valor_3 ?? 0;
-      const pernas: [string | null, number][] = [[h.bsp, (h.valor_total ?? 0) - v2 - v3], [h.bsp_2, v2], [h.bsp_3, v3]];
-      pernas.forEach(([bsp, valor]) => {
-        if (!valor) return; // desconsidera pernas com valor zerado
+      rateiosDaHospedagem(h).forEach(({ unidade, bsp, valor }) => {
         out.push({
-          cliente: clienteDoBsp(bsp, h.unidade), unidade: unidadeDoBsp(bsp, h.unidade), bsp: bsp?.trim() || "Não informado",
+          cliente: clienteDoBsp(bsp, unidade), unidade: unidadeDoBsp(bsp, unidade), bsp: bsp?.trim() || "Não informado",
           item: {
             tipo: "hospedagem", data: h.check_in, dataFim: h.check_out || h.check_in,
             descricao: `${h.nome_usuario} · ${fmtDate(h.check_in)} – ${fmtDate(h.check_out)}`, valor,

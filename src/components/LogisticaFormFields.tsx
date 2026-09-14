@@ -488,9 +488,10 @@ export function useUnidadesAdicionais() {
     setUnidades((u) => u.map((item, idx) => (idx === i ? { ...item, ...patch } : item)));
   }
   function remove(i: number) { setUnidades((u) => u.filter((_, idx) => idx !== i)); }
+  function replace(items: UnidadeAdicional[]) { setUnidades(items); }
   function reset() { setUnidades([]); }
   const validas = unidades.filter((u) => u.unidade.trim() !== "");
-  return { unidades, add, update, remove, reset, validas };
+  return { unidades, add, update, remove, replace, reset, validas };
 }
 
 export type UseUnidadesAdicionaisReturn = ReturnType<typeof useUnidadesAdicionais>;

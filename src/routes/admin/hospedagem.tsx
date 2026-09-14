@@ -26,7 +26,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, UnidadeMultiField, FormaPagamentoField } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, NomeUsuarioMultiField, MotivoField, SelectComOutro, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, FormaPagamentoField } from "@/components/LogisticaFormFields";
 import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
@@ -41,6 +41,7 @@ import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
   computeDiarias, localizacaoHotel,
+  rateiosDaHospedagem,
   type HotelFornecedor, type Hospedagem,
 } from "@/lib/hospedagem";
 
@@ -225,6 +226,10 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
     if (editing.bsp_3 && editing.valor_3 && totalEditado > 0) {
       rateio.setAtivo(true); rateio.setBsp3(editing.bsp_3); rateio.setPercentual3(String(Math.round((editing.valor_3 / totalEditado) * 10000) / 100));
     }
+    unidades.replace([
+      ...(editing.bsp_2 ? [{ unidade: editing.unidade_2 || editing.unidade, bsp: editing.bsp_2 }] : []),
+      ...(editing.bsp_3 ? [{ unidade: editing.unidade_3 || editing.unidade, bsp: editing.bsp_3 }] : []),
+    ]);
     setBound(editing.id);
   }
   // Vem preenchido quando aberto a partir de outro módulo (ex.: Passagens Aéreas, ao marcar
@@ -245,16 +250,32 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       if (!f.hotelId) throw new Error("Selecione o hotel.");
       if (!f.checkIn || !f.checkOut) throw new Error("Informe check-in e check-out.");
       if (diarias <= 0) throw new Error("Check-out precisa ser depois do check-in.");
+      if (unidades.validas.length > 2) throw new Error("O lançamento aceita até três unidades/BSPs.");
+      if (unidades.unidades.some((item, index) => {
+        const percentual = index === 0 ? rateio.percentual2 : rateio.percentual3;
+        return !item.unidade.trim() && (!!item.bsp.trim() || !!percentual);
+      })) {
+        throw new Error("Informe a unidade de cada rateio adicionado.");
+      }
+      if (unidades.validas.some((item) => !item.bsp.trim())) throw new Error("Informe o BSP de cada unidade adicionada.");
+      if (unidades.validas.length >= 1 && rateio.valor2 <= 0) throw new Error("Informe o percentual da segunda unidade/BSP.");
+      if (unidades.validas.length >= 2 && rateio.valor3 <= 0) throw new Error("Informe o percentual da terceira unidade/BSP.");
+      if (rateio.restante < 0) throw new Error("A soma dos percentuais não pode ultrapassar 100%.");
+      const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(Boolean);
+      const segundaUnidade = unidades.validas[0];
+      const terceiraUnidade = unidades.validas[1];
       const payload = {
-        unidade: f.unidade, bsp: f.bsp, nome_usuario: f.nomeUsuario.trim(), hotel_id: f.hotelId,
+        unidade: f.unidade, bsp: f.bsp, nome_usuario: nomes.join(", "), hotel_id: f.hotelId,
         check_in: f.checkIn, check_out: f.checkOut, diarias,
         valor_diaria: diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal,
 
         valor_total: valorTotal, motivo: f.motivo.trim() || null, forma_pagamento: f.formaPagamento || null, observacoes: f.observacoes.trim() || null,
-        bsp_2: rateio.ativo && rateio.bsp2.trim() ? rateio.bsp2.trim() : null,
-        bsp_3: rateio.ativo && rateio.bsp3.trim() ? rateio.bsp3.trim() : null,
-        valor_2: rateio.ativo && rateio.bsp2.trim() ? rateio.valor2 : null,
-        valor_3: rateio.ativo && rateio.bsp3.trim() ? rateio.valor3 : null,
+        unidade_2: segundaUnidade?.unidade || null,
+        unidade_3: terceiraUnidade?.unidade || null,
+        bsp_2: segundaUnidade?.bsp.trim() || null,
+        bsp_3: terceiraUnidade?.bsp.trim() || null,
+        valor_2: segundaUnidade ? rateio.valor2 : null,
+        valor_3: terceiraUnidade ? rateio.valor3 : null,
         nf: f.nf.trim() || null, fornecedor: f.fornecedor.trim() || null, cobrado: f.cobrado,
         status_lancamento: f.statusLancamento.trim() || null, faturado: f.faturado,
         usuario_faturamento: f.usuarioFaturamento.trim() || null, data_faturamento: f.dataFaturamento || null,
@@ -263,25 +284,15 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
         const { error } = await supabase.from("hospedagens").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        // Um lançamento por pessoa: o principal + cada colaborador adicional (com unidade/BSP
-        // próprios quando informados, senão herdando os do formulário).
-        const linhas = [payload, ...pessoas.validas.map((p) => ({
-          ...payload,
-          nome_usuario: p.nome.trim(),
-          unidade: p.unidade || payload.unidade,
-          bsp: p.bsp || payload.bsp,
-        })), ...unidades.validas.map((u) => ({
-          ...payload,
-          unidade: u.unidade,
-          bsp: u.bsp || payload.bsp,
-        }))];
-        const { error } = await supabase.from("hospedagens").insert(linhas);
+        // Uma reserva/boleto é sempre um único lançamento. Os hóspedes ficam combinados no
+        // mesmo registro e unidade/BSP extras são parcelas do valor, não cópias do total.
+        const { error } = await supabase.from("hospedagens").insert(payload);
         if (error) throw error;
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
-      notify.success(editing ? "Hospedagem atualizada" : `${1 + pessoas.validas.length + unidades.validas.length} hospedagem(ns) lançada(s)`);
+      notify.success(editing ? "Hospedagem atualizada" : "Hospedagem lançada");
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -289,23 +300,74 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-lg flex-col overflow-hidden">
+      <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col overflow-hidden">
         <DialogHeader><DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle></DialogHeader>
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <NomeUsuarioMultiField
             value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
             colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
+            helpText="Os colaboradores adicionados pertencem ao mesmo lançamento e não multiplicam o valor do boleto."
           />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <UnidadeMultiField
-              value={f.unidade} onChange={(v) => setF({ ...f, unidade: v, bsp: "" })}
-              options={unidadeOptions} extras={unidades} permiteAdicionar={!editing}
-              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u || "all")}
-            />
-            <BspMultiField
-              value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })}
-              options={bspOptions} disabled={!f.unidade} rateio={rateio}
-            />
+          <div className="space-y-2 rounded-md border border-dashed p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <Label className="text-xs">Distribuição por unidade / BSP</Label>
+                <p className="text-[11px] text-muted-foreground">O valor total é dividido entre os centros de custo deste mesmo lançamento.</p>
+              </div>
+              {!editing && unidades.unidades.length < 2 && (
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => { unidades.add(); rateio.setAtivo(true); }}>
+                  + unidade / BSP
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-2 rounded-md bg-muted/30 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px]">
+              <div>
+                <Label className="text-[11px]">Unidade principal</Label>
+                <SelectComOutro value={f.unidade} onChange={(v) => setF({ ...f, unidade: v, bsp: "" })} options={unidadeOptions} manualPlaceholder="Digitar unidade" />
+              </div>
+              <div>
+                <Label className="text-[11px]">BSP principal</Label>
+                <SelectComOutro value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })} options={bspOptions} disabled={!f.unidade} manualPlaceholder="Digitar BSP" />
+              </div>
+              <div>
+                <Label className="text-[11px]">Valor</Label>
+                <div className="flex h-9 items-center text-xs font-medium">{fmtMoney(rateio.restante)}</div>
+              </div>
+            </div>
+            {unidades.unidades.map((item, index) => {
+              const percentual = index === 0 ? rateio.percentual2 : rateio.percentual3;
+              const setPercentual = index === 0 ? rateio.setPercentual2 : rateio.setPercentual3;
+              const valor = index === 0 ? rateio.valor2 : rateio.valor3;
+              return (
+                <div key={index} className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_100px_auto] sm:items-end">
+                  <div>
+                    <Label className="text-[11px]">Unidade {index + 2}</Label>
+                    <SelectComOutro value={item.unidade} onChange={(v) => unidades.update(index, { unidade: v, bsp: "" })} options={unidadeOptions} placeholder="Unidade" manualPlaceholder="Digitar unidade" />
+                  </div>
+                  <div>
+                    <Label className="text-[11px]">BSP {index + 2}</Label>
+                    <SelectComOutro value={item.bsp} onChange={(v) => unidades.update(index, { bsp: v })} options={bspOptionsForUnidade(periodosE, item.unidade || "all")} placeholder="BSP" manualPlaceholder="Digitar BSP" disabled={!item.unidade} />
+                  </div>
+                  <div>
+                    <Label className="text-[11px]">%</Label>
+                    <Input type="number" step="0.01" min="0" max="100" inputMode="decimal" value={percentual} onChange={(e) => setPercentual(e.target.value)} placeholder="0" />
+                  </div>
+                  <div>
+                    <Label className="text-[11px]">Valor</Label>
+                    <div className="flex h-9 items-center text-xs font-medium">{fmtMoney(valor)}</div>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" className="h-9 px-2" onClick={() => {
+                    unidades.remove(index);
+                    if (index === 0 && unidades.unidades.length === 2) {
+                      rateio.setPercentual2(rateio.percentual3);
+                      rateio.setPercentual3("");
+                    } else if (index === 0) rateio.setPercentual2("");
+                    else rateio.setPercentual3("");
+                  }}>✕</Button>
+                </div>
+              );
+            })}
+            {rateio.restante < 0 && <p className="text-xs font-medium text-destructive">Os percentuais ultrapassam 100% do valor total.</p>}
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -382,8 +444,8 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
 }
 
 // ─── Importação da planilha de custos histórica (aba "Hospedagem") ────────────────────────
-// Uma linha da planilha vira UMA LINHA POR PESSOA (diferente de Transporte) — decisão da
-// usuária, pra cada pessoa ficar rastreável individualmente na lista.
+// Uma linha da planilha representa um lançamento financeiro. Quando a célula contém mais de
+// um hóspede, os nomes permanecem juntos para o custo do boleto não ser multiplicado.
 interface ParsedHospedagemRow {
   payload: Omit<Record<string, unknown>, "hotel_id"> | null;
   fornecedorNome: string;
@@ -405,9 +467,10 @@ function buildHospedagemRows(l: LinhaCustoBruta): ParsedHospedagemRow[] {
   const diarias = diasEntre(checkIn, checkOut);
   const observacoes = [l.tipoApontamento, l.observacao].filter(Boolean).join(" — ") || null;
 
-  return nomes.map((nome) => ({
+  const nomeCombinado = nomes.join(", ");
+  return [{
     payload: {
-      unidade, bsp: bsp || "Não informado", nome_usuario: nome,
+      unidade, bsp: bsp || "Não informado", nome_usuario: nomeCombinado,
       check_in: checkIn, check_out: checkOut, diarias,
       valor_diaria: Math.round((custo / diarias) * 100) / 100, valor_total: custo,
       motivo: l.motivo.trim() || null, observacoes,
@@ -415,8 +478,8 @@ function buildHospedagemRows(l: LinhaCustoBruta): ParsedHospedagemRow[] {
       status_lancamento: l.statusLancamento.trim() || null, faturado: parseBooleanoSimNao(l.faturado),
       usuario_faturamento: l.usuarioFaturamento.trim() || null, data_faturamento: parseDataBR(l.dataFaturamento),
     },
-    fornecedorNome, erro: null, nome, data: l.data, custo,
-  }));
+    fornecedorNome, erro: null, nome: nomeCombinado, data: l.data, custo,
+  }];
 }
 
 function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
@@ -486,7 +549,7 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
         {!preview ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Selecione o arquivo "Relatorio_Custos_Stepup..." — os dados da aba "Hospedagem" viram lançamentos novos (uma linha por pessoa).
+              Selecione o arquivo "Relatorio_Custos_Stepup..." — cada linha da aba "Hospedagem" vira um único lançamento, mesmo quando houver vários hóspedes.
             </p>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
             <Button variant="outline" onClick={() => fileRef.current?.click()}><Plus className="mr-2 h-4 w-4" />Escolher arquivo</Button>
@@ -591,8 +654,8 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     // Sobreposição de período — basta a estadia cruzar algum dia do intervalo filtrado.
     (!periodoDe || h.check_out >= periodoDe) &&
     (!periodoAte || h.check_in <= periodoAte) &&
-    (filterUnidade === "all" || h.unidade === filterUnidade) &&
-    (filterBsp === "all" || h.bsp === filterBsp) &&
+    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade === filterUnidade)) &&
+    (filterBsp === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
     (filterHotel === "all" || h.hotel_id === filterHotel) &&
     (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
     (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
@@ -632,19 +695,20 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
   // nível). Hospedagem não tem campo Cliente próprio — usa o mesmo vínculo Unidade→Cliente já
   // confirmado pela operação (clienteDaUnidade, src/lib/clientes.ts), igual à cascata de Nomeações.
   const consolidado = useMemo(() => {
-    const porCliente = new Map<string, Map<string, Map<string, Hospedagem[]>>>();
+    type ItemRateado = { key: string; hospedagem: Hospedagem; valor: number };
+    const porCliente = new Map<string, Map<string, Map<string, ItemRateado[]>>>();
     filtradas.forEach((h) => {
-      // Sem BSP, "unidade" é na verdade um setor interno da empresa (Comercial, RH, SGI...),
-      // não uma operação offshore — nesse caso o próprio setor vira o rótulo do topo da árvore,
-      // em vez de cair genérico em "Base" (reservado pra BSP de verdade cujo vínculo com
-      // cliente ainda não foi confirmado).
-      const cliente = clienteDaUnidade(h.unidade) ?? (h.bsp?.trim() ? "Base" : h.unidade);
-      if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
-      const porUnidade = porCliente.get(cliente)!;
-      if (!porUnidade.has(h.unidade)) porUnidade.set(h.unidade, new Map());
-      const porBsp = porUnidade.get(h.unidade)!;
-      if (!porBsp.has(h.bsp)) porBsp.set(h.bsp, []);
-      porBsp.get(h.bsp)!.push(h);
+      rateiosDaHospedagem(h).forEach((rateio) => {
+        // Sem BSP, "unidade" é na verdade um setor interno da empresa (Comercial, RH, SGI...),
+        // não uma operação offshore — nesse caso o próprio setor vira o rótulo do topo da árvore.
+        const cliente = clienteDaUnidade(rateio.unidade) ?? (rateio.bsp?.trim() ? "Base" : rateio.unidade);
+        if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
+        const porUnidade = porCliente.get(cliente)!;
+        if (!porUnidade.has(rateio.unidade)) porUnidade.set(rateio.unidade, new Map());
+        const porBsp = porUnidade.get(rateio.unidade)!;
+        if (!porBsp.has(rateio.bsp)) porBsp.set(rateio.bsp, []);
+        porBsp.get(rateio.bsp)!.push({ key: rateio.key, hospedagem: h, valor: rateio.valor });
+      });
     });
     return Array.from(porCliente.entries())
       .map(([cliente, porUnidade]) => {
@@ -653,8 +717,8 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
             const bsps = Array.from(porBsp.entries())
               .map(([bsp, itens]) => ({
                 bsp,
-                total: itens.reduce((a, h) => a + h.valor_total, 0),
-                itens: [...itens].sort((a, b) => b.check_in.localeCompare(a.check_in)),
+                total: itens.reduce((a, item) => a + item.valor, 0),
+                itens: [...itens].sort((a, b) => b.hospedagem.check_in.localeCompare(a.hospedagem.check_in)),
               }))
               .sort((a, b) => b.total - a.total);
             return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
@@ -808,15 +872,16 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                         if (b.bsp === "Não informado") {
                           return (
                             <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
-                              {b.itens.map((h) => {
+                              {b.itens.map((item) => {
+                                const h = item.hospedagem;
                                 const hotel = hotelById.get(h.hotel_id);
                                 return (
-                                  <div key={h.id} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                  <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
                                     <div className="min-w-0">
                                       <p className="truncate font-medium">{h.nome_usuario}</p>
                                       <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}</p>
                                     </div>
-                                    <span className="shrink-0 font-semibold">{fmtMoney(h.valor_total)}</span>
+                                    <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                   </div>
                                 );
                               })}
@@ -840,15 +905,16 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                             </button>
                             {bspAberto && (
                               <div className="divide-y border-t bg-emerald-50/40 pl-20">
-                                {b.itens.map((h) => {
+                                {b.itens.map((item) => {
+                                  const h = item.hospedagem;
                                   const hotel = hotelById.get(h.hotel_id);
                                   return (
-                                    <div key={h.id} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                                    <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
                                       <div className="min-w-0">
                                         <p className="truncate font-medium">{h.nome_usuario}</p>
                                         <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}</p>
                                       </div>
-                                      <span className="shrink-0 font-semibold">{fmtMoney(h.valor_total)}</span>
+                                      <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                     </div>
                                   );
                                 })}
@@ -889,10 +955,11 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
               <EmptyStateRow colSpan={11} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
             ) : filtradas.map((h) => {
               const hotel = hotelById.get(h.hotel_id);
+              const rateios = rateiosDaHospedagem(h);
               return (
                 <TableRow key={h.id}>
-                  <TableCell>{h.unidade}</TableCell>
-                  <TableCell>{h.bsp}</TableCell>
+                  <TableCell>{Array.from(new Set(rateios.map((rateio) => rateio.unidade))).join(" · ")}</TableCell>
+                  <TableCell>{rateios.map((rateio) => rateio.bsp).join(" · ")}</TableCell>
                   <TableCell>{h.nome_usuario}</TableCell>
                   <TableCell>{hotel ? `${hotel.nome} — ${localizacaoHotel(hotel)}` : "—"}</TableCell>
                   <TableCell>{fmt(h.check_in)}</TableCell>
