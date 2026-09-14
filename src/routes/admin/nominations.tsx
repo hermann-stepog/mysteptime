@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
+  Plus, Minus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
   Grid3x3, RefreshCw,
@@ -2657,6 +2657,16 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const [drill, setDrill] = useState<{ bsp: string; coluna: MapaColuna } | null>(null);
+  // Detalhe do drill-down começa todo fechado (só o resumo de cada nomeação) — "+" expande
+  // uma de cada vez, sem precisar abrir tudo de uma vez quando a célula tem muitas.
+  const [expandedDrillIds, setExpandedDrillIds] = useState<Set<string>>(new Set());
+  const toggleExpandedDrill = (id: string) => {
+    setExpandedDrillIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // Colaborador que já é nomeado ativo em QUALQUER nomeação (qualquer etapa) não entra na
   // sincronização — evita duplicar quem já está sendo acompanhado pelo fluxo.
@@ -2929,7 +2939,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                                     <button
                                       type="button"
                                       disabled={rows.length === 0}
-                                      onClick={() => setDrill({ bsp: b, coluna: col })}
+                                      onClick={() => { setDrill({ bsp: b, coluna: col }); setExpandedDrillIds(new Set()); }}
                                       className="h-12 w-full min-w-16 rounded font-semibold disabled:cursor-default"
                                       style={{ backgroundColor: bg, color: text }}
                                     >
@@ -2989,18 +2999,29 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
             <DialogTitle>{drill?.bsp} — {drill?.coluna.label}</DialogTitle>
           </DialogHeader>
           {drill && (
-            <div className="max-h-96 space-y-2 overflow-y-auto">
+            <div className="max-h-96 space-y-1.5 overflow-y-auto">
               {(matriz.get(drill.bsp)?.get(drill.coluna.key) ?? []).map((n) => {
                 const equipe = (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active);
+                const aberto = expandedDrillIds.has(n.id);
                 return (
-                  <div key={n.id} className="rounded-md border p-2.5 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{requestTitle(n)} — {n.funcao}</span>
-                      <span className="text-xs text-muted-foreground">{n.period_start ? fmtDate(n.period_start) : "Sem data"}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {n.unidade ?? "Sem unidade"} · {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
-                    </div>
+                  <div key={n.id} className="rounded-md border text-sm">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 p-2.5 text-left hover:bg-muted/50"
+                      aria-expanded={aberto}
+                      onClick={() => toggleExpandedDrill(n.id)}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        {aberto ? <Minus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                        <span className="truncate font-medium">{requestTitle(n)} — {n.funcao}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{n.period_start ? fmtDate(n.period_start) : "Sem data"}</span>
+                    </button>
+                    {aberto && (
+                      <div className="border-t px-2.5 py-2 pl-9 text-xs text-muted-foreground">
+                        {n.unidade ?? "Sem unidade"} · {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
+                      </div>
+                    )}
                   </div>
                 );
               })}
