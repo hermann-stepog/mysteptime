@@ -35,6 +35,7 @@ export const CLIENTE_POR_UNIDADE: Readonly<Record<string, Cliente>> = {
   "PCH-2": "Perenco",
   "CIDADE DE ITAJAI": "Altera",
   "PIONEIRO DE LIBRA": "Altera",
+  "SAFE ZEPHYRUS": "Qualitech",
 };
 
 // Al\u00e9m de mai\u00fascula/acento, ignora conectivos ("DE"/"DO"/"DA") pra casar grafias que s\u00f3
