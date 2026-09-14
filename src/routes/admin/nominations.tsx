@@ -17,6 +17,7 @@ import {
 import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyQualityRejection } from "@/lib/nominationEmails";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
+import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,7 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Plus, Minus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
+  Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
   Grid3x3, RefreshCw,
@@ -2657,16 +2658,25 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const [drill, setDrill] = useState<{ bsp: string; coluna: MapaColuna } | null>(null);
-  // Detalhe do drill-down começa todo fechado (só o resumo de cada nomeação) — "+" expande
-  // uma de cada vez, sem precisar abrir tudo de uma vez quando a célula tem muitas.
-  const [expandedDrillIds, setExpandedDrillIds] = useState<Set<string>>(new Set());
-  const toggleExpandedDrill = (id: string) => {
-    setExpandedDrillIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
+
+  // Cronograma completo (dia e hora de cada etapa) mostrado dentro de cada nomeação no
+  // detalhe do drill-down — mesmo dado/timeline que já existe em "Etapa atual" > Histórico
+  // (ManageDialog), só que de todas as nomeações de uma vez, sem precisar abrir uma por uma.
+  const { data: statusHistoryAll = [] } = useQuery<NominationStatusHistory[]>({
+    queryKey: ["nomination-status-history-all"],
+    queryFn: () =>
+      selectAllPages<NominationStatusHistory>((from, to) =>
+        supabase.from("nomination_status_history").select("*").order("changed_at").range(from, to),
+      ),
+  });
+  const historyByNomination = useMemo(() => {
+    const m = new Map<string, NominationStatusHistory[]>();
+    statusHistoryAll.forEach((h) => {
+      if (!m.has(h.nomination_id)) m.set(h.nomination_id, []);
+      m.get(h.nomination_id)!.push(h);
     });
-  };
+    return m;
+  }, [statusHistoryAll]);
 
   // Colaborador que já é nomeado ativo em QUALQUER nomeação (qualquer etapa) não entra na
   // sincronização — evita duplicar quem já está sendo acompanhado pelo fluxo.
@@ -2879,7 +2889,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
           <table className="w-full border-separate border-spacing-1 text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">BSP</th>
+                <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Cliente</th>
                 {MAPA_COLUNAS.map((col) => (
                   <th key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
                 ))}
@@ -2938,7 +2948,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                                     <button
                                       type="button"
                                       disabled={rows.length === 0}
-                                      onClick={() => { setDrill({ bsp: b, coluna: col }); setExpandedDrillIds(new Set()); }}
+                                      onClick={() => setDrill({ bsp: b, coluna: col })}
                                       className="h-12 w-full min-w-16 rounded font-semibold disabled:cursor-default"
                                       style={{ backgroundColor: bg, color: text }}
                                     >
@@ -3001,24 +3011,20 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
             <div className="max-h-96 space-y-1.5 overflow-y-auto">
               {(matriz.get(drill.bsp)?.get(drill.coluna.key) ?? []).map((n) => {
                 const equipe = (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active);
-                const aberto = expandedDrillIds.has(n.id);
+                const historico = historyByNomination.get(n.id) ?? [];
                 return (
-                  <div key={n.id} className="rounded-md border text-sm">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 p-2.5 text-left hover:bg-muted/50"
-                      aria-expanded={aberto}
-                      onClick={() => toggleExpandedDrill(n.id)}
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        {aberto ? <Minus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-                        <span className="truncate font-medium">{requestTitle(n)} — {n.funcao}</span>
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{n.period_start ? fmtDate(n.period_start) : "Sem data"}</span>
-                    </button>
-                    {aberto && (
-                      <div className="border-t px-2.5 py-2 pl-9 text-xs text-muted-foreground">
-                        {n.unidade ?? "Sem unidade"} · {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
+                  <div key={n.id} className="rounded-md border p-2.5 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{requestTitle(n)} — {n.funcao}</span>
+                      <span className="text-xs text-muted-foreground">{n.period_start ? fmtDate(n.period_start) : "Sem data"}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
+                    </div>
+                    {historico.length > 0 && (
+                      <div className="mt-2 border-t pt-2">
+                        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Cronograma</p>
+                        <HistoryTimeline items={historico} />
                       </div>
                     )}
                   </div>
@@ -3036,6 +3042,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
 // src/routes/pm/index.tsx) — mesmo componente, mesmos dados, sem duplicar nada.
 export function NominationsPage() {
   const [selected, setSelected]       = useState<Nomination | null>(null);
+  const [showCreate, setShowCreate]   = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("todos");
   const [search, setSearch]           = useState("");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -3180,7 +3187,7 @@ export function NominationsPage() {
 
         {/* ── Lista + Kanban lado a lado ── */}
         <TabsContent value="nomeacoes" className="space-y-4 pt-4">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Input
               placeholder="Buscar função, solicitante, BSP..."
               value={search}
@@ -3197,7 +3204,12 @@ export function NominationsPage() {
                 <option key={s} value={s}>{STATUS_LABELS[s]}</option>
               ))}
             </select>
+            <Button size="sm" className="ml-auto" onClick={() => setShowCreate(true)}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova Solicitação
+            </Button>
           </div>
+
+          {showCreate && <CreateNominationDialog onClose={() => setShowCreate(false)} />}
 
           {isLoading ? (
             <div className="flex justify-center py-12">
