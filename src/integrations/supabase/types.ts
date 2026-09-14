@@ -1385,6 +1385,8 @@ export type Database = {
           observacoes: string | null
           status_lancamento: string | null
           unidade: string
+          unidade_2: string | null
+          unidade_3: string | null
           usuario_faturamento: string | null
           valor_2: number | null
           valor_3: number | null
@@ -1412,6 +1414,8 @@ export type Database = {
           observacoes?: string | null
           status_lancamento?: string | null
           unidade: string
+          unidade_2?: string | null
+          unidade_3?: string | null
           usuario_faturamento?: string | null
           valor_2?: number | null
           valor_3?: number | null
@@ -1439,6 +1443,8 @@ export type Database = {
           observacoes?: string | null
           status_lancamento?: string | null
           unidade?: string
+          unidade_2?: string | null
+          unidade_3?: string | null
           usuario_faturamento?: string | null
           valor_2?: number | null
           valor_3?: number | null

@@ -14,6 +14,8 @@ export interface Hospedagem {
   id: string;
   created_at: string;
   unidade: string;
+  unidade_2: string | null;
+  unidade_3: string | null;
   bsp: string;
   nome_usuario: string;
   hotel_id: string;
@@ -46,6 +48,52 @@ export interface Hospedagem {
   data_faturamento: string | null;
 }
 
+export interface HospedagemRateio {
+  key: string;
+  unidade: string;
+  bsp: string;
+  valor: number;
+}
+
+/**
+ * Expande apenas a distribuição financeira de um lançamento. O valor_total é o valor do
+ * boleto inteiro; valor_2/valor_3 são as parcelas dos BSPs extras e o BSP principal recebe
+ * o restante. Assim, quantidade de hóspedes nunca multiplica o custo.
+ */
+export function rateiosDaHospedagem(hospedagem: Pick<
+  Hospedagem,
+  "id" | "unidade" | "unidade_2" | "unidade_3" | "bsp" | "bsp_2" | "bsp_3" | "valor_total" | "valor_2" | "valor_3"
+>): HospedagemRateio[] {
+  const valor2 = hospedagem.bsp_2 ? (hospedagem.valor_2 ?? 0) : 0;
+  const valor3 = hospedagem.bsp_3 ? (hospedagem.valor_3 ?? 0) : 0;
+  const principal = Math.round((hospedagem.valor_total - valor2 - valor3) * 100) / 100;
+  const rateios: HospedagemRateio[] = [{
+    key: `${hospedagem.id}:1`,
+    unidade: hospedagem.unidade,
+    bsp: hospedagem.bsp,
+    valor: principal,
+  }];
+
+  if (hospedagem.bsp_2 && valor2 > 0) {
+    rateios.push({
+      key: `${hospedagem.id}:2`,
+      unidade: hospedagem.unidade_2 || hospedagem.unidade,
+      bsp: hospedagem.bsp_2,
+      valor: valor2,
+    });
+  }
+  if (hospedagem.bsp_3 && valor3 > 0) {
+    rateios.push({
+      key: `${hospedagem.id}:3`,
+      unidade: hospedagem.unidade_3 || hospedagem.unidade,
+      bsp: hospedagem.bsp_3,
+      valor: valor3,
+    });
+  }
+
+  return rateios.filter((rateio) => rateio.valor !== 0);
+}
+
 export function computeDiarias(checkIn: string, checkOut: string): number {
   const dias = Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000);
   return dias > 0 ? dias : 0;
@@ -70,15 +118,18 @@ export async function getTotalHospedagemPorBsp(
   periodStart: string,
   periodEnd: string,
 ): Promise<number> {
-  const rows = await selectAllPages<{ valor_total: number }>((from, to) =>
+  const rows = await selectAllPages<Pick<Hospedagem,
+    "id" | "unidade" | "unidade_2" | "unidade_3" | "bsp" | "bsp_2" | "bsp_3" | "valor_total" | "valor_2" | "valor_3"
+  >>((from, to) =>
     supabase
       .from("hospedagens")
-      .select("valor_total")
-      .eq("bsp", bsp)
+      .select("id, unidade, unidade_2, unidade_3, bsp, bsp_2, bsp_3, valor_total, valor_2, valor_3")
       .lte("check_in", periodEnd)
       .gte("check_out", periodStart)
       .order("id")
       .range(from, to),
   );
-  return Math.round(rows.reduce((acc, r) => acc + (r.valor_total ?? 0), 0) * 100) / 100;
+  return Math.round(rows.reduce((acc, row) => (
+    acc + rateiosDaHospedagem(row).filter((rateio) => rateio.bsp === bsp).reduce((sum, rateio) => sum + rateio.valor, 0)
+  ), 0) * 100) / 100;
 }
