@@ -17,6 +17,7 @@ import {
 import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyQualityRejection } from "@/lib/nominationEmails";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Grid3x3,
+  Grid3x3, RefreshCw,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -2620,14 +2621,14 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
 }
 
 // ─── Mapa das Nomeações ──────────────────────────────────────────────────────
-// Matriz Unidade x Etapa — cada célula é quantas nomeações (solicitações, não colaboradores)
-// estão hoje naquela combinação, com intensidade de cor proporcional à contagem (mapa de
-// calor). Cobre TODAS as etapas do kanban (diferente de "Próximas Nomeações", que só cobre de
-// Nomeados em diante) — é o retrato completo do funil, do pedido até o fim. A coluna terminal
-// "Equipe Formada" do kanban vira duas aqui (Equipe Formada / Cancelado), distinguidas pelo
-// outcome, só pra esta visão — não mexe no modelo real (outcome continua um campo, não uma
-// etapa própria, ver src/lib/nominations.ts).
-const MAPA_SEM_UNIDADE = "Sem unidade";
+// Matriz BSP x Etapa — cada célula é quantas nomeações (solicitações, não colaboradores) estão
+// hoje naquela combinação, com intensidade de cor proporcional à contagem (mapa de calor).
+// Cobre TODAS as etapas do kanban — é o retrato completo do funil, do pedido até o fim. A
+// coluna terminal "Equipe Formada" do kanban vira duas aqui (Equipe Formada / Cancelado),
+// distinguidas pelo outcome, só pra esta visão — não mexe no modelo real (outcome continua um
+// campo, não uma etapa própria, ver src/lib/nominations.ts). Passar o mouse numa célula mostra
+// a equipe (nomeados ativos) sem precisar clicar; clicar continua abrindo o detalhe completo.
+const MAPA_SEM_BSP = "Sem BSP";
 
 type MapaColuna = { key: string; label: string; match: (n: Nomination) => boolean };
 
@@ -2653,35 +2654,143 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   nominations: Nomination[];
   nomineesByNomination: Map<string, NominationNominee[]>;
 }) {
-  const [drill, setDrill] = useState<{ unidade: string; coluna: MapaColuna } | null>(null);
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+  const [drill, setDrill] = useState<{ bsp: string; coluna: MapaColuna } | null>(null);
 
-  const unidades = useMemo(
-    () => Array.from(new Set(nominations.map((n) => n.unidade?.trim() || MAPA_SEM_UNIDADE))).sort((a, b) =>
-      a === MAPA_SEM_UNIDADE ? 1 : b === MAPA_SEM_UNIDADE ? -1 : a.localeCompare(b),
+  // Colaborador que já é nomeado ativo em QUALQUER nomeação (qualquer etapa) não entra na
+  // sincronização — evita duplicar quem já está sendo acompanhado pelo fluxo.
+  const colaboradoresComNomeacao = useMemo(() => {
+    const ids = new Set<string>();
+    nominations.forEach((n) => (nomineesByNomination.get(n.id) ?? []).forEach((nn) => { if (nn.is_active) ids.add(nn.colaborador_id); }));
+    return ids;
+  }, [nominations, nomineesByNomination]);
+
+  // Traz pra Nomeações todo colaborador com um "Programado" (tipo="P") em Lançamentos que
+  // ainda não tem nenhuma nomeação — ele já passou pelo processo fora do sistema, então nasce
+  // direto em "Equipe Formada" (nomeados -> ... -> equipe_formada, pulando etapas, com uma
+  // linha de histórico por etapa igual ao restante do módulo já faz pra casos assim), sem
+  // simular aprovação manual e sem disparar e-mail nenhum.
+  const sincronizarProgramados = useMutation({
+    mutationFn: async () => {
+      const periodosP = await selectAllPages<HistNovoPeriodo>((from, to) =>
+        supabase.from("hist_novo_periodos").select("*").eq("tipo", "P").order("data_inicio", { ascending: false }).range(from, to),
+      );
+      const { data: colaboradoresData, error: cErr } = await supabase
+        .from("hist_novo_colaboradores")
+        .select("id, nome, funcao, funcao_operacao");
+      if (cErr) throw cErr;
+      const colaboradorById = new Map<string, { id: string; nome: string; funcao: string | null; funcao_operacao: string | null }>(
+        (colaboradoresData ?? []).map((c: any) => [c.id, c]),
+      );
+
+      // Um período por colaborador — o mais recente (periodosP já vem ordenado por
+      // data_inicio desc, então o primeiro encontrado de cada um já é o certo).
+      const periodoPorColaborador = new Map<string, HistNovoPeriodo>();
+      periodosP.forEach((p) => { if (!periodoPorColaborador.has(p.colaborador_id)) periodoPorColaborador.set(p.colaborador_id, p); });
+
+      const pendentes = Array.from(periodoPorColaborador.entries()).filter(([colaboradorId]) => !colaboradoresComNomeacao.has(colaboradorId));
+      if (pendentes.length === 0) return { sincronizados: 0, ignorados: periodoPorColaborador.size, cancelado: false };
+      if (!confirm(`${pendentes.length} colaborador(es) programado(s) sem nomeação serão criados direto em "Equipe Formada". Confirmar?`)) {
+        return { sincronizados: 0, ignorados: 0, cancelado: true };
+      }
+
+      const agoraIso = new Date().toISOString();
+      const autorAcao = profile?.full_name ?? profile?.email ?? "Sistema";
+      const autorCampo = "Sincronizado do Histograma";
+      const notaHistorico = `Sincronizado do Histograma (Programado) em ${fmtDate(agoraIso.slice(0, 10))}`;
+      let sincronizados = 0;
+
+      for (const [colaboradorId, periodo] of pendentes) {
+        const colaborador = colaboradorById.get(colaboradorId);
+        if (!colaborador) continue;
+        const funcao = colaborador.funcao || colaborador.funcao_operacao || "—";
+        const isWelder = isSoldador(funcao);
+        const bsp = periodo.bsp || periodo.centro_de_custo;
+
+        const { data: nomInserted, error: nomErr } = await supabase.from("nominations").insert({
+          funcao, quantidade: 1,
+          unidade: periodo.unidade_operacional, bsp,
+          period_start: periodo.data_inicio,
+          current_status: "nomeados",
+          requires_quality_validation: isWelder,
+          logistics_received_at: agoraIso, logistics_received_by: autorCampo,
+        }).select("id").single();
+        if (nomErr || !nomInserted) continue;
+        const nominationId = nomInserted.id as string;
+
+        await supabase.from("nomination_nominees").insert({
+          nomination_id: nominationId, colaborador_id: colaboradorId, colaborador_nome: colaborador.nome,
+          is_active: true,
+          technical_selected_at: agoraIso, technical_selected_by: autorCampo,
+          pm_decision: "aprovado", pm_decided_at: agoraIso, pm_decided_by: autorCampo,
+          sms_aso_checked: true, sms_aso_checked_at: agoraIso, sms_aso_checked_by: autorCampo,
+          rh_validated: true, rh_validated_at: agoraIso, rh_validated_by: autorCampo,
+        });
+
+        const caminho: NominationStatus[] = [
+          "nomeados", ...(isWelder ? (["validacao_qualidade"] as NominationStatus[]) : []),
+          "aprovacao_pm", "validacao_sms_aso", "validacao_rh", "briefing_sms", "equipe_formada",
+        ];
+        for (const stage of caminho) {
+          await supabase.from("nomination_status_history").insert({
+            nomination_id: nominationId, status: stage, changed_by_name: autorAcao, notes: notaHistorico,
+          });
+        }
+
+        const nominationPatch: Record<string, unknown> = {
+          current_status: "equipe_formada", outcome: "concluida",
+          briefing_sms_realizado: true, briefing_sms_realizado_at: agoraIso, briefing_sms_realizado_by: autorCampo,
+        };
+        if (isWelder) {
+          Object.assign(nominationPatch, {
+            quality_status: "aprovado", quality_validated: true,
+            quality_validated_at: agoraIso, quality_validated_by: autorCampo,
+          });
+        }
+        await supabase.from("nominations").update(nominationPatch).eq("id", nominationId);
+        sincronizados++;
+      }
+
+      return { sincronizados, ignorados: periodoPorColaborador.size - pendentes.length, cancelado: false };
+    },
+    onSuccess: (r) => {
+      if (r.cancelado) return;
+      if (r.sincronizados === 0 && r.ignorados === 0) { notify.success("Nenhum colaborador programado pra sincronizar."); return; }
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nomination-nominees-all"] });
+      notify.success(`${r.sincronizados} nomeação(ões) criada(s) em Equipe Formada${r.ignorados ? ` — ${r.ignorados} já tinham nomeação` : ""}.`);
+    },
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const bsps = useMemo(
+    () => Array.from(new Set(nominations.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort((a, b) =>
+      a === MAPA_SEM_BSP ? 1 : b === MAPA_SEM_BSP ? -1 : a.localeCompare(b),
     ),
     [nominations],
   );
 
-  const porUnidade = useMemo(() => {
+  const porBsp = useMemo(() => {
     const m = new Map<string, Nomination[]>();
     nominations.forEach((n) => {
-      const u = n.unidade?.trim() || MAPA_SEM_UNIDADE;
-      if (!m.has(u)) m.set(u, []);
-      m.get(u)!.push(n);
+      const b = n.bsp?.trim() || MAPA_SEM_BSP;
+      if (!m.has(b)) m.set(b, []);
+      m.get(b)!.push(n);
     });
     return m;
   }, [nominations]);
 
   const matriz = useMemo(() => {
     const m = new Map<string, Map<string, Nomination[]>>();
-    unidades.forEach((u) => {
+    bsps.forEach((b) => {
       const porColuna = new Map<string, Nomination[]>();
-      const doUnidade = porUnidade.get(u) ?? [];
-      MAPA_COLUNAS.forEach((col) => porColuna.set(col.key, doUnidade.filter(col.match)));
-      m.set(u, porColuna);
+      const doBsp = porBsp.get(b) ?? [];
+      MAPA_COLUNAS.forEach((col) => porColuna.set(col.key, doBsp.filter(col.match)));
+      m.set(b, porColuna);
     });
     return m;
-  }, [unidades, porUnidade]);
+  }, [bsps, porBsp]);
 
   const maxCount = useMemo(() => {
     let max = 0;
@@ -2695,80 +2804,115 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
     return m;
   }, [matriz]);
 
+  // Unidade mostrada como subtítulo da linha — a mais frequente entre as nomeações desse BSP
+  // (na prática quase sempre uma só, mas um BSP digitado com Unidades diferentes por engano
+  // não deveria travar a tela).
+  const unidadePorBsp = useMemo(() => {
+    const m = new Map<string, string>();
+    bsps.forEach((b) => {
+      const contagem = new Map<string, number>();
+      (porBsp.get(b) ?? []).forEach((n) => {
+        const u = n.unidade?.trim();
+        if (u) contagem.set(u, (contagem.get(u) ?? 0) + 1);
+      });
+      const maisFrequente = Array.from(contagem.entries()).sort((a, b2) => b2[1] - a[1])[0]?.[0];
+      if (maisFrequente) m.set(b, maisFrequente);
+    });
+    return m;
+  }, [bsps, porBsp]);
+
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Quantas nomeações existem hoje em cada Unidade x Etapa — quanto mais forte a cor, mais nomeações ali. Clique numa célula pra ver quais são.
-      </p>
-      <Card className="overflow-x-auto p-2">
-        <table className="w-full border-separate border-spacing-1 text-sm">
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Unidade</th>
-              {MAPA_COLUNAS.map((col) => (
-                <th key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
-              ))}
-              <th className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {unidades.map((u) => {
-              const porColuna = matriz.get(u)!;
-              const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
-              const cliente = u !== MAPA_SEM_UNIDADE ? clienteDaUnidade(u) : null;
-              return (
-                <tr key={u}>
-                  <td className="sticky left-0 z-10 bg-card px-2 py-1.5 align-top">
-                    <div className="font-medium">{u}</div>
-                    {cliente && <div className="text-[11px] text-muted-foreground">{cliente}</div>}
-                  </td>
-                  {MAPA_COLUNAS.map((col) => {
-                    const rows = porColuna.get(col.key) ?? [];
-                    const { bg, text } = mapaHeatColor(rows.length, maxCount);
-                    return (
-                      <td key={col.key} className="p-0 text-center">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo.
+        </p>
+        <Button size="sm" variant="outline" onClick={() => sincronizarProgramados.mutate()} loading={sincronizarProgramados.isPending}>
+          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do Histograma
+        </Button>
+      </div>
+      <TooltipProvider delayDuration={150}>
+        <Card className="overflow-x-auto p-2">
+          <table className="w-full border-separate border-spacing-1 text-sm">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">BSP</th>
+                {MAPA_COLUNAS.map((col) => (
+                  <th key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
+                ))}
+                <th className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bsps.map((b) => {
+                const porColuna = matriz.get(b)!;
+                const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
+                const unidade = unidadePorBsp.get(b);
+                return (
+                  <tr key={b}>
+                    <td className="sticky left-0 z-10 bg-card px-2 py-1.5 align-top">
+                      <div className="font-medium">{b}</div>
+                      {unidade && <div className="text-[11px] text-muted-foreground">{unidade}</div>}
+                    </td>
+                    {MAPA_COLUNAS.map((col) => {
+                      const rows = porColuna.get(col.key) ?? [];
+                      const { bg, text } = mapaHeatColor(rows.length, maxCount);
+                      const equipe = rows.flatMap((n) => (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).map((nn) => nn.colaborador_nome));
+                      const celula = (
                         <button
                           type="button"
                           disabled={rows.length === 0}
-                          onClick={() => setDrill({ unidade: u, coluna: col })}
+                          onClick={() => setDrill({ bsp: b, coluna: col })}
                           className="h-10 w-full min-w-14 rounded font-semibold disabled:cursor-default"
                           style={{ backgroundColor: bg, color: text }}
                         >
                           {rows.length || ""}
                         </button>
-                      </td>
-                    );
-                  })}
-                  <td className="px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
+                      );
+                      return (
+                        <td key={col.key} className="p-0 text-center">
+                          {rows.length === 0 ? celula : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>{celula}</TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                {equipe.length > 0 ? equipe.join(", ") : "Equipe ainda não definida"}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className="px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
+                  </tr>
+                );
+              })}
+              {bsps.length === 0 && (
+                <tr><td colSpan={MAPA_COLUNAS.length + 2}><EmptyStateRow colSpan={MAPA_COLUNAS.length + 2} icon={Layers3} title="Nenhuma nomeação encontrada" /></td></tr>
+              )}
+            </tbody>
+            {bsps.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td className="sticky left-0 z-10 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
+                  {MAPA_COLUNAS.map((col) => (
+                    <td key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
+                  ))}
+                  <td className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominations.length}</td>
                 </tr>
-              );
-            })}
-            {unidades.length === 0 && (
-              <tr><td colSpan={MAPA_COLUNAS.length + 2}><EmptyStateRow colSpan={MAPA_COLUNAS.length + 2} icon={Layers3} title="Nenhuma nomeação encontrada" /></td></tr>
+              </tfoot>
             )}
-          </tbody>
-          {unidades.length > 0 && (
-            <tfoot>
-              <tr>
-                <td className="sticky left-0 z-10 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
-                {MAPA_COLUNAS.map((col) => (
-                  <td key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
-                ))}
-                <td className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominations.length}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </Card>
+          </table>
+        </Card>
+      </TooltipProvider>
 
       <Dialog open={!!drill} onOpenChange={(o) => !o && setDrill(null)}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{drill?.unidade} — {drill?.coluna.label}</DialogTitle>
+            <DialogTitle>{drill?.bsp} — {drill?.coluna.label}</DialogTitle>
           </DialogHeader>
           {drill && (
             <div className="max-h-96 space-y-2 overflow-y-auto">
-              {(matriz.get(drill.unidade)?.get(drill.coluna.key) ?? []).map((n) => {
+              {(matriz.get(drill.bsp)?.get(drill.coluna.key) ?? []).map((n) => {
                 const equipe = (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active);
                 return (
                   <div key={n.id} className="rounded-md border p-2.5 text-sm">
@@ -2777,7 +2921,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                       <span className="text-xs text-muted-foreground">{n.period_start ? fmtDate(n.period_start) : "Sem data"}</span>
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {n.bsp ? `BSP ${n.bsp}` : "Sem BSP"} · {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
+                      {n.unidade ?? "Sem unidade"} · {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
                     </div>
                   </div>
                 );
