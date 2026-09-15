@@ -1517,7 +1517,7 @@ function KanbanColumn({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex-1 space-y-2.5 overflow-y-auto p-2.5 h-[calc(100vh-180px)] min-h-[620px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
+        className={`flex-1 space-y-2.5 overflow-y-auto p-2.5 h-[calc(100dvh-230px)] min-h-[280px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
       >
         {groups.map((items) => (
           <NominationCard
