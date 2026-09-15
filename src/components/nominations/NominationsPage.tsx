@@ -1456,7 +1456,7 @@ function EquipeFormadaColumn({
       <div className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ backgroundColor: "#DCFCE7", color: "#166534" }}>
         Equipe Formada <span className="font-normal opacity-70">({ordenadas.length})</span>
       </div>
-      <div ref={setNodeRef} className={`flex-1 space-y-1.5 overflow-y-auto p-2 h-[calc(100vh-180px)] min-h-[620px] transition-colors ${isOver ? "bg-primary/5" : ""}`}>
+      <div ref={setNodeRef} className={`flex-1 space-y-1.5 overflow-y-auto p-2 h-[calc(100dvh-230px)] min-h-[280px] transition-colors ${isOver ? "bg-primary/5" : ""}`}>
         {ordenadas.map((n) => (
           <div
             key={n.id}
