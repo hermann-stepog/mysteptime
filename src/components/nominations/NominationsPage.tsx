@@ -3180,6 +3180,10 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
             <tbody>
               {cascataClienteUnidadeBsp.map(({ cliente, unidades }) => {
                 const clienteOpen = expandedClientes.has(cliente);
+                // Total de nomeações do cliente inteiro, mesmo recolhido — sem isso, um grupo
+                // novo (ex.: "Cliente não identificado" na primeira importação de uma unidade
+                // ainda não cadastrada) fica sem nenhuma pista visual de que tem algo dentro.
+                const totalCliente = unidades.reduce((sum, [, bspList]) => sum + bspList.reduce((s, b) => s + (porBsp.get(b)?.length ?? 0), 0), 0);
                 return (
                   <Fragment key={cliente}>
                     <tr>
@@ -3190,12 +3194,14 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                         >
                           {clienteOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           <Building2 className="h-4 w-4 shrink-0 text-primary" /> {cliente}
+                          <span className="text-xs font-normal text-muted-foreground">({totalCliente} nomeaç{totalCliente === 1 ? "ão" : "ões"})</span>
                         </button>
                       </td>
                     </tr>
                     {clienteOpen && unidades.map(([unidade, bspList]) => {
                       const unidadeKey = `${cliente}::${unidade}`;
                       const unidadeOpen = expandedUnidades.has(unidadeKey);
+                      const totalUnidade = bspList.reduce((s, b) => s + (porBsp.get(b)?.length ?? 0), 0);
                       return (
                         <Fragment key={unidadeKey}>
                           <tr>
@@ -3206,7 +3212,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                               >
                                 {unidadeOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                 <Ship className="h-4 w-4 shrink-0 text-sky-700" /> {unidade}
-                                <span className="text-xs font-normal text-muted-foreground">({bspList.length} BSP)</span>
+                                <span className="text-xs font-normal text-muted-foreground">({bspList.length} BSP · {totalUnidade} nomeaç{totalUnidade === 1 ? "ão" : "ões"})</span>
                               </button>
                             </td>
                           </tr>
