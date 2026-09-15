@@ -5,36 +5,44 @@
 // de 1000 linhas. `buildQuery` monta a query do zero a cada página (não reaproveita builder),
 // só trocando o `.range(from, to)` do final.
 //
-// Busca a 1ª página primeiro; se ela vier cheia (sinal de que há mais), dispara as páginas
-// seguintes em paralelo (em vez de uma de cada vez) — reduz um carregamento de ~15-20s em
-// telas com tabelas grandes (ex.: Timesheet Offshore) pra pouco mais que o tempo de uma única
-// requisição. MAX_PAGES cobre até 40.000 linhas, bem acima das maiores tabelas do app hoje
-// (timesheet_dias, a maior, tem uns 25.000); páginas além do fim real só voltam vazias — uma
-// consulta indexada rápida, não um problema mesmo disparando várias em paralelo.
+// Busca em pequenos lotes concorrentes e para no primeiro retorno incompleto. O limite de
+// concorrência é intencional: disparar todas as 40 páginas possíveis de uma vez saturava o
+// PostgREST, mesmo quando a tabela tinha pouco mais de 1.000 linhas, e transformava a abertura
+// das telas em dezenas de requisições desnecessárias.
 export async function selectAllPages<T>(
   buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
 ): Promise<T[]> {
   const PAGE = 1000;
   const MAX_PAGES = 40;
+  const CONCURRENT_PAGES = 4;
 
   const primeira = await buildQuery(0, PAGE - 1);
   if (primeira.error) throw primeira.error;
   const primeiraData = (primeira.data ?? []) as T[];
   if (primeiraData.length < PAGE) return primeiraData;
 
-  const resto = await Promise.all(
-    Array.from({ length: MAX_PAGES - 1 }, (_, i) => {
-      const pagina = i + 1;
-      return Promise.resolve(buildQuery(pagina * PAGE, pagina * PAGE + PAGE - 1));
-    }),
-  );
-
   const all = [...primeiraData];
-  for (const { data, error } of resto) {
-    if (error) throw error;
-    if (data && data.length) all.push(...(data as T[]));
+
+  for (let inicio = 1; inicio < MAX_PAGES; inicio += CONCURRENT_PAGES) {
+    const paginas = Array.from(
+      { length: Math.min(CONCURRENT_PAGES, MAX_PAGES - inicio) },
+      (_, indice) => inicio + indice,
+    );
+    const resultados = await Promise.all(
+      paginas.map((pagina) =>
+        Promise.resolve(buildQuery(pagina * PAGE, pagina * PAGE + PAGE - 1)),
+      ),
+    );
+
+    for (const { data, error } of resultados) {
+      if (error) throw error;
+      const rows = (data ?? []) as T[];
+      all.push(...rows);
+      if (rows.length < PAGE) return all;
+    }
   }
-  return all;
+
+  throw new Error("A consulta ultrapassou o limite seguro de 40.000 registros.");
 }
 
 // Versão conservadora para fluxos críticos de fechamento/medição. Busca somente a próxima
