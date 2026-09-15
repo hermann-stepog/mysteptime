@@ -785,24 +785,6 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><Label>Forma de pagamento</Label><FormaPagamentoField value={f.forma_pagamento} onChange={(v) => setF({ ...f, forma_pagamento: v })} /></div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label>Status Lanç.</Label><Input value={f.status_lancamento} onChange={(e) => setF({ ...f, status_lancamento: e.target.value })} placeholder="Ex.: Definitivo" /></div>
-            <div className="flex items-end gap-2 pb-1.5">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={f.cobrado} onChange={(e) => setF({ ...f, cobrado: e.target.checked })} />
-                Cobrado do cliente
-              </label>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="flex items-end gap-2 pb-1.5">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={f.faturado} onChange={(e) => setF({ ...f, faturado: e.target.checked })} />
-                Faturado
-              </label>
-            </div>
-            
             <div><Label>Data Faturamento</Label><Input type="date" value={f.data_faturamento} onChange={(e) => setF({ ...f, data_faturamento: e.target.value })} /></div>
           </div>
 
