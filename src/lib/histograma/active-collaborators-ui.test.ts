@@ -3,11 +3,11 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const operationalSources = [
-  "src/routes/admin/histograma-novo.tsx",
+  "src/components/histograma/HistogramaOffshoreNovo.tsx",
   "src/routes/admin/timesheet-offshore.tsx",
   "src/routes/admin/hospedagem.tsx",
   "src/routes/admin/passagens-aereas.tsx",
-  "src/routes/admin/nominations.tsx",
+  "src/components/nominations/NominationsPage.tsx",
   "src/routes/pm/index.tsx",
   "src/routes/admin/bm.tsx",
   "src/components/bm/TimesheetsTab.tsx",
@@ -26,7 +26,7 @@ describe("visibilidade de colaboradores inativos", () => {
   });
 
   it("Nomeações lista todos os colaboradores ativos sem exigir embarque confirmado", () => {
-    const source = readFileSync(resolve("src/routes/admin/nominations.tsx"), "utf8");
+    const source = readFileSync(resolve("src/components/nominations/NominationsPage.tsx"), "utf8");
     const simulationStart = source.indexOf("function SimulacaoTab(");
     const simulationEnd = source.indexOf("function useAllNominations()", simulationStart);
     const simulationSource = source.slice(simulationStart, simulationEnd);
@@ -41,7 +41,7 @@ describe("visibilidade de colaboradores inativos", () => {
   });
 
   it("separa no cache o cadastro completo da lista reduzida de nomes", () => {
-    const histogram = readFileSync(resolve("src/routes/admin/histograma-novo.tsx"), "utf8");
+    const histogram = readFileSync(resolve("src/components/histograma/HistogramaOffshoreNovo.tsx"), "utf8");
     const timesheet = readFileSync(resolve("src/routes/admin/timesheet-offshore.tsx"), "utf8");
     const hotels = readFileSync(resolve("src/routes/admin/hospedagem.tsx"), "utf8");
     const flights = readFileSync(resolve("src/routes/admin/passagens-aereas.tsx"), "utf8");
@@ -62,7 +62,7 @@ describe("visibilidade de colaboradores inativos", () => {
   });
 
   it("remove o grafo histórico dos inativos antes de exibir e calcular", () => {
-    const histogram = readFileSync(resolve("src/routes/admin/histograma-novo.tsx"), "utf8");
+    const histogram = readFileSync(resolve("src/components/histograma/HistogramaOffshoreNovo.tsx"), "utf8");
     const timesheet = readFileSync(resolve("src/routes/admin/timesheet-offshore.tsx"), "utf8");
 
     expect(histogram).toContain("todosPeriodos.filter((periodo) => activeIds.has(periodo.colaborador_id))");

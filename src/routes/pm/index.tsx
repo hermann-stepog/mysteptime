@@ -35,8 +35,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { HistogramaOffshoreNovo } from "@/routes/admin/histograma-novo";
-import { NominationsPage } from "@/routes/admin/nominations";
+import { HistogramaOffshoreNovo } from "@/components/histograma/HistogramaOffshoreNovo";
+import { NominationsPage } from "@/components/nominations/NominationsPage";
 import {
   CreateNominationDialog, useNominationFormData, uploadScopeDocument, currentAuthUserId,
   SCOPE_DOCUMENT_TYPES, SCOPE_BUCKET,
