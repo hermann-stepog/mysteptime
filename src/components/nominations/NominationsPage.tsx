@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import {
   type Nomination, type NominationNominee, type NominationStatusHistory,
-  type WeldTypeConfig, type WeldMaterialConfig, type NominationStatus, type PmDecision, type QualityStatus,
+  type NominationStatus, type PmDecision, type QualityStatus,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE,
   columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador, requestTitle,
 } from "@/lib/nominations";
@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
+  Plus, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
   Grid3x3, RefreshCw, Upload,
@@ -144,14 +144,32 @@ function useAdvanceStage() {
         changed_by_name: profile?.full_name ?? profile?.email ?? "Sistema",
         notes: note ?? null,
       });
-      await notifyStageAdvance({ ...nomination, current_status: target }, target);
+      // Fire-and-forget: resolver os destinatários (várias consultas) e chamar o Resend pode
+      // levar mais de 1s, e notifyStageAdvance já nunca lança (falha de e-mail é só aviso) — sem
+      // isso o card ficava "preso" na coluna antiga esperando o e-mail terminar pra só então
+      // mover, o que é exatamente a lentidão reportada no drag-and-drop.
+      notifyStageAdvance({ ...nomination, current_status: target }, target).catch(() => {});
     },
-    onSuccess: (_data, vars) => {
+    onMutate: async ({ nomination, target }) => {
+      // Move o card na hora, sem esperar a resposta do servidor — desfaz sozinho em onError se
+      // o update falhar. A reconciliação de verdade (histórico, nomeados etc.) vem do
+      // invalidateQueries em onSettled, mas isso já roda em background, sem travar a UI.
+      await qc.cancelQueries({ queryKey: ["nominations"] });
+      const previous = qc.getQueryData<Nomination[]>(["nominations"]);
+      qc.setQueryData<Nomination[]>(["nominations"], (old) =>
+        old?.map((n) => (n.id === nomination.id ? { ...n, current_status: target } : n)) ?? old,
+      );
+      return { previous };
+    },
+    onError: (err: Error, _vars, context) => {
+      if (context?.previous) qc.setQueryData(["nominations"], context.previous);
+      notify.error(err.message || "Erro ao mover nomeação.");
+    },
+    onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: ["nominations"] });
       qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "history"] });
       qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "nominees"] });
     },
-    onError: (err: Error) => notify.error(err.message || "Erro ao mover nomeação."),
   });
 }
 
@@ -1159,167 +1177,6 @@ function ManageDialog({
         </Tabs>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ── Weld config settings ──────────────────────────────────────────────────────
-
-function WeldConfigPanel() {
-  const qc = useQueryClient();
-  const [newName, setNewName] = useState("");
-
-  const { data: weldConfig = [] } = useQuery<WeldTypeConfig[]>({
-    queryKey: ["weld-type-config"],
-    queryFn: async () => {
-      const { data } = await supabase.from("weld_type_config").select("*").order("weld_type_name");
-      return (data ?? []) as WeldTypeConfig[];
-    },
-  });
-
-  const addWeld = useMutation({
-    mutationFn: async () => {
-      if (!newName.trim()) throw new Error("Informe o nome do tipo de solda.");
-      const { error } = await supabase.from("weld_type_config").insert({ weld_type_name: newName.trim() });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setNewName("");
-      qc.invalidateQueries({ queryKey: ["weld-type-config"] });
-    },
-    onError: (err: Error) => notify.error(err.message),
-  });
-
-  const toggleQuality = useMutation({
-    mutationFn: async ({ id, val }: { id: string; val: boolean }) => {
-      const { error } = await supabase
-        .from("weld_type_config")
-        .update({ requires_quality_validation: val })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-type-config"] }),
-    onError: () => notify.error("Erro ao atualizar."),
-  });
-
-  const removeWeld = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("weld_type_config").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-type-config"] }),
-    onError: () => notify.error("Erro ao remover."),
-  });
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Configure quais tipos de solda exigem validação do setor de qualidade antes de avançar no fluxo.
-      </p>
-
-      <div className="flex gap-2">
-        <Input
-          placeholder="Nome do tipo de solda (ex.: TIG, MIG)"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addWeld.mutate()}
-          className="max-w-xs"
-        />
-        <Button onClick={() => addWeld.mutate()} loading={addWeld.isPending}>
-          <Plus className="h-4 w-4 mr-1" /> Adicionar
-        </Button>
-      </div>
-
-      {weldConfig.length === 0 ? (
-        <EmptyState icon={Settings} title="Nenhum tipo de solda configurado" description="Adicione um tipo acima pra começar." />
-      ) : (
-        <div className="divide-y rounded-md border">
-          {weldConfig.map((w) => (
-            <div key={w.id} className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-medium">{w.weld_type_name}</span>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={w.requires_quality_validation}
-                    onCheckedChange={(val) =>
-                      toggleQuality.mutate({ id: w.id, val: !!val })
-                    }
-                  />
-                  Exige validação da qualidade
-                </label>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeWeld.mutate(w.id)}
-                  loading={removeWeld.isPending && removeWeld.variables === w.id}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WeldMaterialConfigPanel() {
-  const qc = useQueryClient();
-  const [newName, setNewName] = useState("");
-
-  const { data: config = [] } = useQuery<WeldMaterialConfig[]>({
-    queryKey: ["weld-material-config"],
-    queryFn: async () => {
-      const { data } = await supabase.from("weld_material_config").select("*").order("material_name");
-      return (data ?? []) as WeldMaterialConfig[];
-    },
-  });
-
-  const add = useMutation({
-    mutationFn: async () => {
-      if (!newName.trim()) throw new Error("Informe o nome do material.");
-      const { error } = await supabase.from("weld_material_config").insert({ material_name: newName.trim() });
-      if (error) throw error;
-    },
-    onSuccess: () => { setNewName(""); qc.invalidateQueries({ queryKey: ["weld-material-config"] }); },
-    onError: (err: Error) => notify.error(err.message),
-  });
-
-  const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("weld_material_config").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-material-config"] }),
-    onError: () => notify.error("Erro ao remover."),
-  });
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">Configure os materiais disponíveis para seleção quando a função é Soldador.</p>
-      <div className="flex gap-2">
-        <Input
-          placeholder="Nome do material" value={newName} onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add.mutate()} className="max-w-xs"
-        />
-        <Button onClick={() => add.mutate()} loading={add.isPending}><Plus className="h-4 w-4 mr-1" /> Adicionar</Button>
-      </div>
-      {config.length === 0 ? (
-        <EmptyState icon={Settings} title="Nenhum material configurado" />
-      ) : (
-        <div className="divide-y rounded-md border">
-          {config.map((m) => (
-            <div key={m.id} className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-medium">{m.material_name}</span>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => remove.mutate(m.id)} loading={remove.isPending && remove.variables === m.id}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -3459,9 +3316,6 @@ export function NominationsPage() {
           <TabsTrigger value="aptidao">
             <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
           </TabsTrigger>
-          <TabsTrigger value="config">
-            <Settings className="mr-1.5 h-3.5 w-3.5" /> Configurações
-          </TabsTrigger>
         </TabsList>
 
         {/* ── Simulação de disponibilidade ── */}
@@ -3532,18 +3386,6 @@ export function NominationsPage() {
         {/* ── Aptidão (Matriz de Qualificação) ── */}
         <TabsContent value="aptidao" className="pt-4">
           <QualificationEligibilityTab />
-        </TabsContent>
-
-        {/* ── Configurações ── */}
-        <TabsContent value="config" className="space-y-4 pt-4">
-          <Card className="p-5">
-            <h2 className="mb-4 text-sm font-semibold">Tipos de Solda</h2>
-            <WeldConfigPanel />
-          </Card>
-          <Card className="p-5">
-            <h2 className="mb-4 text-sm font-semibold">Materiais de Solda</h2>
-            <WeldMaterialConfigPanel />
-          </Card>
         </TabsContent>
       </Tabs>
 
