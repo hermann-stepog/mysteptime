@@ -2960,8 +2960,12 @@ function DashboardTab({ colaboradores, periodos }: {
       else if (bucket === "P") programadosIds.add(c.id);
       else if (bucket === "B") disponiveis++;
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
-      if (ehUnidadeBase(result.periodo?.unidade_operacional)) naBase++;
-      if (isOcupadoBucket(bucket)) ocupados++;
+      const naBaseAgora = ehUnidadeBase(result.periodo?.unidade_operacional);
+      if (naBaseAgora) naBase++;
+      // "Na Base" conta como ocupado mesmo quando o status bruto do dia não seria (ex.:
+      // Standby) — mesmo critério independente usado no cartão "Na Base" acima, senão a %
+      // de Utilização ficava sem essas pessoas.
+      if (isOcupadoBucket(bucket) || naBaseAgora) ocupados++;
     });
     // Soma quem chegou em Equipe Formada nas Nomeações com embarque programado justo pra
     // pobReferenceDate — cobre inclusive quem ainda não tem nenhum período no Histograma (por
@@ -3007,8 +3011,9 @@ function DashboardTab({ colaboradores, periodos }: {
     let somaOcupados = 0;
     datesAteHoje.forEach((d) => {
       activeColaboradores.forEach((c) => {
-        const bucket = toOldBucket(computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d).status);
-        if (isOcupadoBucket(bucket)) somaOcupados++;
+        const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
+        const bucket = toOldBucket(result.status);
+        if (isOcupadoBucket(bucket) || ehUnidadeBase(result.periodo?.unidade_operacional)) somaOcupados++;
       });
     });
     return Math.round((somaOcupados / (datesAteHoje.length * activeColaboradores.length)) * 100);
@@ -3037,7 +3042,11 @@ function DashboardTab({ colaboradores, periodos }: {
   const ocupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
-      const status = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
+      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      // "Na Base" sobrepõe o status bruto do dia — mesmo cruzamento independente usado no
+      // cartão "Na Base" (kpis.naBase). Sem isso a rosquinha usava o status "BASE" antigo (só
+      // existia pela importação manual já removida) e quase nunca batia com o cartão.
+      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional) ? "BASE" : result.status;
       if (!isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
@@ -3050,7 +3059,8 @@ function DashboardTab({ colaboradores, periodos }: {
   const naoOcupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
-      const status = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate).status;
+      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional) ? "BASE" : result.status;
       if (isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
