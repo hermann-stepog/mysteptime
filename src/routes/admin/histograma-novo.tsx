@@ -58,6 +58,12 @@ import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
 import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
 import { selectAllPages } from "@/lib/supabasePaginate";
+import {
+  fetchHistogramCollaborators,
+  fetchHistogramEmbarkations,
+  fetchHistogramPeriods,
+  fetchHistogramWeeks,
+} from "@/lib/histograma/read-model";
 
 export const Route = createFileRoute("/admin/histograma-novo")({ head: () => pageTitle("Histograma Offshore"), component: HistogramaOffshoreNovo });
 
@@ -104,8 +110,6 @@ function computeDayStatus(periodos: HistNovoPeriodo[], date: string): DayStatusR
 
 const HIST_COLABORADOR_SELECT = "id, ativo, matricula, nome, empresa, funcao, funcao_operacao";
 const HIST_PERIODO_SELECT = "id, colaborador_id, unidade_operacional, centro_de_custo, bsp, tipo, data_inicio, data_fim, dias, origem, created_at";
-const TIMESHEET_EMBARQUE_SELECT = "id, colaborador_id, periodo_id, unidade_operacional, bsp, bsp_2, funcao_embarque, data_inicio_embarque, data_fim_embarque, status_entrega, criado_em";
-const TIMESHEET_SEMANA_SELECT = "id, embarque_id, data_inicio_semana, data_fim_semana, recebido_fisico, data_recebimento, criado_em, funcao_override, recebido_por, recebido_em";
 
 // Nomes (normalizados) de quem está marcado como Offshore na aba "Offshore" do módulo de
 // Colaboradores — usado pra dividir Histograma Offshore em "Geral" (tudo, direto do Drake,
@@ -127,30 +131,14 @@ function useOffshoreNomesQuery(enabled: boolean) {
 function useColaboradoresQuery() {
   return useQuery({
     queryKey: ["hist-novo-colaboradores"],
-    queryFn: () =>
-      // "id" como segundo critério é essencial: "nome" sozinho não é único (pode empatar),
-      // e sem um desempate determinístico o range() de cada página pode repetir ou pular
-      // linhas entre uma requisição e outra.
-      selectAllPages<HistNovoColaborador>((from, to) =>
-        supabase.from("hist_novo_colaboradores").select(HIST_COLABORADOR_SELECT).order("nome").order("id").range(from, to),
-      ),
+    queryFn: fetchHistogramCollaborators,
   });
 }
 
 function usePeriodosQuery() {
   return useQuery({
     queryKey: ["hist-novo-periodos"],
-    queryFn: async () => {
-      // Mesmo motivo: "data_inicio" tem muitos empates (vários períodos na mesma data),
-      // por isso "id" entra como desempate pra paginação ficar estável. Decisão da usuária:
-      // não busca período que termina antes de 2026 (ver DRAKE_DATA_CUTOFF).
-      const data = await selectAllPages<HistNovoPeriodo>((from, to) =>
-        supabase.from("hist_novo_periodos").select(HIST_PERIODO_SELECT)
-          .gte("data_fim", DRAKE_DATA_CUTOFF)
-          .order("data_inicio", { ascending: false }).order("id").range(from, to),
-      );
-      return data;
-    },
+    queryFn: fetchHistogramPeriods,
   });
 }
 
@@ -613,7 +601,7 @@ export async function generateRelatorioEmbarques(dataInicio?: string, dataFim?: 
       if (dataInicio) q = q.gte("data_fim", dataInicio);
       return q.range(from, to);
     }),
-    selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select(TIMESHEET_EMBARQUE_SELECT).gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    fetchHistogramEmbarkations(),
   ]);
   if (cErr) throw cErr;
   const colabById = new Map(((colaboradores ?? []) as HistNovoColaborador[]).map((c) => [c.id, c]));
@@ -1171,8 +1159,7 @@ function PlanejamentoTransporteTab({ colaboradores, periodos }: { colaboradores:
   // Mesma fonte de Função de Embarque já usada em Lançamentos/Nomeações (ver resolverFuncaoEmbarque).
   const { data: timesheetEmbarques = [] } = useQuery({
     queryKey: ["timesheet-embarques"],
-    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) =>
-      supabase.from("timesheet_embarques").select(TIMESHEET_EMBARQUE_SELECT).gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    queryFn: fetchHistogramEmbarkations,
   });
   const embarquesByColaboradorId = useMemo(() => {
     const m = new Map<string, TimesheetEmbarque[]>();
@@ -1576,7 +1563,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   // Função de embarque (não a cadastral) por colaborador — ver resolverFuncaoEmbarque.
   const { data: timesheetEmbarques = [] } = useQuery({
     queryKey: ["timesheet-embarques"],
-    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select(TIMESHEET_EMBARQUE_SELECT).gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    queryFn: fetchHistogramEmbarkations,
   });
   const embarquesByColaboradorId = useMemo(() => {
     const m = new Map<string, TimesheetEmbarque[]>();
@@ -2133,11 +2120,11 @@ function HistogramaTab({ colaboradores, periodos }: { colaboradores: HistNovoCol
   // (verde claro) nas células "E" — ver Timesheet Offshore.
   const { data: timesheetEmbarques = [] } = useQuery({
     queryKey: ["timesheet-embarques"],
-    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select(TIMESHEET_EMBARQUE_SELECT).gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    queryFn: fetchHistogramEmbarkations,
   });
   const { data: timesheetSemanas = [] } = useQuery({
     queryKey: ["timesheet-semanas-all"],
-    queryFn: () => selectAllPages<TimesheetSemana>((from, to) => supabase.from("timesheet_semanas").select(TIMESHEET_SEMANA_SELECT).gte("data_fim_semana", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    queryFn: fetchHistogramWeeks,
   });
   const embarqueByPeriodoId = useMemo(
     () => new Map(timesheetEmbarques.filter((e): e is TimesheetEmbarque & { periodo_id: string } => !!e.periodo_id).map((e) => [e.periodo_id, e])),
@@ -2803,7 +2790,7 @@ function DashboardTab({ colaboradores, periodos }: {
   // (pobReferenceDate, mais abaixo) — ver resolverFuncaoEmbarque.
   const { data: timesheetEmbarques = [] } = useQuery({
     queryKey: ["timesheet-embarques"],
-    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select(TIMESHEET_EMBARQUE_SELECT).gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
+    queryFn: fetchHistogramEmbarkations,
   });
   const embarquesByColaboradorId = useMemo(() => {
     const m = new Map<string, TimesheetEmbarque[]>();
