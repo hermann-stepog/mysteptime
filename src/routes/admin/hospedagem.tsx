@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import { matchesNameSearch } from "@/lib/utils";
 // hoteis_fornecedores/hospedagens ainda não estão nos tipos gerados (types.ts não é
@@ -27,7 +28,7 @@ import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NomeUsuarioField, NomeUsuarioMultiField, MotivoField, SelectComOutro, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, FormaPagamentoField } from "@/components/LogisticaFormFields";
-import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Download, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
   parsePlanilhaCustos, parseCustoBRL, parseDataBR, parseUnidadeBsp, splitNomes,
@@ -187,7 +188,7 @@ function HotelCombobox({ hoteis, value, onChange }: {
 
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", hotelId: "", checkIn: "", checkOut: "",
-  valor: "", motivo: "", formaPagamento: "", observacoes: "",
+  valorDiaria: "", motivo: "", formaPagamento: "", observacoes: "",
   nf: "", fornecedor: "", cobrado: false, statusLancamento: "", faturado: false,
   usuarioFaturamento: "", dataFaturamento: "",
 };
@@ -203,7 +204,8 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
   const diariasAtual = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
-  const valorTotal = Math.round((Number(f.valor) || 0) * 100) / 100;
+  const valorDiariaNum = Math.round((Number(f.valorDiaria) || 0) * 100) / 100;
+  const valorTotal = Math.round(valorDiariaNum * diariasAtual * 100) / 100;
   const rateio = useRateioComplementar(valorTotal);
   const pessoas = usePessoasAdicionais();
   const unidades = useUnidadesAdicionais();
@@ -211,7 +213,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   if (open && editing && bound !== editing.id) {
     setF({
       unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: editing.nome_usuario, hotelId: editing.hotel_id,
-      checkIn: editing.check_in, checkOut: editing.check_out, valor: String(editing.valor_total ?? 0),
+      checkIn: editing.check_in, checkOut: editing.check_out, valorDiaria: String(editing.valor_diaria ?? 0),
       motivo: editing.motivo ?? "", formaPagamento: editing.forma_pagamento ?? "", observacoes: editing.observacoes ?? "",
       nf: editing.nf ?? "", fornecedor: editing.fornecedor ?? "", cobrado: editing.cobrado ?? false,
       statusLancamento: editing.status_lancamento ?? "", faturado: editing.faturado ?? false,
@@ -267,7 +269,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       const payload = {
         unidade: f.unidade, bsp: f.bsp, nome_usuario: nomes.join(", "), hotel_id: f.hotelId,
         check_in: f.checkIn, check_out: f.checkOut, diarias,
-        valor_diaria: diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal,
+        valor_diaria: valorDiariaNum,
 
         valor_total: valorTotal, motivo: f.motivo.trim() || null, forma_pagamento: f.formaPagamento || null, observacoes: f.observacoes.trim() || null,
         unidade_2: segundaUnidade?.unidade || null,
@@ -391,8 +393,14 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <Label className="text-xs">Valor</Label>
-              <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} />
+              <Label className="text-xs">Valor da diária</Label>
+              <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={f.valorDiaria} onChange={(e) => setF({ ...f, valorDiaria: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Total</Label>
+              <div className="flex h-9 items-center text-sm font-medium">
+                {fmtMoney(valorTotal)}{diariasAtual > 0 ? ` (${diariasAtual} diária${diariasAtual > 1 ? "s" : ""})` : ""}
+              </div>
             </div>
           </div>
 
@@ -660,9 +668,12 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
     (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
   ).sort((a, b) => {
-    // Sem coluna escolhida, mantém a ordem que já vem da consulta (check-in desc, mais recente
-    // primeiro — ver useHospedagensQuery).
-    if (!sortColumn) return 0;
+    // Sem coluna escolhida, organiza por lançamento (BSP) — não mais por nome do usuário, que
+    // hoje pode ser uma lista combinada de hóspedes do mesmo boleto — usando o dia (check-in)
+    // como critério dentro de cada BSP.
+    if (!sortColumn) {
+      return a.bsp.localeCompare(b.bsp) || a.check_in.localeCompare(b.check_in);
+    }
     const dir = sortDirection === "asc" ? 1 : -1;
     switch (sortColumn) {
       case "unidade":
@@ -744,6 +755,40 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     [hospedagens],
   );
 
+  // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
+  // os filtros (período, unidade, BSP, hotel, motivo, nome) aplicados.
+  const exportarRelatorio = () => {
+    const rows = filtradas.map((h) => {
+      const hotel = hotelById.get(h.hotel_id);
+      return {
+        Unidade: h.unidade,
+        BSP: h.bsp,
+        "Nome do usuário": h.nome_usuario,
+        Hotel: hotel?.nome ?? "—",
+        Localização: hotel ? localizacaoHotel(hotel) : "—",
+        "Check-in": fmt(h.check_in),
+        "Check-out": fmt(h.check_out),
+        Diárias: h.diarias,
+        "Valor diária": h.valor_diaria,
+        "Valor total": h.valor_total,
+        Motivo: h.motivo ?? "—",
+        "Forma de pagamento": h.forma_pagamento ?? "—",
+        Fornecedor: h.fornecedor ?? "—",
+        NF: h.nf ?? "—",
+        Cobrado: h.cobrado ? "Sim" : "Não",
+        "Status Lançamento": h.status_lancamento ?? "—",
+        Faturado: h.faturado ? "Sim" : "Não",
+        "Usuário Faturamento": h.usuario_faturamento ?? "—",
+        "Data Faturamento": h.data_faturamento ? fmt(h.data_faturamento) : "—",
+      };
+    });
+    if (rows.length === 0) { notify.error("Nenhuma hospedagem pra exportar com os filtros atuais."); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Hospedagem");
+    XLSX.writeFile(wb, `hospedagem_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <div className="space-y-4">
       <Card className="p-3">
@@ -801,6 +846,9 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
           <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={exportarRelatorio}>
+              <Download className="mr-1.5 h-4 w-4" />Exportar relatório
+            </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
             </Button>
