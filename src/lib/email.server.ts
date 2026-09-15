@@ -1,29 +1,22 @@
 import process from "node:process";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-// Server-only SMTP helper. The .server.ts suffix keeps nodemailer and the
-// SMTP credentials out of the client bundle. Credentials come from plain
-// process.env (no VITE_ prefix — never expose SMTP secrets to the browser),
-// loaded from .env by scripts/dev.mjs in local dev.
+// Server-only Resend helper. The .server.ts suffix keeps a chave da API fora do bundle do
+// cliente. Vem de process.env (sem prefixo VITE_ — nunca exposta ao navegador), carregada do
+// .env por scripts/dev.mjs em dev local; em produção, configurada nas env vars do deploy.
 export async function sendEmail(
   { to, cc, subject, text }: { to: string; cc?: string; subject: string; text: string },
 ) {
-  const host = process.env.SMTP_HOST;
-  const port = process.env.SMTP_PORT;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-  const from = process.env.SMTP_FROM || user;
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM || "Logística STEP <notificacoes@step-og.com>";
 
-  if (!host || !port || !user || !pass) {
-    throw new Error("Credenciais de e-mail (SMTP) não configuradas.");
+  if (!apiKey) {
+    throw new Error("Credencial de e-mail (RESEND_API_KEY) não configurada.");
   }
 
-  const transporter = nodemailer.createTransport({
-    host,
-    port: Number(port),
-    secure: Number(port) === 465,
-    auth: { user, pass },
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from, to, cc: cc ? [cc] : undefined, subject, text,
   });
-
-  await transporter.sendMail({ from, to, cc: cc || undefined, subject, text });
+  if (error) throw new Error(error.message);
 }
