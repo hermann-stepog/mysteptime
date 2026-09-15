@@ -1109,6 +1109,36 @@ export type Database = {
         }
         Relationships: []
       }
+      drake_scheduler_slots: {
+        Row: {
+          claimed_at: string
+          claimed_by: string | null
+          error_message: string | null
+          finished_at: string | null
+          scheduled_for: string
+          slot_key: string
+          status: string
+        }
+        Insert: {
+          claimed_at?: string
+          claimed_by?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          scheduled_for: string
+          slot_key: string
+          status: string
+        }
+        Update: {
+          claimed_at?: string
+          claimed_by?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          scheduled_for?: string
+          slot_key?: string
+          status?: string
+        }
+        Relationships: []
+      }
       drake_sync_runs: {
         Row: {
           base_ignored: number | null
@@ -1385,8 +1415,6 @@ export type Database = {
           observacoes: string | null
           status_lancamento: string | null
           unidade: string
-          unidade_2: string | null
-          unidade_3: string | null
           usuario_faturamento: string | null
           valor_2: number | null
           valor_3: number | null
@@ -1414,8 +1442,6 @@ export type Database = {
           observacoes?: string | null
           status_lancamento?: string | null
           unidade: string
-          unidade_2?: string | null
-          unidade_3?: string | null
           usuario_faturamento?: string | null
           valor_2?: number | null
           valor_3?: number | null
@@ -1443,8 +1469,6 @@ export type Database = {
           observacoes?: string | null
           status_lancamento?: string | null
           unidade?: string
-          unidade_2?: string | null
-          unidade_3?: string | null
           usuario_faturamento?: string | null
           valor_2?: number | null
           valor_3?: number | null
@@ -1749,6 +1773,8 @@ export type Database = {
           pm_name: string | null
           pm_user_id: string | null
           project: string | null
+          quality_rejection_reason: string | null
+          quality_status: string
           quality_validated: boolean
           quality_validated_at: string | null
           quality_validated_by: string | null
@@ -1788,6 +1814,8 @@ export type Database = {
           pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_rejection_reason?: string | null
+          quality_status?: string
           quality_validated?: boolean
           quality_validated_at?: string | null
           quality_validated_by?: string | null
@@ -1827,6 +1855,8 @@ export type Database = {
           pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_rejection_reason?: string | null
+          quality_status?: string
           quality_validated?: boolean
           quality_validated_at?: string | null
           quality_validated_by?: string | null
@@ -3231,6 +3261,16 @@ export type Database = {
       is_operator: { Args: { _user_id: string }; Returns: boolean }
       is_rh: { Args: { _user_id: string }; Returns: boolean }
       is_sms: { Args: { _user_id: string }; Returns: boolean }
+      mysteptime_histogram_collaborators: { Args: never; Returns: Json }
+      mysteptime_histogram_embarkations: {
+        Args: { p_cutoff: string }
+        Returns: Json
+      }
+      mysteptime_histogram_periods: {
+        Args: { p_cutoff: string }
+        Returns: Json
+      }
+      mysteptime_histogram_weeks: { Args: { p_cutoff: string }; Returns: Json }
     }
     Enums: {
       app_role:
