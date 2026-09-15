@@ -10,7 +10,7 @@ import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardLis
 import { pageTitle } from "@/lib/pageTitle";
 import { generateRelatorioTransporte } from "./transport";
 import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH, generateRelatorioTimesheetsLancados } from "./timesheet-offshore";
-import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo } from "./histograma-novo";
+import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo } from "@/components/histograma/HistogramaOffshoreNovo";
 import { generateRelatorioCustos } from "./costs";
 
 export const Route = createFileRoute("/admin/reports")({ head: () => pageTitle("Relatórios"), component: ReportsPage });

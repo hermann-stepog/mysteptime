@@ -44,11 +44,11 @@ describe("qualification update boundaries", () => {
 
   it("exibe Aptidão somente dentro de Nomeações", async () => {
     const [nominations, histogram] = await Promise.all([
-      readFile("src/routes/admin/nominations.tsx", "utf8"),
-      readFile("src/routes/admin/histograma-novo.tsx", "utf8"),
+      readFile("src/components/nominations/NominationsPage.tsx", "utf8"),
+      readFile("src/components/histograma/HistogramaOffshoreNovo.tsx", "utf8"),
     ]);
 
-    expect(nominations).toMatch(/<TabsTrigger value="aptidao">Aptidão<\/TabsTrigger>/);
+    expect(nominations).toMatch(/<TabsTrigger value="aptidao">[\s\S]*?Aptidão[\s\S]*?<\/TabsTrigger>/);
     expect(nominations).toMatch(/<QualificationEligibilityTab \/>/);
     expect(histogram).not.toMatch(/QualificationEligibilityTab|value="aptidao"/);
   });
