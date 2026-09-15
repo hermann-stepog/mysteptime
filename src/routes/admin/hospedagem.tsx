@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import { matchesNameSearch } from "@/lib/utils";
 // hoteis_fornecedores/hospedagens ainda não estão nos tipos gerados (types.ts não é
@@ -26,8 +27,8 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, NomeUsuarioMultiField, MotivoField, SelectComOutro, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, FormaPagamentoField } from "@/components/LogisticaFormFields";
-import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
+import { NomeUsuarioField, NomeUsuarioMultiField, MotivoField, SelectComOutro, usePessoasAdicionais, useUnidadesAdicionais, FormaPagamentoField } from "@/components/LogisticaFormFields";
+import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Download, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
   parsePlanilhaCustos, parseCustoBRL, parseDataBR, parseUnidadeBsp, splitNomes,
@@ -37,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 import { pageTitle } from "@/lib/pageTitle";
 import { selectAllPages } from "@/lib/supabasePaginate";
-import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
   computeDiarias, localizacaoHotel,
@@ -187,9 +188,8 @@ function HotelCombobox({ hoteis, value, onChange }: {
 
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", hotelId: "", checkIn: "", checkOut: "",
-  valor: "", motivo: "", formaPagamento: "", observacoes: "",
-  nf: "", fornecedor: "", cobrado: false, statusLancamento: "", faturado: false,
-  usuarioFaturamento: "", dataFaturamento: "",
+  motivo: "", formaPagamento: "", observacoes: "",
+  nf: "", dataFaturamento: "",
 };
 
 // ─── Dialog: Nova hospedagem / Editar ───────────────────────────────────────
@@ -202,30 +202,33 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const qc = useQueryClient();
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
+  // Valor digitado direto por unidade/BSP (não mais % de um total nem diária x dias) — o Total
+  // é sempre a soma do que for digitado aqui, valendo pra uma ou mais unidades/BSPs.
+  const [valorPrincipal, setValorPrincipal] = useState("");
+  const [valor2, setValor2] = useState("");
+  const [valor3, setValor3] = useState("");
   const diariasAtual = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
-  const valorTotal = Math.round((Number(f.valor) || 0) * 100) / 100;
-  const rateio = useRateioComplementar(valorTotal);
   const pessoas = usePessoasAdicionais();
   const unidades = useUnidadesAdicionais();
+  const valorPrincipalNum = Math.round((Number(valorPrincipal) || 0) * 100) / 100;
+  const valor2Num = unidades.unidades[0] ? Math.round((Number(valor2) || 0) * 100) / 100 : 0;
+  const valor3Num = unidades.unidades[1] ? Math.round((Number(valor3) || 0) * 100) / 100 : 0;
+  const valorTotal = Math.round((valorPrincipalNum + valor2Num + valor3Num) * 100) / 100;
+  const diarias = diariasAtual;
+  const valorDiariaNum = diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal;
 
   if (open && editing && bound !== editing.id) {
     setF({
       unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: editing.nome_usuario, hotelId: editing.hotel_id,
-      checkIn: editing.check_in, checkOut: editing.check_out, valor: String(editing.valor_total ?? 0),
+      checkIn: editing.check_in, checkOut: editing.check_out,
       motivo: editing.motivo ?? "", formaPagamento: editing.forma_pagamento ?? "", observacoes: editing.observacoes ?? "",
-      nf: editing.nf ?? "", fornecedor: editing.fornecedor ?? "", cobrado: editing.cobrado ?? false,
-      statusLancamento: editing.status_lancamento ?? "", faturado: editing.faturado ?? false,
-      usuarioFaturamento: editing.usuario_faturamento ?? "", dataFaturamento: editing.data_faturamento ?? "",
+      nf: editing.nf ?? "", dataFaturamento: editing.data_faturamento ?? "",
     });
-    // Reconstrói o percentual a partir do valor já gravado (o que fica salvo é sempre o
-    // valor calculado, o percentual é só conveniência de preenchimento — ver useRateioComplementar).
-    const totalEditado = editing.valor_total || 0;
-    if (editing.bsp_2 && editing.valor_2 && totalEditado > 0) {
-      rateio.setAtivo(true); rateio.setBsp2(editing.bsp_2); rateio.setPercentual2(String(Math.round((editing.valor_2 / totalEditado) * 10000) / 100));
-    }
-    if (editing.bsp_3 && editing.valor_3 && totalEditado > 0) {
-      rateio.setAtivo(true); rateio.setBsp3(editing.bsp_3); rateio.setPercentual3(String(Math.round((editing.valor_3 / totalEditado) * 10000) / 100));
-    }
+    const v2 = editing.bsp_2 ? (editing.valor_2 ?? 0) : 0;
+    const v3 = editing.bsp_3 ? (editing.valor_3 ?? 0) : 0;
+    setValorPrincipal(String(Math.round(((editing.valor_total || 0) - v2 - v3) * 100) / 100));
+    setValor2(editing.bsp_2 ? String(v2) : "");
+    setValor3(editing.bsp_3 ? String(v3) : "");
     unidades.replace([
       ...(editing.bsp_2 ? [{ unidade: editing.unidade_2 || editing.unidade, bsp: editing.bsp_2 }] : []),
       ...(editing.bsp_3 ? [{ unidade: editing.unidade_3 || editing.unidade, bsp: editing.bsp_3 }] : []),
@@ -235,12 +238,15 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   // Vem preenchido quando aberto a partir de outro módulo (ex.: Passagens Aéreas, ao marcar
   // uma passagem como Cancelada) — só unidade/bsp/nome/motivo, o resto (hotel/datas/valor)
   // continua em branco pra digitação normal.
-  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); rateio.reset(); pessoas.reset(); unidades.reset(); setBound("novo"); }
+  if (open && !editing && bound !== "novo") {
+    setF({ ...FORM_VAZIO, ...prefill });
+    setValorPrincipal(""); setValor2(""); setValor3("");
+    pessoas.reset(); unidades.reset(); setBound("novo");
+  }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
   const hotelSelecionado = hoteis.find((h) => h.id === f.hotelId);
-  const diarias = diariasAtual;
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -252,34 +258,37 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       if (diarias <= 0) throw new Error("Check-out precisa ser depois do check-in.");
       if (unidades.validas.length > 2) throw new Error("O lançamento aceita até três unidades/BSPs.");
       if (unidades.unidades.some((item, index) => {
-        const percentual = index === 0 ? rateio.percentual2 : rateio.percentual3;
-        return !item.unidade.trim() && (!!item.bsp.trim() || !!percentual);
+        const valor = index === 0 ? valor2 : valor3;
+        return !item.unidade.trim() && (!!item.bsp.trim() || !!valor);
       })) {
         throw new Error("Informe a unidade de cada rateio adicionado.");
       }
       if (unidades.validas.some((item) => !item.bsp.trim())) throw new Error("Informe o BSP de cada unidade adicionada.");
-      if (unidades.validas.length >= 1 && rateio.valor2 <= 0) throw new Error("Informe o percentual da segunda unidade/BSP.");
-      if (unidades.validas.length >= 2 && rateio.valor3 <= 0) throw new Error("Informe o percentual da terceira unidade/BSP.");
-      if (rateio.restante < 0) throw new Error("A soma dos percentuais não pode ultrapassar 100%.");
+      if (unidades.validas.length >= 1 && valor2Num <= 0) throw new Error("Informe o valor da segunda unidade/BSP.");
+      if (unidades.validas.length >= 2 && valor3Num <= 0) throw new Error("Informe o valor da terceira unidade/BSP.");
       const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(Boolean);
       const segundaUnidade = unidades.validas[0];
       const terceiraUnidade = unidades.validas[1];
-      const payload = {
+      const payload: Record<string, unknown> = {
         unidade: f.unidade, bsp: f.bsp, nome_usuario: nomes.join(", "), hotel_id: f.hotelId,
         check_in: f.checkIn, check_out: f.checkOut, diarias,
-        valor_diaria: diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal,
-
+        valor_diaria: valorDiariaNum,
         valor_total: valorTotal, motivo: f.motivo.trim() || null, forma_pagamento: f.formaPagamento || null, observacoes: f.observacoes.trim() || null,
         unidade_2: segundaUnidade?.unidade || null,
         unidade_3: terceiraUnidade?.unidade || null,
         bsp_2: segundaUnidade?.bsp.trim() || null,
         bsp_3: terceiraUnidade?.bsp.trim() || null,
-        valor_2: segundaUnidade ? rateio.valor2 : null,
-        valor_3: terceiraUnidade ? rateio.valor3 : null,
-        nf: f.nf.trim() || null, fornecedor: f.fornecedor.trim() || null, cobrado: f.cobrado,
-        status_lancamento: f.statusLancamento.trim() || null, faturado: f.faturado,
-        usuario_faturamento: f.usuarioFaturamento.trim() || null, data_faturamento: f.dataFaturamento || null,
+        valor_2: segundaUnidade ? valor2Num : null,
+        valor_3: terceiraUnidade ? valor3Num : null,
+        nf: f.nf.trim() || null, data_faturamento: f.dataFaturamento || null,
       };
+      // Fornecedor/Cobrado/Status Lanç./Faturado/Usuário Faturamento saíram do formulário —
+      // numa hospedagem NOVA entram com um valor padrão neutro; ao EDITAR, ficam de fora do
+      // payload de propósito, pra não apagar o que já estava preenchido (ex.: vindo da
+      // importação da planilha de custos, que continua populando essas colunas normalmente).
+      if (!editing) {
+        Object.assign(payload, { fornecedor: null, cobrado: false, status_lancamento: null, faturado: false, usuario_faturamento: null });
+      }
       if (editing) {
         const { error } = await supabase.from("hospedagens").update(payload).eq("id", editing.id);
         if (error) throw error;
@@ -304,6 +313,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
         <DialogHeader><DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle></DialogHeader>
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <NomeUsuarioMultiField
+            label="Nome do colaborador"
             value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
             colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
             helpText="Os colaboradores adicionados pertencem ao mesmo lançamento e não multiplicam o valor do boleto."
@@ -312,10 +322,10 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <Label className="text-xs">Distribuição por unidade / BSP</Label>
-                <p className="text-[11px] text-muted-foreground">O valor total é dividido entre os centros de custo deste mesmo lançamento.</p>
+                <p className="text-[11px] text-muted-foreground">Digite o valor de cada unidade/BSP deste lançamento — o Total soma tudo.</p>
               </div>
               {!editing && unidades.unidades.length < 2 && (
-                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => { unidades.add(); rateio.setAtivo(true); }}>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => unidades.add()}>
                   + unidade / BSP
                 </Button>
               )}
@@ -331,15 +341,14 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
               </div>
               <div>
                 <Label className="text-[11px]">Valor</Label>
-                <div className="flex h-9 items-center text-xs font-medium">{fmtMoney(rateio.restante)}</div>
+                <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={valorPrincipal} onChange={(e) => setValorPrincipal(e.target.value)} />
               </div>
             </div>
             {unidades.unidades.map((item, index) => {
-              const percentual = index === 0 ? rateio.percentual2 : rateio.percentual3;
-              const setPercentual = index === 0 ? rateio.setPercentual2 : rateio.setPercentual3;
-              const valor = index === 0 ? rateio.valor2 : rateio.valor3;
+              const valorItem = index === 0 ? valor2 : valor3;
+              const setValorItem = index === 0 ? setValor2 : setValor3;
               return (
-                <div key={index} className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_100px_auto] sm:items-end">
+                <div key={index} className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_auto] sm:items-end">
                   <div>
                     <Label className="text-[11px]">Unidade {index + 2}</Label>
                     <SelectComOutro value={item.unidade} onChange={(v) => unidades.update(index, { unidade: v, bsp: "" })} options={unidadeOptions} placeholder="Unidade" manualPlaceholder="Digitar unidade" />
@@ -349,25 +358,21 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
                     <SelectComOutro value={item.bsp} onChange={(v) => unidades.update(index, { bsp: v })} options={bspOptionsForUnidade(periodosE, item.unidade || "all")} placeholder="BSP" manualPlaceholder="Digitar BSP" disabled={!item.unidade} />
                   </div>
                   <div>
-                    <Label className="text-[11px]">%</Label>
-                    <Input type="number" step="0.01" min="0" max="100" inputMode="decimal" value={percentual} onChange={(e) => setPercentual(e.target.value)} placeholder="0" />
-                  </div>
-                  <div>
                     <Label className="text-[11px]">Valor</Label>
-                    <div className="flex h-9 items-center text-xs font-medium">{fmtMoney(valor)}</div>
+                    <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={valorItem} onChange={(e) => setValorItem(e.target.value)} />
                   </div>
                   <Button type="button" variant="ghost" size="sm" className="h-9 px-2" onClick={() => {
                     unidades.remove(index);
-                    if (index === 0 && unidades.unidades.length === 2) {
-                      rateio.setPercentual2(rateio.percentual3);
-                      rateio.setPercentual3("");
-                    } else if (index === 0) rateio.setPercentual2("");
-                    else rateio.setPercentual3("");
+                    if (index === 0 && unidades.unidades.length === 2) { setValor2(valor3); setValor3(""); }
+                    else if (index === 0) setValor2("");
+                    else setValor3("");
                   }}>✕</Button>
                 </div>
               );
             })}
-            {rateio.restante < 0 && <p className="text-xs font-medium text-destructive">Os percentuais ultrapassam 100% do valor total.</p>}
+            <p className="text-right text-sm font-medium">
+              Total: {fmtMoney(valorTotal)}{diariasAtual > 0 ? ` (${diariasAtual} diária${diariasAtual > 1 ? "s" : ""})` : ""}
+            </p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -391,13 +396,6 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <Label className="text-xs">Valor</Label>
-              <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
               <Label className="text-xs">Motivo</Label>
               <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
             </div>
@@ -412,26 +410,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label className="text-xs">Fornecedor</Label><Input value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value })} /></div>
             <div><Label className="text-xs">NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label className="text-xs">Status Lanç.</Label><Input value={f.statusLancamento} onChange={(e) => setF({ ...f, statusLancamento: e.target.value })} placeholder="Ex.: Definitivo" /></div>
-            <div className="flex items-end gap-2 pb-1.5">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={f.cobrado} onChange={(e) => setF({ ...f, cobrado: e.target.checked })} />
-                Cobrado do cliente
-              </label>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="flex items-end gap-2 pb-1.5">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={f.faturado} onChange={(e) => setF({ ...f, faturado: e.target.checked })} />
-                Faturado
-              </label>
-            </div>
-            <div><Label className="text-xs">Usuário Faturamento</Label><Input value={f.usuarioFaturamento} onChange={(e) => setF({ ...f, usuarioFaturamento: e.target.value })} /></div>
             <div><Label className="text-xs">Data Faturamento</Label><Input type="date" value={f.dataFaturamento} onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })} /></div>
           </div>
         </div>
@@ -654,15 +633,21 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     // Sobreposição de período — basta a estadia cruzar algum dia do intervalo filtrado.
     (!periodoDe || h.check_out >= periodoDe) &&
     (!periodoAte || h.check_in <= periodoAte) &&
-    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade === filterUnidade)) &&
+    // Comparação por chave normalizada (não texto exato) — do contrário, lançamentos antigos
+    // gravados com uma grafia diferente da mesma unidade (ex.: "Safe Zephyrus" antes de existir
+    // a lista fixa "SAFE ZEPHYRUS") sumiriam do filtro mesmo sendo a unidade certa.
+    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase())) &&
     (filterBsp === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
     (filterHotel === "all" || h.hotel_id === filterHotel) &&
     (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
     (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
   ).sort((a, b) => {
-    // Sem coluna escolhida, mantém a ordem que já vem da consulta (check-in desc, mais recente
-    // primeiro — ver useHospedagensQuery).
-    if (!sortColumn) return 0;
+    // Sem coluna escolhida, organiza por lançamento (BSP) — não mais por nome do usuário, que
+    // hoje pode ser uma lista combinada de hóspedes do mesmo boleto — usando o dia (check-in)
+    // como critério dentro de cada BSP.
+    if (!sortColumn) {
+      return a.bsp.localeCompare(b.bsp) || a.check_in.localeCompare(b.check_in);
+    }
     const dir = sortDirection === "asc" ? 1 : -1;
     switch (sortColumn) {
       case "unidade":
@@ -744,6 +729,40 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     [hospedagens],
   );
 
+  // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
+  // os filtros (período, unidade, BSP, hotel, motivo, nome) aplicados.
+  const exportarRelatorio = () => {
+    const rows = filtradas.map((h) => {
+      const hotel = hotelById.get(h.hotel_id);
+      return {
+        Unidade: h.unidade,
+        BSP: h.bsp,
+        "Nome do usuário": h.nome_usuario,
+        Hotel: hotel?.nome ?? "—",
+        Localização: hotel ? localizacaoHotel(hotel) : "—",
+        "Check-in": fmt(h.check_in),
+        "Check-out": fmt(h.check_out),
+        Diárias: h.diarias,
+        "Valor diária": h.valor_diaria,
+        "Valor total": h.valor_total,
+        Motivo: h.motivo ?? "—",
+        "Forma de pagamento": h.forma_pagamento ?? "—",
+        Fornecedor: h.fornecedor ?? "—",
+        NF: h.nf ?? "—",
+        Cobrado: h.cobrado ? "Sim" : "Não",
+        "Status Lançamento": h.status_lancamento ?? "—",
+        Faturado: h.faturado ? "Sim" : "Não",
+        "Usuário Faturamento": h.usuario_faturamento ?? "—",
+        "Data Faturamento": h.data_faturamento ? fmt(h.data_faturamento) : "—",
+      };
+    });
+    if (rows.length === 0) { notify.error("Nenhuma hospedagem pra exportar com os filtros atuais."); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Hospedagem");
+    XLSX.writeFile(wb, `hospedagem_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <div className="space-y-4">
       <Card className="p-3">
@@ -801,6 +820,9 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
           <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={exportarRelatorio}>
+              <Download className="mr-1.5 h-4 w-4" />Exportar relatório
+            </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
             </Button>
@@ -1183,15 +1205,23 @@ function HospedagemPage() {
   const limparPrefill = () => navigate({ to: "/admin/hospedagem", search: {} });
 
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
+  // Agrupa grafias diferentes da mesma unidade (maiúscula/minúscula, apelidos do Drake) numa
+  // única entrada — mesmo mecanismo já usado no Timesheet Offshore, pra não listar "SAFE
+  // ZEPHYRUS" e "Safe Zephyrus" como se fossem unidades distintas no formulário.
+  const unidadeCanonMap = useMemo(() => buildUnidadeCanonMap(periodos), [periodos]);
   const unidadeOptions = useMemo(() => {
+    const porChave = new Map<string, string>();
+    periodos.forEach((p) => {
+      const canon = canonUnidade(p.unidade_operacional, unidadeCanonMap);
+      if (canon) porChave.set(canon.toUpperCase(), canon);
+    });
+    // As grafias fixas prevalecem quando colidem com o histórico — evitam que a mesma unidade
+    // apareça duas vezes só porque o Drake gravou com caixa diferente.
+    UNIDADES_OPERACIONAIS_FIXAS.forEach((nome) => porChave.set(nome.toUpperCase(), nome));
     // "Outros" sempre por último — não é unidade real, é só o catch-all pra quem não se encaixa
     // em nenhuma das operacionais, então não faz sentido ordenar alfabeticamente junto.
-    const nomeadas = Array.from(new Set([
-      ...UNIDADES_OPERACIONAIS_FIXAS,
-      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
-    ])).sort();
-    return [...nomeadas, "Outros"];
-  }, [periodos]);
+    return [...Array.from(porChave.values()).sort(), "Outros"];
+  }, [periodos, unidadeCanonMap]);
 
   if (l1 || l2 || l3 || l4) {
     return (
