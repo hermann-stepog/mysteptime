@@ -2796,6 +2796,47 @@ function DashboardTab({ colaboradores, periodos }: {
     });
     return m;
   }, [timesheetEmbarques]);
+
+  // Nomeações que já chegaram em "Equipe Formada" alimentam o cartão "Programados" no dia real
+  // de embarque (period_start) — pedido dela: alguém aprovado em Nomeações antes de existir
+  // qualquer período no Histograma não aparecia em lugar nenhum como "programado" até o Drake
+  // confirmar o embarque de verdade. Só concluídas (outcome="concluida") — cancelada não é
+  // embarque programado. Cruza com quem já tem um período "P" no Histograma pra nunca contar a
+  // mesma pessoa duas vezes (ver "sincronizarProgramados" em Nomeações).
+  const { data: nominationsEquipeFormada = [] } = useQuery({
+    queryKey: ["nominations-equipe-formada-dashboard"],
+    queryFn: () =>
+      selectAllPages<{ id: string; period_start: string | null }>((from, to) =>
+        (supabase as any)
+          .from("nominations")
+          .select("id, period_start")
+          .eq("current_status", "equipe_formada")
+          .eq("outcome", "concluida")
+          .range(from, to),
+      ),
+  });
+  const { data: nomineesEquipeFormada = [] } = useQuery({
+    queryKey: ["nomination-nominees-equipe-formada-dashboard"],
+    queryFn: () =>
+      selectAllPages<{ nomination_id: string; colaborador_id: string }>((from, to) =>
+        (supabase as any)
+          .from("nomination_nominees")
+          .select("nomination_id, colaborador_id")
+          .eq("is_active", true)
+          .range(from, to),
+      ),
+  });
+  // colaborador_id -> data de embarque programada, só pra quem está numa nomeação Equipe
+  // Formada concluída (o Map descarta automaticamente qualquer outra nomeação do nomeado).
+  const dataProgramadaViaNomeacaoPorColaborador = useMemo(() => {
+    const periodoPorNomination = new Map(nominationsEquipeFormada.map((n) => [n.id, n.period_start]));
+    const m = new Map<string, string>();
+    nomineesEquipeFormada.forEach((nn) => {
+      const dataEmbarque = periodoPorNomination.get(nn.nomination_id);
+      if (dataEmbarque) m.set(nn.colaborador_id, dataEmbarque);
+    });
+    return m;
+  }, [nominationsEquipeFormada, nomineesEquipeFormada]);
   // O filtro nasce sempre fixado em hoje (De=Até=hoje) — assim os cartões, a rosquinha e
   // tudo mais partem sempre do mesmo dia de referência, sem divergir entre "foto de hoje" e
   // "total do período". Continua editável pra ela investigar um dia específico do passado
@@ -2909,22 +2950,30 @@ function DashboardTab({ colaboradores, periodos }: {
   // Programado (mobilização já lançada, a vaga já está reservada pra esse colaborador mesmo
   // antes do Drake confirmar o embarque).
   const kpis = useMemo(() => {
-    let embarcados = 0, programados = 0, disponiveis = 0, naoDisp = 0, folga = 0, naBase = 0, ocupados = 0;
+    let embarcados = 0, disponiveis = 0, naoDisp = 0, folga = 0, naBase = 0, ocupados = 0;
+    const programadosIds = new Set<string>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       const bucket = toOldBucket(result.status);
       if (bucket === "E") embarcados++;
       else if (bucket === "FO") folga++;
-      else if (bucket === "P") programados++;
+      else if (bucket === "P") programadosIds.add(c.id);
       else if (bucket === "B") disponiveis++;
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
       if (ehUnidadeBase(result.periodo?.unidade_operacional)) naBase++;
       if (isOcupadoBucket(bucket)) ocupados++;
     });
+    // Soma quem chegou em Equipe Formada nas Nomeações com embarque programado justo pra
+    // pobReferenceDate — cobre inclusive quem ainda não tem nenhum período no Histograma (por
+    // isso não fica restrito a activeColaboradores). Quem já tem período "P" já entrou no Set
+    // acima pelo mesmo colaborador_id, então não duplica.
+    dataProgramadaViaNomeacaoPorColaborador.forEach((dataEmbarque, colaboradorId) => {
+      if (dataEmbarque === pobReferenceDate) programadosIds.add(colaboradorId);
+    });
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
-    return { total, embarcados, programados, disponiveis, naoDisp, folga, naBase, utilizacao };
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, naBase, utilizacao };
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador]);
 
   const colaboradoresNaBase = useMemo(() => activeColaboradores
     .filter((c) => {
