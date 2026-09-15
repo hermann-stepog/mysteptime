@@ -27,7 +27,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, NomeUsuarioMultiField, MotivoField, SelectComOutro, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, FormaPagamentoField } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, NomeUsuarioMultiField, MotivoField, SelectComOutro, usePessoasAdicionais, useUnidadesAdicionais, FormaPagamentoField } from "@/components/LogisticaFormFields";
 import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Download, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
@@ -188,9 +188,8 @@ function HotelCombobox({ hoteis, value, onChange }: {
 
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", hotelId: "", checkIn: "", checkOut: "",
-  valorDiaria: "", motivo: "", formaPagamento: "", observacoes: "",
-  nf: "", fornecedor: "", cobrado: false, statusLancamento: "", faturado: false,
-  usuarioFaturamento: "", dataFaturamento: "",
+  motivo: "", formaPagamento: "", observacoes: "",
+  nf: "", dataFaturamento: "",
 };
 
 // ─── Dialog: Nova hospedagem / Editar ───────────────────────────────────────
@@ -203,31 +202,33 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const qc = useQueryClient();
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
+  // Valor digitado direto por unidade/BSP (não mais % de um total nem diária x dias) — o Total
+  // é sempre a soma do que for digitado aqui, valendo pra uma ou mais unidades/BSPs.
+  const [valorPrincipal, setValorPrincipal] = useState("");
+  const [valor2, setValor2] = useState("");
+  const [valor3, setValor3] = useState("");
   const diariasAtual = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
-  const valorDiariaNum = Math.round((Number(f.valorDiaria) || 0) * 100) / 100;
-  const valorTotal = Math.round(valorDiariaNum * diariasAtual * 100) / 100;
-  const rateio = useRateioComplementar(valorTotal);
   const pessoas = usePessoasAdicionais();
   const unidades = useUnidadesAdicionais();
+  const valorPrincipalNum = Math.round((Number(valorPrincipal) || 0) * 100) / 100;
+  const valor2Num = unidades.unidades[0] ? Math.round((Number(valor2) || 0) * 100) / 100 : 0;
+  const valor3Num = unidades.unidades[1] ? Math.round((Number(valor3) || 0) * 100) / 100 : 0;
+  const valorTotal = Math.round((valorPrincipalNum + valor2Num + valor3Num) * 100) / 100;
+  const diarias = diariasAtual;
+  const valorDiariaNum = diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal;
 
   if (open && editing && bound !== editing.id) {
     setF({
       unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: editing.nome_usuario, hotelId: editing.hotel_id,
-      checkIn: editing.check_in, checkOut: editing.check_out, valorDiaria: String(editing.valor_diaria ?? 0),
+      checkIn: editing.check_in, checkOut: editing.check_out,
       motivo: editing.motivo ?? "", formaPagamento: editing.forma_pagamento ?? "", observacoes: editing.observacoes ?? "",
-      nf: editing.nf ?? "", fornecedor: editing.fornecedor ?? "", cobrado: editing.cobrado ?? false,
-      statusLancamento: editing.status_lancamento ?? "", faturado: editing.faturado ?? false,
-      usuarioFaturamento: editing.usuario_faturamento ?? "", dataFaturamento: editing.data_faturamento ?? "",
+      nf: editing.nf ?? "", dataFaturamento: editing.data_faturamento ?? "",
     });
-    // Reconstrói o percentual a partir do valor já gravado (o que fica salvo é sempre o
-    // valor calculado, o percentual é só conveniência de preenchimento — ver useRateioComplementar).
-    const totalEditado = editing.valor_total || 0;
-    if (editing.bsp_2 && editing.valor_2 && totalEditado > 0) {
-      rateio.setAtivo(true); rateio.setBsp2(editing.bsp_2); rateio.setPercentual2(String(Math.round((editing.valor_2 / totalEditado) * 10000) / 100));
-    }
-    if (editing.bsp_3 && editing.valor_3 && totalEditado > 0) {
-      rateio.setAtivo(true); rateio.setBsp3(editing.bsp_3); rateio.setPercentual3(String(Math.round((editing.valor_3 / totalEditado) * 10000) / 100));
-    }
+    const v2 = editing.bsp_2 ? (editing.valor_2 ?? 0) : 0;
+    const v3 = editing.bsp_3 ? (editing.valor_3 ?? 0) : 0;
+    setValorPrincipal(String(Math.round(((editing.valor_total || 0) - v2 - v3) * 100) / 100));
+    setValor2(editing.bsp_2 ? String(v2) : "");
+    setValor3(editing.bsp_3 ? String(v3) : "");
     unidades.replace([
       ...(editing.bsp_2 ? [{ unidade: editing.unidade_2 || editing.unidade, bsp: editing.bsp_2 }] : []),
       ...(editing.bsp_3 ? [{ unidade: editing.unidade_3 || editing.unidade, bsp: editing.bsp_3 }] : []),
@@ -237,12 +238,15 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   // Vem preenchido quando aberto a partir de outro módulo (ex.: Passagens Aéreas, ao marcar
   // uma passagem como Cancelada) — só unidade/bsp/nome/motivo, o resto (hotel/datas/valor)
   // continua em branco pra digitação normal.
-  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, ...prefill }); rateio.reset(); pessoas.reset(); unidades.reset(); setBound("novo"); }
+  if (open && !editing && bound !== "novo") {
+    setF({ ...FORM_VAZIO, ...prefill });
+    setValorPrincipal(""); setValor2(""); setValor3("");
+    pessoas.reset(); unidades.reset(); setBound("novo");
+  }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
   const hotelSelecionado = hoteis.find((h) => h.id === f.hotelId);
-  const diarias = diariasAtual;
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -254,34 +258,37 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       if (diarias <= 0) throw new Error("Check-out precisa ser depois do check-in.");
       if (unidades.validas.length > 2) throw new Error("O lançamento aceita até três unidades/BSPs.");
       if (unidades.unidades.some((item, index) => {
-        const percentual = index === 0 ? rateio.percentual2 : rateio.percentual3;
-        return !item.unidade.trim() && (!!item.bsp.trim() || !!percentual);
+        const valor = index === 0 ? valor2 : valor3;
+        return !item.unidade.trim() && (!!item.bsp.trim() || !!valor);
       })) {
         throw new Error("Informe a unidade de cada rateio adicionado.");
       }
       if (unidades.validas.some((item) => !item.bsp.trim())) throw new Error("Informe o BSP de cada unidade adicionada.");
-      if (unidades.validas.length >= 1 && rateio.valor2 <= 0) throw new Error("Informe o percentual da segunda unidade/BSP.");
-      if (unidades.validas.length >= 2 && rateio.valor3 <= 0) throw new Error("Informe o percentual da terceira unidade/BSP.");
-      if (rateio.restante < 0) throw new Error("A soma dos percentuais não pode ultrapassar 100%.");
+      if (unidades.validas.length >= 1 && valor2Num <= 0) throw new Error("Informe o valor da segunda unidade/BSP.");
+      if (unidades.validas.length >= 2 && valor3Num <= 0) throw new Error("Informe o valor da terceira unidade/BSP.");
       const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(Boolean);
       const segundaUnidade = unidades.validas[0];
       const terceiraUnidade = unidades.validas[1];
-      const payload = {
+      const payload: Record<string, unknown> = {
         unidade: f.unidade, bsp: f.bsp, nome_usuario: nomes.join(", "), hotel_id: f.hotelId,
         check_in: f.checkIn, check_out: f.checkOut, diarias,
         valor_diaria: valorDiariaNum,
-
         valor_total: valorTotal, motivo: f.motivo.trim() || null, forma_pagamento: f.formaPagamento || null, observacoes: f.observacoes.trim() || null,
         unidade_2: segundaUnidade?.unidade || null,
         unidade_3: terceiraUnidade?.unidade || null,
         bsp_2: segundaUnidade?.bsp.trim() || null,
         bsp_3: terceiraUnidade?.bsp.trim() || null,
-        valor_2: segundaUnidade ? rateio.valor2 : null,
-        valor_3: terceiraUnidade ? rateio.valor3 : null,
-        nf: f.nf.trim() || null, fornecedor: f.fornecedor.trim() || null, cobrado: f.cobrado,
-        status_lancamento: f.statusLancamento.trim() || null, faturado: f.faturado,
-        usuario_faturamento: f.usuarioFaturamento.trim() || null, data_faturamento: f.dataFaturamento || null,
+        valor_2: segundaUnidade ? valor2Num : null,
+        valor_3: terceiraUnidade ? valor3Num : null,
+        nf: f.nf.trim() || null, data_faturamento: f.dataFaturamento || null,
       };
+      // Fornecedor/Cobrado/Status Lanç./Faturado/Usuário Faturamento saíram do formulário —
+      // numa hospedagem NOVA entram com um valor padrão neutro; ao EDITAR, ficam de fora do
+      // payload de propósito, pra não apagar o que já estava preenchido (ex.: vindo da
+      // importação da planilha de custos, que continua populando essas colunas normalmente).
+      if (!editing) {
+        Object.assign(payload, { fornecedor: null, cobrado: false, status_lancamento: null, faturado: false, usuario_faturamento: null });
+      }
       if (editing) {
         const { error } = await supabase.from("hospedagens").update(payload).eq("id", editing.id);
         if (error) throw error;
@@ -306,6 +313,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
         <DialogHeader><DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle></DialogHeader>
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <NomeUsuarioMultiField
+            label="Nome do colaborador"
             value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
             colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
             helpText="Os colaboradores adicionados pertencem ao mesmo lançamento e não multiplicam o valor do boleto."
@@ -314,10 +322,10 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <Label className="text-xs">Distribuição por unidade / BSP</Label>
-                <p className="text-[11px] text-muted-foreground">O valor total é dividido entre os centros de custo deste mesmo lançamento.</p>
+                <p className="text-[11px] text-muted-foreground">Digite o valor de cada unidade/BSP deste lançamento — o Total soma tudo.</p>
               </div>
               {!editing && unidades.unidades.length < 2 && (
-                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => { unidades.add(); rateio.setAtivo(true); }}>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => unidades.add()}>
                   + unidade / BSP
                 </Button>
               )}
@@ -333,15 +341,14 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
               </div>
               <div>
                 <Label className="text-[11px]">Valor</Label>
-                <div className="flex h-9 items-center text-xs font-medium">{fmtMoney(rateio.restante)}</div>
+                <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={valorPrincipal} onChange={(e) => setValorPrincipal(e.target.value)} />
               </div>
             </div>
             {unidades.unidades.map((item, index) => {
-              const percentual = index === 0 ? rateio.percentual2 : rateio.percentual3;
-              const setPercentual = index === 0 ? rateio.setPercentual2 : rateio.setPercentual3;
-              const valor = index === 0 ? rateio.valor2 : rateio.valor3;
+              const valorItem = index === 0 ? valor2 : valor3;
+              const setValorItem = index === 0 ? setValor2 : setValor3;
               return (
-                <div key={index} className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_100px_auto] sm:items-end">
+                <div key={index} className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_auto] sm:items-end">
                   <div>
                     <Label className="text-[11px]">Unidade {index + 2}</Label>
                     <SelectComOutro value={item.unidade} onChange={(v) => unidades.update(index, { unidade: v, bsp: "" })} options={unidadeOptions} placeholder="Unidade" manualPlaceholder="Digitar unidade" />
@@ -351,25 +358,21 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
                     <SelectComOutro value={item.bsp} onChange={(v) => unidades.update(index, { bsp: v })} options={bspOptionsForUnidade(periodosE, item.unidade || "all")} placeholder="BSP" manualPlaceholder="Digitar BSP" disabled={!item.unidade} />
                   </div>
                   <div>
-                    <Label className="text-[11px]">%</Label>
-                    <Input type="number" step="0.01" min="0" max="100" inputMode="decimal" value={percentual} onChange={(e) => setPercentual(e.target.value)} placeholder="0" />
-                  </div>
-                  <div>
                     <Label className="text-[11px]">Valor</Label>
-                    <div className="flex h-9 items-center text-xs font-medium">{fmtMoney(valor)}</div>
+                    <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={valorItem} onChange={(e) => setValorItem(e.target.value)} />
                   </div>
                   <Button type="button" variant="ghost" size="sm" className="h-9 px-2" onClick={() => {
                     unidades.remove(index);
-                    if (index === 0 && unidades.unidades.length === 2) {
-                      rateio.setPercentual2(rateio.percentual3);
-                      rateio.setPercentual3("");
-                    } else if (index === 0) rateio.setPercentual2("");
-                    else rateio.setPercentual3("");
+                    if (index === 0 && unidades.unidades.length === 2) { setValor2(valor3); setValor3(""); }
+                    else if (index === 0) setValor2("");
+                    else setValor3("");
                   }}>✕</Button>
                 </div>
               );
             })}
-            {rateio.restante < 0 && <p className="text-xs font-medium text-destructive">Os percentuais ultrapassam 100% do valor total.</p>}
+            <p className="text-right text-sm font-medium">
+              Total: {fmtMoney(valorTotal)}{diariasAtual > 0 ? ` (${diariasAtual} diária${diariasAtual > 1 ? "s" : ""})` : ""}
+            </p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -393,19 +396,6 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <Label className="text-xs">Valor da diária</Label>
-              <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={f.valorDiaria} onChange={(e) => setF({ ...f, valorDiaria: e.target.value })} />
-            </div>
-            <div>
-              <Label className="text-xs">Total</Label>
-              <div className="flex h-9 items-center text-sm font-medium">
-                {fmtMoney(valorTotal)}{diariasAtual > 0 ? ` (${diariasAtual} diária${diariasAtual > 1 ? "s" : ""})` : ""}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
               <Label className="text-xs">Motivo</Label>
               <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
             </div>
@@ -420,26 +410,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label className="text-xs">Fornecedor</Label><Input value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value })} /></div>
             <div><Label className="text-xs">NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label className="text-xs">Status Lanç.</Label><Input value={f.statusLancamento} onChange={(e) => setF({ ...f, statusLancamento: e.target.value })} placeholder="Ex.: Definitivo" /></div>
-            <div className="flex items-end gap-2 pb-1.5">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={f.cobrado} onChange={(e) => setF({ ...f, cobrado: e.target.checked })} />
-                Cobrado do cliente
-              </label>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="flex items-end gap-2 pb-1.5">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={f.faturado} onChange={(e) => setF({ ...f, faturado: e.target.checked })} />
-                Faturado
-              </label>
-            </div>
-            <div><Label className="text-xs">Usuário Faturamento</Label><Input value={f.usuarioFaturamento} onChange={(e) => setF({ ...f, usuarioFaturamento: e.target.value })} /></div>
             <div><Label className="text-xs">Data Faturamento</Label><Input type="date" value={f.dataFaturamento} onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })} /></div>
           </div>
         </div>
