@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // Tabelas nominations/nomination_nominees/weld_type_config/weld_material_config/
@@ -40,7 +41,7 @@ import {
   Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Grid3x3, RefreshCw,
+  Grid3x3, RefreshCw, Upload,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -60,6 +61,7 @@ import { resolverFuncaoEmbarque, type TimesheetEmbarque } from "@/lib/timesheetO
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
+import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
 
 export const Route = createFileRoute("/admin/nominations")({ head: () => pageTitle("Nomeações"), component: NominationsPage });
 
@@ -2651,6 +2653,271 @@ function mapaHeatColor(count: number, max: number): { bg: string; text: string }
   return { bg: `rgba(37, 99, 235, ${alpha.toFixed(2)})`, text: t > 0.55 ? "#ffffff" : "#1e3a8a" };
 }
 
+// ─── Importar Solicitações (planilha -> nominations em "Solicitação") ───────────
+// Diferente do "Sincronizar Programados" (que nasce direto em Equipe Formada, pra gente que
+// já passou pelo processo fora do sistema), aqui cada linha é uma solicitação NOVA de
+// verdade — entra exatamente como se tivesse sido criada à mão em "Nova Solicitação" (mesmos
+// campos, mesmo e-mail de "Solicitação criada"), só que em lote. Fica na própria etapa de
+// Solicitação; segue o fluxo normal do kanban a partir daí.
+interface SolicitacaoImportRow {
+  rowNumber: number;
+  funcao: string;
+  quantidade: string;
+  unidade: string;
+  bsp: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  client: string | null;
+  pmName: string | null;
+  notes: string | null;
+}
+
+const SOLICITACAO_HEADER_MAP: Record<string, keyof Omit<SolicitacaoImportRow, "rowNumber">> = {
+  "funcao": "funcao",
+  "quantidade": "quantidade",
+  "qtd": "quantidade",
+  "unidade": "unidade",
+  "bsp": "bsp",
+  "data inicio": "periodStart",
+  "inicio": "periodStart",
+  "data de inicio": "periodStart",
+  "data fim": "periodEnd",
+  "fim": "periodEnd",
+  "data de fim": "periodEnd",
+  "termino": "periodEnd",
+  "cliente": "client",
+  "solicitante": "pmName",
+  "pm": "pmName",
+  "observacoes": "notes",
+  "notas": "notes",
+};
+
+function parseSolicitacoesWorkbook(buf: ArrayBuffer): SolicitacaoImportRow[] {
+  const wb = XLSX.read(buf, { cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
+  if (rows.length < 2) throw new Error("Planilha vazia.");
+
+  const headerRow = rows[0].map(normalizeHeader);
+  const colIndex: Partial<Record<string, number>> = {};
+  headerRow.forEach((h, i) => {
+    const key = SOLICITACAO_HEADER_MAP[h];
+    if (key && colIndex[key] === undefined) colIndex[key] = i;
+  });
+  const required = ["funcao", "unidade", "bsp"] as const;
+  const missing = required.filter((k) => colIndex[k] === undefined);
+  if (missing.length) throw new Error(`Colunas não encontradas na planilha: ${missing.join(", ")}.`);
+
+  const get = (r: unknown[], k: string): string => {
+    const i = colIndex[k];
+    return i === undefined ? "" : String(r[i] ?? "").trim();
+  };
+  const getDate = (r: unknown[], k: string): string | null => {
+    const i = colIndex[k];
+    return i === undefined ? null : parseExcelDate(r[i]);
+  };
+
+  return rows
+    .slice(1)
+    .map((r, idx) => ({ r, rowNumber: idx + 2 }))
+    .filter(({ r }) => r.some((c) => c !== ""))
+    .map(({ r, rowNumber }): SolicitacaoImportRow => ({
+      rowNumber,
+      funcao: get(r, "funcao"),
+      quantidade: get(r, "quantidade"),
+      unidade: get(r, "unidade"),
+      bsp: get(r, "bsp"),
+      periodStart: getDate(r, "periodStart"),
+      periodEnd: getDate(r, "periodEnd"),
+      client: get(r, "client") || null,
+      pmName: get(r, "pmName") || null,
+      notes: get(r, "notes") || null,
+    }));
+}
+
+interface SolicitacaoImportRejection { rowNumber: number; motivo: string }
+
+function validateSolicitacoesRows(rows: SolicitacaoImportRow[]): { aceitas: SolicitacaoImportRow[]; rejeitadas: SolicitacaoImportRejection[] } {
+  const aceitas: SolicitacaoImportRow[] = [];
+  const rejeitadas: SolicitacaoImportRejection[] = [];
+  rows.forEach((row) => {
+    if (!row.funcao || !row.unidade || !row.bsp) {
+      rejeitadas.push({ rowNumber: row.rowNumber, motivo: "Faltando Função, Unidade ou BSP." });
+      return;
+    }
+    aceitas.push(row);
+  });
+  return { aceitas, rejeitadas };
+}
+
+type ImportarSolicitacoesStep = "escolher" | "conferindo" | "confirmado";
+
+function ImportarSolicitacoesDialog({ onClose }: { onClose: () => void }) {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<ImportarSolicitacoesStep>("escolher");
+  const [aceitas, setAceitas] = useState<SolicitacaoImportRow[]>([]);
+  const [rejeitadas, setRejeitadas] = useState<SolicitacaoImportRejection[]>([]);
+  const [resultado, setResultado] = useState<{ criadas: number; falhas: number } | null>(null);
+  const [lendoArquivo, setLendoArquivo] = useState(false);
+
+  const handleFile = async (file: File) => {
+    setLendoArquivo(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const parsedRows = parseSolicitacoesWorkbook(buf);
+      const { aceitas: ok, rejeitadas: no } = validateSolicitacoesRows(parsedRows);
+      setAceitas(ok);
+      setRejeitadas(no);
+      setStep("conferindo");
+    } catch (err: any) {
+      notify.error(err.message ?? "Erro ao ler a planilha.");
+    } finally {
+      setLendoArquivo(false);
+    }
+  };
+
+  const importar = useMutation({
+    mutationFn: async () => {
+      const pmNamePadrao = profile?.full_name ?? profile?.email ?? "Solicitante";
+      let criadas = 0;
+      let falhas = 0;
+
+      for (const row of aceitas) {
+        const funcao = row.funcao.trim();
+        const isWelder = isSoldador(funcao);
+        const pmName = row.pmName?.trim() || pmNamePadrao;
+
+        const { data, error } = await supabase.from("nominations").insert({
+          pm_name: pmName,
+          funcao,
+          quantidade: Math.max(1, Number(row.quantidade) || 1),
+          unidade: row.unidade.trim(),
+          bsp: row.bsp.trim(),
+          weld_type: null,
+          weld_material: null,
+          period_start: row.periodStart,
+          period_end: row.periodEnd,
+          project: null,
+          client: row.client,
+          notes: row.notes,
+          requires_quality_validation: isWelder,
+          current_status: "solicitacao",
+        }).select().single();
+        if (error || !data) { falhas++; continue; }
+
+        await supabase.from("nomination_status_history").insert({
+          nomination_id: data.id,
+          status: "solicitacao",
+          changed_by_name: pmName,
+          notes: "Solicitação criada via importação de planilha",
+        });
+        await notifyStageAdvance(data as Nomination, "solicitacao");
+        criadas++;
+      }
+
+      return { criadas, falhas };
+    },
+    onSuccess: (r) => {
+      setResultado(r);
+      setStep("confirmado");
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+    },
+    onError: (err: any) => notify.error(err.message ?? "Erro ao importar."),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader><DialogTitle>Importar Solicitações de Nomeação</DialogTitle></DialogHeader>
+
+        {step === "escolher" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Colunas esperadas: Função, Quantidade (opcional, padrão 1), Unidade, BSP, Data Início (opcional),
+              Data Fim (opcional), Cliente (opcional), Solicitante (opcional — se vazio, usa quem está importando),
+              Observações (opcional). Cada linha entra como uma nova solicitação, na etapa "Solicitação".
+            </p>
+            <input
+              ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
+            />
+            <Button onClick={() => fileRef.current?.click()} loading={lendoArquivo}>
+              <Upload className="mr-1.5 h-3.5 w-3.5" /> Escolher arquivo
+            </Button>
+          </div>
+        )}
+
+        {step === "conferindo" && (
+          <div className="space-y-3">
+            <div className="flex gap-4 text-sm">
+              <span className="font-medium text-emerald-700">{aceitas.length} linha(s) pronta(s) pra importar</span>
+              {rejeitadas.length > 0 && <span className="font-medium text-destructive">{rejeitadas.length} linha(s) rejeitada(s)</span>}
+            </div>
+            {rejeitadas.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow><TableHead>Linha</TableHead><TableHead>Motivo</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rejeitadas.map((r) => (
+                      <TableRow key={r.rowNumber}>
+                        <TableCell>{r.rowNumber}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.motivo}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {aceitas.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow><TableHead>Função</TableHead><TableHead>Qtd.</TableHead><TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Solicitante</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {aceitas.map((row) => (
+                      <TableRow key={row.rowNumber}>
+                        <TableCell>{row.funcao}</TableCell>
+                        <TableCell>{Math.max(1, Number(row.quantidade) || 1)}</TableCell>
+                        <TableCell>{row.unidade}</TableCell>
+                        <TableCell>{row.bsp}</TableCell>
+                        <TableCell>{row.pmName || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === "confirmado" && resultado && (
+          <div className="space-y-2 text-sm">
+            <p className="font-medium text-emerald-700">{resultado.criadas} solicitação(ões) criada(s) com sucesso.</p>
+            {resultado.falhas > 0 && <p className="font-medium text-destructive">{resultado.falhas} linha(s) falharam ao gravar — tente novamente só com elas.</p>}
+          </div>
+        )}
+
+        <DialogFooter>
+          {step === "conferindo" && (
+            <>
+              <Button variant="outline" onClick={onClose}>Cancelar</Button>
+              <Button onClick={() => importar.mutate()} loading={importar.isPending} disabled={aceitas.length === 0}>
+                Confirmar importação ({aceitas.length})
+              </Button>
+            </>
+          )}
+          {(step === "escolher" || step === "confirmado") && <Button variant="outline" onClick={onClose}>Fechar</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   nominations: Nomination[];
   nomineesByNomination: Map<string, NominationNominee[]>;
@@ -2658,6 +2925,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const [drill, setDrill] = useState<{ bsp: string; coluna: MapaColuna } | null>(null);
+  const [showImportarSolicitacoes, setShowImportarSolicitacoes] = useState(false);
 
   // Cronograma completo (dia e hora de cada etapa) mostrado dentro de cada nomeação no
   // detalhe do drill-down — mesmo dado/timeline que já existe em "Etapa atual" > Histórico
@@ -2891,10 +3159,16 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         <p className="text-sm text-muted-foreground">
           Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo. Equipe Formada some daqui automaticamente 5 dias após a data programada de embarque.
         </p>
-        <Button size="sm" variant="outline" onClick={() => sincronizarProgramados.mutate()} loading={sincronizarProgramados.isPending}>
-          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do Histograma
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowImportarSolicitacoes(true)}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar Solicitações
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => sincronizarProgramados.mutate()} loading={sincronizarProgramados.isPending}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do Histograma
+          </Button>
+        </div>
       </div>
+      {showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
       <TooltipProvider delayDuration={150}>
         <Card className="overflow-x-auto p-2">
           <table className="w-full border-separate border-spacing-1 text-sm">
