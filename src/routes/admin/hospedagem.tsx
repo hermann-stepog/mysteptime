@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 import { pageTitle } from "@/lib/pageTitle";
 import { selectAllPages } from "@/lib/supabasePaginate";
-import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
   computeDiarias, localizacaoHotel,
@@ -633,7 +633,10 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     // Sobreposição de período — basta a estadia cruzar algum dia do intervalo filtrado.
     (!periodoDe || h.check_out >= periodoDe) &&
     (!periodoAte || h.check_in <= periodoAte) &&
-    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade === filterUnidade)) &&
+    // Comparação por chave normalizada (não texto exato) — do contrário, lançamentos antigos
+    // gravados com uma grafia diferente da mesma unidade (ex.: "Safe Zephyrus" antes de existir
+    // a lista fixa "SAFE ZEPHYRUS") sumiriam do filtro mesmo sendo a unidade certa.
+    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase())) &&
     (filterBsp === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
     (filterHotel === "all" || h.hotel_id === filterHotel) &&
     (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
@@ -1202,15 +1205,23 @@ function HospedagemPage() {
   const limparPrefill = () => navigate({ to: "/admin/hospedagem", search: {} });
 
   const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
+  // Agrupa grafias diferentes da mesma unidade (maiúscula/minúscula, apelidos do Drake) numa
+  // única entrada — mesmo mecanismo já usado no Timesheet Offshore, pra não listar "SAFE
+  // ZEPHYRUS" e "Safe Zephyrus" como se fossem unidades distintas no formulário.
+  const unidadeCanonMap = useMemo(() => buildUnidadeCanonMap(periodos), [periodos]);
   const unidadeOptions = useMemo(() => {
+    const porChave = new Map<string, string>();
+    periodos.forEach((p) => {
+      const canon = canonUnidade(p.unidade_operacional, unidadeCanonMap);
+      if (canon) porChave.set(canon.toUpperCase(), canon);
+    });
+    // As grafias fixas prevalecem quando colidem com o histórico — evitam que a mesma unidade
+    // apareça duas vezes só porque o Drake gravou com caixa diferente.
+    UNIDADES_OPERACIONAIS_FIXAS.forEach((nome) => porChave.set(nome.toUpperCase(), nome));
     // "Outros" sempre por último — não é unidade real, é só o catch-all pra quem não se encaixa
     // em nenhuma das operacionais, então não faz sentido ordenar alfabeticamente junto.
-    const nomeadas = Array.from(new Set([
-      ...UNIDADES_OPERACIONAIS_FIXAS,
-      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
-    ])).sort();
-    return [...nomeadas, "Outros"];
-  }, [periodos]);
+    return [...Array.from(porChave.values()).sort(), "Outros"];
+  }, [periodos, unidadeCanonMap]);
 
   if (l1 || l2 || l3 || l4) {
     return (
