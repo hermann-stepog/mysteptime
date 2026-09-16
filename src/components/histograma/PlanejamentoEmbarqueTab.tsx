@@ -494,13 +494,28 @@ export function PlanejamentoEmbarqueTab() {
   const especialidadesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.especialidade).filter((v): v is string => !!v))).sort(), [registros]);
   const statusExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.status).filter((v): v is string => !!v))).sort(), [registros]);
 
-  const linhas = useMemo(() => {
+  // Base sem o filtro de Status: é a partir dela que os cartões contam cada status, senão
+  // ao clicar num cartão todos os outros zerariam.
+  const linhasSemStatus = useMemo(() => {
     return registros
       .filter((r) => filterColaborador.length === 0 || filterColaborador.includes(r.nome))
       .filter((r) => filterUnidade.length === 0 || (r.unidade != null && filterUnidade.includes(r.unidade)))
       .filter((r) => filterBsp.length === 0 || (r.bsp != null && filterBsp.includes(r.bsp)))
       .filter((r) => filterFuncao.length === 0 || (r.funcao != null && filterFuncao.includes(r.funcao)))
-      .filter((r) => filterEspecialidade.length === 0 || (r.especialidade != null && filterEspecialidade.includes(r.especialidade)))
+      .filter((r) => filterEspecialidade.length === 0 || (r.especialidade != null && filterEspecialidade.includes(r.especialidade)));
+  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade]);
+
+  const contagemStatus = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const r of linhasSemStatus) {
+      const chave = (r.status ?? "").trim() || "Sem status";
+      mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
+    }
+    return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"));
+  }, [linhasSemStatus]);
+
+  const linhas = useMemo(() => {
+    return linhasSemStatus
       .filter((r) => filterStatus.length === 0 || (r.status != null && filterStatus.includes(r.status)))
       .sort((a, b) => {
         if (!sortColumn) return a.nome.localeCompare(b.nome, "pt-BR");
