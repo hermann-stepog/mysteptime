@@ -1415,6 +1415,8 @@ export type Database = {
           observacoes: string | null
           status_lancamento: string | null
           unidade: string
+          unidade_2: string | null
+          unidade_3: string | null
           usuario_faturamento: string | null
           valor_2: number | null
           valor_3: number | null
@@ -1442,6 +1444,8 @@ export type Database = {
           observacoes?: string | null
           status_lancamento?: string | null
           unidade: string
+          unidade_2?: string | null
+          unidade_3?: string | null
           usuario_faturamento?: string | null
           valor_2?: number | null
           valor_3?: number | null
@@ -1469,6 +1473,8 @@ export type Database = {
           observacoes?: string | null
           status_lancamento?: string | null
           unidade?: string
+          unidade_2?: string | null
+          unidade_3?: string | null
           usuario_faturamento?: string | null
           valor_2?: number | null
           valor_3?: number | null
@@ -2179,6 +2185,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      planejamento_embarque: {
+        Row: {
+          bsp: string | null
+          created_at: string
+          desembarque: string | null
+          embarque: string | null
+          especialidade: string | null
+          ferias_fim: string | null
+          ferias_inicio: string | null
+          folga_fim: string | null
+          folga_inicio: string | null
+          funcao: string | null
+          id: string
+          matricula: string | null
+          nome: string
+          status: string | null
+          unidade: string | null
+        }
+        Insert: {
+          bsp?: string | null
+          created_at?: string
+          desembarque?: string | null
+          embarque?: string | null
+          especialidade?: string | null
+          ferias_fim?: string | null
+          ferias_inicio?: string | null
+          folga_fim?: string | null
+          folga_inicio?: string | null
+          funcao?: string | null
+          id?: string
+          matricula?: string | null
+          nome: string
+          status?: string | null
+          unidade?: string | null
+        }
+        Update: {
+          bsp?: string | null
+          created_at?: string
+          desembarque?: string | null
+          embarque?: string | null
+          especialidade?: string | null
+          ferias_fim?: string | null
+          ferias_inicio?: string | null
+          folga_fim?: string | null
+          folga_inicio?: string | null
+          funcao?: string | null
+          id?: string
+          matricula?: string | null
+          nome?: string
+          status?: string | null
+          unidade?: string | null
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
