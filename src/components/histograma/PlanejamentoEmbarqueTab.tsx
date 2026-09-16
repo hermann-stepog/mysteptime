@@ -23,7 +23,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { Search, X, Download, Upload, Pencil, Trash2, Users } from "lucide-react";
+import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus } from "lucide-react";
 
 // ─── Planejamento de Embarque ───────────────────────────────────────────────────────────────
 // Deixou de ser uma visão derivada de hist_novo_periodos/hist_novo_colaboradores (dados do
@@ -110,15 +110,17 @@ function DataPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave:
   );
 }
 
-// ─── Editar registro completo ───────────────────────────────────────────────────────────────
-function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow; onClose: () => void }) {
+// ─── Editar registro completo / cadastrar novo colaborador ──────────────────────────────────
+// row null = cadastro de colaborador novo (insert); row preenchido = edição (update) — mesmo
+// formulário nos dois casos pra não duplicar os 12 campos.
+function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow | null; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    matricula: row.matricula ?? "", nome: row.nome, unidade: row.unidade ?? "", bsp: row.bsp ?? "",
-    funcao: row.funcao ?? "", especialidade: row.especialidade ?? "",
-    embarque: row.embarque ?? "", desembarque: row.desembarque ?? "",
-    folga_inicio: row.folga_inicio ?? "", folga_fim: row.folga_fim ?? "",
-    ferias_inicio: row.ferias_inicio ?? "", ferias_fim: row.ferias_fim ?? "",
+    matricula: row?.matricula ?? "", nome: row?.nome ?? "", unidade: row?.unidade ?? "", bsp: row?.bsp ?? "",
+    funcao: row?.funcao ?? "", especialidade: row?.especialidade ?? "",
+    embarque: row?.embarque ?? "", desembarque: row?.desembarque ?? "",
+    folga_inicio: row?.folga_inicio ?? "", folga_fim: row?.folga_fim ?? "",
+    ferias_inicio: row?.ferias_inicio ?? "", ferias_fim: row?.ferias_fim ?? "",
   });
 
   const salvar = useMutation({
@@ -132,12 +134,17 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
         folga_inicio: form.folga_inicio || null, folga_fim: form.folga_fim || null,
         ferias_inicio: form.ferias_inicio || null, ferias_fim: form.ferias_fim || null,
       };
-      const { error } = await supabase.from("planejamento_embarque").update(patch).eq("id", row.id);
-      if (error) throw error;
+      if (row) {
+        const { error } = await supabase.from("planejamento_embarque").update(patch).eq("id", row.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("planejamento_embarque").insert(patch);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["planejamento-embarque"] });
-      notify.success("Registro atualizado");
+      notify.success(row ? "Registro atualizado" : "Colaborador cadastrado");
       onClose();
     },
     onError: (e: any) => notify.error(e.message),
@@ -146,7 +153,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Editar registro</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{row ? "Editar registro" : "Novo colaborador"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Matrícula</Label><Input value={form.matricula} onChange={(e) => setForm({ ...form, matricula: e.target.value })} /></div>
@@ -425,6 +432,7 @@ export function PlanejamentoEmbarqueTab() {
   const { data: registros = [], isLoading } = usePlanejamentoEmbarqueQuery();
 
   const [showImportar, setShowImportar] = useState(false);
+  const [criando, setCriando] = useState(false);
   const [editing, setEditing] = useState<PlanejamentoEmbarqueRow | null>(null);
   const [excluindo, setExcluindo] = useState<PlanejamentoEmbarqueRow | null>(null);
 
@@ -458,15 +466,12 @@ export function PlanejamentoEmbarqueTab() {
   const [funcaoInput, setFuncaoInput] = useState<string[]>([]);
   const [especialidadeInput, setEspecialidadeInput] = useState<string[]>([]);
   const [statusInput, setStatusInput] = useState<string[]>([]);
-  const DATE_RANGE_VAZIO = { embarqueDe: "", embarqueAte: "", desembarqueDe: "", desembarqueAte: "", folgaDe: "", folgaAte: "", feriasDe: "", feriasAte: "" };
-  const [dateRangeInput, setDateRangeInput] = useState(DATE_RANGE_VAZIO);
   const [filterColaborador, setFilterColaborador] = useState<string[]>([]);
   const [filterUnidade, setFilterUnidade] = useState<string[]>([]);
   const [filterBsp, setFilterBsp] = useState<string[]>([]);
   const [filterFuncao, setFilterFuncao] = useState<string[]>([]);
   const [filterEspecialidade, setFilterEspecialidade] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
-  const [dateRangeFilter, setDateRangeFilter] = useState(DATE_RANGE_VAZIO);
 
   const aplicarFiltro = () => {
     setFilterColaborador(colaboradorInput);
@@ -475,13 +480,12 @@ export function PlanejamentoEmbarqueTab() {
     setFilterFuncao(funcaoInput);
     setFilterEspecialidade(especialidadeInput);
     setFilterStatus(statusInput);
-    setDateRangeFilter(dateRangeInput);
   };
   const limparFiltros = () => {
     setColaboradorInput([]); setUnidadeInput([]); setBspInput([]); setFuncaoInput([]);
-    setEspecialidadeInput([]); setStatusInput([]); setDateRangeInput(DATE_RANGE_VAZIO);
+    setEspecialidadeInput([]); setStatusInput([]);
     setFilterColaborador([]); setFilterUnidade([]); setFilterBsp([]); setFilterFuncao([]);
-    setFilterEspecialidade([]); setFilterStatus([]); setDateRangeFilter(DATE_RANGE_VAZIO);
+    setFilterEspecialidade([]); setFilterStatus([]);
   };
 
   const nomesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.nome))).sort(), [registros]);
@@ -498,14 +502,6 @@ export function PlanejamentoEmbarqueTab() {
       .filter((r) => filterFuncao.length === 0 || (r.funcao != null && filterFuncao.includes(r.funcao)))
       .filter((r) => filterEspecialidade.length === 0 || (r.especialidade != null && filterEspecialidade.includes(r.especialidade)))
       .filter((r) => filterStatus.length === 0 || filterStatus.includes(STATUS_PLANEJAMENTO_LABEL[computeStatusPlanejamento(r, today)]))
-      .filter((r) => !dateRangeFilter.embarqueDe || (r.embarque != null && r.embarque >= dateRangeFilter.embarqueDe))
-      .filter((r) => !dateRangeFilter.embarqueAte || (r.embarque != null && r.embarque <= dateRangeFilter.embarqueAte))
-      .filter((r) => !dateRangeFilter.desembarqueDe || (r.desembarque != null && r.desembarque >= dateRangeFilter.desembarqueDe))
-      .filter((r) => !dateRangeFilter.desembarqueAte || (r.desembarque != null && r.desembarque <= dateRangeFilter.desembarqueAte))
-      .filter((r) => !dateRangeFilter.folgaDe || (r.folga_fim != null && r.folga_fim >= dateRangeFilter.folgaDe))
-      .filter((r) => !dateRangeFilter.folgaAte || (r.folga_inicio != null && r.folga_inicio <= dateRangeFilter.folgaAte))
-      .filter((r) => !dateRangeFilter.feriasDe || (r.ferias_fim != null && r.ferias_fim >= dateRangeFilter.feriasDe))
-      .filter((r) => !dateRangeFilter.feriasAte || (r.ferias_inicio != null && r.ferias_inicio <= dateRangeFilter.feriasAte))
       .sort((a, b) => {
         if (!sortColumn) return a.nome.localeCompare(b.nome, "pt-BR");
         const dir = sortDirection === "asc" ? 1 : -1;
@@ -526,7 +522,7 @@ export function PlanejamentoEmbarqueTab() {
           default: return 0;
         }
       });
-  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, dateRangeFilter, sortColumn, sortDirection, today]);
+  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, sortColumn, sortDirection, today]);
 
   const exportarPlanejamento = () => {
     const rows = linhas.map((r) => ({
@@ -585,37 +581,12 @@ export function PlanejamentoEmbarqueTab() {
           <Button type="button" size="sm" variant="outline" className="h-8" onClick={limparFiltros}><X className="mr-1.5 h-3.5 w-3.5" />Limpar filtros</Button>
           <Button size="sm" variant="outline" className="h-8" onClick={exportarPlanejamento}><Download className="mr-1.5 h-3.5 w-3.5" />Exportar</Button>
           <Button size="sm" variant="outline" className="h-8" onClick={() => setShowImportar(true)}><Upload className="mr-1.5 h-3.5 w-3.5" />Importar</Button>
+          <Button size="sm" className="h-8" onClick={() => setCriando(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />Novo colaborador</Button>
           <div className="flex items-center gap-1.5 rounded px-2 py-0.5 h-8 text-[11px] bg-muted border border-border/60" title="Total de registros na lista filtrada">
             <Users className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="font-bold">{linhas.length}</span>
             <span className="text-muted-foreground">colaborador(es)</span>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-t pt-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
-          {(["embarque", "desembarque", "folga", "ferias"] as const).map((grupo) => (
-            <div key={grupo} className="flex items-end gap-1.5">
-              <span className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                {grupo === "embarque" ? "Embarque" : grupo === "desembarque" ? "Desembarque" : grupo === "folga" ? "Folga" : "Férias"}
-              </span>
-              <div className="space-y-0.5">
-                <Label className="text-[10px] text-muted-foreground/70">De</Label>
-                <Input
-                  type="date" className="h-8 text-xs"
-                  value={dateRangeInput[`${grupo}De` as keyof typeof dateRangeInput]}
-                  onChange={(e) => setDateRangeInput({ ...dateRangeInput, [`${grupo}De`]: e.target.value })}
-                />
-              </div>
-              <div className="space-y-0.5">
-                <Label className="text-[10px] text-muted-foreground/70">Até</Label>
-                <Input
-                  type="date" className="h-8 text-xs"
-                  value={dateRangeInput[`${grupo}Ate` as keyof typeof dateRangeInput]}
-                  onChange={(e) => setDateRangeInput({ ...dateRangeInput, [`${grupo}Ate`]: e.target.value })}
-                />
-              </div>
-            </div>
-          ))}
         </div>
       </Card>
 
@@ -668,7 +639,7 @@ export function PlanejamentoEmbarqueTab() {
         </Table>
       </Card>
 
-      {editing && <PlanejamentoEditDialog row={editing} onClose={() => setEditing(null)} />}
+      {(editing || criando) && <PlanejamentoEditDialog row={editing} onClose={() => { setEditing(null); setCriando(false); }} />}
       {showImportar && <ImportarPlanejamentoDialog totalAtual={registros.length} onClose={() => setShowImportar(false)} />}
 
       <AlertDialog open={!!excluindo} onOpenChange={(o) => !o && setExcluindo(null)}>
