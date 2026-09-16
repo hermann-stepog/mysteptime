@@ -537,7 +537,7 @@ export function PlanejamentoEmbarqueTab() {
           default: return 0;
         }
       });
-  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, sortColumn, sortDirection]);
+  }, [linhasSemStatus, filterStatus, sortColumn, sortDirection]);
 
   const exportarPlanejamento = () => {
     const rows = linhas.map((r) => ({
