@@ -377,7 +377,7 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
 
           {isWelder && (
             <div className="space-y-1">
-              <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
+              <Label className="text-xs">Inserir WPS/EPS (PDF, Word, JPEG ou PNG)</Label>
               {nom.scope_document_path && !scopeFile && (
                 <button
                   type="button" className="mb-1 flex items-center gap-1.5 text-xs text-primary hover:underline"
@@ -951,7 +951,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
 
                   {isWelder && (
                     <div className="space-y-1">
-                      <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
+                      <Label className="text-xs">Inserir WPS/EPS (PDF, Word, JPEG ou PNG)</Label>
                       {l.existingScopePath && !l.scopeFile && (
                         <button
                           type="button" className="mb-1 flex items-center gap-1.5 text-xs text-primary hover:underline"

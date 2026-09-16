@@ -251,7 +251,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
 
                   {isWelder && (
                     <div className="space-y-1">
-                      <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
+                      <Label className="text-xs">Inserir WPS/EPS (PDF, Word, JPEG ou PNG)</Label>
                       <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
                         <Upload className="h-3.5 w-3.5 shrink-0" />
                         {l.scopeFile ? l.scopeFile.name : "Selecionar arquivo..."}
