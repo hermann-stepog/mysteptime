@@ -31,7 +31,7 @@ import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus } from "lucide
 // inteiramente por importação de planilha (substitui tudo a cada import) e edição manual pela
 // tela. Sem nenhum vínculo com o cadastro do Drake: nome/unidade/BSP/função aqui são só texto.
 
-interface PlanejamentoEmbarqueRow {
+export interface PlanejamentoEmbarqueRow {
   id: string;
   matricula: string | null;
   nome: string;
@@ -39,6 +39,7 @@ interface PlanejamentoEmbarqueRow {
   bsp: string | null;
   funcao: string | null;
   especialidade: string | null;
+  status: string | null;
   embarque: string | null;
   desembarque: string | null;
   folga_inicio: string | null;
@@ -47,22 +48,15 @@ interface PlanejamentoEmbarqueRow {
   ferias_fim: string | null;
 }
 
-type StatusPlanejamento = "E" | "FE" | "F" | "STB";
-const STATUS_PLANEJAMENTO_LABEL: Record<StatusPlanejamento, string> = {
-  E: "Embarcado", FE: "Férias", F: "Folga", STB: "Aguardando Escala",
-};
-
-// Calculado a partir só das 3 janelas de data desta própria linha — sem histórico de períodos
-// por trás (isso era o que vinha do Drake, e não existe mais aqui). Embarcado > Férias > Folga
-// > Aguardando Escala, mesma precedência intuitiva de "estar de verdade a bordo" vencendo tudo.
-function computeStatusPlanejamento(row: PlanejamentoEmbarqueRow, today: string): StatusPlanejamento {
-  if (row.embarque && row.desembarque && row.embarque <= today && today <= row.desembarque) return "E";
-  if (row.ferias_inicio && row.ferias_fim && row.ferias_inicio <= today && today <= row.ferias_fim) return "FE";
-  if (row.folga_inicio && row.folga_fim && row.folga_inicio <= today && today <= row.folga_fim) return "F";
-  return "STB";
+// Status deixou de ser calculado por datas (Embarcado/Férias/Folga/etc.) — a pedido dela, agora
+// é texto livre igual Unidade/BSP/Função: exatamente o que vem da coluna "Status" da planilha,
+// sem nenhuma lógica por cima. Editável direto na célula (mesmo padrão popover-com-Salvar).
+export function isStatusNaBase(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toUpperCase();
+  return s === "BASE" || s === "NA BASE";
 }
 
-function usePlanejamentoEmbarqueQuery() {
+export function usePlanejamentoEmbarqueQuery() {
   return useQuery<PlanejamentoEmbarqueRow[]>({
     queryKey: ["planejamento-embarque"],
     queryFn: () =>
@@ -117,7 +111,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
   const qc = useQueryClient();
   const [form, setForm] = useState({
     matricula: row?.matricula ?? "", nome: row?.nome ?? "", unidade: row?.unidade ?? "", bsp: row?.bsp ?? "",
-    funcao: row?.funcao ?? "", especialidade: row?.especialidade ?? "",
+    funcao: row?.funcao ?? "", especialidade: row?.especialidade ?? "", status: row?.status ?? "",
     embarque: row?.embarque ?? "", desembarque: row?.desembarque ?? "",
     folga_inicio: row?.folga_inicio ?? "", folga_fim: row?.folga_fim ?? "",
     ferias_inicio: row?.ferias_inicio ?? "", ferias_fim: row?.ferias_fim ?? "",
@@ -130,6 +124,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
         matricula: form.matricula.trim() || null, nome: form.nome.trim(),
         unidade: form.unidade.trim() || null, bsp: form.bsp.trim() || null,
         funcao: form.funcao.trim() || null, especialidade: form.especialidade.trim() || null,
+        status: form.status.trim() || null,
         embarque: form.embarque || null, desembarque: form.desembarque || null,
         folga_inicio: form.folga_inicio || null, folga_fim: form.folga_fim || null,
         ferias_inicio: form.ferias_inicio || null, ferias_fim: form.ferias_fim || null,
@@ -167,6 +162,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
             <div><Label className="text-xs">Função</Label><Input value={form.funcao} onChange={(e) => setForm({ ...form, funcao: e.target.value })} /></div>
             <div><Label className="text-xs">Especialidade</Label><Input value={form.especialidade} onChange={(e) => setForm({ ...form, especialidade: e.target.value })} /></div>
           </div>
+          <div><Label className="text-xs">Status</Label><Input value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Embarque</Label><Input type="date" value={form.embarque} onChange={(e) => setForm({ ...form, embarque: e.target.value })} /></div>
             <div><Label className="text-xs">Desembarque</Label><Input type="date" value={form.desembarque} onChange={(e) => setForm({ ...form, desembarque: e.target.value })} /></div>
@@ -192,7 +188,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
 interface PlanejamentoImportRow {
   rowNumber: number;
   matricula: string | null; nome: string; unidade: string | null; bsp: string | null;
-  funcao: string | null; especialidade: string | null;
+  funcao: string | null; especialidade: string | null; status: string | null;
   embarque: string | null; desembarque: string | null;
   folgaInicio: string | null; folgaFim: string | null;
   feriasInicio: string | null; feriasFim: string | null;
@@ -208,6 +204,7 @@ const PLANEJAMENTO_HEADER_MAP: Record<string, keyof Omit<PlanejamentoImportRow, 
   "bsp": "bsp",
   "funcao": "funcao",
   "especialidade": "especialidade",
+  "status": "status",
   "embarque": "embarque",
   "desembarque": "desembarque",
   "inicio folga": "folgaInicio",
@@ -255,6 +252,7 @@ function parsePlanejamentoWorkbook(buf: ArrayBuffer): PlanejamentoImportRow[] {
       bsp: get(r, "bsp") || null,
       funcao: get(r, "funcao") || null,
       especialidade: get(r, "especialidade") || null,
+      status: get(r, "status") || null,
       embarque: getDate(r, "embarque"),
       desembarque: getDate(r, "desembarque"),
       folgaInicio: getDate(r, "folgaInicio"),
@@ -308,7 +306,7 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
 
       const linhas = aceitas.map((row) => ({
         matricula: row.matricula, nome: row.nome, unidade: row.unidade, bsp: row.bsp,
-        funcao: row.funcao, especialidade: row.especialidade,
+        funcao: row.funcao, especialidade: row.especialidade, status: row.status,
         embarque: row.embarque, desembarque: row.desembarque,
         folga_inicio: row.folgaInicio, folga_fim: row.folgaFim,
         ferias_inicio: row.feriasInicio, ferias_fim: row.feriasFim,
@@ -337,8 +335,9 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Colunas esperadas: Matrícula (opcional), Nome (obrigatório), Unidade/Localização, BSP, Função,
-              Especialidade, Embarque, Desembarque, Início Folga, Fim Folga, Início Férias, Fim Férias — mesmos
-              nomes de coluna do relatório exportado por essa tela.
+              Especialidade, Status, Embarque, Desembarque, Início Folga, Fim Folga, Início Férias, Fim Férias —
+              mesmos nomes de coluna do relatório exportado por essa tela. Status entra exatamente como está na
+              planilha, sem nenhum cálculo por cima.
             </p>
             <p className="text-sm font-medium text-destructive">
               Importar substitui TODOS os {totalAtual} registro(s) atuais pelos da planilha. Essa ação não pode
@@ -383,7 +382,7 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
               <div className="max-h-56 overflow-y-auto rounded-md border">
                 <Table>
                   <TableHeader>
-                    <TableRow><TableHead>Nome</TableHead><TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Função</TableHead></TableRow>
+                    <TableRow><TableHead>Nome</TableHead><TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Função</TableHead><TableHead>Status</TableHead></TableRow>
                   </TableHeader>
                   <TableBody>
                     {aceitas.map((row) => (
@@ -392,6 +391,7 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
                         <TableCell>{row.unidade ?? "—"}</TableCell>
                         <TableCell>{row.bsp ?? "—"}</TableCell>
                         <TableCell>{row.funcao ?? "—"}</TableCell>
+                        <TableCell>{row.status ?? "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -428,7 +428,6 @@ type PlanejamentoSortColumn =
 
 export function PlanejamentoEmbarqueTab() {
   const qc = useQueryClient();
-  const today = todayStr();
   const { data: registros = [], isLoading } = usePlanejamentoEmbarqueQuery();
 
   const [showImportar, setShowImportar] = useState(false);
@@ -493,6 +492,7 @@ export function PlanejamentoEmbarqueTab() {
   const bspExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.bsp).filter((v): v is string => !!v))).sort(), [registros]);
   const funcoesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.funcao).filter((v): v is string => !!v))).sort(), [registros]);
   const especialidadesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.especialidade).filter((v): v is string => !!v))).sort(), [registros]);
+  const statusExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.status).filter((v): v is string => !!v))).sort(), [registros]);
 
   const linhas = useMemo(() => {
     return registros
@@ -501,7 +501,7 @@ export function PlanejamentoEmbarqueTab() {
       .filter((r) => filterBsp.length === 0 || (r.bsp != null && filterBsp.includes(r.bsp)))
       .filter((r) => filterFuncao.length === 0 || (r.funcao != null && filterFuncao.includes(r.funcao)))
       .filter((r) => filterEspecialidade.length === 0 || (r.especialidade != null && filterEspecialidade.includes(r.especialidade)))
-      .filter((r) => filterStatus.length === 0 || filterStatus.includes(STATUS_PLANEJAMENTO_LABEL[computeStatusPlanejamento(r, today)]))
+      .filter((r) => filterStatus.length === 0 || (r.status != null && filterStatus.includes(r.status)))
       .sort((a, b) => {
         if (!sortColumn) return a.nome.localeCompare(b.nome, "pt-BR");
         const dir = sortDirection === "asc" ? 1 : -1;
@@ -512,7 +512,7 @@ export function PlanejamentoEmbarqueTab() {
           case "bsp": return dir * (a.bsp ?? "").localeCompare(b.bsp ?? "");
           case "funcao": return dir * (a.funcao ?? "").localeCompare(b.funcao ?? "");
           case "especialidade": return dir * (a.especialidade ?? "").localeCompare(b.especialidade ?? "");
-          case "status": return dir * STATUS_PLANEJAMENTO_LABEL[computeStatusPlanejamento(a, today)].localeCompare(STATUS_PLANEJAMENTO_LABEL[computeStatusPlanejamento(b, today)]);
+          case "status": return dir * (a.status ?? "").localeCompare(b.status ?? "");
           case "embarque": return dir * (a.embarque ?? "").localeCompare(b.embarque ?? "");
           case "desembarque": return dir * (a.desembarque ?? "").localeCompare(b.desembarque ?? "");
           case "folgaInicio": return dir * (a.folga_inicio ?? "").localeCompare(b.folga_inicio ?? "");
@@ -522,7 +522,7 @@ export function PlanejamentoEmbarqueTab() {
           default: return 0;
         }
       });
-  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, sortColumn, sortDirection, today]);
+  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, sortColumn, sortDirection]);
 
   const exportarPlanejamento = () => {
     const rows = linhas.map((r) => ({
@@ -532,7 +532,7 @@ export function PlanejamentoEmbarqueTab() {
       BSP: r.bsp ?? "—",
       Função: r.funcao ?? "—",
       Especialidade: r.especialidade ?? "—",
-      Status: STATUS_PLANEJAMENTO_LABEL[computeStatusPlanejamento(r, today)],
+      Status: r.status ?? "—",
       Embarque: r.embarque ? fmtDateHeadcount(r.embarque) : "—",
       Desembarque: r.desembarque ? fmtDateHeadcount(r.desembarque) : "—",
       "Início Folga": r.folga_inicio ? fmtDateHeadcount(r.folga_inicio) : "—",
@@ -575,7 +575,7 @@ export function PlanejamentoEmbarqueTab() {
           </div>
           <div className="space-y-0.5 w-44">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
-            <StringMultiCombobox options={Object.values(STATUS_PLANEJAMENTO_LABEL)} value={statusInput} onChange={setStatusInput} placeholder="Todos" searchPlaceholder="Buscar status..." emptyLabel="Nenhum status encontrado." />
+            <StringMultiCombobox options={statusExistentes} value={statusInput} onChange={setStatusInput} placeholder="Todos" searchPlaceholder="Buscar status..." emptyLabel="Nenhum status encontrado." />
           </div>
           <Button size="sm" className="h-8" onClick={aplicarFiltro}><Search className="mr-1.5 h-3.5 w-3.5" />Buscar</Button>
           <Button type="button" size="sm" variant="outline" className="h-8" onClick={limparFiltros}><X className="mr-1.5 h-3.5 w-3.5" />Limpar filtros</Button>
@@ -619,7 +619,7 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><TextoPlanejamentoCell valor={r.bsp} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { bsp: v || null } })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null } })} /></TableCell>
                 <TableCell>{r.especialidade ?? "—"}</TableCell>
-                <TableCell>{STATUS_PLANEJAMENTO_LABEL[computeStatusPlanejamento(r, today)]}</TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.status} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.embarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { embarque: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.desembarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { desembarque: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.folga_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_inicio: v || null } })} /></TableCell>
