@@ -1407,6 +1407,37 @@ function KanbanBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const advance = useAdvanceStage();
 
+  // Barra de rolagem horizontal espelhada no topo do board — sem isso, pra rolar os lados era
+  // preciso descer até o fim das colunas (que são bem altas) pra achar a barra nativa lá
+  // embaixo. As duas ficam sincronizadas: mexer numa mexe a outra.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [boardScrollWidth, setBoardScrollWidth] = useState(0);
+  const syncingRef = useRef(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setBoardScrollWidth(el.scrollWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleTopScroll = () => {
+    if (syncingRef.current) { syncingRef.current = false; return; }
+    if (!scrollRef.current || !topScrollRef.current) return;
+    syncingRef.current = true;
+    scrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+  };
+  const handleBoardScroll = () => {
+    if (syncingRef.current) { syncingRef.current = false; return; }
+    if (!scrollRef.current || !topScrollRef.current) return;
+    syncingRef.current = true;
+    topScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
+  };
+
   const byColumn = useMemo(() => {
     const m = new Map<NominationStatus, Nomination[]>();
     KANBAN_COLUMNS.forEach((c) => m.set(c.id, []));
@@ -1471,7 +1502,10 @@ function KanbanBoard({
       {/* Board com N colunas de min-w-[300px]+ facilmente passa de 1500px — sem isso a página
           estourava horizontalmente em telas mais estreitas. Kanban com rolagem horizontal é
           um padrão de UX aceito mesmo em tablet (diferente de uma tabela de dados). */}
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div ref={topScrollRef} onScroll={handleTopScroll} className="mb-1 overflow-x-auto overflow-y-hidden">
+        <div style={{ width: boardScrollWidth, height: 1 }} />
+      </div>
+      <div ref={scrollRef} onScroll={handleBoardScroll} className="flex gap-3 overflow-x-auto pb-2">
         {KANBAN_COLUMNS.map((c, i) =>
           c.id === "equipe_formada" ? (
             <EquipeFormadaColumn key={c.id} nominations={byColumn.get(c.id) ?? []} onOpen={onOpen} index={i} />
