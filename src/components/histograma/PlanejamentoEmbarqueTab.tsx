@@ -605,6 +605,33 @@ export function PlanejamentoEmbarqueTab() {
         </div>
       </Card>
 
+      {contagemStatus.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {contagemStatus.map(([status, total]) => {
+            const ativo = filterStatus.includes(status);
+            return (
+              <Card
+                key={status}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  const novo = ativo ? filterStatus.filter((s) => s !== status) : [...filterStatus, status];
+                  setFilterStatus(novo);
+                  setStatusInput(novo);
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); }}
+                className={`cursor-pointer p-3 transition-colors hover:bg-muted/60 ${ativo ? "border-primary bg-primary/5" : ""}`}
+              >
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground truncate" title={status}>{status}</div>
+                <div className="text-xl font-bold tabular-nums">{total}</div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+
+
       <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
