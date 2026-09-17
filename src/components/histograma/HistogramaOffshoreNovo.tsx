@@ -2271,6 +2271,15 @@ function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): 
   return folga ? { status: "F", periodo: folga } : result;
 }
 
+// Períodos BASE antigos/manuais não representam a posição diária do Drake e não podem entrar
+// sozinhos nos cartões ou rosquinhas. Quando um deles vencer a resolução, refaz a leitura sem
+// esse marcador; a classificação "Na Base" válida é aplicada depois por idsNaBase.
+function computeStatusSemBaseManual(periodos: HistNovoPeriodo[], date: string): DayStatusResult {
+  const result = computeStatusParaDashboard(periodos, date);
+  if (result.status !== "BASE" || result.periodo?.origem?.trim().toLowerCase() === "drake") return result;
+  return computeStatusParaDashboard(periodos.filter((periodo) => periodo.tipo !== "BASE"), date);
+}
+
 // "Na Base" tem uma única fonte no Dashboard: a posição diária do Drake. No retorno da
 // Ficha Anual, BASE fica em unidade_operacional; não é um tipo de ocorrência. Cartão,
 // rosquinhas e Utilização usam a mesma lista — ver idsNaBase.
@@ -2497,7 +2506,7 @@ function DashboardTab({ colaboradores, periodos }: {
     let embarcados = 0, disponiveis = 0, naoDisp = 0, folga = 0, ocupados = 0;
     const programadosIds = new Set<string>();
     activeColaboradores.forEach((c) => {
-      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      const result = computeStatusSemBaseManual(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       const bucket = toOldBucket(result.status);
       if (bucket === "E") embarcados++;
       else if (bucket === "FO") folga++;
@@ -2544,7 +2553,7 @@ function DashboardTab({ colaboradores, periodos }: {
     let somaOcupados = 0;
     datesAteHoje.forEach((d) => {
       activeColaboradores.forEach((c) => {
-        const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
+        const result = computeStatusSemBaseManual(periodosByColaborador.get(c.id) ?? [], d);
         const bucket = toOldBucket(result.status);
         if (isOcupadoBucket(bucket) || estaNaBase(c.id)) somaOcupados++;
       });
@@ -2575,7 +2584,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const ocupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
-      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      const result = computeStatusSemBaseManual(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       // "Na Base" sobrepõe o status bruto do dia usando a MESMA lista do cartão (Drake),
       // pra rosquinha e cartão baterem.
       const status: ComputedStatus = estaNaBase(c.id) ? "BASE" : result.status;
@@ -2602,7 +2611,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const naoOcupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
-      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
+      const result = computeStatusSemBaseManual(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       const status: ComputedStatus = estaNaBase(c.id) ? "BASE" : result.status;
       if (isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
