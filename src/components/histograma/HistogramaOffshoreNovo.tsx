@@ -2270,14 +2270,10 @@ function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): 
   return folga ? { status: "F", periodo: folga } : result;
 }
 
-// "Na Base" deixou de depender da importação manual do relatório da portaria (ver
-// DrakeUpdateCard, removida) — agora é lido direto da mesma Unidade/Localização que já
-// aparece em Planejamento de Embarque: quando o período que está valendo hoje pro colaborador
-// tem "BASE" como unidade operacional (valor real vindo do Drake), ele conta como Na Base,
-// independente de qual seja o status/tipo desse período.
-function ehUnidadeBase(unidade: string | null | undefined): boolean {
-  return (unidade ?? "").trim().toUpperCase() === "BASE";
-}
+// "Na Base" tem uma única fonte no Dashboard: o Planejamento de Embarque (cartão, rosquinhas
+// e Utilização usam a mesma lista — ver nomesNaBaseDoPlanejamento).
+
+
 
 function DashboardTab({ colaboradores, periodos }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[];
