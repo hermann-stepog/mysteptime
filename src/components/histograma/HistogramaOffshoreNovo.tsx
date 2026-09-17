@@ -2495,12 +2495,9 @@ function DashboardTab({ colaboradores, periodos }: {
       else if (bucket === "P") programadosIds.add(c.id);
       else if (bucket === "B") disponiveis++;
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
-      // Continua olhando a Unidade do período do Drake (não o Planejamento de Embarque, que
-      // não tem histórico por dia) — quem está "Na Base" conta como ocupado mesmo quando o
-      // status bruto do dia não seria (ex.: Standby), senão a % de Utilização ficava sem essas
-      // pessoas. Repare que isso já não é mais o mesmo critério do cartão "Na Base" acima
-      // (esse virou Planejamento de Embarque, sem data — ver colaboradoresNaBaseDoPlanejamento).
-      if (isOcupadoBucket(bucket) || ehUnidadeBase(result.periodo?.unidade_operacional)) ocupados++;
+      // Quem está "Na Base" (mesma lista do cartão) conta como ocupado mesmo quando o status
+      // bruto do dia não seria (ex.: Standby).
+      if (isOcupadoBucket(bucket) || estaNaBase(c.nome)) ocupados++;
     });
     // Soma quem chegou em Equipe Formada nas Nomeações com embarque programado justo pra
     // pobReferenceDate — cobre inclusive quem ainda não tem nenhum período no Histograma (por
