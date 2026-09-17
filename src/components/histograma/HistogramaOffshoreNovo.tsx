@@ -2509,7 +2509,7 @@ function DashboardTab({ colaboradores, periodos }: {
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
     return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao };
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, nomesNaBaseDoPlanejamento]);
 
   const kpiCards = [
     { label: "Headcount Total", value: kpis.total, icon: Users },
@@ -2537,11 +2537,11 @@ function DashboardTab({ colaboradores, periodos }: {
       activeColaboradores.forEach((c) => {
         const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
         const bucket = toOldBucket(result.status);
-        if (isOcupadoBucket(bucket) || ehUnidadeBase(result.periodo?.unidade_operacional)) somaOcupados++;
+        if (isOcupadoBucket(bucket) || estaNaBase(c.nome)) somaOcupados++;
       });
     });
     return Math.round((somaOcupados / (datesAteHoje.length * activeColaboradores.length)) * 100);
-  }, [datesAteHoje, activeColaboradores, periodosByColaborador]);
+  }, [datesAteHoje, activeColaboradores, periodosByColaborador, nomesNaBaseDoPlanejamento]);
 
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
