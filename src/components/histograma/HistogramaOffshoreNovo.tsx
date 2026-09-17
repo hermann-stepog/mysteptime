@@ -2271,7 +2271,7 @@ function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): 
 }
 
 // "Na Base" tem uma única fonte no Dashboard: o Planejamento de Embarque (cartão, rosquinhas
-// e Utilização usam a mesma lista — ver nomesNaBaseDoPlanejamento).
+// e Utilização usam a mesma lista — ver idsNaBase).
 
 
 
@@ -2290,28 +2290,10 @@ function DashboardTab({ colaboradores, periodos }: {
     return colaboradores.filter((c) => ids.has(c.id));
   }, [colaboradores, periodos]);
 
-  // "Na Base" passou a vir só do Planejamento de Embarque (tela própria, editada manualmente,
-  // sem vínculo com o cadastro do Drake) — a pedido dela, deixou de depender dos períodos do
-  // Histograma pra esse cartão específico. Lê a coluna Status exatamente como veio da planilha
-  // (sem nenhum cálculo por cima — ver isStatusNaBase): quem inclui/edita um registro lá com
-  // Status "Base"/"Na Base" já reflete direto aqui, sem esperar sincronização com o Drake.
-  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
-  const colaboradoresNaBaseDoPlanejamento = useMemo(
-    () => planejamentoEmbarque
-      .filter((r) => isStatusNaBase(r.status))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  // Mesma lista do cartão "Na Base", por nome normalizado — as rosquinhas e a Utilização
-  // usam exatamente este conjunto, pra o gráfico bater com o cartão. Antes cada lado usava
-  // um critério diferente: o cartão vinha do Planejamento de Embarque e a rosquinha marcava
-  // como "Na Base" qualquer um cujo período do Drake tivesse Unidade "BASE" — o que engolia
-  // Standby, Folga e Férias dessas pessoas e inflava tanto "Na Base" quanto a % de Utilização.
-  const nomesNaBaseDoPlanejamento = useMemo(
-    () => new Set(colaboradoresNaBaseDoPlanejamento.map((r) => normalizeNomeHistograma(r.nome))),
-    [colaboradoresNaBaseDoPlanejamento],
-  );
-  const estaNaBase = (nome: string) => nomesNaBaseDoPlanejamento.has(normalizeNomeHistograma(nome));
+  // "Na Base" voltou a vir do Drake (a pedido dela): colaboradores com embarques que, em
+  // algum dia do período filtrado, estão com status BASE no Histograma. A lista é calculada
+  // mais abaixo (colaboradoresNaBase), depois de activeColaboradores e das datas do filtro.
+
 
   // Função de embarque (não a cadastral) por colaborador na data de referência do retrato
   // (pobReferenceDate, mais abaixo) — ver resolverFuncaoEmbarque.
@@ -2470,6 +2452,21 @@ function DashboardTab({ colaboradores, periodos }: {
     return dataFim || today;
   }, [dataInicio, dataFim, today]);
 
+  // ── "Na Base" pelos períodos do Drake: colaboradores ativos no filtro que, em qualquer dia
+  // do período filtrado (ou na data de referência, quando o filtro é de um dia só), estão com
+  // status BASE no Histograma. Cartão, rosquinha e Utilização usam exatamente esta lista.
+  const colaboradoresNaBase = useMemo(() => {
+    const diasAvaliados = dates.length > 0 ? dates : [pobReferenceDate];
+    return activeColaboradores
+      .filter((c) => {
+        const ps = periodosByColaborador.get(c.id) ?? [];
+        return diasAvaliados.some((d) => computeStatusParaDashboard(ps, d).status === "BASE");
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [activeColaboradores, periodosByColaborador, dates, pobReferenceDate]);
+  const idsNaBase = useMemo(() => new Set(colaboradoresNaBase.map((c) => c.id)), [colaboradoresNaBase]);
+  const estaNaBase = (id: string) => idsNaBase.has(id);
+
   // ── KPIs (foto de "pobReferenceDate", só entre os colaboradores ativos no período filtrado) ──
   // "Embarcados" (o cartão) fica restrito a quem está mesmo fisicamente a bordo (E/DB, e
   // Folga Indenizada — que já cai no balde "E" — ver toOldBucket), igual aos gráficos de
@@ -2493,7 +2490,7 @@ function DashboardTab({ colaboradores, periodos }: {
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
       // Quem está "Na Base" (mesma lista do cartão) conta como ocupado mesmo quando o status
       // bruto do dia não seria (ex.: Standby).
-      if (isOcupadoBucket(bucket) || estaNaBase(c.nome)) ocupados++;
+      if (isOcupadoBucket(bucket) || estaNaBase(c.id)) ocupados++;
     });
     // Soma quem chegou em Equipe Formada nas Nomeações com embarque programado justo pra
     // pobReferenceDate — cobre inclusive quem ainda não tem nenhum período no Histograma (por
@@ -2505,14 +2502,14 @@ function DashboardTab({ colaboradores, periodos }: {
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
     return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao };
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, nomesNaBaseDoPlanejamento]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, idsNaBase]);
 
   const kpiCards = [
     { label: "Headcount Total", value: kpis.total, icon: Users },
     { label: "Embarcados", value: kpis.embarcados, icon: Ship },
     { label: "Programados", value: kpis.programados, icon: CalendarDays },
     { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
-    { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
+    { label: "Na Base", value: colaboradoresNaBase.length, icon: Building2, hoverNames: colaboradoresNaBase.map((c) => c.nome) },
     { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
@@ -2533,11 +2530,11 @@ function DashboardTab({ colaboradores, periodos }: {
       activeColaboradores.forEach((c) => {
         const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
         const bucket = toOldBucket(result.status);
-        if (isOcupadoBucket(bucket) || estaNaBase(c.nome)) somaOcupados++;
+        if (isOcupadoBucket(bucket) || estaNaBase(c.id)) somaOcupados++;
       });
     });
     return Math.round((somaOcupados / (datesAteHoje.length * activeColaboradores.length)) * 100);
-  }, [datesAteHoje, activeColaboradores, periodosByColaborador, nomesNaBaseDoPlanejamento]);
+  }, [datesAteHoje, activeColaboradores, periodosByColaborador, idsNaBase]);
 
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
@@ -2565,15 +2562,15 @@ function DashboardTab({ colaboradores, periodos }: {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       // "Na Base" sobrepõe o status bruto do dia usando a MESMA lista do cartão (Planejamento
       // de Embarque), pra rosquinha e cartão baterem.
-      const status: ComputedStatus = estaNaBase(c.nome) ? "BASE" : result.status;
+      const status: ComputedStatus = estaNaBase(c.id) ? "BASE" : result.status;
       if (!isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
-    // O cartão "Na Base" conta TODAS as linhas do Planejamento de Embarque com status Base;
-    // a rosquinha só enxergava quem também existe no cadastro do Histograma e está ativo no
-    // período filtrado (daí 5 no gráfico contra 35 no cartão). A fatia "Na Base" passa a usar
-    // exatamente a lista do cartão, inclusive quem ainda não tem período lançado aqui.
-    porStatus.set("BASE", colaboradoresNaBaseDoPlanejamento.map((r) => r.nome));
+    // A fatia "Na Base" usa exatamente a mesma lista do cartão (colaboradores do Drake com
+    // status BASE em algum dia do período filtrado), pra gráfico e cartão baterem sempre.
+    if (colaboradoresNaBase.length > 0) {
+      porStatus.set("BASE", colaboradoresNaBase.map((c) => c.nome));
+    }
     return STATUS_ORDER
       .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
       .map((s) => ({ name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0, nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")) }))
@@ -2582,15 +2579,15 @@ function DashboardTab({ colaboradores, periodos }: {
     activeColaboradores,
     periodosByColaborador,
     pobReferenceDate,
-    nomesNaBaseDoPlanejamento,
-    colaboradoresNaBaseDoPlanejamento,
+    idsNaBase,
+    colaboradoresNaBase,
   ]);
 
   const naoOcupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      const status: ComputedStatus = estaNaBase(c.nome) ? "BASE" : result.status;
+      const status: ComputedStatus = estaNaBase(c.id) ? "BASE" : result.status;
       if (isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
@@ -2601,7 +2598,7 @@ function DashboardTab({ colaboradores, periodos }: {
         nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")),
         color: NAO_OCUPACAO_COLOR[s] ?? OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length],
       }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, nomesNaBaseDoPlanejamento]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, idsNaBase]);
 
   // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
   // tabela "POB por Unidade × Dia" com unidades zeradas no mês/intervalo selecionado.
