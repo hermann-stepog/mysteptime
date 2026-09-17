@@ -2475,7 +2475,7 @@ function DashboardTab({ colaboradores, periodos }: {
         return diasAvaliados.some((d) => {
           const result = computeStatusParaDashboard(ps, d);
           return result.periodo?.origem?.trim().toLowerCase() === "drake"
-            && canonUnidade(result.periodo.unidade_operacional) === canonUnidade("BASE");
+            && normalizeUnidadeOperacional(result.periodo.unidade_operacional)?.toUpperCase() === "BASE";
         });
       })
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
