@@ -9,6 +9,7 @@ import {
 import {
   tryAcquireDrakeUpdateLock,
   releaseDrakeUpdateLock,
+  describeDrakeUpdateLock,
   touchDrakeUpdateLock,
 } from "./update-lock.server";
 import { updateDrakeData } from "./update-service.server";
