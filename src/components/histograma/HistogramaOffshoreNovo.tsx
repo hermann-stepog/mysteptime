@@ -2271,7 +2271,7 @@ function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): 
 }
 
 // "Na Base" tem uma única fonte no Dashboard: o Planejamento de Embarque (cartão, rosquinhas
-// e Utilização usam a mesma lista — ver nomesNaBaseDoPlanejamento).
+// e Utilização usam a mesma lista — ver idsNaBase).
 
 
 
@@ -2490,7 +2490,7 @@ function DashboardTab({ colaboradores, periodos }: {
       else if (bucket === "FE" || bucket === "IND") naoDisp++;
       // Quem está "Na Base" (mesma lista do cartão) conta como ocupado mesmo quando o status
       // bruto do dia não seria (ex.: Standby).
-      if (isOcupadoBucket(bucket) || estaNaBase(c.nome)) ocupados++;
+      if (isOcupadoBucket(bucket) || estaNaBase(c.id)) ocupados++;
     });
     // Soma quem chegou em Equipe Formada nas Nomeações com embarque programado justo pra
     // pobReferenceDate — cobre inclusive quem ainda não tem nenhum período no Histograma (por
@@ -2502,7 +2502,7 @@ function DashboardTab({ colaboradores, periodos }: {
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
     return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao };
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, nomesNaBaseDoPlanejamento]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, idsNaBase]);
 
   const kpiCards = [
     { label: "Headcount Total", value: kpis.total, icon: Users },
@@ -2530,11 +2530,11 @@ function DashboardTab({ colaboradores, periodos }: {
       activeColaboradores.forEach((c) => {
         const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
         const bucket = toOldBucket(result.status);
-        if (isOcupadoBucket(bucket) || estaNaBase(c.nome)) somaOcupados++;
+        if (isOcupadoBucket(bucket) || estaNaBase(c.id)) somaOcupados++;
       });
     });
     return Math.round((somaOcupados / (datesAteHoje.length * activeColaboradores.length)) * 100);
-  }, [datesAteHoje, activeColaboradores, periodosByColaborador, nomesNaBaseDoPlanejamento]);
+  }, [datesAteHoje, activeColaboradores, periodosByColaborador, idsNaBase]);
 
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
@@ -2562,7 +2562,7 @@ function DashboardTab({ colaboradores, periodos }: {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       // "Na Base" sobrepõe o status bruto do dia usando a MESMA lista do cartão (Planejamento
       // de Embarque), pra rosquinha e cartão baterem.
-      const status: ComputedStatus = estaNaBase(c.nome) ? "BASE" : result.status;
+      const status: ComputedStatus = estaNaBase(c.id) ? "BASE" : result.status;
       if (!isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
@@ -2579,7 +2579,7 @@ function DashboardTab({ colaboradores, periodos }: {
     activeColaboradores,
     periodosByColaborador,
     pobReferenceDate,
-    nomesNaBaseDoPlanejamento,
+    idsNaBase,
     colaboradoresNaBaseDoPlanejamento,
   ]);
 
@@ -2587,7 +2587,7 @@ function DashboardTab({ colaboradores, periodos }: {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      const status: ComputedStatus = estaNaBase(c.nome) ? "BASE" : result.status;
+      const status: ComputedStatus = estaNaBase(c.id) ? "BASE" : result.status;
       if (isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
@@ -2598,7 +2598,7 @@ function DashboardTab({ colaboradores, periodos }: {
         nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")),
         color: NAO_OCUPACAO_COLOR[s] ?? OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length],
       }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, nomesNaBaseDoPlanejamento]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, idsNaBase]);
 
   // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
   // tabela "POB por Unidade × Dia" com unidades zeradas no mês/intervalo selecionado.
