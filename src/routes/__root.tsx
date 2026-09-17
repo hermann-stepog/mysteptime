@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Outlet, Link, createRootRouteWithContext, useRouter, HeadContent, Scripts } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { MotionConfig } from "framer-motion";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/hooks/useAuth";
@@ -90,15 +91,20 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ViewAsProvider>
-            <Outlet />
-            <AppVersionWatcher />
-            <Toaster richColors position="top-right" />
-          </ViewAsProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      {/* reducedMotion="user" faz TODO motion.* do app (FadeInView, AnimatedOutlet, navbar
+          etc.) respeitar o prefers-reduced-motion do SO automaticamente — troca as animações
+          de transform por só opacity, sem precisar tratar isso em cada componente. */}
+      <MotionConfig reducedMotion="user">
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <ViewAsProvider>
+              <Outlet />
+              <AppVersionWatcher />
+              <Toaster richColors position="top-right" />
+            </ViewAsProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </MotionConfig>
     </ErrorBoundary>
   );
 }

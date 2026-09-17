@@ -113,13 +113,21 @@ function AdminLayout() {
                   key={n.to}
                   to={n.to}
                   className={cn(
-                    "shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
-                    active
-                      ? "bg-white/15 text-white shadow-sm border border-white/20"
-                      : "text-white/55 hover:bg-white/8 hover:text-white/85",
+                    "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
+                    active ? "text-white" : "text-white/55 hover:bg-white/8 hover:text-white/85",
                   )}
                 >
-                  {n.label}
+                  {/* Pill animada atrás do item ativo — desliza suavemente pro novo item ao
+                      trocar de rota, em vez de simplesmente trocar de lugar. layoutId
+                      compartilhado entre os links faz o framer-motion animar a transição. */}
+                  {active && (
+                    <motion.span
+                      layoutId="nav-active-pill"
+                      className="absolute inset-0 rounded-md border border-white/20 bg-white/15 shadow-sm"
+                      transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                    />
+                  )}
+                  <span className="relative">{n.label}</span>
                 </Link>
               );
             })}

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
+import { FadeInView } from "@/components/FadeInView";
+import { KpiValue } from "@/components/KpiValue";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { CLIENTES, clienteDaUnidade, unidadeCanonica } from "@/lib/clientes";
@@ -627,26 +629,30 @@ function DashboardCustosTab() {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card className="border-l-4 p-4" style={{ borderLeftColor: "hsl(var(--foreground))" }}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Custo total</span>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="mt-2 text-2xl font-semibold">{fmtMoney(totalGeral)}</div>
-        </Card>
-        {TIPO_CUSTO_ORDER.map((tipo) => {
+        <FadeInView delay={0}>
+          <Card className="border-l-4 p-4" style={{ borderLeftColor: "hsl(var(--foreground))" }}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">Custo total</span>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-2 text-2xl font-semibold"><KpiValue value={totalGeral} format={{ style: "currency", currency: "BRL" }} locales="pt-BR" /></div>
+          </Card>
+        </FadeInView>
+        {TIPO_CUSTO_ORDER.map((tipo, i) => {
           const Icon = TIPO_CUSTO_ICON[tipo];
           const total = totaisPorTipo[tipo];
           const pct = totalGeral > 0 ? Math.round((total / totalGeral) * 100) : 0;
           return (
-            <Card key={tipo} className="border-l-4 p-4" style={{ borderLeftColor: TIPO_CUSTO_COLOR[tipo] }}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">{TIPO_CUSTO_LABEL[tipo]}</span>
-                <Icon className="h-4 w-4" style={{ color: TIPO_CUSTO_COLOR[tipo] }} />
-              </div>
-              <div className="mt-2 text-2xl font-semibold">{fmtMoney(total)}</div>
-              <div className="text-xs text-muted-foreground">{pct}% do total</div>
-            </Card>
+            <FadeInView key={tipo} delay={(i + 1) * 0.05}>
+              <Card className="border-l-4 p-4" style={{ borderLeftColor: TIPO_CUSTO_COLOR[tipo] }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">{TIPO_CUSTO_LABEL[tipo]}</span>
+                  <Icon className="h-4 w-4" style={{ color: TIPO_CUSTO_COLOR[tipo] }} />
+                </div>
+                <div className="mt-2 text-2xl font-semibold"><KpiValue value={total} format={{ style: "currency", currency: "BRL" }} locales="pt-BR" /></div>
+                <div className="text-xs text-muted-foreground">{pct}% do total</div>
+              </Card>
+            </FadeInView>
           );
         })}
       </div>
