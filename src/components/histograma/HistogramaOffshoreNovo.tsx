@@ -2567,12 +2567,9 @@ function DashboardTab({ colaboradores, periodos }: {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      // "Na Base" sobrepõe o status bruto do dia, olhando a Unidade do período do Drake — não
-      // é mais o mesmo critério do cartão "Na Base" (esse virou Planejamento de Embarque, sem
-      // histórico por dia; ver colaboradoresNaBaseDoPlanejamento), então essa rosquinha pode
-      // não bater mais com o cartão. Mantido assim de propósito: aqui é uma foto por dia
-      // (pobReferenceDate pode ser passado/futuro), coisa que o Planejamento não tem como responder.
-      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional) ? "BASE" : result.status;
+      // "Na Base" sobrepõe o status bruto do dia usando a MESMA lista do cartão (Planejamento
+      // de Embarque), pra rosquinha e cartão baterem.
+      const status: ComputedStatus = estaNaBase(c.nome) ? "BASE" : result.status;
       if (!isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
@@ -2580,13 +2577,13 @@ function DashboardTab({ colaboradores, periodos }: {
       .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
       .map((s) => ({ name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0, nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")) }))
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, nomesNaBaseDoPlanejamento]);
 
   const naoOcupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional) ? "BASE" : result.status;
+      const status: ComputedStatus = estaNaBase(c.nome) ? "BASE" : result.status;
       if (isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
