@@ -2509,7 +2509,7 @@ function DashboardTab({ colaboradores, periodos }: {
     { label: "Embarcados", value: kpis.embarcados, icon: Ship },
     { label: "Programados", value: kpis.programados, icon: CalendarDays },
     { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
-    { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
+    { label: "Na Base", value: colaboradoresNaBase.length, icon: Building2, hoverNames: colaboradoresNaBase.map((c) => c.nome) },
     { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
