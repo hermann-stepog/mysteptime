@@ -27,10 +27,11 @@ export async function runQualificationUpdate(
   let lockHeld = false;
 
   if (acquireLock) {
-    if (!tryAcquireDrakeUpdateLock()) {
+    if (!tryAcquireDrakeUpdateLock("Atualização da matriz de qualificação (Drake)")) {
       throw new DrakeIntegrationError({
         code: DRAKE_QUALIFICATION_UPDATE_IN_PROGRESS,
-        message: "Já existe uma atualização do Drake em andamento.",
+        message:
+          `Já existe uma atualização do Drake em andamento. ${describeDrakeUpdateLock() ?? ""}`.trim(),
         stage: "queued",
       });
     }
