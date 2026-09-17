@@ -6,7 +6,11 @@ import {
   authenticateMyStepTimeAutomationUser,
   discardMyStepTimeAutomationAuthContext,
 } from "./mysteptime-automation-auth.server";
-import { tryAcquireDrakeUpdateLock, releaseDrakeUpdateLock } from "./update-lock.server";
+import {
+  tryAcquireDrakeUpdateLock,
+  releaseDrakeUpdateLock,
+  touchDrakeUpdateLock,
+} from "./update-lock.server";
 import { updateDrakeData } from "./update-service.server";
 import {
   completeDrakeScheduleSlot,
@@ -82,7 +86,13 @@ export async function runDrakeUpdate(options: RunDrakeUpdateOptions): Promise<Dr
     lockHeld = true;
   }
 
-  const onProgress = options.onProgress ?? defaultScheduledProgress;
+  const baseProgress = options.onProgress ?? defaultScheduledProgress;
+  // Cada evento renova o lock: execuções longas continuam protegidas, mas um processo
+  // que morreu sem liberar deixa o lock expirar sozinho em vez de travar o botão.
+  const onProgress: DrakeProgressCallback = (event) => {
+    touchDrakeUpdateLock();
+    return baseProgress(event);
+  };
 
   try {
     patchDrakeLogContext({ stage: "queued" });
