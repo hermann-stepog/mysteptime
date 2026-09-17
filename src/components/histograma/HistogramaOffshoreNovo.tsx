@@ -2569,6 +2569,11 @@ function DashboardTab({ colaboradores, periodos }: {
       if (!isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
+    // O cartão "Na Base" conta TODAS as linhas do Planejamento de Embarque com status Base;
+    // a rosquinha só enxergava quem também existe no cadastro do Histograma e está ativo no
+    // período filtrado (daí 5 no gráfico contra 35 no cartão). A fatia "Na Base" passa a usar
+    // exatamente a lista do cartão, inclusive quem ainda não tem período lançado aqui.
+    porStatus.set("BASE", colaboradoresNaBaseDoPlanejamento.map((r) => r.nome));
     return STATUS_ORDER
       .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
       .map((s) => ({ name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0, nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")) }))
