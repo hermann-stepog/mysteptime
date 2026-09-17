@@ -37,7 +37,10 @@ function formatStatValue(
   return `${prefix ?? ""}${formatted}${suffix ?? ""}`;
 }
 
-function useNumberFlowElementReady(): boolean {
+// Exportado pra qualquer número animado fora dos centros de gráfico (ex.: cartões de KPI dos
+// dashboards) reaproveitar a mesma checagem de "custom element já registrado", em vez de
+// duplicar a lógica de fallback pro valor estático.
+export function useNumberFlowElementReady(): boolean {
   const [ready, setReady] = useState(
     () =>
       typeof customElements !== "undefined" &&

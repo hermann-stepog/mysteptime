@@ -24,6 +24,7 @@ import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
+import { KpiValue } from "@/components/KpiValue";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import { useRateioPercentual, RateioPercentualPanel, FormaPagamentoField } from "@/components/LogisticaFormFields";
@@ -108,6 +109,14 @@ const STATUS_BORDER: Record<TripStatus, string> = {
   realizado: "border-l-success",
   faturado: "border-l-violet-500",
   cancelado: "border-l-destructive",
+};
+// Ponto de cor sólida antes do texto — mesma receita visual do StatusBadge compartilhado
+// (src/components/StatusBadge.tsx), pra todo badge de status do sistema ter a mesma cara.
+const STATUS_DOT: Record<TripStatus, string> = {
+  em_andamento: "bg-primary",
+  realizado: "bg-success",
+  faturado: "bg-violet-500",
+  cancelado: "bg-destructive",
 };
 
 function todayISO() {
@@ -214,7 +223,12 @@ function useTransportData() {
 }
 
 function StatusBadge({ status }: { status: TripStatus }) {
-  return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", STATUS_BADGE[status])}>{STATUS_LABEL[status]}</span>;
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium shadow-sm transition-colors", STATUS_BADGE[status])}>
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[status])} />
+      {STATUS_LABEL[status]}
+    </span>
+  );
 }
 
 function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatus, onDuplicate }: {
@@ -2425,7 +2439,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
             <TrendingUp className="h-4 w-4" style={{ color: "#1e3a8a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #1e3a8a, #5b7fd4)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{total}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}><KpiValue value={total} /></div>
         </Card>
         </FadeInView>
         <FadeInView delay={0.05}>
@@ -2434,7 +2448,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
             <CheckCircle2 className="h-4 w-4" style={{ color: "#1a5c2a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #1a5c2a, #4ca35f)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{realizados}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1a5c2a" }}><KpiValue value={realizados} /></div>
         </Card>
         </FadeInView>
         <FadeInView delay={0.1}>
@@ -2443,7 +2457,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
             <Activity className="h-4 w-4" style={{ color: "#b8860b" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #b8860b, #d9a83c)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#b8860b" }}><KpiValue value={emAndamento} /></div>
         </Card>
         </FadeInView>
         <FadeInView delay={0.15}>
@@ -2452,7 +2466,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Média de carros/dia</span>
             <TrendingUp className="h-4 w-4" style={{ color: "#475569" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #475569, #7c8ba1)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{avgCarsPerDay}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#475569" }}><KpiValue value={avgCarsPerDay} /></div>
         </Card>
         </FadeInView>
       </div>

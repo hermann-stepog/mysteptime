@@ -10,6 +10,8 @@
 
 @theme {
   --animate-fade-in: fade-in 0.6s ease-out both;
+  --animate-shimmer: shimmer 2.5s ease-in-out infinite;
+  --animate-scale-in: scale-in 0.2s ease-out both;
 
   @keyframes fade-in {
     from {
@@ -20,6 +22,31 @@
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  /* Reflexo sutil que atravessa o card uma vez a cada poucos segundos — usado em pontos de
+     destaque premium (ver .card-sheen em @layer base), nunca em elementos comuns. */
+  @keyframes shimmer {
+    0%, 20% { transform: translateX(-150%); }
+    50%, 100% { transform: translateX(150%); }
+  }
+
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  --animate-glow-pulse: glow-pulse 2.4s ease-in-out infinite;
+
+  @keyframes glow-pulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.92); }
+    50% { opacity: 0.65; transform: scale(1.05); }
   }
 }
 
@@ -151,6 +178,34 @@
     font-feature-settings: "cv11", "ss01";
   }
   h1, h2, h3, h4, h5, h6 { font-family: "JUST Sans", "Barlow", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+}
+
+/* Reflexo/brilho sutil que passa uma vez pelo card, pra pontos de destaque premium (ex.: KPI
+   em foco). Opt-in via classe — nunca aplicado por padrão em card nenhum. Usa ::after pra não
+   interferir no conteúdo/eventos do card (pointer-events-none + overflow-hidden no pai). */
+.card-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.card-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 40%, oklch(1 0 0 / 0.35) 50%, transparent 60%);
+  animation: var(--animate-shimmer);
+}
+
+/* Usuário pediu pra reduzir/desligar animação (SO ou navegador) — zera durações em vez de
+   remover as classes, pra qualquer lógica que espere um evento transitionend/animationend
+   (ex.: Radix fechando um modal) continuar dependente do estado, só sem o movimento visual. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Impressão do Boletim de Medição ("Baixar PDF") — esconde o restante da página e pagina

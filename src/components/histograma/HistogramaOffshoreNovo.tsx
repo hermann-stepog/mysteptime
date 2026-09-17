@@ -53,6 +53,7 @@ import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore
 import { UNIDADES_OPERACIONAIS_FIXAS, resolverFuncaoEmbarque } from "@/lib/timesheetOffshore";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
 import { PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, isStatusNaBase } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import { KpiValue } from "@/components/KpiValue";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
 import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
 import { selectAllPages } from "@/lib/supabasePaginate";
@@ -2512,7 +2513,7 @@ function DashboardTab({ colaboradores, periodos }: {
     { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
     { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
-    { label: "Utilização", value: `${kpis.utilizacao}%`, icon: TrendingUp },
+    { label: "Utilização", value: kpis.utilizacao, suffix: "%", icon: TrendingUp },
   ];
 
   // ── Taxa de Ocupação média no período filtrado — a rosquinha acima é sempre a foto de UM
@@ -2784,8 +2785,8 @@ function DashboardTab({ colaboradores, periodos }: {
                 <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.label}</span>
                 <k.icon className="h-4 w-4 text-muted-foreground" />
               </div>
-              <div className="mt-2 bg-gradient-to-br from-slate-800 to-slate-500 bg-clip-text text-3xl font-semibold text-transparent">
-                {k.value}
+              <div className="mt-2 text-3xl font-semibold text-slate-800">
+                <KpiValue value={k.value} suffix={k.suffix} />
               </div>
             </Card>
           );

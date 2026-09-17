@@ -68,9 +68,10 @@ function StatusBadge({ status }: { status: NominationStatus }) {
   const c = STATUS_BADGE[status] ?? { bg: "#f1f5f9", text: "#334155" };
   return (
     <span
-      className="inline-flex items-center rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium"
+      className="inline-flex items-center gap-1.5 rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium shadow-sm transition-colors"
       style={{ backgroundColor: c.bg, color: c.text }}
     >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: c.text }} />
       {label}
     </span>
   );
@@ -3058,14 +3059,14 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
       {showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
       <TooltipProvider delayDuration={150}>
         <Card className="overflow-x-auto p-2">
-          <table className="w-full border-separate border-spacing-1 text-sm">
+          <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Cliente</th>
+                <th className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Cliente</th>
                 {MAPA_COLUNAS.map((col) => (
-                  <th key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
+                  <th key={col.key} className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
                 ))}
-                <th className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
+                <th className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -3078,7 +3079,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                 return (
                   <Fragment key={cliente}>
                     <tr>
-                      <td colSpan={totalColunas} className="sticky left-0 z-10 bg-slate-50 px-2 py-1.5 text-left">
+                      <td colSpan={totalColunas} className="sticky left-0 z-10 border border-dashed border-border/70 bg-slate-50 px-2 py-1.5 text-left">
                         <button
                           type="button" className="flex items-center gap-2 rounded p-0.5 font-semibold hover:bg-slate-200"
                           aria-expanded={clienteOpen} onClick={() => toggleCollapsedMapa(setExpandedClientes, cliente)}
@@ -3096,7 +3097,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                       return (
                         <Fragment key={unidadeKey}>
                           <tr>
-                            <td colSpan={totalColunas} className="sticky left-0 z-10 bg-sky-50/60 px-2 py-1.5 text-left">
+                            <td colSpan={totalColunas} className="sticky left-0 z-10 border border-dashed border-border/70 bg-sky-50/60 px-2 py-1.5 text-left">
                               <button
                                 type="button" className="flex items-center gap-2 rounded p-0.5 pl-6 font-semibold text-sky-950 hover:bg-sky-100"
                                 aria-expanded={unidadeOpen} onClick={() => toggleCollapsedMapa(setExpandedUnidades, unidadeKey)}
@@ -3112,7 +3113,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                             const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
                             return (
                               <tr key={b}>
-                                <td className="sticky left-0 z-10 bg-card px-2 py-1.5 pl-9 align-top">
+                                <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 pl-9 align-top">
                                   <div className="font-medium">{b}</div>
                                 </td>
                                 {MAPA_COLUNAS.map((col) => {
@@ -3139,7 +3140,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                                     </button>
                                   );
                                   return (
-                                    <td key={col.key} className="p-0 text-center">
+                                    <td key={col.key} className="border border-dashed border-border/70 p-0 text-center">
                                       {rows.length === 0 ? celula : (
                                         <Tooltip>
                                           <TooltipTrigger asChild>{celula}</TooltipTrigger>
@@ -3151,7 +3152,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                                     </td>
                                   );
                                 })}
-                                <td className="px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
+                                <td className="border border-dashed border-border/70 px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
                               </tr>
                             );
                           })}
@@ -3168,11 +3169,11 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
             {bsps.length > 0 && (
               <tfoot>
                 <tr>
-                  <td className="sticky left-0 z-10 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
+                  <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
                   {MAPA_COLUNAS.map((col) => (
-                    <td key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
+                    <td key={col.key} className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
                   ))}
-                  <td className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominationsVisiveis.length}</td>
+                  <td className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominationsVisiveis.length}</td>
                 </tr>
               </tfoot>
             )}

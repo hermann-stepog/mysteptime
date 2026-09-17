@@ -10,9 +10,21 @@ const toneClass: Record<Tone, string> = {
   primary: "bg-primary/10 text-primary border-primary/20",
 };
 
-export function StatusBadge({ tone = "muted", children, className }: { tone?: Tone; children: React.ReactNode; className?: string }) {
+// Ponto de cor sólida antes do texto — mesmo tom do fundo, só sem a transparência. Reaproveitado
+// como referência visual pelos StatusBadge locais (transport.tsx, pm/index.tsx,
+// NominationsPage.tsx) que têm sua própria lógica de status→cor mas devem ter a mesma "cara".
+const dotClass: Record<Tone, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  destructive: "bg-destructive",
+  muted: "bg-muted-foreground",
+  primary: "bg-primary",
+};
+
+export function StatusBadge({ tone = "muted", children, className, dot = true }: { tone?: Tone; children: React.ReactNode; className?: string; dot?: boolean }) {
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium", toneClass[tone], className)}>
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium shadow-sm transition-colors", toneClass[tone], className)}>
+      {dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotClass[tone])} />}
       {children}
     </span>
   );
