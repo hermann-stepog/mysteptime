@@ -10,16 +10,19 @@ export const Route = createFileRoute("/api/integrations/drake/update")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { tryAcquireDrakeUpdateLock, releaseDrakeUpdateLock } =
+        const { tryAcquireDrakeUpdateLock, releaseDrakeUpdateLock, describeDrakeUpdateLock } =
           await import("@/lib/drake/update-lock.server");
 
-        if (!tryAcquireDrakeUpdateLock()) {
+        if (!tryAcquireDrakeUpdateLock("Atualização do histograma (Drake)")) {
+          const detalhe = describeDrakeUpdateLock();
           return Response.json(
             {
               type: "error",
               stage: "failed",
               progress: 0,
-              message: "Já existe uma atualização em andamento.",
+              message: detalhe
+                ? `Já existe uma atualização em andamento. ${detalhe}`
+                : "Já existe uma atualização em andamento.",
               code: DRAKE_UPDATE_IN_PROGRESS,
               embarkationStatus: "waiting",
               availabilityStatus: "waiting",

@@ -9,6 +9,7 @@ import {
 import {
   tryAcquireDrakeUpdateLock,
   releaseDrakeUpdateLock,
+  describeDrakeUpdateLock,
   touchDrakeUpdateLock,
 } from "./update-lock.server";
 import { updateDrakeData } from "./update-service.server";
@@ -76,10 +77,10 @@ export async function runDrakeUpdate(options: RunDrakeUpdateOptions): Promise<Dr
   let lockHeld = false;
 
   if (acquireLock) {
-    if (!tryAcquireDrakeUpdateLock()) {
+    if (!tryAcquireDrakeUpdateLock(TRIGGER_LABEL[options.trigger])) {
       throw new DrakeIntegrationError({
         code: DRAKE_UPDATE_ALREADY_RUNNING,
-        message: "Já existe uma atualização em andamento.",
+        message: `Já existe uma atualização em andamento. ${describeDrakeUpdateLock() ?? ""}`.trim(),
         stage: "queued",
       });
     }
@@ -90,7 +91,11 @@ export async function runDrakeUpdate(options: RunDrakeUpdateOptions): Promise<Dr
   // Cada evento renova o lock: execuções longas continuam protegidas, mas um processo
   // que morreu sem liberar deixa o lock expirar sozinho em vez de travar o botão.
   const onProgress: DrakeProgressCallback = (event) => {
-    touchDrakeUpdateLock();
+    touchDrakeUpdateLock(
+      typeof (event as { stage?: unknown })?.stage === "string"
+        ? (event as { stage: string }).stage
+        : undefined,
+    );
     return baseProgress(event);
   };
 
@@ -130,10 +135,10 @@ export async function runScheduledDrakeUpdate(
   trigger: Exclude<DrakeUpdateTrigger, "manual">,
   options?: { onProgress?: DrakeProgressCallback; scheduleSlot?: DrakeScheduleSlot },
 ): Promise<RunScheduledDrakeUpdateResult> {
-  if (!tryAcquireDrakeUpdateLock()) {
+  if (!tryAcquireDrakeUpdateLock(TRIGGER_LABEL[trigger])) {
     throw new DrakeIntegrationError({
       code: DRAKE_UPDATE_ALREADY_RUNNING,
-      message: "Já existe uma atualização em andamento.",
+      message: `Já existe uma atualização em andamento. ${describeDrakeUpdateLock() ?? ""}`.trim(),
       stage: "queued",
     });
   }
