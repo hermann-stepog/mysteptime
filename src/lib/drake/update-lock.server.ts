@@ -8,7 +8,7 @@ import "@tanstack/react-start/server-only";
  * exceção fora do finally, deploy no meio da execução), o lock ficaria preso para sempre
  * e o usuário veria "Já existe uma atualização em andamento" sem nenhuma atualização real.
  */
-const LOCK_MAX_AGE_MS = 30 * 60 * 1000;
+const LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 
 let lockedAtMs: number | null = null;
 
