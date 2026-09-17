@@ -2452,6 +2452,21 @@ function DashboardTab({ colaboradores, periodos }: {
     return dataFim || today;
   }, [dataInicio, dataFim, today]);
 
+  // ── "Na Base" pelos períodos do Drake: colaboradores ativos no filtro que, em qualquer dia
+  // do período filtrado (ou na data de referência, quando o filtro é de um dia só), estão com
+  // status BASE no Histograma. Cartão, rosquinha e Utilização usam exatamente esta lista.
+  const colaboradoresNaBase = useMemo(() => {
+    const diasAvaliados = dates.length > 0 ? dates : [pobReferenceDate];
+    return activeColaboradores
+      .filter((c) => {
+        const ps = periodosByColaborador.get(c.id) ?? [];
+        return diasAvaliados.some((d) => computeStatusParaDashboard(ps, d).status === "BASE");
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [activeColaboradores, periodosByColaborador, dates, pobReferenceDate]);
+  const idsNaBase = useMemo(() => new Set(colaboradoresNaBase.map((c) => c.id)), [colaboradoresNaBase]);
+  const estaNaBase = (id: string) => idsNaBase.has(id);
+
   // ── KPIs (foto de "pobReferenceDate", só entre os colaboradores ativos no período filtrado) ──
   // "Embarcados" (o cartão) fica restrito a quem está mesmo fisicamente a bordo (E/DB, e
   // Folga Indenizada — que já cai no balde "E" — ver toOldBucket), igual aos gráficos de
