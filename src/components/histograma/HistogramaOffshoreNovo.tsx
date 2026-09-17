@@ -2306,6 +2306,16 @@ function DashboardTab({ colaboradores, periodos }: {
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
     [planejamentoEmbarque],
   );
+  // Mesma lista do cartão "Na Base", por nome normalizado — as rosquinhas e a Utilização
+  // usam exatamente este conjunto, pra o gráfico bater com o cartão. Antes cada lado usava
+  // um critério diferente: o cartão vinha do Planejamento de Embarque e a rosquinha marcava
+  // como "Na Base" qualquer um cujo período do Drake tivesse Unidade "BASE" — o que engolia
+  // Standby, Folga e Férias dessas pessoas e inflava tanto "Na Base" quanto a % de Utilização.
+  const nomesNaBaseDoPlanejamento = useMemo(
+    () => new Set(colaboradoresNaBaseDoPlanejamento.map((r) => normalizeNomeHistograma(r.nome))),
+    [colaboradoresNaBaseDoPlanejamento],
+  );
+  const estaNaBase = (nome: string) => nomesNaBaseDoPlanejamento.has(normalizeNomeHistograma(nome));
 
   // Função de embarque (não a cadastral) por colaborador na data de referência do retrato
   // (pobReferenceDate, mais abaixo) — ver resolverFuncaoEmbarque.
