@@ -91,7 +91,11 @@ export async function runDrakeUpdate(options: RunDrakeUpdateOptions): Promise<Dr
   // Cada evento renova o lock: execuções longas continuam protegidas, mas um processo
   // que morreu sem liberar deixa o lock expirar sozinho em vez de travar o botão.
   const onProgress: DrakeProgressCallback = (event) => {
-    touchDrakeUpdateLock();
+    touchDrakeUpdateLock(
+      typeof (event as { stage?: unknown })?.stage === "string"
+        ? (event as { stage: string }).stage
+        : undefined,
+    );
     return baseProgress(event);
   };
 
