@@ -2594,7 +2594,7 @@ function DashboardTab({ colaboradores, periodos }: {
         nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")),
         color: NAO_OCUPACAO_COLOR[s] ?? OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length],
       }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, nomesNaBaseDoPlanejamento]);
 
   // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
   // tabela "POB por Unidade × Dia" com unidades zeradas no mês/intervalo selecionado.
