@@ -2290,28 +2290,10 @@ function DashboardTab({ colaboradores, periodos }: {
     return colaboradores.filter((c) => ids.has(c.id));
   }, [colaboradores, periodos]);
 
-  // "Na Base" passou a vir só do Planejamento de Embarque (tela própria, editada manualmente,
-  // sem vínculo com o cadastro do Drake) — a pedido dela, deixou de depender dos períodos do
-  // Histograma pra esse cartão específico. Lê a coluna Status exatamente como veio da planilha
-  // (sem nenhum cálculo por cima — ver isStatusNaBase): quem inclui/edita um registro lá com
-  // Status "Base"/"Na Base" já reflete direto aqui, sem esperar sincronização com o Drake.
-  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
-  const colaboradoresNaBaseDoPlanejamento = useMemo(
-    () => planejamentoEmbarque
-      .filter((r) => isStatusNaBase(r.status))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  // Mesma lista do cartão "Na Base", por nome normalizado — as rosquinhas e a Utilização
-  // usam exatamente este conjunto, pra o gráfico bater com o cartão. Antes cada lado usava
-  // um critério diferente: o cartão vinha do Planejamento de Embarque e a rosquinha marcava
-  // como "Na Base" qualquer um cujo período do Drake tivesse Unidade "BASE" — o que engolia
-  // Standby, Folga e Férias dessas pessoas e inflava tanto "Na Base" quanto a % de Utilização.
-  const nomesNaBaseDoPlanejamento = useMemo(
-    () => new Set(colaboradoresNaBaseDoPlanejamento.map((r) => normalizeNomeHistograma(r.nome))),
-    [colaboradoresNaBaseDoPlanejamento],
-  );
-  const estaNaBase = (nome: string) => nomesNaBaseDoPlanejamento.has(normalizeNomeHistograma(nome));
+  // "Na Base" voltou a vir do Drake (a pedido dela): colaboradores com embarques que, em
+  // algum dia do período filtrado, estão com status BASE no Histograma. A lista é calculada
+  // mais abaixo (colaboradoresNaBase), depois de activeColaboradores e das datas do filtro.
+
 
   // Função de embarque (não a cadastral) por colaborador na data de referência do retrato
   // (pobReferenceDate, mais abaixo) — ver resolverFuncaoEmbarque.
