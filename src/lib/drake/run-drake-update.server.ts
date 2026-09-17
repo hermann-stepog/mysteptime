@@ -76,10 +76,10 @@ export async function runDrakeUpdate(options: RunDrakeUpdateOptions): Promise<Dr
   let lockHeld = false;
 
   if (acquireLock) {
-    if (!tryAcquireDrakeUpdateLock()) {
+    if (!tryAcquireDrakeUpdateLock(TRIGGER_LABEL[options.trigger])) {
       throw new DrakeIntegrationError({
         code: DRAKE_UPDATE_ALREADY_RUNNING,
-        message: "Já existe uma atualização em andamento.",
+        message: `Já existe uma atualização em andamento. ${describeDrakeUpdateLock() ?? ""}`.trim(),
         stage: "queued",
       });
     }
