@@ -135,10 +135,10 @@ export async function runScheduledDrakeUpdate(
   trigger: Exclude<DrakeUpdateTrigger, "manual">,
   options?: { onProgress?: DrakeProgressCallback; scheduleSlot?: DrakeScheduleSlot },
 ): Promise<RunScheduledDrakeUpdateResult> {
-  if (!tryAcquireDrakeUpdateLock()) {
+  if (!tryAcquireDrakeUpdateLock(TRIGGER_LABEL[trigger])) {
     throw new DrakeIntegrationError({
       code: DRAKE_UPDATE_ALREADY_RUNNING,
-      message: "Já existe uma atualização em andamento.",
+      message: `Já existe uma atualização em andamento. ${describeDrakeUpdateLock() ?? ""}`.trim(),
       stage: "queued",
     });
   }
