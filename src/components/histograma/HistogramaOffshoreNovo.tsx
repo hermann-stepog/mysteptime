@@ -2578,7 +2578,13 @@ function DashboardTab({ colaboradores, periodos }: {
       .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
       .map((s) => ({ name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0, nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")) }))
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, nomesNaBaseDoPlanejamento]);
+  }, [
+    activeColaboradores,
+    periodosByColaborador,
+    pobReferenceDate,
+    nomesNaBaseDoPlanejamento,
+    colaboradoresNaBaseDoPlanejamento,
+  ]);
 
   const naoOcupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
