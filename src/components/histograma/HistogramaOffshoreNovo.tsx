@@ -44,7 +44,7 @@ import {
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade,
   toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
-  calcularHistoricoOcupacaoColaborador, getColaboradoresComMultiploEmbarque,
+  calcularHistoricoOcupacaoColaborador, getColaboradoresComEmbarque, getColaboradoresComMultiploEmbarque,
   type OldBucket,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
   type HistoricoOcupacaoColaborador,
@@ -2271,8 +2271,9 @@ function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): 
   return folga ? { status: "F", periodo: folga } : result;
 }
 
-// "Na Base" tem uma única fonte no Dashboard: o Planejamento de Embarque (cartão, rosquinhas
-// e Utilização usam a mesma lista — ver idsNaBase).
+// "Na Base" tem uma única fonte no Dashboard: a posição diária do Drake. No retorno da
+// Ficha Anual, BASE fica em unidade_operacional; não é um tipo de ocorrência. Cartão,
+// rosquinhas e Utilização usam a mesma lista — ver idsNaBase.
 
 
 
@@ -2290,6 +2291,11 @@ function DashboardTab({ colaboradores, periodos }: {
     const ids = getColaboradoresComMultiploEmbarque(periodos);
     return colaboradores.filter((c) => ids.has(c.id));
   }, [colaboradores, periodos]);
+
+  const idsComEmbarqueNoHistorico = useMemo(
+    () => getColaboradoresComEmbarque(periodos),
+    [periodos],
+  );
 
   // "Na Base" voltou a vir do Drake (a pedido dela): colaboradores com embarques que, em
   // algum dia do período filtrado, estão com status BASE no Histograma. A lista é calculada
@@ -2453,21 +2459,27 @@ function DashboardTab({ colaboradores, periodos }: {
     return dataFim || today;
   }, [dataInicio, dataFim, today]);
 
-  // ── "Na Base" pelos períodos do Drake: colaborador com cadastro ativo e com histórico de
-  // embarques (colaboradoresFiltrados já nasce de colaboradoresComMultiploEmbarque) que, em
-  // algum dia do período filtrado (ou na data de referência, quando o filtro é de um dia só),
-  // está com status BASE no Histograma. Não exige estar "ativo no período" (activeColaboradores)
-  // — basta ter o dia BASE lançado. Cartão, rosquinha e Utilização usam exatamente esta lista.
+  // ── "Na Base" pela Ficha Anual do Drake: cadastro ativo, ao menos um embarque confirmado
+  // no histórico e posição do dia informada pelo Drake com unidade operacional BASE. O Drake
+  // não envia BASE como tipo de ocorrência: no banco o dia pode ser STB/F/etc. e a indicação
+  // de base fica em unidade_operacional. Cartão, rosquinhas e Utilização usam esta mesma lista.
   const colaboradoresNaBase = useMemo(() => {
     const diasAvaliados = dates.length > 0 ? dates : [pobReferenceDate];
-    return colaboradoresFiltrados
-      .filter((c) => c.ativo !== false)
+    return colaboradores
+      .filter((c) => c.ativo !== false && idsComEmbarqueNoHistorico.has(c.id))
+      .filter((c) => !filterColaborador.length || filterColaborador.includes(c.id))
       .filter((c) => {
         const ps = periodosByColaborador.get(c.id) ?? [];
-        return diasAvaliados.some((d) => computeStatusParaDashboard(ps, d).status === "BASE");
+        if (filterUnidade.length && !ps.some((p) => p.unidade_operacional && filterUnidade.includes(p.unidade_operacional))) return false;
+        if (filterBsp.length && !ps.some((p) => { const b = bspDoPeriodo(p); return b && filterBsp.includes(b); })) return false;
+        return diasAvaliados.some((d) => {
+          const result = computeStatusParaDashboard(ps, d);
+          return result.periodo?.origem?.trim().toLowerCase() === "drake"
+            && canonUnidade(result.periodo.unidade_operacional) === canonUnidade("BASE");
+        });
       })
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-  }, [colaboradoresFiltrados, periodosByColaborador, dates, pobReferenceDate]);
+  }, [colaboradores, idsComEmbarqueNoHistorico, filterColaborador, filterUnidade, filterBsp, periodosByColaborador, dates, pobReferenceDate]);
   const idsNaBase = useMemo(() => new Set(colaboradoresNaBase.map((c) => c.id)), [colaboradoresNaBase]);
   const estaNaBase = (id: string) => idsNaBase.has(id);
 
@@ -2564,8 +2576,8 @@ function DashboardTab({ colaboradores, periodos }: {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      // "Na Base" sobrepõe o status bruto do dia usando a MESMA lista do cartão (Planejamento
-      // de Embarque), pra rosquinha e cartão baterem.
+      // "Na Base" sobrepõe o status bruto do dia usando a MESMA lista do cartão (Drake),
+      // pra rosquinha e cartão baterem.
       const status: ComputedStatus = estaNaBase(c.id) ? "BASE" : result.status;
       if (!isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
