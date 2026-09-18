@@ -46,6 +46,10 @@ export interface PlanejamentoEmbarqueRow {
   folga_fim: string | null;
   ferias_inicio: string | null;
   ferias_fim: string | null;
+  // Colunas "PROGRAMADO 1"/"PROGRAMADO 2" da planilha dela: a 1ª é sempre data, a 2ª é texto
+  // livre (às vezes data, às vezes anotação tipo "BASE - HENRIQUE").
+  programado_1: string | null;
+  programado_2: string | null;
 }
 
 // Status deixou de ser calculado por datas (Embarcado/Férias/Folga/etc.) — a pedido dela, agora
