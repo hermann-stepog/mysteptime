@@ -2562,16 +2562,19 @@ function DashboardTab({ colaboradores, periodos }: {
   const kpis = useMemo(() => {
     let embarcados = 0, disponiveis = 0, naoDisp = 0, folga = 0, ocupados = 0;
     const programadosIds = new Set<string>();
+    // Nomes por balde — só usados pra alimentar as rosquinhas com os mesmos números dos
+    // cartões (ver ocupacaoData/naoOcupacaoData), sem mudar nenhuma das contagens acima.
+    const folgaNomes: string[] = [], disponiveisNomes: string[] = [], naoDispNomes: string[] = [];
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       // Planejamento de Embarque (Status Embarcado/Programado) sobrepõe o balde real do Drake
       // pra esse colaborador nesse dia, quando bate — ver statusViaPlanejamentoPorColaborador.
       const bucket = statusViaPlanejamentoPorColaborador.get(c.id) ?? toOldBucket(result.status);
       if (bucket === "E") embarcados++;
-      else if (bucket === "FO") folga++;
+      else if (bucket === "FO") { folga++; folgaNomes.push(c.nome); }
       else if (bucket === "P") programadosIds.add(c.id);
-      else if (bucket === "B") disponiveis++;
-      else if (bucket === "FE" || bucket === "IND") naoDisp++;
+      else if (bucket === "B") { disponiveis++; disponiveisNomes.push(c.nome); }
+      else if (bucket === "FE" || bucket === "IND") { naoDisp++; naoDispNomes.push(c.nome); }
       // Continua olhando a Unidade do período do Drake (não o Planejamento de Embarque, que
       // não tem histórico por dia) — quem está "Na Base" conta como ocupado mesmo quando o
       // status bruto do dia não seria (ex.: Standby), senão a % de Utilização ficava sem essas
@@ -2588,7 +2591,7 @@ function DashboardTab({ colaboradores, periodos }: {
     });
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
-    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao };
+    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao, folgaNomes, disponiveisNomes, naoDispNomes };
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, statusViaPlanejamentoPorColaborador]);
 
   // Headcount Total/Embarcados/Programados (cartões) passam a vir do Planejamento de Embarque
@@ -2656,47 +2659,35 @@ function DashboardTab({ colaboradores, periodos }: {
   // lado a lado: um só com quem está "ocupado" (ver isOcupadoBucket) em tons de azul, outro
   // com o restante ("fora da ocupação" — Standby, Férias, Atestado etc.) em tons de
   // amarelo/laranja, pra ficar visualmente claro que são as duas metades complementares.
+  // Pedido dela: as rosquinhas passam a ser só uma visualização dos MESMOS números já
+  // mostrados nos cartões acima (Embarcados/Programados/Na Base do Planejamento de Embarque;
+  // Folga/Aguardando Escala/Não Disponíveis do cálculo antigo do Drake) — sem recalcular nada
+  // por conta própria, pra nunca mais divergir do cartão, seja qual for a fonte de cada um.
   const ocupacaoData = useMemo(() => {
-    const porStatus = new Map<ComputedStatus, string[]>();
-    activeColaboradores.forEach((c) => {
-      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      // "Na Base" sobrepõe o status bruto do dia, olhando a Unidade do período do Drake — não
-      // é mais o mesmo critério do cartão "Na Base" (esse virou Planejamento de Embarque, sem
-      // histórico por dia; ver colaboradoresNaBaseDoPlanejamento), então essa rosquinha pode
-      // não bater mais com o cartão. Mantido assim de propósito: aqui é uma foto por dia
-      // (pobReferenceDate pode ser passado/futuro), coisa que o Planejamento não tem como responder.
-      // Embarcado/Programado do Planejamento de Embarque também sobrepõe, mesma prioridade do
-      // cartão de KPI (ver statusViaPlanejamentoPorColaborador) — abaixo de "Na Base".
-      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional)
-        ? "BASE"
-        : (statusViaPlanejamentoPorColaborador.get(c.id) ?? result.status);
-      if (!isOcupadoBucket(toOldBucket(status))) return;
-      porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
-    });
-    return STATUS_ORDER
-      .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
-      .map((s) => ({ name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0, nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")) }))
+    return [
+      { name: "Embarcados", value: embarcadosDoPlanejamento.length, nomes: embarcadosDoPlanejamento.map((r) => r.nome) },
+      { name: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, nomes: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
+      { name: "Programados", value: programadosDoPlanejamento.length, nomes: programadosDoPlanejamento.map((r) => r.nome) },
+      { name: "Folga de Embarque", value: kpis.folga, nomes: kpis.folgaNomes },
+    ]
+      .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, statusViaPlanejamentoPorColaborador]);
+  }, [embarcadosDoPlanejamento, colaboradoresNaBaseDoPlanejamento, programadosDoPlanejamento, kpis]);
 
   const naoOcupacaoData = useMemo(() => {
-    const porStatus = new Map<ComputedStatus, string[]>();
-    activeColaboradores.forEach((c) => {
-      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional)
-        ? "BASE"
-        : (statusViaPlanejamentoPorColaborador.get(c.id) ?? result.status);
-      if (isOcupadoBucket(toOldBucket(status))) return;
-      porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
-    });
-    return STATUS_ORDER
-      .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
-      .map((s, i) => ({
-        name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0,
-        nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")),
-        color: NAO_OCUPACAO_COLOR[s] ?? OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length],
-      }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, statusViaPlanejamentoPorColaborador]);
+    return [
+      { name: "Aguardando Escala", value: kpis.disponiveis, nomes: kpis.disponiveisNomes },
+      { name: "Não Disponíveis", value: kpis.naoDisp, nomes: kpis.naoDispNomes },
+    ]
+      .filter((d) => d.value > 0)
+      .map((d, i) => ({ ...d, color: OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length] }));
+  }, [kpis]);
+
+  // Mesma soma das duas rosquinhas acima, sobre o Headcount Total do cartão (Planejamento de
+  // Embarque) — alimenta só o % no centro das rosquinhas. O cartão "Utilização" continua com
+  // a conta antiga (kpis.utilizacao), intocado.
+  const ocupadoCards = ocupacaoData.reduce((sum, d) => sum + d.value, 0);
+  const pctOcupacaoCards = planejamentoEmbarque.length > 0 ? Math.round((ocupadoCards / planejamentoEmbarque.length) * 100) : 0;
 
   // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
   // tabela "POB por Unidade × Dia" com unidades zeradas no mês/intervalo selecionado.
@@ -2961,7 +2952,7 @@ function DashboardTab({ colaboradores, periodos }: {
                   className="text-2xl font-bold"
                   style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
                 >
-                  {kpis.utilizacao}%
+                  {pctOcupacaoCards}%
                 </span>
                 <span className="text-[10px] text-muted-foreground">ocupação</span>
               </div>
@@ -3001,7 +2992,7 @@ function DashboardTab({ colaboradores, periodos }: {
                   className="text-2xl font-bold"
                   style={{ backgroundImage: "linear-gradient(135deg, #9a3412, #f59e0b)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
                 >
-                  {100 - kpis.utilizacao}%
+                  {100 - pctOcupacaoCards}%
                 </span>
                 <span className="text-[10px] text-muted-foreground">fora da ocupação</span>
               </div>
