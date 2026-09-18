@@ -953,7 +953,10 @@ export function calcularHistoricoOcupacaoColaborador(
 
   datas.forEach((dataRef) => {
     const status = computeDayStatus(periodos, dataRef).status;
-    diasPorCategoria[status] = (diasPorCategoria[status] ?? 0) + 1;
+    // Quem desembarca em Dia Não Útil já entra de folga nesse mesmo dia (decisão da usuária),
+    // então o dia é contado na categoria Folga — a grade continua mostrando a sigla DDN.
+    const categoria: ComputedStatus = status === "DDN" ? "F" : status;
+    diasPorCategoria[categoria] = (diasPorCategoria[categoria] ?? 0) + 1;
     const bucket = toOldBucket(status);
     if (isOcupadoBucket(bucket)) diasOcupado++;
 
