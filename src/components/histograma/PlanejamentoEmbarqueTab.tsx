@@ -8,6 +8,7 @@ import { notify } from "@/lib/notify";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
 import { todayStr } from "@/lib/histogramaNovo";
+import { fmtDateTime } from "@/lib/format";
 import { StringMultiCombobox, fmtDateHeadcount } from "@/components/histograma/HistogramaOffshoreNovo";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus } from "lucide-react";
+import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus, History } from "lucide-react";
 
 // ─── Planejamento de Embarque ───────────────────────────────────────────────────────────────
 // Deixou de ser uma visão derivada de hist_novo_periodos/hist_novo_colaboradores (dados do
@@ -46,6 +47,8 @@ export interface PlanejamentoEmbarqueRow {
   folga_fim: string | null;
   ferias_inicio: string | null;
   ferias_fim: string | null;
+  updated_at: string;
+  updated_by: string | null;
 }
 
 // Status deixou de ser calculado por datas (Embarcado/Férias/Folga/etc.) — a pedido dela, agora
@@ -54,6 +57,18 @@ export interface PlanejamentoEmbarqueRow {
 export function isStatusNaBase(status: string | null | undefined): boolean {
   const s = (status ?? "").trim().toUpperCase();
   return s === "BASE" || s === "NA BASE";
+}
+
+// Mesmo critério acima, pra identificar quem está "Programado" (ver cruzamento em Lançamentos
+// do Histograma — LancamentosTab em HistogramaOffshoreNovo.tsx).
+export function isStatusProgramado(status: string | null | undefined): boolean {
+  return (status ?? "").trim().toUpperCase() === "PROGRAMADO";
+}
+
+// Idem, pra "Embarcado" (ver cruzamento no cartão "Embarcados" do Dashboard — DashboardTab em
+// HistogramaOffshoreNovo.tsx).
+export function isStatusEmbarcado(status: string | null | undefined): boolean {
+  return (status ?? "").trim().toUpperCase() === "EMBARCADO";
 }
 
 export function usePlanejamentoEmbarqueQuery() {
@@ -457,6 +472,28 @@ export function PlanejamentoEmbarqueTab() {
     onError: (e: any) => notify.error(e.message),
   });
 
+  // Última atualização (qualquer linha) — pra mostrar quem mexeu por último e quando no
+  // cabeçalho da aba. updated_at/updated_by são preenchidos automaticamente por gatilho no
+  // banco em todo insert/update (import, edição de célula, dialog), nunca pelo app — ver
+  // migração 20260918120000_planejamento_embarque_audit.sql.
+  const ultimaAtualizacao = useMemo(
+    () => registros.reduce<PlanejamentoEmbarqueRow | null>(
+      (mais, r) => (!mais || r.updated_at > mais.updated_at ? r : mais),
+      null,
+    ),
+    [registros],
+  );
+  const { data: perfilUltimaAtualizacao } = useQuery({
+    queryKey: ["profile-nome", ultimaAtualizacao?.updated_by],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("full_name").eq("id", ultimaAtualizacao!.updated_by).maybeSingle();
+      if (error) throw error;
+      return data as { full_name: string | null } | null;
+    },
+    enabled: !!ultimaAtualizacao?.updated_by,
+  });
+  const primeiroNomeUltimaAtualizacao = perfilUltimaAtualizacao?.full_name?.trim().split(/\s+/)[0] ?? null;
+
   const { sortColumn, sortDirection, toggleSort } = useTableSort<PlanejamentoSortColumn>();
 
   const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
@@ -587,6 +624,17 @@ export function PlanejamentoEmbarqueTab() {
             <span className="font-bold">{linhas.length}</span>
             <span className="text-muted-foreground">colaborador(es)</span>
           </div>
+          {ultimaAtualizacao && (
+            <div
+              className="flex items-center gap-1.5 rounded px-2 py-0.5 h-8 text-[11px] bg-muted border border-border/60"
+              title={`Última atualização em ${fmtDateTime(ultimaAtualizacao.updated_at)}${primeiroNomeUltimaAtualizacao ? ` por ${primeiroNomeUltimaAtualizacao}` : ""}`}
+            >
+              <History className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Última atualização:</span>
+              <span className="font-semibold">{fmtDateTime(ultimaAtualizacao.updated_at)}</span>
+              {primeiroNomeUltimaAtualizacao && <span className="text-muted-foreground">· {primeiroNomeUltimaAtualizacao}</span>}
+            </div>
+          )}
         </div>
       </Card>
 

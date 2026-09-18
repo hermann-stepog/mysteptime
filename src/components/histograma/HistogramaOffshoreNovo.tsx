@@ -52,7 +52,7 @@ import {
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS, resolverFuncaoEmbarque } from "@/lib/timesheetOffshore";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
-import { PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, isStatusNaBase } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import { PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, isStatusNaBase, isStatusProgramado, isStatusEmbarcado } from "@/components/histograma/PlanejamentoEmbarqueTab";
 import { KpiValue } from "@/components/KpiValue";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
 import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
@@ -1068,6 +1068,10 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   const today = todayStr();
 
   const colaboradorById = useMemo(() => new Map(colaboradores.map((c) => [c.id, c])), [colaboradores]);
+  const colaboradorIdPorNome = useMemo(
+    () => new Map(colaboradores.map((c) => [normalizeNomeHistograma(c.nome), c.id])),
+    [colaboradores],
+  );
 
   // Função de embarque (não a cadastral) por colaborador — ver resolverFuncaoEmbarque.
   const { data: timesheetEmbarques = [] } = useQuery({
@@ -1223,6 +1227,50 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     onError: (e: any) => notify.error(e.message),
   });
 
+  // Cruzamento com Planejamento de Embarque — pedido dela: todo colaborador com Status
+  // "Programado" lá entra aqui como uma linha virtual "P — Programado" (mesmo molde da linha
+  // virtual de Desembarque abaixo, sem gravar nada em hist_novo_periodos), usando as próprias
+  // datas de Embarque/Desembarque já cadastradas na linha do Planejamento. Some sozinha da
+  // lista assim que a janela expira (hoje > Desembarque, ou > Embarque quando não há
+  // Desembarque) — é assim que "no dia seguinte prevalece o status do Drake" acontece, sem
+  // precisar de nenhuma limpeza manual: o período real do Drake nunca foi tocado.
+  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  const linhasProgramadoPlanejamento = useMemo(() => {
+    const hoje = todayStr();
+    const linhas: HistNovoPeriodo[] = [];
+    planejamentoEmbarque.forEach((row) => {
+      if (!isStatusProgramado(row.status) || !row.embarque) return;
+      const fim = row.desembarque ?? row.embarque;
+      if (hoje > fim) return;
+      const colaboradorId = colaboradorIdPorNome.get(normalizeNomeHistograma(row.nome));
+      if (!colaboradorId) return;
+      // Já existe um "E" real (ou a confirmar) começando na janela — o Drake/lançamento manual
+      // já confirmou o embarque de verdade, a linha "Programado" não deve mais aparecer, mesmo
+      // antes da data expirar tecnicamente (mesmo critério já usado pro "P" real, algumas
+      // linhas abaixo).
+      const jaConfirmado = periodos.some((e) =>
+        e.colaborador_id === colaboradorId && e.tipo === "E" &&
+        (e.data_inicio === fim || e.data_inicio === addDays(fim, 1) || (e.data_inicio <= fim && e.data_fim >= row.embarque!)),
+      );
+      if (jaConfirmado) return;
+      const dias = Math.round((new Date(fim).getTime() - new Date(row.embarque!).getTime()) / 86400000) + 1;
+      linhas.push({
+        id: `planejamento:${row.id}`,
+        colaborador_id: colaboradorId,
+        unidade_operacional: row.unidade,
+        centro_de_custo: null,
+        bsp: row.bsp,
+        tipo: "P",
+        data_inicio: row.embarque!,
+        data_fim: fim,
+        dias: dias > 0 ? dias : 1,
+        origem: "planejamento_embarque",
+        created_at: row.embarque!,
+      });
+    });
+    return linhas;
+  }, [planejamentoEmbarque, colaboradorIdPorNome, periodos]);
+
   const filteredPeriodos = useMemo(() => {
     // Evento agora é multi-seleção: filterTipo é uma lista de tipos (TipoPeriodo) + talvez o
     // sentinela EVENTO_FILTER_DESEMBARQUE misturado junto — lista vazia significa "Todos".
@@ -1277,7 +1325,13 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         .filter(filtrosComuns)
       : [];
 
-    return [...linhasNormais, ...linhasDesembarque].sort((a, b) => {
+    // Mesmo filtro de Evento/Colaborador/Unidade/BSP/Função/De-Até das linhas normais — assim
+    // filtrar por "P — Programado" também traz essas, e filtrar por outro Evento as esconde.
+    const linhasProgramado = linhasProgramadoPlanejamento.filter((p) =>
+      (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(tipoEfetivo(p))) && filtrosComuns(p),
+    );
+
+    return [...linhasNormais, ...linhasDesembarque, ...linhasProgramado].sort((a, b) => {
       if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
       const dir = sortDirection === "asc" ? 1 : -1;
       switch (sortColumn) {
@@ -1318,7 +1372,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           return 0;
       }
     });
-  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection, embarquesByColaboradorId, ultimaFolgaPorColaborador]);
+  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection, embarquesByColaboradorId, ultimaFolgaPorColaborador, linhasProgramadoPlanejamento]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
   // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
@@ -1434,10 +1488,13 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
             {filteredPeriodos.map((p, i) => {
               const c = colaboradorById.get(p.colaborador_id);
               const tipo = isTipoPeriodo(p.tipo) ? p.tipo : null;
-              // Linha virtual de Desembarque (ver EVENTO_FILTER_DESEMBARQUE) — não é um período
-              // de verdade, então não tem ação de editar/excluir; usa a mesma cor do status
-              // "DES" computado no Histograma pra manter a linguagem visual consistente.
+              // Linha virtual de Desembarque (ver EVENTO_FILTER_DESEMBARQUE) ou cruzada do
+              // Planejamento de Embarque (ver linhasProgramadoPlanejamento) — nenhuma das duas
+              // é um período de verdade em hist_novo_periodos, então não tem ação de editar/
+              // excluir; usa a mesma cor do status "DES" computado no Histograma pra manter a
+              // linguagem visual consistente.
               const isDesembarqueVirtual = p.tipo === "DES";
+              const isVirtual = isDesembarqueVirtual || p.origem === "planejamento_embarque";
               return (
                 <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
@@ -1478,7 +1535,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
                     {ultimaFolgaPorColaborador.get(p.colaborador_id)?.data_fim.split("-").reverse().join("/") ?? "—"}
                   </TableCell>
                   <TableCell>
-                    {!isDesembarqueVirtual && (
+                    {!isVirtual && (
                       <div className="flex gap-1">
                         <Button size="icon" variant="ghost" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
                         <Button
@@ -2307,6 +2364,13 @@ function DashboardTab({ colaboradores, periodos }: {
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
     [planejamentoEmbarque],
   );
+  // Cruzamento por nome do Planejamento de Embarque com o cadastro do Drake — mesmo critério já
+  // usado no cruzamento de Lançamentos (LancamentosTab, normalizeNomeHistograma). Usado logo
+  // abaixo pros cartões "Embarcados" e "Programados".
+  const colaboradorIdPorNomePlanejamento = useMemo(
+    () => new Map(colaboradores.map((c) => [normalizeNomeHistograma(c.nome), c.id])),
+    [colaboradores],
+  );
 
   // Função de embarque (não a cadastral) por colaborador na data de referência do retrato
   // (pobReferenceDate, mais abaixo) — ver resolverFuncaoEmbarque.
@@ -2465,6 +2529,26 @@ function DashboardTab({ colaboradores, periodos }: {
     return dataFim || today;
   }, [dataInicio, dataFim, today]);
 
+  // "Embarcados" e "Programados" também passam a cruzar com o Planejamento de Embarque (Status
+  // EMBARCADO/PROGRAMADO) — a pedido dela, além do que já vem do Drake/Nomeações. Só conta
+  // enquanto pobReferenceDate cai dentro da janela Embarque→Desembarque cadastrada na própria
+  // linha do Planejamento (mesma ideia do cruzamento em Lançamentos); some sozinho fora da
+  // janela. Quando bate, esse status sobrepõe o real do Drake pra esse colaborador nesse dia —
+  // mesma prioridade que "Na Base" já tem sobre o resto.
+  const statusViaPlanejamentoPorColaborador = useMemo(() => {
+    const m = new Map<string, "E" | "P">();
+    planejamentoEmbarque.forEach((row) => {
+      if (!row.embarque) return;
+      const override: "E" | "P" | null = isStatusEmbarcado(row.status) ? "E" : isStatusProgramado(row.status) ? "P" : null;
+      if (!override) return;
+      const fim = row.desembarque ?? row.embarque;
+      if (pobReferenceDate < row.embarque || pobReferenceDate > fim) return;
+      const colaboradorId = colaboradorIdPorNomePlanejamento.get(normalizeNomeHistograma(row.nome));
+      if (colaboradorId) m.set(colaboradorId, override);
+    });
+    return m;
+  }, [planejamentoEmbarque, colaboradorIdPorNomePlanejamento, pobReferenceDate]);
+
   // ── KPIs (foto de "pobReferenceDate", só entre os colaboradores ativos no período filtrado) ──
   // "Embarcados" (o cartão) fica restrito a quem está mesmo fisicamente a bordo (E/DB, e
   // Folga Indenizada — que já cai no balde "E" — ver toOldBucket), igual aos gráficos de
@@ -2480,7 +2564,9 @@ function DashboardTab({ colaboradores, periodos }: {
     const programadosIds = new Set<string>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      const bucket = toOldBucket(result.status);
+      // Planejamento de Embarque (Status Embarcado/Programado) sobrepõe o balde real do Drake
+      // pra esse colaborador nesse dia, quando bate — ver statusViaPlanejamentoPorColaborador.
+      const bucket = statusViaPlanejamentoPorColaborador.get(c.id) ?? toOldBucket(result.status);
       if (bucket === "E") embarcados++;
       else if (bucket === "FO") folga++;
       else if (bucket === "P") programadosIds.add(c.id);
@@ -2503,7 +2589,7 @@ function DashboardTab({ colaboradores, periodos }: {
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
     return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao };
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, statusViaPlanejamentoPorColaborador]);
 
   const kpiCards = [
     { label: "Headcount Total", value: kpis.total, icon: Users },
@@ -2566,7 +2652,11 @@ function DashboardTab({ colaboradores, periodos }: {
       // histórico por dia; ver colaboradoresNaBaseDoPlanejamento), então essa rosquinha pode
       // não bater mais com o cartão. Mantido assim de propósito: aqui é uma foto por dia
       // (pobReferenceDate pode ser passado/futuro), coisa que o Planejamento não tem como responder.
-      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional) ? "BASE" : result.status;
+      // Embarcado/Programado do Planejamento de Embarque também sobrepõe, mesma prioridade do
+      // cartão de KPI (ver statusViaPlanejamentoPorColaborador) — abaixo de "Na Base".
+      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional)
+        ? "BASE"
+        : (statusViaPlanejamentoPorColaborador.get(c.id) ?? result.status);
       if (!isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
@@ -2574,13 +2664,15 @@ function DashboardTab({ colaboradores, periodos }: {
       .filter((s) => (porStatus.get(s)?.length ?? 0) > 0)
       .map((s) => ({ name: STATUS_LABEL[s], value: porStatus.get(s)?.length ?? 0, nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")) }))
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, statusViaPlanejamentoPorColaborador]);
 
   const naoOcupacaoData = useMemo(() => {
     const porStatus = new Map<ComputedStatus, string[]>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional) ? "BASE" : result.status;
+      const status: ComputedStatus = ehUnidadeBase(result.periodo?.unidade_operacional)
+        ? "BASE"
+        : (statusViaPlanejamentoPorColaborador.get(c.id) ?? result.status);
       if (isOcupadoBucket(toOldBucket(status))) return;
       porStatus.set(status, [...(porStatus.get(status) ?? []), c.nome]);
     });
@@ -2591,7 +2683,7 @@ function DashboardTab({ colaboradores, periodos }: {
         nomes: (porStatus.get(s) ?? []).sort((a, b) => a.localeCompare(b, "pt-BR")),
         color: NAO_OCUPACAO_COLOR[s] ?? OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length],
       }));
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate]);
+  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, statusViaPlanejamentoPorColaborador]);
 
   // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
   // tabela "POB por Unidade × Dia" com unidades zeradas no mês/intervalo selecionado.
