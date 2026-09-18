@@ -567,6 +567,8 @@ export function PlanejamentoEmbarqueTab() {
       "Fim Folga": r.folga_fim ? fmtDateHeadcount(r.folga_fim) : "—",
       "Início Férias": r.ferias_inicio ? fmtDateHeadcount(r.ferias_inicio) : "—",
       "Fim Férias": r.ferias_fim ? fmtDateHeadcount(r.ferias_fim) : "—",
+      "Programado 1": r.programado_1 ? fmtDateHeadcount(r.programado_1) : "—",
+      "Programado 2": r.programado_2 ?? "—",
     }));
     if (rows.length === 0) { notify.error("Nenhum registro pra exportar com os filtros atuais."); return; }
     const ws = XLSX.utils.json_to_sheet(rows);
