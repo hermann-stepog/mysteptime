@@ -2601,7 +2601,10 @@ function DashboardTab({ colaboradores, periodos }: {
     });
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
-    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao, folgaNomes, disponiveisNomes, naoDispNomes };
+    const naoDispDetalhado = Array.from(naoDispPorStatus.values())
+      .map((e) => ({ name: e.label, value: e.nomes.length, nomes: e.nomes }))
+      .sort((a, b) => b.value - a.value);
+    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao, folgaNomes, disponiveisNomes, naoDispNomes, naoDispDetalhado };
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, statusViaPlanejamentoPorColaborador]);
 
   // Headcount Total/Embarcados/Programados (cartões) passam a vir do Planejamento de Embarque
