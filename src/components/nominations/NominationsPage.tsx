@@ -2864,6 +2864,18 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const [drill, setDrill] = useState<{ bsp: string; coluna: MapaColuna } | null>(null);
   const [showImportarSolicitacoes, setShowImportarSolicitacoes] = useState(false);
 
+  // Filtro de período (por data de embarque programada, period_start) — nasce sempre de hoje
+  // até 2 meses à frente (a pedido dela), mas continua editável como qualquer outro filtro de
+  // data do sistema. Só afeta quem já TEM period_start; solicitação ainda sem data programada
+  // (início do fluxo) continua aparecendo sempre, senão sumiria do mapa antes mesmo de chegar
+  // numa etapa que decide a data.
+  const [periodoDe, setPeriodoDe] = useState(() => todayStr());
+  const [periodoAte, setPeriodoAte] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 2);
+    return d.toISOString().slice(0, 10);
+  });
+
   // Cronograma completo (dia e hora de cada etapa) mostrado dentro de cada nomeação no
   // detalhe do drill-down — mesmo dado/timeline que já existe em "Etapa atual" > Histórico
   // (ManageDialog), só que de todas as nomeações de uma vez, sem precisar abrir uma por uma.
@@ -2995,10 +3007,15 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const nominationsVisiveis = useMemo(() => {
     const hoje = todayStr();
     return nominations.filter((n) => {
-      if (n.current_status !== "equipe_formada" || n.outcome === "cancelada" || !n.period_start) return true;
-      return diasAteData(n.period_start, hoje) >= -5;
+      const dentroPrazoEquipeFormada = n.current_status !== "equipe_formada" || n.outcome === "cancelada" || !n.period_start
+        || diasAteData(n.period_start, hoje) >= -5;
+      if (!dentroPrazoEquipeFormada) return false;
+      // Filtro de período (De/Até acima) — só se aplica a quem já tem data de embarque
+      // programada; sem period_start, continua passando (não some do mapa por falta de data).
+      if (n.period_start && (n.period_start < periodoDe || n.period_start > periodoAte)) return false;
+      return true;
     });
-  }, [nominations]);
+  }, [nominations, periodoDe, periodoAte]);
 
   // Quantitativo de mão de obra (não de solicitações) do que está no mapa hoje: cada
   // nomeação pede "quantidade" pessoas pra uma função/BSP; "atendida" é quanto disso já tem
@@ -3116,7 +3133,15 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         <p className="text-sm text-muted-foreground">
           Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo. Equipe Formada some daqui automaticamente 5 dias após a data programada de embarque.
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="mapa-periodo-de" className="text-xs text-muted-foreground">De</Label>
+            <Input id="mapa-periodo-de" type="date" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} className="h-8 w-auto text-sm" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="mapa-periodo-ate" className="text-xs text-muted-foreground">Até</Label>
+            <Input id="mapa-periodo-ate" type="date" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} className="h-8 w-auto text-sm" />
+          </div>
           <Button size="sm" variant="outline" onClick={() => setShowImportarSolicitacoes(true)}>
             <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar Solicitações
           </Button>
