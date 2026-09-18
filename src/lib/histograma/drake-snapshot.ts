@@ -283,11 +283,12 @@ export function buildAnnualPositionSnapshot(
         dataInicio: day.date,
         dataFim: day.date,
         dias: 1,
-        sourceEventName: closesEmbarkationSequence
-          ? tipo === "DDN"
-            ? "DESEMBARQUE EM DIA NÃO ÚTIL"
-            : "DESEMBARQUE"
-          : day.occurrenceDescription,
+        sourceEventName:
+          closesEmbarkationSequence && !explicitDisembarkation
+            ? tipo === "DDN"
+              ? "DESEMBARQUE EM DIA NÃO ÚTIL"
+              : "DESEMBARQUE"
+            : day.occurrenceDescription,
         derivedFromEmbarkation: closesEmbarkationSequence || undefined,
       };
       periods.push(current);
