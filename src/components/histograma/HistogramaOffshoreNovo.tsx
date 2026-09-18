@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { DrakePobTodayCard } from "./DrakePobTodayCard";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
@@ -3192,7 +3193,7 @@ function DashboardTab({ colaboradores, periodos }: {
             />
           </div>
           <p className="w-full pb-1 text-xs text-muted-foreground">
-            De/Até define quem conta como "ativo" nos KPIs e no "Status por Unidade" (e alimenta os gráficos de unidade/semana). Colaborador/Unidade filtram tudo na tela. POB por Mês sempre mostra do início do ano até hoje.
+            De/Até define quem conta como "ativo" nos KPIs e no "Status por Unidade" (e alimenta os gráficos de unidade/semana). O total de embarcados hoje consulta todas as unidades no Drake, independentemente destes filtros. Os demais indicadores acompanham os filtros; POB por Mês sempre mostra do início do ano até hoje.
           </p>
         </div>
       </Card>
@@ -3200,6 +3201,9 @@ function DashboardTab({ colaboradores, periodos }: {
       {/* ── KPIs ── */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         {kpiCards.map((k, i) => {
+          if (k.label === "Embarcados") return (
+            <FadeInView key={k.label} delay={i * 0.05}><DrakePobTodayCard /></FadeInView>
+          );
           const card = (
             <Card className={cn("bg-gradient-to-br from-white to-slate-50 p-4", k.hoverNames && "cursor-default")}>
               <div className="flex items-center justify-between">
