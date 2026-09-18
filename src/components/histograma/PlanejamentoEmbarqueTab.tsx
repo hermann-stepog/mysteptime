@@ -685,6 +685,8 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><DataPlanejamentoCell valor={r.folga_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_fim: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_inicio: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_fim: v || null } })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.programado_1} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_1: v || null } })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.programado_2} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_2: v || null } })} /></TableCell>
                 <TableCell>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></Button>
