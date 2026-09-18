@@ -7,7 +7,7 @@ const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
-import { todayStr } from "@/lib/histogramaNovo";
+import { todayStr, addDays } from "@/lib/histogramaNovo";
 import { fmtDateTime } from "@/lib/format";
 import { StringMultiCombobox, fmtDateHeadcount } from "@/components/histograma/HistogramaOffshoreNovo";
 import { Card } from "@/components/ui/card";
@@ -45,6 +45,7 @@ export interface PlanejamentoEmbarqueRow {
   status: string | null;
   embarque: string | null;
   desembarque: string | null;
+  duracao_embarque_dias: number | null;
   folga_inicio: string | null;
   folga_fim: string | null;
   ferias_inicio: string | null;
@@ -115,6 +116,17 @@ function descricaoEdicaoCampo(nome: string, campo: string, antigo: string | null
   return `Editou ${campo} de ${nome}: ${fmt(antigo)} → ${fmt(novo)}`;
 }
 
+// Mesma conta que ela já fazia na planilha via fórmula (Desembarque=Embarque+N; Início
+// Folga=Desembarque; Fim Folga=Início Folga+N-1) — "N" é a Duração do embarque em dias, um
+// campo dela mesma preenche (não dá pra descobrir sozinho, varia pessoa a pessoa). Só calcula
+// quando os dois estão preenchidos; duração de 1 dia não gera folga nenhuma (N-1=0 dias).
+function calcularDatasPorDuracao(embarque: string, duracaoDias: number): { desembarque: string; folgaInicio: string; folgaFim: string } {
+  const desembarque = addDays(embarque, duracaoDias);
+  const folgaInicio = desembarque;
+  const folgaFim = duracaoDias > 1 ? addDays(folgaInicio, duracaoDias - 1) : folgaInicio;
+  return { desembarque, folgaInicio, folgaFim };
+}
+
 // Hook simples — só grava, quem chama não precisa esperar nem tratar erro (uma falha aqui não
 // pode travar a ação real que originou o log). Invalida a query do log pra o painel lateral
 // atualizar sozinho.
@@ -168,6 +180,25 @@ function DataPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave:
   );
 }
 
+// Duração do embarque em dias — mesmo padrão popover-com-Salvar, número em vez de texto/data.
+function NumeroPlanejamentoCell({ valor, onSave }: { valor: number | null; onSave: (novoValor: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState(valor != null ? String(valor) : "");
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setInput(valor != null ? String(valor) : ""); }}>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded px-1.5 py-0.5 text-left hover:bg-muted">
+          {valor ?? <span className="text-muted-foreground">—</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-48 space-y-2" align="start">
+        <Input type="number" min={1} value={input} onChange={(e) => setInput(e.target.value)} />
+        <Button size="sm" className="w-full" onClick={() => { onSave(input); setOpen(false); }}>Salvar</Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ─── Editar registro completo / cadastrar novo colaborador ──────────────────────────────────
 // row null = cadastro de colaborador novo (insert); row preenchido = edição (update) — mesmo
 // formulário nos dois casos pra não duplicar os 12 campos.
@@ -178,10 +209,21 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
     matricula: row?.matricula ?? "", nome: row?.nome ?? "", unidade: row?.unidade ?? "", bsp: row?.bsp ?? "",
     funcao: row?.funcao ?? "", especialidade: row?.especialidade ?? "", status: row?.status ?? "",
     embarque: row?.embarque ?? "", desembarque: row?.desembarque ?? "",
+    duracao_embarque_dias: row?.duracao_embarque_dias != null ? String(row.duracao_embarque_dias) : "",
     folga_inicio: row?.folga_inicio ?? "", folga_fim: row?.folga_fim ?? "",
     ferias_inicio: row?.ferias_inicio ?? "", ferias_fim: row?.ferias_fim ?? "",
     programado_1: row?.programado_1 ?? "", programado_2: row?.programado_2 ?? "",
   });
+
+  // Recalcula Desembarque/Início Folga/Fim Folga sozinho sempre que Embarque ou Duração
+  // mudam (mesma fórmula da planilha dela — ver calcularDatasPorDuracao) — ela continua
+  // podendo editar essas datas na mão depois, se precisar de uma exceção.
+  const aplicarDuracao = (embarque: string, duracaoStr: string) => {
+    const duracao = parseInt(duracaoStr, 10);
+    if (!embarque || !duracaoStr || Number.isNaN(duracao) || duracao < 1) return {};
+    const { desembarque, folgaInicio, folgaFim } = calcularDatasPorDuracao(embarque, duracao);
+    return { desembarque, folga_inicio: folgaInicio, folga_fim: folgaFim };
+  };
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -192,6 +234,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
         funcao: form.funcao.trim() || null, especialidade: form.especialidade.trim() || null,
         status: form.status.trim() || null,
         embarque: form.embarque || null, desembarque: form.desembarque || null,
+        duracao_embarque_dias: form.duracao_embarque_dias.trim() ? parseInt(form.duracao_embarque_dias, 10) : null,
         folga_inicio: form.folga_inicio || null, folga_fim: form.folga_fim || null,
         ferias_inicio: form.ferias_inicio || null, ferias_fim: form.ferias_fim || null,
         programado_1: form.programado_1 || null, programado_2: form.programado_2.trim() || null,
@@ -231,10 +274,24 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
             <div><Label className="text-xs">Especialidade</Label><Input value={form.especialidade} onChange={(e) => setForm({ ...form, especialidade: e.target.value })} /></div>
           </div>
           <div><Label className="text-xs">Status</Label><Input value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label className="text-xs">Embarque</Label><Input type="date" value={form.embarque} onChange={(e) => setForm({ ...form, embarque: e.target.value })} /></div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Embarque</Label>
+              <Input
+                type="date" value={form.embarque}
+                onChange={(e) => setForm({ ...form, embarque: e.target.value, ...aplicarDuracao(e.target.value, form.duracao_embarque_dias) })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Duração (dias)</Label>
+              <Input
+                type="number" min={1} value={form.duracao_embarque_dias}
+                onChange={(e) => setForm({ ...form, duracao_embarque_dias: e.target.value, ...aplicarDuracao(form.embarque, e.target.value) })}
+              />
+            </div>
             <div><Label className="text-xs">Desembarque</Label><Input type="date" value={form.desembarque} onChange={(e) => setForm({ ...form, desembarque: e.target.value })} /></div>
           </div>
+          <p className="-mt-2 text-[11px] text-muted-foreground">Preenchendo Embarque + Duração, Desembarque/Início Folga/Fim Folga calculam sozinhos (mesma conta da sua planilha) — dá pra ajustar na mão depois se precisar.</p>
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Início Folga</Label><Input type="date" value={form.folga_inicio} onChange={(e) => setForm({ ...form, folga_inicio: e.target.value })} /></div>
             <div><Label className="text-xs">Fim Folga</Label><Input type="date" value={form.folga_fim} onChange={(e) => setForm({ ...form, folga_fim: e.target.value })} /></div>
@@ -377,10 +434,16 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
       const { error: delErro } = await supabase.from("planejamento_embarque").delete().not("id", "is", null);
       if (delErro) throw delErro;
 
+      // Duração (dias) já vem preenchida sozinha quando a planilha tem Embarque e Desembarque
+      // — mesmo intervalo que ela hoje calcula na mão via fórmula, sem precisar retypar pra
+      // quem já tinha essas duas datas na planilha.
       const linhas = aceitas.map((row) => ({
         matricula: row.matricula, nome: row.nome, unidade: row.unidade, bsp: row.bsp,
         funcao: row.funcao, especialidade: row.especialidade, status: row.status,
         embarque: row.embarque, desembarque: row.desembarque,
+        duracao_embarque_dias: row.embarque && row.desembarque
+          ? Math.round((new Date(`${row.desembarque}T00:00:00`).getTime() - new Date(`${row.embarque}T00:00:00`).getTime()) / 86400000)
+          : null,
         folga_inicio: row.folgaInicio, folga_fim: row.folgaFim,
         ferias_inicio: row.feriasInicio, ferias_fim: row.feriasFim,
       }));
@@ -498,7 +561,7 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
 // ─── Aba principal ───────────────────────────────────────────────────────────────────────────
 type PlanejamentoSortColumn =
   | "matricula" | "nome" | "unidade" | "bsp" | "funcao" | "especialidade" | "status"
-  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim"
+  | "embarque" | "duracao" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim"
   | "programado1" | "programado2";
 
 export function PlanejamentoEmbarqueTab() {
@@ -632,6 +695,7 @@ export function PlanejamentoEmbarqueTab() {
           case "especialidade": return dir * (a.especialidade ?? "").localeCompare(b.especialidade ?? "");
           case "status": return dir * (a.status ?? "").localeCompare(b.status ?? "");
           case "embarque": return dir * (a.embarque ?? "").localeCompare(b.embarque ?? "");
+          case "duracao": return dir * ((a.duracao_embarque_dias ?? 0) - (b.duracao_embarque_dias ?? 0));
           case "desembarque": return dir * (a.desembarque ?? "").localeCompare(b.desembarque ?? "");
           case "folgaInicio": return dir * (a.folga_inicio ?? "").localeCompare(b.folga_inicio ?? "");
           case "folgaFim": return dir * (a.folga_fim ?? "").localeCompare(b.folga_fim ?? "");
@@ -654,6 +718,7 @@ export function PlanejamentoEmbarqueTab() {
       Especialidade: r.especialidade ?? "—",
       Status: r.status ?? "—",
       Embarque: r.embarque ? fmtDateHeadcount(r.embarque) : "—",
+      "Duração (dias)": r.duracao_embarque_dias ?? "—",
       Desembarque: r.desembarque ? fmtDateHeadcount(r.desembarque) : "—",
       "Início Folga": r.folga_inicio ? fmtDateHeadcount(r.folga_inicio) : "—",
       "Fim Folga": r.folga_fim ? fmtDateHeadcount(r.folga_fim) : "—",
@@ -791,6 +856,7 @@ export function PlanejamentoEmbarqueTab() {
               <SortableHead label="Especialidade" column="especialidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Embarque" column="embarque" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Duração (dias)" column="duracao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Desembarque" column="desembarque" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Início Folga" column="folgaInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Fim Folga" column="folgaFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
@@ -811,7 +877,38 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Função", r.funcao, v || null) })} /></TableCell>
                 <TableCell>{r.especialidade ?? "—"}</TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.status} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Status", r.status, v || null) })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.embarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { embarque: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Embarque", r.embarque, v || null, true) })} /></TableCell>
+                <TableCell>
+                  <DataPlanejamentoCell
+                    valor={r.embarque}
+                    onSave={(v) => {
+                      const patch: Record<string, unknown> = { embarque: v || null };
+                      let descricao = descricaoEdicaoCampo(r.nome, "Embarque", r.embarque, v || null, true);
+                      if (v && r.duracao_embarque_dias) {
+                        const { desembarque, folgaInicio, folgaFim } = calcularDatasPorDuracao(v, r.duracao_embarque_dias);
+                        Object.assign(patch, { desembarque, folga_inicio: folgaInicio, folga_fim: folgaFim });
+                        descricao = `Editou Embarque de ${r.nome}: ${r.embarque ? fmtDateHeadcount(r.embarque) : "—"} → ${fmtDateHeadcount(v)} (recalculou Desembarque/Folga pela Duração)`;
+                      }
+                      updateCampo.mutate({ id: r.id, patch, descricao });
+                    }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <NumeroPlanejamentoCell
+                    valor={r.duracao_embarque_dias}
+                    onSave={(v) => {
+                      const duracao = parseInt(v, 10);
+                      const duracaoValida = v.trim() !== "" && !Number.isNaN(duracao) && duracao >= 1;
+                      const patch: Record<string, unknown> = { duracao_embarque_dias: duracaoValida ? duracao : null };
+                      let descricao = descricaoEdicaoCampo(r.nome, "Duração (dias)", r.duracao_embarque_dias != null ? String(r.duracao_embarque_dias) : null, duracaoValida ? String(duracao) : null);
+                      if (r.embarque && duracaoValida) {
+                        const { desembarque, folgaInicio, folgaFim } = calcularDatasPorDuracao(r.embarque, duracao);
+                        Object.assign(patch, { desembarque, folga_inicio: folgaInicio, folga_fim: folgaFim });
+                        descricao = `Editou Duração de ${r.nome}: ${r.duracao_embarque_dias ?? "—"} → ${duracao} dia(s) (recalculou Desembarque/Folga)`;
+                      }
+                      updateCampo.mutate({ id: r.id, patch, descricao });
+                    }}
+                  />
+                </TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.desembarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { desembarque: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Desembarque", r.desembarque, v || null, true) })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.folga_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_inicio: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Início Folga", r.folga_inicio, v || null, true) })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.folga_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_fim: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Fim Folga", r.folga_fim, v || null, true) })} /></TableCell>
@@ -827,7 +924,7 @@ export function PlanejamentoEmbarqueTab() {
                 </TableCell>
               </TableRow>
             ))}
-            {linhas.length === 0 && <EmptyStateRow colSpan={16} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
+            {linhas.length === 0 && <EmptyStateRow colSpan={17} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
           </TableBody>
         </Table>
       </Card>
