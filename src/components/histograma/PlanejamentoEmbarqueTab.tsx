@@ -382,6 +382,8 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
         embarque: row.embarque, desembarque: row.desembarque,
         folga_inicio: row.folgaInicio, folga_fim: row.folgaFim,
         ferias_inicio: row.feriasInicio, ferias_fim: row.feriasFim,
+        programado_1: row.programado1, programado_2: row.programado2,
+
       }));
       const BATCH = 500;
       for (let i = 0; i < linhas.length; i += BATCH) {
