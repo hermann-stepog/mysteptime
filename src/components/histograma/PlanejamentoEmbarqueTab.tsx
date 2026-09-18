@@ -119,6 +119,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
     embarque: row?.embarque ?? "", desembarque: row?.desembarque ?? "",
     folga_inicio: row?.folga_inicio ?? "", folga_fim: row?.folga_fim ?? "",
     ferias_inicio: row?.ferias_inicio ?? "", ferias_fim: row?.ferias_fim ?? "",
+    programado_1: row?.programado_1 ?? "", programado_2: row?.programado_2 ?? "",
   });
 
   const salvar = useMutation({
