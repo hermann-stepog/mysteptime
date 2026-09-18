@@ -434,7 +434,8 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
 // ─── Aba principal ───────────────────────────────────────────────────────────────────────────
 type PlanejamentoSortColumn =
   | "matricula" | "nome" | "unidade" | "bsp" | "funcao" | "especialidade" | "status"
-  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim";
+  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim"
+  | "programado1" | "programado2";
 
 export function PlanejamentoEmbarqueTab() {
   const qc = useQueryClient();
