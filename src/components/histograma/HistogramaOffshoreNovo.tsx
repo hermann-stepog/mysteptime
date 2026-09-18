@@ -2690,7 +2690,8 @@ function DashboardTab({ colaboradores, periodos }: {
   const naoOcupacaoData = useMemo(() => {
     return [
       { name: "Aguardando Escala", value: kpis.disponiveis, nomes: kpis.disponiveisNomes },
-      { name: "Não Disponíveis", value: kpis.naoDisp, nomes: kpis.naoDispNomes },
+      // "Não Disponíveis" destrinchado por status real (Férias, Atestado, etc.)
+      ...kpis.naoDispDetalhado,
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length] }));
