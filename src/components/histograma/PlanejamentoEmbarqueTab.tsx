@@ -321,30 +321,67 @@ interface PlanejamentoImportRow {
   embarque: string | null; desembarque: string | null;
   folgaInicio: string | null; folgaFim: string | null;
   feriasInicio: string | null; feriasFim: string | null;
+  programado1: string | null; programado2: string | null;
 }
 interface PlanejamentoImportRejection { rowNumber: number; motivo: string }
 
 const PLANEJAMENTO_HEADER_MAP: Record<string, keyof Omit<PlanejamentoImportRow, "rowNumber">> = {
   "matricula": "matricula",
+  "chapa": "matricula",
+  "re": "matricula",
   "nome": "nome",
+  "colaborador": "nome",
+  "nome do colaborador": "nome",
+  "nome colaborador": "nome",
+  "funcionario": "nome",
   "unidade": "unidade",
   "unidade/localizacao": "unidade",
+  "unidade operacional": "unidade",
   "localizacao": "unidade",
+  "local": "unidade",
   "bsp": "bsp",
+  "projeto": "bsp",
   "funcao": "funcao",
+  "cargo": "funcao",
   "especialidade": "especialidade",
   "status": "status",
+  "situacao": "status",
   "embarque": "embarque",
+  "data embarque": "embarque",
+  "data de embarque": "embarque",
+  "inicio do embarque": "embarque",
   "desembarque": "desembarque",
+  "data desembarque": "desembarque",
+  "data de desembarque": "desembarque",
+  "fim do embarque": "desembarque",
   "inicio folga": "folgaInicio",
   "folga inicio": "folgaInicio",
+  "inicio da folga": "folgaInicio",
   "fim folga": "folgaFim",
   "folga fim": "folgaFim",
+  "fim da folga": "folgaFim",
   "inicio ferias": "feriasInicio",
   "ferias inicio": "feriasInicio",
+  "inicio das ferias": "feriasInicio",
   "fim ferias": "feriasFim",
   "ferias fim": "feriasFim",
+  "fim das ferias": "feriasFim",
+  "programado 1": "programado1",
+  "programado1": "programado1",
+  "programado 2": "programado2",
+  "programado2": "programado2",
 };
+
+// A planilha nem sempre começa o cabeçalho na primeira linha (pode ter título/logo em cima),
+// então procuramos nas primeiras linhas a que realmente contém a coluna de nome.
+function findHeaderRowIndex(rows: unknown[][]): number {
+  const limit = Math.min(rows.length, 15);
+  for (let i = 0; i < limit; i++) {
+    const normalized = (rows[i] ?? []).map(normalizeHeader);
+    if (normalized.some((h) => PLANEJAMENTO_HEADER_MAP[h] === "nome")) return i;
+  }
+  return -1;
+}
 
 function parsePlanejamentoWorkbook(buf: ArrayBuffer): PlanejamentoImportRow[] {
   const wb = XLSX.read(buf, { cellDates: true });
@@ -352,13 +389,20 @@ function parsePlanejamentoWorkbook(buf: ArrayBuffer): PlanejamentoImportRow[] {
   const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
   if (rows.length < 2) throw new Error("Planilha vazia.");
 
-  const headerRow = rows[0].map(normalizeHeader);
+  const headerIdx = findHeaderRowIndex(rows);
+  if (headerIdx === -1) {
+    const encontradas = (rows[0] ?? []).map((c) => String(c ?? "").trim()).filter(Boolean).join(", ");
+    throw new Error(
+      `Coluna "Nome" não encontrada na planilha. Colunas lidas: ${encontradas || "(nenhuma)"}.`,
+    );
+  }
+
+  const headerRow = rows[headerIdx].map(normalizeHeader);
   const colIndex: Partial<Record<string, number>> = {};
   headerRow.forEach((h, i) => {
     const key = PLANEJAMENTO_HEADER_MAP[h];
     if (key && colIndex[key] === undefined) colIndex[key] = i;
   });
-  if (colIndex.nome === undefined) throw new Error('Coluna "Nome" não encontrada na planilha.');
 
   const get = (r: unknown[], k: string): string => {
     const i = colIndex[k];
@@ -370,9 +414,9 @@ function parsePlanejamentoWorkbook(buf: ArrayBuffer): PlanejamentoImportRow[] {
   };
 
   return rows
-    .slice(1)
-    .map((r, idx) => ({ r, rowNumber: idx + 2 }))
-    .filter(({ r }) => r.some((c) => c !== ""))
+    .slice(headerIdx + 1)
+    .map((r, idx) => ({ r, rowNumber: headerIdx + idx + 2 }))
+    .filter(({ r }) => r.some((c) => String(c ?? "").trim() !== ""))
     .map(({ r, rowNumber }): PlanejamentoImportRow => ({
       rowNumber,
       matricula: get(r, "matricula") || null,
@@ -388,8 +432,11 @@ function parsePlanejamentoWorkbook(buf: ArrayBuffer): PlanejamentoImportRow[] {
       folgaFim: getDate(r, "folgaFim"),
       feriasInicio: getDate(r, "feriasInicio"),
       feriasFim: getDate(r, "feriasFim"),
+      programado1: getDate(r, "programado1"),
+      programado2: get(r, "programado2") || null,
     }));
 }
+
 
 function validatePlanejamentoRows(rows: PlanejamentoImportRow[]): { aceitas: PlanejamentoImportRow[]; rejeitadas: PlanejamentoImportRejection[] } {
   const aceitas: PlanejamentoImportRow[] = [];
@@ -446,6 +493,8 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
           : null,
         folga_inicio: row.folgaInicio, folga_fim: row.folgaFim,
         ferias_inicio: row.feriasInicio, ferias_fim: row.feriasFim,
+        programado_1: row.programado1, programado_2: row.programado2,
+
       }));
       const BATCH = 500;
       for (let i = 0; i < linhas.length; i += BATCH) {
@@ -681,32 +730,47 @@ export function PlanejamentoEmbarqueTab() {
   }, [linhasSemStatus]);
 
   const linhas = useMemo(() => {
+    // Vazios sempre no fim, independente da direção da ordenação.
+    const cmp = (av: string | null | undefined, bv: string | null | undefined, dir: number) => {
+      const a = (av ?? "").trim();
+      const b = (bv ?? "").trim();
+      if (!a && !b) return 0;
+      if (!a) return 1;
+      if (!b) return -1;
+      return dir * a.localeCompare(b, "pt-BR");
+    };
     return linhasSemStatus
       .filter((r) => filterStatus.length === 0 || (r.status != null && filterStatus.includes(r.status)))
       .sort((a, b) => {
         if (!sortColumn) return a.nome.localeCompare(b.nome, "pt-BR");
         const dir = sortDirection === "asc" ? 1 : -1;
         switch (sortColumn) {
-          case "matricula": return dir * (a.matricula ?? "").localeCompare(b.matricula ?? "");
-          case "nome": return dir * a.nome.localeCompare(b.nome);
-          case "unidade": return dir * (a.unidade ?? "").localeCompare(b.unidade ?? "");
-          case "bsp": return dir * (a.bsp ?? "").localeCompare(b.bsp ?? "");
-          case "funcao": return dir * (a.funcao ?? "").localeCompare(b.funcao ?? "");
-          case "especialidade": return dir * (a.especialidade ?? "").localeCompare(b.especialidade ?? "");
-          case "status": return dir * (a.status ?? "").localeCompare(b.status ?? "");
-          case "embarque": return dir * (a.embarque ?? "").localeCompare(b.embarque ?? "");
-          case "duracao": return dir * ((a.duracao_embarque_dias ?? 0) - (b.duracao_embarque_dias ?? 0));
-          case "desembarque": return dir * (a.desembarque ?? "").localeCompare(b.desembarque ?? "");
-          case "folgaInicio": return dir * (a.folga_inicio ?? "").localeCompare(b.folga_inicio ?? "");
-          case "folgaFim": return dir * (a.folga_fim ?? "").localeCompare(b.folga_fim ?? "");
-          case "feriasInicio": return dir * (a.ferias_inicio ?? "").localeCompare(b.ferias_inicio ?? "");
-          case "feriasFim": return dir * (a.ferias_fim ?? "").localeCompare(b.ferias_fim ?? "");
-          case "programado1": return dir * (a.programado_1 ?? "").localeCompare(b.programado_1 ?? "");
-          case "programado2": return dir * (a.programado_2 ?? "").localeCompare(b.programado_2 ?? "", "pt-BR");
+          case "matricula": return cmp(a.matricula, b.matricula, dir);
+          case "nome": return cmp(a.nome, b.nome, dir);
+          case "unidade": return cmp(a.unidade, b.unidade, dir);
+          case "bsp": return cmp(a.bsp, b.bsp, dir);
+          case "funcao": return cmp(a.funcao, b.funcao, dir);
+          case "especialidade": return cmp(a.especialidade, b.especialidade, dir);
+          case "status": return cmp(a.status, b.status, dir);
+          case "embarque": return cmp(a.embarque, b.embarque, dir);
+          case "duracao": {
+            if (a.duracao_embarque_dias == null && b.duracao_embarque_dias == null) return 0;
+            if (a.duracao_embarque_dias == null) return 1;
+            if (b.duracao_embarque_dias == null) return -1;
+            return dir * (a.duracao_embarque_dias - b.duracao_embarque_dias);
+          }
+          case "desembarque": return cmp(a.desembarque, b.desembarque, dir);
+          case "folgaInicio": return cmp(a.folga_inicio, b.folga_inicio, dir);
+          case "folgaFim": return cmp(a.folga_fim, b.folga_fim, dir);
+          case "feriasInicio": return cmp(a.ferias_inicio, b.ferias_inicio, dir);
+          case "feriasFim": return cmp(a.ferias_fim, b.ferias_fim, dir);
+          case "programado1": return cmp(a.programado_1, b.programado_1, dir);
+          case "programado2": return cmp(a.programado_2, b.programado_2, dir);
           default: return 0;
         }
       });
   }, [linhasSemStatus, filterStatus, sortColumn, sortDirection]);
+
 
   const exportarPlanejamento = () => {
     const rows = linhas.map((r) => ({

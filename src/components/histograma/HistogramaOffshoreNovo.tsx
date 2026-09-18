@@ -2565,6 +2565,9 @@ function DashboardTab({ colaboradores, periodos }: {
     // Nomes por balde — só usados pra alimentar as rosquinhas com os mesmos números dos
     // cartões (ver ocupacaoData/naoOcupacaoData), sem mudar nenhuma das contagens acima.
     const folgaNomes: string[] = [], disponiveisNomes: string[] = [], naoDispNomes: string[] = [];
+    // Quebra de "Não Disponíveis" pelo status real do dia (Férias, Atestado, etc.) — pedido
+    // dela pra rosquinha mostrar destrinchado em vez de um balde único.
+    const naoDispPorStatus = new Map<string, { label: string; nomes: string[] }>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       // Planejamento de Embarque (Status Embarcado/Programado) sobrepõe o balde real do Drake
@@ -2574,7 +2577,14 @@ function DashboardTab({ colaboradores, periodos }: {
       else if (bucket === "FO") { folga++; folgaNomes.push(c.nome); }
       else if (bucket === "P") programadosIds.add(c.id);
       else if (bucket === "B") { disponiveis++; disponiveisNomes.push(c.nome); }
-      else if (bucket === "FE" || bucket === "IND") { naoDisp++; naoDispNomes.push(c.nome); }
+      else if (bucket === "FE" || bucket === "IND") {
+        naoDisp++; naoDispNomes.push(c.nome);
+        const chave = String(result.status);
+        const label = STATUS_LABEL[result.status] ?? chave;
+        const entry = naoDispPorStatus.get(chave) ?? { label, nomes: [] };
+        entry.nomes.push(c.nome);
+        naoDispPorStatus.set(chave, entry);
+      }
       // Continua olhando a Unidade do período do Drake (não o Planejamento de Embarque, que
       // não tem histórico por dia) — quem está "Na Base" conta como ocupado mesmo quando o
       // status bruto do dia não seria (ex.: Standby), senão a % de Utilização ficava sem essas
@@ -2591,7 +2601,10 @@ function DashboardTab({ colaboradores, periodos }: {
     });
     const total = activeColaboradores.length;
     const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
-    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao, folgaNomes, disponiveisNomes, naoDispNomes };
+    const naoDispDetalhado = Array.from(naoDispPorStatus.values())
+      .map((e) => ({ name: e.label, value: e.nomes.length, nomes: e.nomes }))
+      .sort((a, b) => b.value - a.value);
+    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao, folgaNomes, disponiveisNomes, naoDispNomes, naoDispDetalhado };
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, statusViaPlanejamentoPorColaborador]);
 
   // Headcount Total/Embarcados/Programados (cartões) passam a vir do Planejamento de Embarque
@@ -2677,7 +2690,8 @@ function DashboardTab({ colaboradores, periodos }: {
   const naoOcupacaoData = useMemo(() => {
     return [
       { name: "Aguardando Escala", value: kpis.disponiveis, nomes: kpis.disponiveisNomes },
-      { name: "Não Disponíveis", value: kpis.naoDisp, nomes: kpis.naoDispNomes },
+      // "Não Disponíveis" destrinchado por status real (Férias, Atestado, etc.)
+      ...kpis.naoDispDetalhado,
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length] }));

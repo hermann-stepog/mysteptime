@@ -2205,6 +2205,8 @@ export type Database = {
           programado_2: string | null
           status: string | null
           unidade: string | null
+          updated_at: string
+          updated_by: string | null
         }
         Insert: {
           bsp?: string | null
@@ -2224,6 +2226,8 @@ export type Database = {
           programado_2?: string | null
           status?: string | null
           unidade?: string | null
+          updated_at?: string
+          updated_by?: string | null
         }
         Update: {
           bsp?: string | null
@@ -2243,8 +2247,47 @@ export type Database = {
           programado_2?: string | null
           status?: string | null
           unidade?: string | null
+          updated_at?: string
+          updated_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "planejamento_embarque_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      planejamento_embarque_log: {
+        Row: {
+          created_at: string
+          descricao: string
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          descricao: string
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          descricao?: string
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "planejamento_embarque_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
