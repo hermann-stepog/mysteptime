@@ -242,9 +242,13 @@ export function buildAnnualPositionSnapshot(
         addIsoDay(previous.day.date, 1) === day.date &&
         typedDay.tipo !== "E" &&
         typedDay.tipo !== "DB";
-      const tipo = closesEmbarkationSequence
-        ? disembarkationTypeForDate(day.date)
-        : typedDay.tipo;
+      // Se o próprio Drake já mandou a sigla do desembarque (DES ou DDN), ela manda — só
+      // calculamos pelo dia da semana quando o Drake não informou nada de desembarque.
+      const explicitDisembarkation = typedDay.tipo === "DES" || typedDay.tipo === "DDN";
+      const tipo =
+        closesEmbarkationSequence && !explicitDisembarkation
+          ? disembarkationTypeForDate(day.date)
+          : typedDay.tipo;
       if (tipo === "P" && options.asOfDate && day.date <= options.asOfDate) {
         current = null;
         continue;
