@@ -544,6 +544,8 @@ export function PlanejamentoEmbarqueTab() {
           case "folgaFim": return dir * (a.folga_fim ?? "").localeCompare(b.folga_fim ?? "");
           case "feriasInicio": return dir * (a.ferias_inicio ?? "").localeCompare(b.ferias_inicio ?? "");
           case "feriasFim": return dir * (a.ferias_fim ?? "").localeCompare(b.ferias_fim ?? "");
+          case "programado1": return dir * (a.programado_1 ?? "").localeCompare(b.programado_1 ?? "");
+          case "programado2": return dir * (a.programado_2 ?? "").localeCompare(b.programado_2 ?? "", "pt-BR");
           default: return 0;
         }
       });
