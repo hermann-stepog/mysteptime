@@ -2016,7 +2016,7 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
   );
 }
 
-type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
+type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "nf" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
 
 function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
@@ -2063,6 +2063,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         case "tipo": return t.tipo === "material" ? "Material" : "Pessoas";
         case "cliente": return [t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ");
         case "bsp": return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
+        case "nf": return t.nf ?? "";
         case "etiquetas": return t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", ");
         case "horario": return t.departure_time ?? "";
         case "origem": return [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ");
@@ -2177,6 +2178,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <SortableHead label="Tipo" column="tipo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
               <SortableHead label="Cliente" column="cliente" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+              <SortableHead label="NF" column="nf" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
               <SortableHead label="Etiquetas" column="etiquetas" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
               <SortableHead label="Horário" column="horario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
               <SortableHead label="Origem" column="origem" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
@@ -2195,6 +2197,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell className="hidden md:table-cell">{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
                 <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell className="hidden md:table-cell">{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
+                <TableCell className="hidden md:table-cell">{t.nf ?? "—"}</TableCell>
                 <TableCell className="hidden xl:table-cell"><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
                 <TableCell className="hidden lg:table-cell">{t.departure_time ? t.departure_time.slice(0, 5) : "—"}</TableCell>
                 <TableCell className="hidden lg:table-cell">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).map(toDisplayCase).join("; ")}</TableCell>
@@ -2215,7 +2218,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <EmptyStateRow colSpan={12} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
+            {filtered.length === 0 && <EmptyStateRow colSpan={13} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
           </TableBody>
           {filtered.length > 0 && (
             <TableFooter>
@@ -2224,6 +2227,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell></TableCell>
+                <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden xl:table-cell"></TableCell>
                 <TableCell className="hidden lg:table-cell"></TableCell>
