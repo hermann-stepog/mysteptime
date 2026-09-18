@@ -46,6 +46,10 @@ export interface PlanejamentoEmbarqueRow {
   folga_fim: string | null;
   ferias_inicio: string | null;
   ferias_fim: string | null;
+  // Colunas "PROGRAMADO 1"/"PROGRAMADO 2" da planilha dela: a 1ª é sempre data, a 2ª é texto
+  // livre (às vezes data, às vezes anotação tipo "BASE - HENRIQUE").
+  programado_1: string | null;
+  programado_2: string | null;
 }
 
 // Status deixou de ser calculado por datas (Embarcado/Férias/Folga/etc.) — a pedido dela, agora
@@ -115,6 +119,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
     embarque: row?.embarque ?? "", desembarque: row?.desembarque ?? "",
     folga_inicio: row?.folga_inicio ?? "", folga_fim: row?.folga_fim ?? "",
     ferias_inicio: row?.ferias_inicio ?? "", ferias_fim: row?.ferias_fim ?? "",
+    programado_1: row?.programado_1 ?? "", programado_2: row?.programado_2 ?? "",
   });
 
   const salvar = useMutation({
@@ -128,6 +133,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
         embarque: form.embarque || null, desembarque: form.desembarque || null,
         folga_inicio: form.folga_inicio || null, folga_fim: form.folga_fim || null,
         ferias_inicio: form.ferias_inicio || null, ferias_fim: form.ferias_fim || null,
+        programado_1: form.programado_1 || null, programado_2: form.programado_2.trim() || null,
       };
       if (row) {
         const { error } = await supabase.from("planejamento_embarque").update(patch).eq("id", row.id);
@@ -174,6 +180,10 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Início Férias</Label><Input type="date" value={form.ferias_inicio} onChange={(e) => setForm({ ...form, ferias_inicio: e.target.value })} /></div>
             <div><Label className="text-xs">Fim Férias</Label><Input type="date" value={form.ferias_fim} onChange={(e) => setForm({ ...form, ferias_fim: e.target.value })} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="text-xs">Programado 1</Label><Input type="date" value={form.programado_1} onChange={(e) => setForm({ ...form, programado_1: e.target.value })} /></div>
+            <div><Label className="text-xs">Programado 2</Label><Input value={form.programado_2} onChange={(e) => setForm({ ...form, programado_2: e.target.value })} /></div>
           </div>
         </div>
         <DialogFooter>
@@ -424,7 +434,8 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
 // ─── Aba principal ───────────────────────────────────────────────────────────────────────────
 type PlanejamentoSortColumn =
   | "matricula" | "nome" | "unidade" | "bsp" | "funcao" | "especialidade" | "status"
-  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim";
+  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim"
+  | "programado1" | "programado2";
 
 export function PlanejamentoEmbarqueTab() {
   const qc = useQueryClient();
@@ -534,6 +545,8 @@ export function PlanejamentoEmbarqueTab() {
           case "folgaFim": return dir * (a.folga_fim ?? "").localeCompare(b.folga_fim ?? "");
           case "feriasInicio": return dir * (a.ferias_inicio ?? "").localeCompare(b.ferias_inicio ?? "");
           case "feriasFim": return dir * (a.ferias_fim ?? "").localeCompare(b.ferias_fim ?? "");
+          case "programado1": return dir * (a.programado_1 ?? "").localeCompare(b.programado_1 ?? "");
+          case "programado2": return dir * (a.programado_2 ?? "").localeCompare(b.programado_2 ?? "", "pt-BR");
           default: return 0;
         }
       });
@@ -554,6 +567,8 @@ export function PlanejamentoEmbarqueTab() {
       "Fim Folga": r.folga_fim ? fmtDateHeadcount(r.folga_fim) : "—",
       "Início Férias": r.ferias_inicio ? fmtDateHeadcount(r.ferias_inicio) : "—",
       "Fim Férias": r.ferias_fim ? fmtDateHeadcount(r.ferias_fim) : "—",
+      "Programado 1": r.programado_1 ? fmtDateHeadcount(r.programado_1) : "—",
+      "Programado 2": r.programado_2 ?? "—",
     }));
     if (rows.length === 0) { notify.error("Nenhum registro pra exportar com os filtros atuais."); return; }
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -649,6 +664,8 @@ export function PlanejamentoEmbarqueTab() {
               <SortableHead label="Fim Folga" column="folgaFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Início Férias" column="feriasInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Fim Férias" column="feriasFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Programado 1" column="programado1" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Programado 2" column="programado2" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-20">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -668,6 +685,8 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><DataPlanejamentoCell valor={r.folga_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_fim: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_inicio: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_fim: v || null } })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.programado_1} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_1: v || null } })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.programado_2} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_2: v || null } })} /></TableCell>
                 <TableCell>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></Button>
@@ -676,7 +695,7 @@ export function PlanejamentoEmbarqueTab() {
                 </TableCell>
               </TableRow>
             ))}
-            {linhas.length === 0 && <EmptyStateRow colSpan={14} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
+            {linhas.length === 0 && <EmptyStateRow colSpan={16} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
           </TableBody>
         </Table>
       </Card>

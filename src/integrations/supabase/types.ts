@@ -2201,6 +2201,8 @@ export type Database = {
           id: string
           matricula: string | null
           nome: string
+          programado_1: string | null
+          programado_2: string | null
           status: string | null
           unidade: string | null
         }
@@ -2218,6 +2220,8 @@ export type Database = {
           id?: string
           matricula?: string | null
           nome: string
+          programado_1?: string | null
+          programado_2?: string | null
           status?: string | null
           unidade?: string | null
         }
@@ -2235,6 +2239,8 @@ export type Database = {
           id?: string
           matricula?: string | null
           nome?: string
+          programado_1?: string | null
+          programado_2?: string | null
           status?: string | null
           unidade?: string | null
         }
