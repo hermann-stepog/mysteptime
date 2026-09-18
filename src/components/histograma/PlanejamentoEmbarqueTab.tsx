@@ -667,31 +667,41 @@ export function PlanejamentoEmbarqueTab() {
   }, [linhasSemStatus]);
 
   const linhas = useMemo(() => {
+    // Vazios sempre no fim, independente da direção da ordenação.
+    const cmp = (av: string | null | undefined, bv: string | null | undefined, dir: number) => {
+      const a = (av ?? "").trim();
+      const b = (bv ?? "").trim();
+      if (!a && !b) return 0;
+      if (!a) return 1;
+      if (!b) return -1;
+      return dir * a.localeCompare(b, "pt-BR");
+    };
     return linhasSemStatus
       .filter((r) => filterStatus.length === 0 || (r.status != null && filterStatus.includes(r.status)))
       .sort((a, b) => {
         if (!sortColumn) return a.nome.localeCompare(b.nome, "pt-BR");
         const dir = sortDirection === "asc" ? 1 : -1;
         switch (sortColumn) {
-          case "matricula": return dir * (a.matricula ?? "").localeCompare(b.matricula ?? "");
-          case "nome": return dir * a.nome.localeCompare(b.nome);
-          case "unidade": return dir * (a.unidade ?? "").localeCompare(b.unidade ?? "");
-          case "bsp": return dir * (a.bsp ?? "").localeCompare(b.bsp ?? "");
-          case "funcao": return dir * (a.funcao ?? "").localeCompare(b.funcao ?? "");
-          case "especialidade": return dir * (a.especialidade ?? "").localeCompare(b.especialidade ?? "");
-          case "status": return dir * (a.status ?? "").localeCompare(b.status ?? "");
-          case "embarque": return dir * (a.embarque ?? "").localeCompare(b.embarque ?? "");
-          case "desembarque": return dir * (a.desembarque ?? "").localeCompare(b.desembarque ?? "");
-          case "folgaInicio": return dir * (a.folga_inicio ?? "").localeCompare(b.folga_inicio ?? "");
-          case "folgaFim": return dir * (a.folga_fim ?? "").localeCompare(b.folga_fim ?? "");
-          case "feriasInicio": return dir * (a.ferias_inicio ?? "").localeCompare(b.ferias_inicio ?? "");
-          case "feriasFim": return dir * (a.ferias_fim ?? "").localeCompare(b.ferias_fim ?? "");
-          case "programado1": return dir * (a.programado_1 ?? "").localeCompare(b.programado_1 ?? "");
-          case "programado2": return dir * (a.programado_2 ?? "").localeCompare(b.programado_2 ?? "", "pt-BR");
+          case "matricula": return cmp(a.matricula, b.matricula, dir);
+          case "nome": return cmp(a.nome, b.nome, dir);
+          case "unidade": return cmp(a.unidade, b.unidade, dir);
+          case "bsp": return cmp(a.bsp, b.bsp, dir);
+          case "funcao": return cmp(a.funcao, b.funcao, dir);
+          case "especialidade": return cmp(a.especialidade, b.especialidade, dir);
+          case "status": return cmp(a.status, b.status, dir);
+          case "embarque": return cmp(a.embarque, b.embarque, dir);
+          case "desembarque": return cmp(a.desembarque, b.desembarque, dir);
+          case "folgaInicio": return cmp(a.folga_inicio, b.folga_inicio, dir);
+          case "folgaFim": return cmp(a.folga_fim, b.folga_fim, dir);
+          case "feriasInicio": return cmp(a.ferias_inicio, b.ferias_inicio, dir);
+          case "feriasFim": return cmp(a.ferias_fim, b.ferias_fim, dir);
+          case "programado1": return cmp(a.programado_1, b.programado_1, dir);
+          case "programado2": return cmp(a.programado_2, b.programado_2, dir);
           default: return 0;
         }
       });
   }, [linhasSemStatus, filterStatus, sortColumn, sortDirection]);
+
 
   const exportarPlanejamento = () => {
     const rows = linhas.map((r) => ({
