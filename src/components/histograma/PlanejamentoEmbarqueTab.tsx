@@ -133,6 +133,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
         embarque: form.embarque || null, desembarque: form.desembarque || null,
         folga_inicio: form.folga_inicio || null, folga_fim: form.folga_fim || null,
         ferias_inicio: form.ferias_inicio || null, ferias_fim: form.ferias_fim || null,
+        programado_1: form.programado_1 || null, programado_2: form.programado_2.trim() || null,
       };
       if (row) {
         const { error } = await supabase.from("planejamento_embarque").update(patch).eq("id", row.id);
