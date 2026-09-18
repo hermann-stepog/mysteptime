@@ -181,6 +181,10 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
             <div><Label className="text-xs">Início Férias</Label><Input type="date" value={form.ferias_inicio} onChange={(e) => setForm({ ...form, ferias_inicio: e.target.value })} /></div>
             <div><Label className="text-xs">Fim Férias</Label><Input type="date" value={form.ferias_fim} onChange={(e) => setForm({ ...form, ferias_fim: e.target.value })} /></div>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="text-xs">Programado 1</Label><Input type="date" value={form.programado_1} onChange={(e) => setForm({ ...form, programado_1: e.target.value })} /></div>
+            <div><Label className="text-xs">Programado 2</Label><Input value={form.programado_2} onChange={(e) => setForm({ ...form, programado_2: e.target.value })} /></div>
+          </div>
         </div>
         <DialogFooter>
           <Button disabled={!form.nome.trim()} loading={salvar.isPending} onClick={() => salvar.mutate()}>Salvar</Button>
