@@ -38,6 +38,8 @@ import { notify } from "@/lib/notify";
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
 import { selectAllPages } from "@/lib/supabasePaginate";
+import { useRegistrarLog } from "@/hooks/useActivityLog";
+import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, todayStr, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
@@ -114,6 +116,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
   periodosE: HistNovoPeriodo[]; colaboradores: { id: string; nome: string }[]; unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLog("passagens_aereas");
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
   const valorPassagem = Number(f.valor) || 0;
@@ -194,6 +197,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
       notify.success(editing ? "Passagem atualizada" : `${1 + unidades.validas.length} passagem(ns) lançada(s)`);
+      registrarLog(`${editing ? "Editou" : "Lançou"} passagem de ${f.nomeUsuario.trim()} (${f.unidade}/${f.bsp}, ${fmt(f.dataIda)})`);
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -1019,14 +1023,17 @@ function PassagensAereasPage() {
     [passagens],
   );
 
+  const registrarLog = useRegistrarLog("passagens_aereas");
   const excluir = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("passagens_aereas").delete().eq("id", id);
+    mutationFn: async (p: PassagemAerea) => {
+      const { error } = await supabase.from("passagens_aereas").delete().eq("id", p.id);
       if (error) throw error;
+      return p;
     },
-    onSuccess: () => {
+    onSuccess: (p) => {
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
       notify.success("Passagem excluída");
+      registrarLog(`Excluiu passagem de ${p.nome_usuario} (${p.unidade}/${p.bsp}, ${fmt(p.data_ida)})`);
     },
     onError: (e: any) => notify.error(e.message),
   });
@@ -1211,7 +1218,8 @@ function PassagensAereasPage() {
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex items-center gap-2">
+            <HistoricoAlteracoesButton modulo="passagens_aereas" titulo="Passagens Aéreas" />
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
             </Button>
@@ -1411,7 +1419,7 @@ function PassagensAereasPage() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(p.id)}>
+                          <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(p)}>
                             Excluir
                           </AlertDialogAction>
                         </AlertDialogFooter>

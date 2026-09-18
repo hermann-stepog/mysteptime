@@ -18,6 +18,8 @@ import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notif
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
+import { useRegistrarLog } from "@/hooks/useActivityLog";
+import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -116,6 +118,7 @@ function useCanActOnStage(status: NominationStatus): boolean {
 function useAdvanceStage() {
   const qc = useQueryClient();
   const { profile } = useAuth();
+  const registrarLog = useRegistrarLog("nomeacoes");
   return useMutation({
     mutationFn: async ({
       nomination, target, extraPatch, note,
@@ -146,6 +149,7 @@ function useAdvanceStage() {
         changed_by_name: profile?.full_name ?? profile?.email ?? "Sistema",
         notes: note ?? null,
       });
+      registrarLog(`Moveu ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${STATUS_LABELS[target] ?? target}${note ? `: ${note}` : ""}`);
       // Fire-and-forget: resolver os destinatários (várias consultas) e chamar o Resend pode
       // levar mais de 1s, e notifyStageAdvance já nunca lança (falha de e-mail é só aviso) — sem
       // isso o card ficava "preso" na coluna antiga esperando o e-mail terminar pra só então
@@ -789,6 +793,7 @@ function ManageDialog({
 }) {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLog("nomeacoes");
   const [tab, setTab] = useState("detalhes");
   const advance = useAdvanceStage();
   // Nunca usar initialNomination além do fallback/id — ela é só o retrato de quando o card
@@ -885,6 +890,7 @@ function ManageDialog({
     },
     onSuccess: () => {
       notify.success("Solicitação cancelada.");
+      registrarLog(`Cancelou ${nomination.funcao} (${nomination.unidade ?? "—"})${cancelReason.trim() ? `: ${cancelReason.trim()}` : ""}`);
       qc.invalidateQueries({ queryKey: ["nominations"] });
       setShowCancel(false);
       onClose();
@@ -899,6 +905,7 @@ function ManageDialog({
     },
     onSuccess: () => {
       notify.success("Nomeação excluída.");
+      registrarLog(`Excluiu ${nomination.funcao} (${nomination.unidade ?? "—"})`);
       qc.invalidateQueries({ queryKey: ["nominations"] });
       onClose();
     },
@@ -3512,9 +3519,12 @@ export function NominationsPage() {
                 <option key={s} value={s}>{STATUS_LABELS[s]}</option>
               ))}
             </select>
-            <Button size="sm" className="ml-auto" onClick={() => setShowCreate(true)}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova Solicitação
-            </Button>
+            <div className="ml-auto flex items-center gap-2">
+              <HistoricoAlteracoesButton modulo="nomeacoes" titulo="Nomeações" />
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova Solicitação
+              </Button>
+            </div>
           </div>
 
           {showCreate && <CreateNominationDialog onClose={() => setShowCreate(false)} />}

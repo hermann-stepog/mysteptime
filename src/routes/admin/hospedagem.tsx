@@ -38,6 +38,8 @@ import { cn } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 import { pageTitle } from "@/lib/pageTitle";
 import { selectAllPages } from "@/lib/supabasePaginate";
+import { useRegistrarLog } from "@/hooks/useActivityLog";
+import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import { bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
@@ -200,6 +202,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLog("hospedagem");
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
   // Valor digitado direto por unidade/BSP (não mais % de um total nem diária x dias) — o Total
@@ -308,6 +311,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
       notify.success(editing ? "Hospedagem atualizada" : "Hospedagem lançada");
+      registrarLog(`${editing ? "Editou" : "Lançou"} hospedagem de ${f.nomeUsuario.trim()} (${f.unidade}/${f.bsp}, ${fmt(f.checkIn)} a ${fmt(f.checkOut)})`);
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -623,14 +627,17 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
   const hotelById = useMemo(() => new Map(hoteis.map((h) => [h.id, h])), [hoteis]);
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
 
+  const registrarLog = useRegistrarLog("hospedagem");
   const excluir = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("hospedagens").delete().eq("id", id);
+    mutationFn: async (h: Hospedagem) => {
+      const { error } = await supabase.from("hospedagens").delete().eq("id", h.id);
       if (error) throw error;
+      return h;
     },
-    onSuccess: () => {
+    onSuccess: (h) => {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
       notify.success("Hospedagem excluída");
+      registrarLog(`Excluiu hospedagem de ${h.nome_usuario} (${h.unidade}/${h.bsp}, ${fmt(h.check_in)} a ${fmt(h.check_out)})`);
     },
     onError: (e: any) => notify.error(e.message),
   });
@@ -825,7 +832,8 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex items-center gap-2">
+            <HistoricoAlteracoesButton modulo="hospedagem" titulo="Hospedagem" />
             <Button variant="outline" onClick={exportarRelatorio}>
               <Download className="mr-1.5 h-4 w-4" />Exportar relatório
             </Button>
@@ -1014,7 +1022,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(h.id)}>
+                            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(h)}>
                               Excluir
                             </AlertDialogAction>
                           </AlertDialogFooter>
