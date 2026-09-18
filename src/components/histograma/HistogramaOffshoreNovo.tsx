@@ -2565,6 +2565,9 @@ function DashboardTab({ colaboradores, periodos }: {
     // Nomes por balde — só usados pra alimentar as rosquinhas com os mesmos números dos
     // cartões (ver ocupacaoData/naoOcupacaoData), sem mudar nenhuma das contagens acima.
     const folgaNomes: string[] = [], disponiveisNomes: string[] = [], naoDispNomes: string[] = [];
+    // Quebra de "Não Disponíveis" pelo status real do dia (Férias, Atestado, etc.) — pedido
+    // dela pra rosquinha mostrar destrinchado em vez de um balde único.
+    const naoDispPorStatus = new Map<string, { label: string; nomes: string[] }>();
     activeColaboradores.forEach((c) => {
       const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
       // Planejamento de Embarque (Status Embarcado/Programado) sobrepõe o balde real do Drake
