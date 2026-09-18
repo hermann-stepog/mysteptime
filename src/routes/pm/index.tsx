@@ -56,9 +56,10 @@ function StatusBadge({ status }: { status: Nomination["current_status"] }) {
   const c = STATUS_BADGE[status] ?? { bg: "#f1f5f9", text: "#334155" };
   return (
     <span
-      className="inline-flex items-center rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium"
+      className="inline-flex items-center gap-1.5 rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium shadow-sm transition-colors"
       style={{ backgroundColor: c.bg, color: c.text }}
     >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: c.text }} />
       {label}
     </span>
   );

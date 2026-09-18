@@ -218,12 +218,18 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   const valorDiariaNum = diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal;
 
   if (open && editing && bound !== editing.id) {
+    // Reabre os colaboradores extras como linhas separadas (em vez de um texto só) — sem isso,
+    // "+ colaborador" ficava desabilitado ao editar (não tinha como saber quais nomes já
+    // combinados eram "o principal" x "os extras"), e quem precisasse acrescentar mais gente
+    // depois do primeiro salvamento só conseguia criando um lançamento novo, duplicando tudo.
+    const [primeiroNome, ...outrosNomes] = editing.nome_usuario.split(",").map((n) => n.trim()).filter(Boolean);
     setF({
-      unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: editing.nome_usuario, hotelId: editing.hotel_id,
+      unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: primeiroNome ?? "", hotelId: editing.hotel_id,
       checkIn: editing.check_in, checkOut: editing.check_out,
       motivo: editing.motivo ?? "", formaPagamento: editing.forma_pagamento ?? "", observacoes: editing.observacoes ?? "",
       nf: editing.nf ?? "", dataFaturamento: editing.data_faturamento ?? "",
     });
+    pessoas.replace(outrosNomes.map((nome) => ({ nome, unidade: "", bsp: "" })));
     const v2 = editing.bsp_2 ? (editing.valor_2 ?? 0) : 0;
     const v3 = editing.bsp_3 ? (editing.valor_3 ?? 0) : 0;
     setValorPrincipal(String(Math.round(((editing.valor_total || 0) - v2 - v3) * 100) / 100));
@@ -315,7 +321,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           <NomeUsuarioMultiField
             label="Nome do colaborador"
             value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
-            colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
+            colaboradores={colaboradores} extras={pessoas}
             helpText="Os colaboradores adicionados pertencem ao mesmo lançamento e não multiplicam o valor do boleto."
           />
           <div className="space-y-2 rounded-md border border-dashed p-3">
@@ -324,7 +330,7 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
                 <Label className="text-xs">Distribuição por unidade / BSP</Label>
                 <p className="text-[11px] text-muted-foreground">Digite o valor de cada unidade/BSP deste lançamento — o Total soma tudo.</p>
               </div>
-              {!editing && unidades.unidades.length < 2 && (
+              {unidades.unidades.length < 2 && (
                 <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => unidades.add()}>
                   + unidade / BSP
                 </Button>

@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import {
   type Nomination, type NominationNominee, type NominationStatusHistory,
-  type WeldTypeConfig, type WeldMaterialConfig, type NominationStatus, type PmDecision, type QualityStatus,
+  type NominationStatus, type PmDecision, type QualityStatus,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE,
   columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador, requestTitle,
 } from "@/lib/nominations";
@@ -37,10 +37,10 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Plus, Settings, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
+  Plus, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Grid3x3, RefreshCw, Upload,
+  Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -60,6 +60,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
+import { usePlanejamentoEmbarqueQuery } from "@/components/histograma/PlanejamentoEmbarqueTab";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,9 +69,10 @@ function StatusBadge({ status }: { status: NominationStatus }) {
   const c = STATUS_BADGE[status] ?? { bg: "#f1f5f9", text: "#334155" };
   return (
     <span
-      className="inline-flex items-center rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium"
+      className="inline-flex items-center gap-1.5 rounded-full border border-black/5 px-2.5 py-0.5 text-xs font-medium shadow-sm transition-colors"
       style={{ backgroundColor: c.bg, color: c.text }}
     >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: c.text }} />
       {label}
     </span>
   );
@@ -144,14 +146,32 @@ function useAdvanceStage() {
         changed_by_name: profile?.full_name ?? profile?.email ?? "Sistema",
         notes: note ?? null,
       });
-      await notifyStageAdvance({ ...nomination, current_status: target }, target);
+      // Fire-and-forget: resolver os destinatários (várias consultas) e chamar o Resend pode
+      // levar mais de 1s, e notifyStageAdvance já nunca lança (falha de e-mail é só aviso) — sem
+      // isso o card ficava "preso" na coluna antiga esperando o e-mail terminar pra só então
+      // mover, o que é exatamente a lentidão reportada no drag-and-drop.
+      notifyStageAdvance({ ...nomination, current_status: target }, target).catch(() => {});
     },
-    onSuccess: (_data, vars) => {
+    onMutate: async ({ nomination, target }) => {
+      // Move o card na hora, sem esperar a resposta do servidor — desfaz sozinho em onError se
+      // o update falhar. A reconciliação de verdade (histórico, nomeados etc.) vem do
+      // invalidateQueries em onSettled, mas isso já roda em background, sem travar a UI.
+      await qc.cancelQueries({ queryKey: ["nominations"] });
+      const previous = qc.getQueryData<Nomination[]>(["nominations"]);
+      qc.setQueryData<Nomination[]>(["nominations"], (old) =>
+        old?.map((n) => (n.id === nomination.id ? { ...n, current_status: target } : n)) ?? old,
+      );
+      return { previous };
+    },
+    onError: (err: Error, _vars, context) => {
+      if (context?.previous) qc.setQueryData(["nominations"], context.previous);
+      notify.error(err.message || "Erro ao mover nomeação.");
+    },
+    onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: ["nominations"] });
       qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "history"] });
       qc.invalidateQueries({ queryKey: ["nominations", vars.nomination.id, "nominees"] });
     },
-    onError: (err: Error) => notify.error(err.message || "Erro ao mover nomeação."),
   });
 }
 
@@ -1162,167 +1182,6 @@ function ManageDialog({
   );
 }
 
-// ── Weld config settings ──────────────────────────────────────────────────────
-
-function WeldConfigPanel() {
-  const qc = useQueryClient();
-  const [newName, setNewName] = useState("");
-
-  const { data: weldConfig = [] } = useQuery<WeldTypeConfig[]>({
-    queryKey: ["weld-type-config"],
-    queryFn: async () => {
-      const { data } = await supabase.from("weld_type_config").select("*").order("weld_type_name");
-      return (data ?? []) as WeldTypeConfig[];
-    },
-  });
-
-  const addWeld = useMutation({
-    mutationFn: async () => {
-      if (!newName.trim()) throw new Error("Informe o nome do tipo de solda.");
-      const { error } = await supabase.from("weld_type_config").insert({ weld_type_name: newName.trim() });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setNewName("");
-      qc.invalidateQueries({ queryKey: ["weld-type-config"] });
-    },
-    onError: (err: Error) => notify.error(err.message),
-  });
-
-  const toggleQuality = useMutation({
-    mutationFn: async ({ id, val }: { id: string; val: boolean }) => {
-      const { error } = await supabase
-        .from("weld_type_config")
-        .update({ requires_quality_validation: val })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-type-config"] }),
-    onError: () => notify.error("Erro ao atualizar."),
-  });
-
-  const removeWeld = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("weld_type_config").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-type-config"] }),
-    onError: () => notify.error("Erro ao remover."),
-  });
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Configure quais tipos de solda exigem validação do setor de qualidade antes de avançar no fluxo.
-      </p>
-
-      <div className="flex gap-2">
-        <Input
-          placeholder="Nome do tipo de solda (ex.: TIG, MIG)"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addWeld.mutate()}
-          className="max-w-xs"
-        />
-        <Button onClick={() => addWeld.mutate()} loading={addWeld.isPending}>
-          <Plus className="h-4 w-4 mr-1" /> Adicionar
-        </Button>
-      </div>
-
-      {weldConfig.length === 0 ? (
-        <EmptyState icon={Settings} title="Nenhum tipo de solda configurado" description="Adicione um tipo acima pra começar." />
-      ) : (
-        <div className="divide-y rounded-md border">
-          {weldConfig.map((w) => (
-            <div key={w.id} className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-medium">{w.weld_type_name}</span>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={w.requires_quality_validation}
-                    onCheckedChange={(val) =>
-                      toggleQuality.mutate({ id: w.id, val: !!val })
-                    }
-                  />
-                  Exige validação da qualidade
-                </label>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeWeld.mutate(w.id)}
-                  loading={removeWeld.isPending && removeWeld.variables === w.id}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WeldMaterialConfigPanel() {
-  const qc = useQueryClient();
-  const [newName, setNewName] = useState("");
-
-  const { data: config = [] } = useQuery<WeldMaterialConfig[]>({
-    queryKey: ["weld-material-config"],
-    queryFn: async () => {
-      const { data } = await supabase.from("weld_material_config").select("*").order("material_name");
-      return (data ?? []) as WeldMaterialConfig[];
-    },
-  });
-
-  const add = useMutation({
-    mutationFn: async () => {
-      if (!newName.trim()) throw new Error("Informe o nome do material.");
-      const { error } = await supabase.from("weld_material_config").insert({ material_name: newName.trim() });
-      if (error) throw error;
-    },
-    onSuccess: () => { setNewName(""); qc.invalidateQueries({ queryKey: ["weld-material-config"] }); },
-    onError: (err: Error) => notify.error(err.message),
-  });
-
-  const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("weld_material_config").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["weld-material-config"] }),
-    onError: () => notify.error("Erro ao remover."),
-  });
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">Configure os materiais disponíveis para seleção quando a função é Soldador.</p>
-      <div className="flex gap-2">
-        <Input
-          placeholder="Nome do material" value={newName} onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add.mutate()} className="max-w-xs"
-        />
-        <Button onClick={() => add.mutate()} loading={add.isPending}><Plus className="h-4 w-4 mr-1" /> Adicionar</Button>
-      </div>
-      {config.length === 0 ? (
-        <EmptyState icon={Settings} title="Nenhum material configurado" />
-      ) : (
-        <div className="divide-y rounded-md border">
-          {config.map((m) => (
-            <div key={m.id} className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-medium">{m.material_name}</span>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => remove.mutate(m.id)} loading={remove.isPending && remove.variables === m.id}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Kanban de Nomeações ────────────────────────────────────────────────────────
 // 10 colunas fixas (ver KANBAN_COLUMNS em src/lib/nominations.ts). Card arrastável via
 // dnd-kit; os bloqueios de avanço (Qualidade, Aprovação PM completa, divergência de Aptidão
@@ -1456,7 +1315,7 @@ function EquipeFormadaColumn({
       <div className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ backgroundColor: "#DCFCE7", color: "#166534" }}>
         Equipe Formada <span className="font-normal opacity-70">({ordenadas.length})</span>
       </div>
-      <div ref={setNodeRef} className={`flex-1 space-y-1.5 overflow-y-auto p-2 h-[calc(100vh-180px)] min-h-[620px] transition-colors ${isOver ? "bg-primary/5" : ""}`}>
+      <div ref={setNodeRef} className={`flex-1 space-y-1.5 overflow-y-auto p-2 h-[calc(100dvh-230px)] min-h-[280px] transition-colors ${isOver ? "bg-primary/5" : ""}`}>
         {ordenadas.map((n) => (
           <div
             key={n.id}
@@ -1517,7 +1376,7 @@ function KanbanColumn({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex-1 space-y-2.5 overflow-y-auto p-2.5 h-[calc(100vh-180px)] min-h-[620px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
+        className={`flex-1 space-y-2.5 overflow-y-auto p-2.5 h-[calc(100dvh-230px)] min-h-[280px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
       >
         {groups.map((items) => (
           <NominationCard
@@ -1549,6 +1408,37 @@ function KanbanBoard({
   const { role } = useAuth();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const advance = useAdvanceStage();
+
+  // Barra de rolagem horizontal espelhada no topo do board — sem isso, pra rolar os lados era
+  // preciso descer até o fim das colunas (que são bem altas) pra achar a barra nativa lá
+  // embaixo. As duas ficam sincronizadas: mexer numa mexe a outra.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [boardScrollWidth, setBoardScrollWidth] = useState(0);
+  const syncingRef = useRef(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setBoardScrollWidth(el.scrollWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleTopScroll = () => {
+    if (syncingRef.current) { syncingRef.current = false; return; }
+    if (!scrollRef.current || !topScrollRef.current) return;
+    syncingRef.current = true;
+    scrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+  };
+  const handleBoardScroll = () => {
+    if (syncingRef.current) { syncingRef.current = false; return; }
+    if (!scrollRef.current || !topScrollRef.current) return;
+    syncingRef.current = true;
+    topScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
+  };
 
   const byColumn = useMemo(() => {
     const m = new Map<NominationStatus, Nomination[]>();
@@ -1614,7 +1504,10 @@ function KanbanBoard({
       {/* Board com N colunas de min-w-[300px]+ facilmente passa de 1500px — sem isso a página
           estourava horizontalmente em telas mais estreitas. Kanban com rolagem horizontal é
           um padrão de UX aceito mesmo em tablet (diferente de uma tabela de dados). */}
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div ref={topScrollRef} onScroll={handleTopScroll} className="mb-1 overflow-x-auto overflow-y-hidden">
+        <div style={{ width: boardScrollWidth, height: 1 }} />
+      </div>
+      <div ref={scrollRef} onScroll={handleBoardScroll} className="flex gap-3 overflow-x-auto pb-2">
         {KANBAN_COLUMNS.map((c, i) =>
           c.id === "equipe_formada" ? (
             <EquipeFormadaColumn key={c.id} nominations={byColumn.get(c.id) ?? []} onOpen={onOpen} index={i} />
@@ -2232,6 +2125,18 @@ function drakeAssignmentKey(unit: string | null | undefined, bsp: string | null 
   return `${hierarchyKey(normalizeUnidadeOperacional(unit))}::${normalizeBmBspKey(bsp)}`;
 }
 
+// Tira o nível/certificação do fim da função (ex.: "SOLDADOR IV" -> "SOLDADOR", "SUPERVISOR
+// ESCALADOR N3" -> "SUPERVISOR ESCALADOR") pros cartões de quantitativo por função em Equipes
+// Embarcadas contarem todo mundo da mesma função junto, independente do nível — a pedido dela.
+function normalizeFuncaoSemNivel(funcao: string): string {
+  return funcao
+    .trim()
+    .replace(/\s+(IV|III|II|I)$/i, "")
+    .replace(/\s+N\s*\d+$/i, "")
+    .trim()
+    .toLocaleUpperCase("pt-BR");
+}
+
 // Dias entre duas datas YYYY-MM-DD (positivo = "data" ainda não chegou; negativo = já passou).
 function diasAteData(data: string, referencia: string): number {
   const parse = (s: string) => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
@@ -2440,6 +2345,29 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
     return { total, porUnidade };
   }, [groups, drakeWorkersByAssignment]);
 
+  // Mesmo total de quem está embarcado agora (embarqueSummary acima), só que quebrado por
+  // função em vez de por unidade — e sem considerar o nível/certificação no fim da função
+  // (ver normalizeFuncaoSemNivel), a pedido dela. Função de embarque (não a cadastral) via
+  // resolverFuncaoEmbarque, igual ao resto da tela.
+  const embarqueSummaryPorFuncao = useMemo(() => {
+    const porFuncao = new Map<string, number>();
+    groups.forEach((client) => {
+      client.units.forEach((unit) => {
+        unit.bsps.forEach((bsp) => {
+          const workers = drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name)) ?? [];
+          workers.forEach(({ worker, period }) => {
+            const funcaoBruta = resolverFuncaoEmbarque(worker.id, period.data_inicio, embarquesByColaboradorId, worker.funcao) || "Função não informada";
+            const funcao = normalizeFuncaoSemNivel(funcaoBruta);
+            porFuncao.set(funcao, (porFuncao.get(funcao) ?? 0) + 1);
+          });
+        });
+      });
+    });
+    return Array.from(porFuncao.entries())
+      .map(([funcao, total]) => ({ funcao, total }))
+      .sort((a, b) => b.total - a.total || a.funcao.localeCompare(b.funcao, "pt-BR"));
+  }, [groups, drakeWorkersByAssignment, embarquesByColaboradorId]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -2492,6 +2420,19 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
           <Card key={unidade} className="min-w-[120px] px-3 py-2">
             <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={unidade}>
               {unidade}
+            </p>
+            <p className="text-xl font-semibold">{total}</p>
+          </Card>
+        ))}
+      </div>
+
+      {/* Mesmo total de embarcados acima, quebrado por função (sem nível/certificação) —
+          a pedido dela, sem mexer em nada da fileira de cima. */}
+      <div className="flex flex-wrap gap-2">
+        {embarqueSummaryPorFuncao.map(({ funcao, total }) => (
+          <Card key={funcao} className="min-w-[120px] px-3 py-2">
+            <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={funcao}>
+              {funcao}
             </p>
             <p className="text-xl font-semibold">{total}</p>
           </Card>
@@ -2923,6 +2864,18 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const [drill, setDrill] = useState<{ bsp: string; coluna: MapaColuna } | null>(null);
   const [showImportarSolicitacoes, setShowImportarSolicitacoes] = useState(false);
 
+  // Filtro de período (por data de embarque programada, period_start) — nasce sempre de hoje
+  // até 2 meses à frente (a pedido dela), mas continua editável como qualquer outro filtro de
+  // data do sistema. Só afeta quem já TEM period_start; solicitação ainda sem data programada
+  // (início do fluxo) continua aparecendo sempre, senão sumiria do mapa antes mesmo de chegar
+  // numa etapa que decide a data.
+  const [periodoDe, setPeriodoDe] = useState(() => todayStr());
+  const [periodoAte, setPeriodoAte] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 2);
+    return d.toISOString().slice(0, 10);
+  });
+
   // Cronograma completo (dia e hora de cada etapa) mostrado dentro de cada nomeação no
   // detalhe do drill-down — mesmo dado/timeline que já existe em "Etapa atual" > Histórico
   // (ManageDialog), só que de todas as nomeações de uma vez, sem precisar abrir uma por uma.
@@ -3054,10 +3007,35 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const nominationsVisiveis = useMemo(() => {
     const hoje = todayStr();
     return nominations.filter((n) => {
-      if (n.current_status !== "equipe_formada" || n.outcome === "cancelada" || !n.period_start) return true;
-      return diasAteData(n.period_start, hoje) >= -5;
+      const dentroPrazoEquipeFormada = n.current_status !== "equipe_formada" || n.outcome === "cancelada" || !n.period_start
+        || diasAteData(n.period_start, hoje) >= -5;
+      if (!dentroPrazoEquipeFormada) return false;
+      // Filtro de período (De/Até acima) — só se aplica a quem já tem data de embarque
+      // programada; sem period_start, continua passando (não some do mapa por falta de data).
+      if (n.period_start && (n.period_start < periodoDe || n.period_start > periodoAte)) return false;
+      return true;
     });
-  }, [nominations]);
+  }, [nominations, periodoDe, periodoAte]);
+
+  // Quantitativo de mão de obra (não de solicitações) do que está no mapa hoje: cada
+  // nomeação pede "quantidade" pessoas pra uma função/BSP; "atendida" é quanto disso já tem
+  // nomeado ativo de verdade (nunca mais que o pedido, pra Pendente nunca ficar negativo).
+  const quantitativosMaoDeObra = useMemo(() => {
+    let solicitada = 0, atendida = 0;
+    nominationsVisiveis.forEach((n) => {
+      const ativos = (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).length;
+      solicitada += n.quantidade;
+      atendida += Math.min(ativos, n.quantidade);
+    });
+    return { solicitada, atendida, pendente: solicitada - atendida };
+  }, [nominationsVisiveis, nomineesByNomination]);
+
+  // "Mão de obra x Demanda": headcount total cadastrado no Planejamento de Embarque (dentro
+  // de Histograma Offshore) comparado com a demanda de mão de obra pedida nas nomeações do
+  // mapa (mesmo total "Solicitada" acima) — dá pra ver se o efetivo disponível cobre o que
+  // está sendo pedido agora.
+  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  const maoDeObraTotal = planejamentoEmbarque.length;
 
   const bsps = useMemo(
     () => Array.from(new Set(nominationsVisiveis.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort((a, b) =>
@@ -3155,7 +3133,15 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         <p className="text-sm text-muted-foreground">
           Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo. Equipe Formada some daqui automaticamente 5 dias após a data programada de embarque.
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="mapa-periodo-de" className="text-xs text-muted-foreground">De</Label>
+            <Input id="mapa-periodo-de" type="date" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} className="h-8 w-auto text-sm" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="mapa-periodo-ate" className="text-xs text-muted-foreground">Até</Label>
+            <Input id="mapa-periodo-ate" type="date" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} className="h-8 w-auto text-sm" />
+          </div>
           <Button size="sm" variant="outline" onClick={() => setShowImportarSolicitacoes(true)}>
             <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar Solicitações
           </Button>
@@ -3165,48 +3151,92 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         </div>
       </div>
       {showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
+
+      {/* ── Quantitativos de mão de obra (não de solicitações) do que está no mapa hoje ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card className="p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Mão de obra solicitada</span>
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.solicitada}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Quantidade atendida</span>
+            <CheckCircle2 className="h-4 w-4 text-success" />
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.atendida}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Quantidade pendente</span>
+            <Clock className="h-4 w-4 text-warning" />
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.pendente}</div>
+        </Card>
+        <Card className="p-3" title="Efetivo total cadastrado em Planejamento de Embarque (Histograma Offshore) x mão de obra solicitada nas nomeações do mapa">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Mão de obra x Demanda</span>
+            <Scale className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-1 flex items-baseline gap-1 text-2xl font-semibold">
+            <Users className="mb-0.5 h-4 w-4 text-muted-foreground" />
+            {maoDeObraTotal}
+            <span className="text-sm font-normal text-muted-foreground">x</span>
+            {quantitativosMaoDeObra.solicitada}
+          </div>
+        </Card>
+      </div>
+
       <TooltipProvider delayDuration={150}>
         <Card className="overflow-x-auto p-2">
-          <table className="w-full border-separate border-spacing-1 text-sm">
+          <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Cliente</th>
+                <th className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Cliente</th>
                 {MAPA_COLUNAS.map((col) => (
-                  <th key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
+                  <th key={col.key} className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
                 ))}
-                <th className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
+                <th className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
               </tr>
             </thead>
             <tbody>
               {cascataClienteUnidadeBsp.map(({ cliente, unidades }) => {
                 const clienteOpen = expandedClientes.has(cliente);
+                // Total de nomeações do cliente inteiro, mesmo recolhido — sem isso, um grupo
+                // novo (ex.: "Cliente não identificado" na primeira importação de uma unidade
+                // ainda não cadastrada) fica sem nenhuma pista visual de que tem algo dentro.
+                const totalCliente = unidades.reduce((sum, [, bspList]) => sum + bspList.reduce((s, b) => s + (porBsp.get(b)?.length ?? 0), 0), 0);
                 return (
                   <Fragment key={cliente}>
                     <tr>
-                      <td colSpan={totalColunas} className="sticky left-0 z-10 bg-slate-50 px-2 py-1.5 text-left">
+                      <td colSpan={totalColunas} className="sticky left-0 z-10 border border-dashed border-border/70 bg-slate-50 px-2 py-1.5 text-left">
                         <button
                           type="button" className="flex items-center gap-2 rounded p-0.5 font-semibold hover:bg-slate-200"
                           aria-expanded={clienteOpen} onClick={() => toggleCollapsedMapa(setExpandedClientes, cliente)}
                         >
                           {clienteOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           <Building2 className="h-4 w-4 shrink-0 text-primary" /> {cliente}
+                          <span className="text-xs font-normal text-muted-foreground">({totalCliente} nomeaç{totalCliente === 1 ? "ão" : "ões"})</span>
                         </button>
                       </td>
                     </tr>
                     {clienteOpen && unidades.map(([unidade, bspList]) => {
                       const unidadeKey = `${cliente}::${unidade}`;
                       const unidadeOpen = expandedUnidades.has(unidadeKey);
+                      const totalUnidade = bspList.reduce((s, b) => s + (porBsp.get(b)?.length ?? 0), 0);
                       return (
                         <Fragment key={unidadeKey}>
                           <tr>
-                            <td colSpan={totalColunas} className="sticky left-0 z-10 bg-sky-50/60 px-2 py-1.5 text-left">
+                            <td colSpan={totalColunas} className="sticky left-0 z-10 border border-dashed border-border/70 bg-sky-50/60 px-2 py-1.5 text-left">
                               <button
                                 type="button" className="flex items-center gap-2 rounded p-0.5 pl-6 font-semibold text-sky-950 hover:bg-sky-100"
                                 aria-expanded={unidadeOpen} onClick={() => toggleCollapsedMapa(setExpandedUnidades, unidadeKey)}
                               >
                                 {unidadeOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                 <Ship className="h-4 w-4 shrink-0 text-sky-700" /> {unidade}
-                                <span className="text-xs font-normal text-muted-foreground">({bspList.length} BSP)</span>
+                                <span className="text-xs font-normal text-muted-foreground">({bspList.length} BSP · {totalUnidade} nomeaç{totalUnidade === 1 ? "ão" : "ões"})</span>
                               </button>
                             </td>
                           </tr>
@@ -3215,7 +3245,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                             const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
                             return (
                               <tr key={b}>
-                                <td className="sticky left-0 z-10 bg-card px-2 py-1.5 pl-9 align-top">
+                                <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 pl-9 align-top">
                                   <div className="font-medium">{b}</div>
                                 </td>
                                 {MAPA_COLUNAS.map((col) => {
@@ -3242,7 +3272,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                                     </button>
                                   );
                                   return (
-                                    <td key={col.key} className="p-0 text-center">
+                                    <td key={col.key} className="border border-dashed border-border/70 p-0 text-center">
                                       {rows.length === 0 ? celula : (
                                         <Tooltip>
                                           <TooltipTrigger asChild>{celula}</TooltipTrigger>
@@ -3254,7 +3284,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                                     </td>
                                   );
                                 })}
-                                <td className="px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
+                                <td className="border border-dashed border-border/70 px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
                               </tr>
                             );
                           })}
@@ -3271,11 +3301,11 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
             {bsps.length > 0 && (
               <tfoot>
                 <tr>
-                  <td className="sticky left-0 z-10 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
+                  <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
                   {MAPA_COLUNAS.map((col) => (
-                    <td key={col.key} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
+                    <td key={col.key} className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
                   ))}
-                  <td className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominationsVisiveis.length}</td>
+                  <td className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominationsVisiveis.length}</td>
                 </tr>
               </tfoot>
             )}
@@ -3453,9 +3483,6 @@ export function NominationsPage() {
           <TabsTrigger value="aptidao">
             <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
           </TabsTrigger>
-          <TabsTrigger value="config">
-            <Settings className="mr-1.5 h-3.5 w-3.5" /> Configurações
-          </TabsTrigger>
         </TabsList>
 
         {/* ── Simulação de disponibilidade ── */}
@@ -3526,18 +3553,6 @@ export function NominationsPage() {
         {/* ── Aptidão (Matriz de Qualificação) ── */}
         <TabsContent value="aptidao" className="pt-4">
           <QualificationEligibilityTab />
-        </TabsContent>
-
-        {/* ── Configurações ── */}
-        <TabsContent value="config" className="space-y-4 pt-4">
-          <Card className="p-5">
-            <h2 className="mb-4 text-sm font-semibold">Tipos de Solda</h2>
-            <WeldConfigPanel />
-          </Card>
-          <Card className="p-5">
-            <h2 className="mb-4 text-sm font-semibold">Materiais de Solda</h2>
-            <WeldMaterialConfigPanel />
-          </Card>
         </TabsContent>
       </Tabs>
 

@@ -2,7 +2,11 @@ import "@tanstack/react-start/server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DrakeIntegrationError } from "@/lib/drake/integration-error.server";
 import { logger, patchDrakeLogContext } from "@/lib/drake/logger";
-import { releaseDrakeUpdateLock, tryAcquireDrakeUpdateLock } from "@/lib/drake/update-lock.server";
+import {
+  describeDrakeUpdateLock,
+  releaseDrakeUpdateLock,
+  tryAcquireDrakeUpdateLock,
+} from "@/lib/drake/update-lock.server";
 import { updateDrakeQualifications } from "./update-service.server";
 import {
   DRAKE_QUALIFICATION_UPDATE_IN_PROGRESS,
@@ -23,10 +27,11 @@ export async function runQualificationUpdate(
   let lockHeld = false;
 
   if (acquireLock) {
-    if (!tryAcquireDrakeUpdateLock()) {
+    if (!tryAcquireDrakeUpdateLock("Atualização da matriz de qualificação (Drake)")) {
       throw new DrakeIntegrationError({
         code: DRAKE_QUALIFICATION_UPDATE_IN_PROGRESS,
-        message: "Já existe uma atualização do Drake em andamento.",
+        message:
+          `Já existe uma atualização do Drake em andamento. ${describeDrakeUpdateLock() ?? ""}`.trim(),
         stage: "queued",
       });
     }

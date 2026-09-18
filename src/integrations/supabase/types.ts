@@ -1109,6 +1109,36 @@ export type Database = {
         }
         Relationships: []
       }
+      drake_scheduler_slots: {
+        Row: {
+          claimed_at: string
+          claimed_by: string | null
+          error_message: string | null
+          finished_at: string | null
+          scheduled_for: string
+          slot_key: string
+          status: string
+        }
+        Insert: {
+          claimed_at?: string
+          claimed_by?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          scheduled_for: string
+          slot_key: string
+          status: string
+        }
+        Update: {
+          claimed_at?: string
+          claimed_by?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          scheduled_for?: string
+          slot_key?: string
+          status?: string
+        }
+        Relationships: []
+      }
       drake_sync_runs: {
         Row: {
           base_ignored: number | null
@@ -1749,6 +1779,8 @@ export type Database = {
           pm_name: string | null
           pm_user_id: string | null
           project: string | null
+          quality_rejection_reason: string | null
+          quality_status: string
           quality_validated: boolean
           quality_validated_at: string | null
           quality_validated_by: string | null
@@ -1788,6 +1820,8 @@ export type Database = {
           pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_rejection_reason?: string | null
+          quality_status?: string
           quality_validated?: boolean
           quality_validated_at?: string | null
           quality_validated_by?: string | null
@@ -1827,6 +1861,8 @@ export type Database = {
           pm_name?: string | null
           pm_user_id?: string | null
           project?: string | null
+          quality_rejection_reason?: string | null
+          quality_status?: string
           quality_validated?: boolean
           quality_validated_at?: string | null
           quality_validated_by?: string | null
@@ -2144,6 +2180,109 @@ export type Database = {
           {
             foreignKeyName: "payroll_summaries_collaborator_id_fkey"
             columns: ["collaborator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      planejamento_embarque: {
+        Row: {
+          bsp: string | null
+          created_at: string
+          desembarque: string | null
+          embarque: string | null
+          especialidade: string | null
+          ferias_fim: string | null
+          ferias_inicio: string | null
+          folga_fim: string | null
+          folga_inicio: string | null
+          funcao: string | null
+          id: string
+          matricula: string | null
+          nome: string
+          programado_1: string | null
+          programado_2: string | null
+          status: string | null
+          unidade: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          bsp?: string | null
+          created_at?: string
+          desembarque?: string | null
+          embarque?: string | null
+          especialidade?: string | null
+          ferias_fim?: string | null
+          ferias_inicio?: string | null
+          folga_fim?: string | null
+          folga_inicio?: string | null
+          funcao?: string | null
+          id?: string
+          matricula?: string | null
+          nome: string
+          programado_1?: string | null
+          programado_2?: string | null
+          status?: string | null
+          unidade?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          bsp?: string | null
+          created_at?: string
+          desembarque?: string | null
+          embarque?: string | null
+          especialidade?: string | null
+          ferias_fim?: string | null
+          ferias_inicio?: string | null
+          folga_fim?: string | null
+          folga_inicio?: string | null
+          funcao?: string | null
+          id?: string
+          matricula?: string | null
+          nome?: string
+          programado_1?: string | null
+          programado_2?: string | null
+          status?: string | null
+          unidade?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "planejamento_embarque_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      planejamento_embarque_log: {
+        Row: {
+          created_at: string
+          descricao: string
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          descricao: string
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          descricao?: string
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "planejamento_embarque_log_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -3231,6 +3370,16 @@ export type Database = {
       is_operator: { Args: { _user_id: string }; Returns: boolean }
       is_rh: { Args: { _user_id: string }; Returns: boolean }
       is_sms: { Args: { _user_id: string }; Returns: boolean }
+      mysteptime_histogram_collaborators: { Args: never; Returns: Json }
+      mysteptime_histogram_embarkations: {
+        Args: { p_cutoff: string }
+        Returns: Json
+      }
+      mysteptime_histogram_periods: {
+        Args: { p_cutoff: string }
+        Returns: Json
+      }
+      mysteptime_histogram_weeks: { Args: { p_cutoff: string }; Returns: Json }
     }
     Enums: {
       app_role:

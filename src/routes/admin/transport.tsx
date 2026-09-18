@@ -24,6 +24,7 @@ import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
+import { KpiValue } from "@/components/KpiValue";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import { useRateioPercentual, RateioPercentualPanel, FormaPagamentoField } from "@/components/LogisticaFormFields";
@@ -108,6 +109,14 @@ const STATUS_BORDER: Record<TripStatus, string> = {
   realizado: "border-l-success",
   faturado: "border-l-violet-500",
   cancelado: "border-l-destructive",
+};
+// Ponto de cor sólida antes do texto — mesma receita visual do StatusBadge compartilhado
+// (src/components/StatusBadge.tsx), pra todo badge de status do sistema ter a mesma cara.
+const STATUS_DOT: Record<TripStatus, string> = {
+  em_andamento: "bg-primary",
+  realizado: "bg-success",
+  faturado: "bg-violet-500",
+  cancelado: "bg-destructive",
 };
 
 function todayISO() {
@@ -214,7 +223,12 @@ function useTransportData() {
 }
 
 function StatusBadge({ status }: { status: TripStatus }) {
-  return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", STATUS_BADGE[status])}>{STATUS_LABEL[status]}</span>;
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium shadow-sm transition-colors", STATUS_BADGE[status])}>
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[status])} />
+      {STATUS_LABEL[status]}
+    </span>
+  );
 }
 
 function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatus, onDuplicate }: {
@@ -2002,7 +2016,7 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
   );
 }
 
-type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
+type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "nf" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
 
 function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
   const [from, setFrom] = useState("");
@@ -2049,6 +2063,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         case "tipo": return t.tipo === "material" ? "Material" : "Pessoas";
         case "cliente": return [t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ");
         case "bsp": return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
+        case "nf": return t.nf ?? "";
         case "etiquetas": return t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", ");
         case "horario": return t.departure_time ?? "";
         case "origem": return [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ");
@@ -2163,6 +2178,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <SortableHead label="Tipo" column="tipo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
               <SortableHead label="Cliente" column="cliente" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+              <SortableHead label="NF" column="nf" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
               <SortableHead label="Etiquetas" column="etiquetas" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
               <SortableHead label="Horário" column="horario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
               <SortableHead label="Origem" column="origem" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
@@ -2181,6 +2197,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell className="hidden md:table-cell">{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
                 <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell className="hidden md:table-cell">{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
+                <TableCell className="hidden md:table-cell">{t.nf ?? "—"}</TableCell>
                 <TableCell className="hidden xl:table-cell"><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
                 <TableCell className="hidden lg:table-cell">{t.departure_time ? t.departure_time.slice(0, 5) : "—"}</TableCell>
                 <TableCell className="hidden lg:table-cell">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).map(toDisplayCase).join("; ")}</TableCell>
@@ -2201,7 +2218,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <EmptyStateRow colSpan={12} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
+            {filtered.length === 0 && <EmptyStateRow colSpan={13} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
           </TableBody>
           {filtered.length > 0 && (
             <TableFooter>
@@ -2210,6 +2227,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
                 <TableCell></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell></TableCell>
+                <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden xl:table-cell"></TableCell>
                 <TableCell className="hidden lg:table-cell"></TableCell>
@@ -2425,7 +2443,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
             <TrendingUp className="h-4 w-4" style={{ color: "#1e3a8a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #1e3a8a, #5b7fd4)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{total}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}><KpiValue value={total} /></div>
         </Card>
         </FadeInView>
         <FadeInView delay={0.05}>
@@ -2434,7 +2452,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
             <CheckCircle2 className="h-4 w-4" style={{ color: "#1a5c2a" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #1a5c2a, #4ca35f)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{realizados}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1a5c2a" }}><KpiValue value={realizados} /></div>
         </Card>
         </FadeInView>
         <FadeInView delay={0.1}>
@@ -2443,7 +2461,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
             <Activity className="h-4 w-4" style={{ color: "#b8860b" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #b8860b, #d9a83c)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{emAndamento}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#b8860b" }}><KpiValue value={emAndamento} /></div>
         </Card>
         </FadeInView>
         <FadeInView delay={0.15}>
@@ -2452,7 +2470,7 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
             <span className="text-xs uppercase tracking-wide text-muted-foreground">Média de carros/dia</span>
             <TrendingUp className="h-4 w-4" style={{ color: "#475569" }} />
           </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ backgroundImage: "linear-gradient(135deg, #475569, #7c8ba1)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{avgCarsPerDay}</div>
+          <div className="mt-2 text-3xl font-semibold" style={{ color: "#475569" }}><KpiValue value={avgCarsPerDay} /></div>
         </Card>
         </FadeInView>
       </div>

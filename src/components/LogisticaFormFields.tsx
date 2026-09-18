@@ -306,9 +306,10 @@ export function usePessoasAdicionais() {
     setPessoas((p) => p.map((item, idx) => (idx === i ? { ...item, ...patch } : item)));
   }
   function remove(i: number) { setPessoas((p) => p.filter((_, idx) => idx !== i)); }
+  function replace(items: PessoaAdicional[]) { setPessoas(items); }
   function reset() { setPessoas([]); }
   const validas = pessoas.filter((p) => p.nome.trim() !== "");
-  return { pessoas, add, update, remove, reset, validas };
+  return { pessoas, add, update, remove, replace, reset, validas };
 }
 
 export type UsePessoasAdicionaisReturn = ReturnType<typeof usePessoasAdicionais>;

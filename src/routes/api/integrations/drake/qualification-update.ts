@@ -9,16 +9,19 @@ export const Route = createFileRoute("/api/integrations/drake/qualification-upda
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { releaseDrakeUpdateLock, tryAcquireDrakeUpdateLock } =
+        const { releaseDrakeUpdateLock, tryAcquireDrakeUpdateLock, describeDrakeUpdateLock } =
           await import("@/lib/drake/update-lock.server");
 
-        if (!tryAcquireDrakeUpdateLock()) {
+        if (!tryAcquireDrakeUpdateLock("Atualização da matriz de qualificação (Drake)")) {
+          const detalhe = describeDrakeUpdateLock();
           return Response.json(
             {
               type: "error",
               stage: "failed",
               progress: 0,
-              message: "Já existe uma atualização do Drake em andamento.",
+              message: detalhe
+                ? `Já existe uma atualização do Drake em andamento. ${detalhe}`
+                : "Já existe uma atualização do Drake em andamento.",
               code: DRAKE_QUALIFICATION_UPDATE_IN_PROGRESS,
               qualificationStatus: "waiting",
             } satisfies QualificationProgressEvent,
