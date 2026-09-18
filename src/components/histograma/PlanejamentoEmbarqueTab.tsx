@@ -22,9 +22,11 @@ import {
   AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { EmptyStateRow } from "@/components/EmptyState";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus, History } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus, History, ChevronRight } from "lucide-react";
 
 // ─── Planejamento de Embarque ───────────────────────────────────────────────────────────────
 // Deixou de ser uma visão derivada de hist_novo_periodos/hist_novo_colaboradores (dados do
@@ -85,6 +87,49 @@ export function usePlanejamentoEmbarqueQuery() {
   });
 }
 
+// ─── Histórico de alterações (painel lateral) ───────────────────────────────────────────────
+// Gravado explicitamente em cada ação (import/cadastro/edição/exclusão) em vez de gatilho no
+// banco, pra descrição sair legível em português — ver migração
+// 20260918140000_planejamento_embarque_log.sql.
+export interface PlanejamentoEmbarqueLogRow {
+  id: string;
+  created_at: string;
+  user_id: string | null;
+  descricao: string;
+}
+
+export function usePlanejamentoEmbarqueLogQuery() {
+  return useQuery<PlanejamentoEmbarqueLogRow[]>({
+    queryKey: ["planejamento-embarque-log"],
+    queryFn: () =>
+      selectAllPages<PlanejamentoEmbarqueLogRow>((from, to) =>
+        supabase.from("planejamento_embarque_log").select("*").order("created_at", { ascending: false }).range(from, to),
+      ),
+  });
+}
+
+// Descrição padrão de uma edição de célula (De → Para), usada nos onSave de cada coluna
+// editável da tabela — data formatada quando o campo é de data, texto puro nos outros.
+function descricaoEdicaoCampo(nome: string, campo: string, antigo: string | null, novo: string | null, ehData = false): string {
+  const fmt = (v: string | null) => (v ? (ehData ? fmtDateHeadcount(v) : v) : "—");
+  return `Editou ${campo} de ${nome}: ${fmt(antigo)} → ${fmt(novo)}`;
+}
+
+// Hook simples — só grava, quem chama não precisa esperar nem tratar erro (uma falha aqui não
+// pode travar a ação real que originou o log). Invalida a query do log pra o painel lateral
+// atualizar sozinho.
+function useRegistrarLogPlanejamento() {
+  const qc = useQueryClient();
+  const { profile } = useAuth();
+  return (descricao: string) => {
+    supabase.from("planejamento_embarque_log").insert({ user_id: profile?.id ?? null, descricao })
+      .then(({ error }: { error: unknown }) => {
+        if (error) { console.error(error); return; }
+        qc.invalidateQueries({ queryKey: ["planejamento-embarque-log"] });
+      });
+  };
+}
+
 // Popover de edição em texto livre — cobre Unidade, BSP e Função, que hoje são só texto
 // gravado direto na linha (nada mais vem do Drake pra sugerir opções).
 function TextoPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave: (novoValor: string) => void }) {
@@ -128,6 +173,7 @@ function DataPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave:
 // formulário nos dois casos pra não duplicar os 12 campos.
 function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow | null; onClose: () => void }) {
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLogPlanejamento();
   const [form, setForm] = useState({
     matricula: row?.matricula ?? "", nome: row?.nome ?? "", unidade: row?.unidade ?? "", bsp: row?.bsp ?? "",
     funcao: row?.funcao ?? "", especialidade: row?.especialidade ?? "", status: row?.status ?? "",
@@ -161,6 +207,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["planejamento-embarque"] });
       notify.success(row ? "Registro atualizado" : "Colaborador cadastrado");
+      registrarLog(row ? `Editou registro de ${form.nome.trim()}` : `Cadastrou ${form.nome.trim()}`);
       onClose();
     },
     onError: (e: any) => notify.error(e.message),
@@ -301,6 +348,7 @@ type ImportarPlanejamentoStep = "escolher" | "conferindo" | "confirmado";
 
 function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: number; onClose: () => void }) {
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLogPlanejamento();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<ImportarPlanejamentoStep>("escolher");
   const [aceitas, setAceitas] = useState<PlanejamentoImportRow[]>([]);
@@ -347,6 +395,7 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
       setResultado(r);
       setStep("confirmado");
       qc.invalidateQueries({ queryKey: ["planejamento-embarque"] });
+      registrarLog(`Importação de planilha: substituiu ${totalAtual} registro(s) atual(is) por ${r.criadas} da planilha`);
     },
     onError: (err: any) => notify.error(err.message ?? "Erro ao importar."),
   });
@@ -454,19 +503,25 @@ type PlanejamentoSortColumn =
 
 export function PlanejamentoEmbarqueTab() {
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLogPlanejamento();
   const { data: registros = [], isLoading } = usePlanejamentoEmbarqueQuery();
 
   const [showImportar, setShowImportar] = useState(false);
   const [criando, setCriando] = useState(false);
   const [editing, setEditing] = useState<PlanejamentoEmbarqueRow | null>(null);
   const [excluindo, setExcluindo] = useState<PlanejamentoEmbarqueRow | null>(null);
+  const [showHistorico, setShowHistorico] = useState(false);
 
   const updateCampo = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Record<string, unknown> }) => {
+    mutationFn: async ({ id, patch }: { id: string; patch: Record<string, unknown>; descricao?: string }) => {
       const { error } = await supabase.from("planejamento_embarque").update(patch).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["planejamento-embarque"] }); notify.success("Atualizado"); },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["planejamento-embarque"] });
+      notify.success("Atualizado");
+      if (variables.descricao) registrarLog(variables.descricao);
+    },
     onError: (e: any) => notify.error(e.message),
   });
 
@@ -478,32 +533,32 @@ export function PlanejamentoEmbarqueTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["planejamento-embarque"] });
       notify.success("Registro excluído");
+      registrarLog(`Excluiu registro de ${excluindo?.nome ?? ""}`);
       setExcluindo(null);
     },
     onError: (e: any) => notify.error(e.message),
   });
 
-  // Última atualização (qualquer linha) — pra mostrar quem mexeu por último e quando no
-  // cabeçalho da aba. updated_at/updated_by são preenchidos automaticamente por gatilho no
-  // banco em todo insert/update (import, edição de célula, dialog), nunca pelo app — ver
-  // migração 20260918120000_planejamento_embarque_audit.sql.
-  const ultimaAtualizacao = useMemo(
-    () => registros.reduce<PlanejamentoEmbarqueRow | null>(
-      (mais, r) => (!mais || r.updated_at > mais.updated_at ? r : mais),
-      null,
-    ),
-    [registros],
+  // Histórico de alterações (painel lateral) — data/hora, o que mudou e quem mudou, gravado
+  // explicitamente em cada ação (ver useRegistrarLogPlanejamento). O indicador do cabeçalho
+  // mostra só a entrada mais recente; o painel lateral (seta ao lado) mostra tudo.
+  const { data: logEntries = [] } = usePlanejamentoEmbarqueLogQuery();
+  const logUserIds = useMemo(
+    () => Array.from(new Set(logEntries.map((l) => l.user_id).filter((id): id is string => !!id))),
+    [logEntries],
   );
-  const { data: perfilUltimaAtualizacao } = useQuery({
-    queryKey: ["profile-nome", ultimaAtualizacao?.updated_by],
+  const { data: logPerfis = [] } = useQuery({
+    queryKey: ["planejamento-embarque-log-perfis", logUserIds],
     queryFn: async () => {
-      const { data, error } = await supabase.from("profiles").select("full_name").eq("id", ultimaAtualizacao!.updated_by).maybeSingle();
+      const { data, error } = await supabase.from("profiles").select("id, full_name").in("id", logUserIds);
       if (error) throw error;
-      return data as { full_name: string | null } | null;
+      return data as { id: string; full_name: string | null }[];
     },
-    enabled: !!ultimaAtualizacao?.updated_by,
+    enabled: logUserIds.length > 0,
   });
-  const primeiroNomeUltimaAtualizacao = perfilUltimaAtualizacao?.full_name?.trim().split(/\s+/)[0] ?? null;
+  const nomePorUserId = useMemo(() => new Map(logPerfis.map((p) => [p.id, p.full_name])), [logPerfis]);
+  const primeiroNome = (nomeCompleto: string | null | undefined) => nomeCompleto?.trim().split(/\s+/)[0] ?? null;
+  const ultimaAtualizacao = logEntries[0] ?? null;
 
   const { sortColumn, sortDirection, toggleSort } = useTableSort<PlanejamentoSortColumn>();
 
@@ -655,18 +710,47 @@ export function PlanejamentoEmbarqueTab() {
             <span className="text-muted-foreground">colaborador(es)</span>
           </div>
           {ultimaAtualizacao && (
-            <div
-              className="flex items-center gap-1.5 rounded px-2 py-0.5 h-8 text-[11px] bg-muted border border-border/60"
-              title={`Última atualização em ${fmtDateTime(ultimaAtualizacao.updated_at)}${primeiroNomeUltimaAtualizacao ? ` por ${primeiroNomeUltimaAtualizacao}` : ""}`}
+            <button
+              type="button"
+              onClick={() => setShowHistorico(true)}
+              className="flex items-center gap-1.5 rounded px-2 py-0.5 h-8 text-[11px] bg-muted border border-border/60 hover:bg-muted/70"
+              title={`Última atualização em ${fmtDateTime(ultimaAtualizacao.created_at)}${primeiroNome(nomePorUserId.get(ultimaAtualizacao.user_id ?? "")) ? ` por ${primeiroNome(nomePorUserId.get(ultimaAtualizacao.user_id ?? ""))}` : ""} — clique pra ver o histórico completo`}
             >
               <History className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-muted-foreground">Última atualização:</span>
-              <span className="font-semibold">{fmtDateTime(ultimaAtualizacao.updated_at)}</span>
-              {primeiroNomeUltimaAtualizacao && <span className="text-muted-foreground">· {primeiroNomeUltimaAtualizacao}</span>}
-            </div>
+              <span className="font-semibold">{fmtDateTime(ultimaAtualizacao.created_at)}</span>
+              {primeiroNome(nomePorUserId.get(ultimaAtualizacao.user_id ?? "")) && (
+                <span className="text-muted-foreground">· {primeiroNome(nomePorUserId.get(ultimaAtualizacao.user_id ?? ""))}</span>
+              )}
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
           )}
         </div>
       </Card>
+
+      <Sheet open={showHistorico} onOpenChange={setShowHistorico}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Histórico de alterações</SheetTitle>
+            <SheetDescription>Planejamento de Embarque — mais recente primeiro.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-3">
+            {logEntries.length === 0 ? (
+              <EmptyState icon={History} title="Nenhuma alteração registrada ainda" />
+            ) : (
+              logEntries.map((l) => (
+                <div key={l.id} className="rounded-md border p-2.5 text-sm">
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    <span>{fmtDateTime(l.created_at)}</span>
+                    <span className="font-medium">{primeiroNome(nomePorUserId.get(l.user_id ?? "")) ?? "—"}</span>
+                  </div>
+                  <p className="mt-1">{l.descricao}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {contagemStatus.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
@@ -722,19 +806,19 @@ export function PlanejamentoEmbarqueTab() {
               <TableRow key={r.id}>
                 <TableCell>{r.matricula ?? "—"}</TableCell>
                 <TableCell className="font-medium">{r.nome}</TableCell>
-                <TableCell><TextoPlanejamentoCell valor={r.unidade} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { unidade: v || null } })} /></TableCell>
-                <TableCell><TextoPlanejamentoCell valor={r.bsp} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { bsp: v || null } })} /></TableCell>
-                <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null } })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.unidade} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { unidade: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Unidade", r.unidade, v || null) })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.bsp} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { bsp: v || null }, descricao: descricaoEdicaoCampo(r.nome, "BSP", r.bsp, v || null) })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Função", r.funcao, v || null) })} /></TableCell>
                 <TableCell>{r.especialidade ?? "—"}</TableCell>
-                <TableCell><TextoPlanejamentoCell valor={r.status} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null } })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.embarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { embarque: v || null } })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.desembarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { desembarque: v || null } })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.folga_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_inicio: v || null } })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.folga_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_fim: v || null } })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.programado_1} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_1: v || null } })} /></TableCell>
-                <TableCell><TextoPlanejamentoCell valor={r.programado_2} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_2: v || null } })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.ferias_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_inicio: v || null } })} /></TableCell>
-                <TableCell><DataPlanejamentoCell valor={r.ferias_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_fim: v || null } })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.status} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Status", r.status, v || null) })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.embarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { embarque: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Embarque", r.embarque, v || null, true) })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.desembarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { desembarque: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Desembarque", r.desembarque, v || null, true) })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.folga_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_inicio: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Início Folga", r.folga_inicio, v || null, true) })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.folga_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_fim: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Fim Folga", r.folga_fim, v || null, true) })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.programado_1} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_1: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Programado 1", r.programado_1, v || null, true) })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.programado_2} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_2: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Programado 2", r.programado_2, v || null) })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.ferias_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_inicio: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Início Férias", r.ferias_inicio, v || null, true) })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.ferias_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_fim: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Fim Férias", r.ferias_fim, v || null, true) })} /></TableCell>
                 <TableCell>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></Button>
