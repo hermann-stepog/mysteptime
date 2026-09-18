@@ -2577,7 +2577,14 @@ function DashboardTab({ colaboradores, periodos }: {
       else if (bucket === "FO") { folga++; folgaNomes.push(c.nome); }
       else if (bucket === "P") programadosIds.add(c.id);
       else if (bucket === "B") { disponiveis++; disponiveisNomes.push(c.nome); }
-      else if (bucket === "FE" || bucket === "IND") { naoDisp++; naoDispNomes.push(c.nome); }
+      else if (bucket === "FE" || bucket === "IND") {
+        naoDisp++; naoDispNomes.push(c.nome);
+        const chave = String(result.status);
+        const label = STATUS_LABEL[result.status] ?? chave;
+        const entry = naoDispPorStatus.get(chave) ?? { label, nomes: [] };
+        entry.nomes.push(c.nome);
+        naoDispPorStatus.set(chave, entry);
+      }
       // Continua olhando a Unidade do período do Drake (não o Planejamento de Embarque, que
       // não tem histórico por dia) — quem está "Na Base" conta como ocupado mesmo quando o
       // status bruto do dia não seria (ex.: Standby), senão a % de Utilização ficava sem essas
