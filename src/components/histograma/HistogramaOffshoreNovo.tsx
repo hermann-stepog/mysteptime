@@ -2703,22 +2703,31 @@ function DashboardTab({ colaboradores, periodos }: {
   const ocupadoCards = ocupacaoData.reduce((sum, d) => sum + d.value, 0);
   const pctOcupacaoCards = planejamentoEmbarque.length > 0 ? Math.round((ocupadoCards / planejamentoEmbarque.length) * 100) : 0;
 
-  // Unidades com pelo menos 1 dia de embarcado no período filtrado — usado pra não poluir a
-  // tabela "POB por Unidade × Dia" com unidades zeradas no mês/intervalo selecionado.
-  // Linhas da tabela "POB por Unidade × Dia", quebradas também por BSP — agrupadas por
-  // unidade (uma linha por BSP dentro de cada unidade), pra ver tudo junto de uma vez.
+  // Linhas da tabela "POB por Unidade × Dia" — a pedido dela, passa a vir do Planejamento de
+  // Embarque em vez do Drake (dailyRecords continua existindo, intocado, pros outros gráficos
+  // "por mês" que ainda usam o Drake). Usa a Unidade/BSP e a janela Embarque→Desembarque já
+  // salvas em cada linha do Planejamento (calculada sozinha via Duração ou digitada na mão —
+  // não importa a origem, o valor já está gravado) pra contar quem está a bordo em cada dia do
+  // período selecionado, mantendo a mesma Unidade que o Planejamento traz (inclusive unidades
+  // que ainda não existem no cadastro do Drake), sem depender de status/texto livre.
   const unidadeBspRows = useMemo(() => {
     const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number> }>();
-    dailyRecords.forEach((r) => {
-      if (r.bucket !== "E" || !r.unidade) return;
-      const bsp = r.bsp?.trim() || "Sem BSP";
-      const key = `${r.unidade}::${bsp}`;
-      if (!m.has(key)) m.set(key, { unidade: r.unidade, bsp, countByDate: new Map() });
-      const row = m.get(key)!;
-      row.countByDate.set(r.date, (row.countByDate.get(r.date) ?? 0) + 1);
+    planejamentoEmbarque.forEach((row) => {
+      if (!row.unidade || !row.embarque || !row.desembarque) return;
+      // O dia do Desembarque não conta como "embarcado" — é o mesmo dia em que a Folga começa
+      // (Início Folga = Desembarque, ver PlanejamentoEmbarqueTab), então o intervalo é
+      // [Embarque, Desembarque). Só cria a linha se o período realmente cruza com o mês
+      // selecionado — senão ela aparecia na tabela com todos os dias zerados.
+      const diasNoPeriodo = datesMesAtual.filter((d) => d >= row.embarque! && d < row.desembarque!);
+      if (diasNoPeriodo.length === 0) return;
+      const bsp = row.bsp?.trim() || "Sem BSP";
+      const key = `${row.unidade}::${bsp}`;
+      if (!m.has(key)) m.set(key, { unidade: row.unidade, bsp, countByDate: new Map() });
+      const linha = m.get(key)!;
+      diasNoPeriodo.forEach((d) => linha.countByDate.set(d, (linha.countByDate.get(d) ?? 0) + 1));
     });
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
-  }, [dailyRecords]);
+  }, [planejamentoEmbarque, datesMesAtual]);
 
   const byUnitStatus = useMemo(() => {
     const m: Record<string, { total: number; porFuncao: Record<string, { count: number; nomes: string[] }> }> = {};
