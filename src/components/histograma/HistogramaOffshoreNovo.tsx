@@ -2714,7 +2714,10 @@ function DashboardTab({ colaboradores, periodos }: {
   const unidadeBspRows = useMemo(() => {
     const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number> }>();
     planejamentoEmbarque.forEach((row) => {
-      if (!row.unidade || !row.embarque || !row.desembarque) return;
+      // "FOLGA" aparece como texto literal no campo Unidade quando a pessoa está de folga (sem
+      // embarcação de verdade no momento) — não é uma unidade operacional, então não entra
+      // nessa contagem de POB.
+      if (!row.unidade || row.unidade.trim().toUpperCase() === "FOLGA" || !row.embarque || !row.desembarque) return;
       // O dia do Desembarque não conta como "embarcado" — é o mesmo dia em que a Folga começa
       // (Início Folga = Desembarque, ver PlanejamentoEmbarqueTab), então o intervalo é
       // [Embarque, Desembarque). Só cria a linha se o período realmente cruza com o mês
@@ -2730,20 +2733,23 @@ function DashboardTab({ colaboradores, periodos }: {
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
   }, [planejamentoEmbarque, datesMesAtual]);
 
+  // "POB x Unidade" — a pedido dela, passa a vir do Planejamento de Embarque (mesma janela
+  // Embarque→Desembarque exclusiva do fim, mesma exclusão de "FOLGA" como unidade, já usadas em
+  // "POB por Unidade × Dia" acima) em vez do Drake. Mantém exatamente o mesmo formato de saída
+  // (name/Embarcado/porFuncao) pra não mexer em nada da renderização/config já existente.
   const byUnitStatus = useMemo(() => {
     const m: Record<string, { total: number; porFuncao: Record<string, { count: number; nomes: string[] }> }> = {};
-    activeColaboradores.forEach((c) => {
-      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      if (pobBucket(result) !== "E") return;
-      const u = result.periodo?.unidade_operacional;
-      if (!u) return;
+    planejamentoEmbarque.forEach((row) => {
+      if (!row.unidade || row.unidade.trim().toUpperCase() === "FOLGA" || !row.embarque || !row.desembarque) return;
+      if (pobReferenceDate < row.embarque || pobReferenceDate >= row.desembarque) return;
+      const u = row.unidade;
       if (!m[u]) m[u] = { total: 0, porFuncao: {} };
       m[u].total++;
-      const fn = resolverFuncaoEmbarque(c.id, pobReferenceDate, embarquesByColaboradorId, c.funcao || c.funcao_operacao);
+      const fn = row.funcao?.trim() || "—";
       if (!m[u].porFuncao[fn]) m[u].porFuncao[fn] = { count: 0, nomes: [] };
       m[u].porFuncao[fn].count++;
       // Só primeiro + último nome no tooltip — nome completo fica grande demais pra caber.
-      const partesNome = c.nome.trim().split(/\s+/);
+      const partesNome = row.nome.trim().split(/\s+/);
       m[u].porFuncao[fn].nomes.push(partesNome.length > 1 ? `${partesNome[0]} ${partesNome[partesNome.length - 1]}` : partesNome[0]);
     });
     return Object.entries(m)
@@ -2754,7 +2760,7 @@ function DashboardTab({ colaboradores, periodos }: {
           .sort((a, b) => b.count - a.count),
       }))
       .sort((a, b) => b.Embarcado - a.Embarcado);
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, embarquesByColaboradorId]);
+  }, [planejamentoEmbarque, pobReferenceDate]);
 
   const funcaoColor = useMemo(() => {
     const todasFuncoes = Array.from(new Set(byUnitStatus.flatMap((u) => u.porFuncao.map((f) => f.funcao))));
@@ -2898,10 +2904,10 @@ function DashboardTab({ colaboradores, periodos }: {
 
       {/* ── KPIs ── */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        {/* Cartão à parte, ao lado do "Embarcados" (Planejamento de Embarque, respeita os
+           filtros da tela) — consulta o Drake ao vivo, todas as unidades, sem filtro. */}
+        <FadeInView delay={0}><DrakePobTodayCard /></FadeInView>
         {kpiCards.map((k, i) => {
-          if (k.label === "Embarcados") return (
-            <FadeInView key={k.label} delay={i * 0.05}><DrakePobTodayCard /></FadeInView>
-          );
           const card = (
             <Card className={cn("bg-gradient-to-br from-white to-slate-50 p-4", k.hoverNames && "cursor-default")}>
               <div className="flex items-center justify-between">

@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Upload, X } from "lucide-react";
 import { notify } from "@/lib/notify";
+import { useRegistrarLog } from "@/hooks/useActivityLog";
 
 // Formulário de "Nova Solicitação de Nomeação" — usado tanto no ambiente do Solicitante (PM,
 // ver src/routes/pm/index.tsx) quanto no ambiente da Logística (ver src/routes/admin/
@@ -126,6 +127,7 @@ export function useNominationFormData() {
 export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLog("nomeacoes");
 
   const [linhas, setLinhas]         = useState<FuncaoLinha[]>([novaLinhaFuncao()]);
   const [unidade, setUnidade]       = useState("");
@@ -159,6 +161,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       // Um id só pra todas as funções desta solicitação — "Minhas Solicitações" agrupa por
       // ele de volta num único cartão, mesmo cada função seguindo seu próprio fluxo aqui.
       const groupId = crypto.randomUUID();
+      const criadas: string[] = [];
 
       // Uma nomeação por função — cada uma segue seu próprio fluxo de aprovação/nomeação, por
       // isso não dá pra combinar num só registro. Soldador sempre passa pela Qualidade — ela
@@ -201,11 +204,14 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
           notes:           "Solicitação criada pelo solicitante",
         });
         await notifyStageAdvance(data as Nomination, "solicitacao");
+        criadas.push(`${l.funcao.trim()} (${unidade}/${bsp})`);
       }
+      return criadas;
     },
-    onSuccess: () => {
+    onSuccess: (criadas) => {
       const n = linhas.filter((l) => l.funcao.trim()).length;
       notify.success(n > 1 ? `${n} solicitações enviadas.` : "Solicitação enviada.");
+      registrarLog(`Criou solicitação de nomeação: ${criadas.join(", ")}`);
       // Invalida as duas fontes possíveis (ambiente do Solicitante e da Logística) — não custa
       // invalidar uma query que não existe na tela atual.
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });

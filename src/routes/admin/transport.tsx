@@ -36,6 +36,8 @@ import { cn, matchesNameSearch } from "@/lib/utils";
 import { PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import { pageTitle } from "@/lib/pageTitle";
+import { useRegistrarLog } from "@/hooks/useActivityLog";
+import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 
 
 type TripStatus = "em_andamento" | "realizado" | "faturado" | "cancelado";
@@ -546,8 +548,11 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     }));
   }, [rateio.ativo, rateio.valores[0], rateio.valores[1], rateio.valores[2]]);
 
+  const registrarLog = useRegistrarLog("transporte_quadro_detalhado");
+
   const save = useMutation({
     mutationFn: async () => {
+      const isNew = !f.id;
       const payload = {
         car_number: f.car_number.trim(), column_id: f.column_id || null,
         scheduled_at: `${f.scheduled_at}T12:00:00.000Z`,
@@ -585,9 +590,11 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       if (f.tipo === "pessoas" && f.collab_ids.length) await supabase.from("transport_trip_collaborators").insert(f.collab_ids.map((cid) => ({ trip_id: id!, collaborator_id: cid })));
       await supabase.from("transport_trip_materials").delete().eq("trip_id", id);
       if (f.tipo === "material" && f.materials.length) await supabase.from("transport_trip_materials").insert(f.materials.map((m) => ({ trip_id: id!, material_id: m.material_id, quantidade: m.quantidade })));
+      return { isNew, descricaoViagem: `${toDisplayCase(nomeTransporte(payload.car_number))} (${payload.origin} → ${payload.destination})` };
     },
-    onSuccess: () => {
+    onSuccess: ({ isNew, descricaoViagem }) => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
+      registrarLog(`${isNew ? "Criou" : "Editou"} viagem ${descricaoViagem}`);
       notify.success("Salvo");
       onOpenChange(false);
     },
@@ -611,6 +618,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
+      registrarLog(`Excluiu viagem ${toDisplayCase(nomeTransporte(f.car_number))} (${f.origin} → ${f.destination})`);
       notify.success("Removido");
       onOpenChange(false);
     },
@@ -2163,7 +2171,8 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
           <Label className="text-xs">Colaborador</Label>
           <ColaboradorFiltroCombobox value={colaboradorId} onChange={setColaboradorId} />
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <HistoricoAlteracoesButton modulo="transporte_quadro_detalhado" titulo="Quadro Detalhado — Transporte" />
           <Button type="button" variant="outline" size="sm" onClick={exportarFiltrado}>
             <Download className="mr-1.5 h-3.5 w-3.5" />Exportar planilha
           </Button>
