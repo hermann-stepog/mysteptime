@@ -2591,10 +2591,23 @@ function DashboardTab({ colaboradores, periodos }: {
     return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao };
   }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, statusViaPlanejamentoPorColaborador]);
 
+  // Headcount Total/Embarcados/Programados (cartões) passam a vir do Planejamento de Embarque
+  // — a pedido dela, sem mexer no resto (Utilização, rosquinhas, POB etc. continuam com a
+  // conta antiga do Drake/Nomeações via kpis.* acima, intocada). Mesmo critério já usado em
+  // "Na Base" (colaboradoresNaBaseDoPlanejamento, logo abaixo).
+  const embarcadosDoPlanejamento = useMemo(
+    () => planejamentoEmbarque.filter((r) => isStatusEmbarcado(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    [planejamentoEmbarque],
+  );
+  const programadosDoPlanejamento = useMemo(
+    () => planejamentoEmbarque.filter((r) => isStatusProgramado(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    [planejamentoEmbarque],
+  );
+
   const kpiCards = [
-    { label: "Headcount Total", value: kpis.total, icon: Users },
-    { label: "Embarcados", value: kpis.embarcados, icon: Ship },
-    { label: "Programados", value: kpis.programados, icon: CalendarDays },
+    { label: "Headcount Total", value: planejamentoEmbarque.length, icon: Users },
+    { label: "Embarcados", value: embarcadosDoPlanejamento.length, icon: Ship, hoverNames: embarcadosDoPlanejamento.map((r) => r.nome) },
+    { label: "Programados", value: programadosDoPlanejamento.length, icon: CalendarDays, hoverNames: programadosDoPlanejamento.map((r) => r.nome) },
     { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
     { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
     { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },

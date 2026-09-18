@@ -2125,6 +2125,18 @@ function drakeAssignmentKey(unit: string | null | undefined, bsp: string | null 
   return `${hierarchyKey(normalizeUnidadeOperacional(unit))}::${normalizeBmBspKey(bsp)}`;
 }
 
+// Tira o nível/certificação do fim da função (ex.: "SOLDADOR IV" -> "SOLDADOR", "SUPERVISOR
+// ESCALADOR N3" -> "SUPERVISOR ESCALADOR") pros cartões de quantitativo por função em Equipes
+// Embarcadas contarem todo mundo da mesma função junto, independente do nível — a pedido dela.
+function normalizeFuncaoSemNivel(funcao: string): string {
+  return funcao
+    .trim()
+    .replace(/\s+(IV|III|II|I)$/i, "")
+    .replace(/\s+N\s*\d+$/i, "")
+    .trim()
+    .toLocaleUpperCase("pt-BR");
+}
+
 // Dias entre duas datas YYYY-MM-DD (positivo = "data" ainda não chegou; negativo = já passou).
 function diasAteData(data: string, referencia: string): number {
   const parse = (s: string) => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
@@ -2333,6 +2345,29 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
     return { total, porUnidade };
   }, [groups, drakeWorkersByAssignment]);
 
+  // Mesmo total de quem está embarcado agora (embarqueSummary acima), só que quebrado por
+  // função em vez de por unidade — e sem considerar o nível/certificação no fim da função
+  // (ver normalizeFuncaoSemNivel), a pedido dela. Função de embarque (não a cadastral) via
+  // resolverFuncaoEmbarque, igual ao resto da tela.
+  const embarqueSummaryPorFuncao = useMemo(() => {
+    const porFuncao = new Map<string, number>();
+    groups.forEach((client) => {
+      client.units.forEach((unit) => {
+        unit.bsps.forEach((bsp) => {
+          const workers = drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name)) ?? [];
+          workers.forEach(({ worker, period }) => {
+            const funcaoBruta = resolverFuncaoEmbarque(worker.id, period.data_inicio, embarquesByColaboradorId, worker.funcao) || "Função não informada";
+            const funcao = normalizeFuncaoSemNivel(funcaoBruta);
+            porFuncao.set(funcao, (porFuncao.get(funcao) ?? 0) + 1);
+          });
+        });
+      });
+    });
+    return Array.from(porFuncao.entries())
+      .map(([funcao, total]) => ({ funcao, total }))
+      .sort((a, b) => b.total - a.total || a.funcao.localeCompare(b.funcao, "pt-BR"));
+  }, [groups, drakeWorkersByAssignment, embarquesByColaboradorId]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -2385,6 +2420,19 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
           <Card key={unidade} className="min-w-[120px] px-3 py-2">
             <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={unidade}>
               {unidade}
+            </p>
+            <p className="text-xl font-semibold">{total}</p>
+          </Card>
+        ))}
+      </div>
+
+      {/* Mesmo total de embarcados acima, quebrado por função (sem nível/certificação) —
+          a pedido dela, sem mexer em nada da fileira de cima. */}
+      <div className="flex flex-wrap gap-2">
+        {embarqueSummaryPorFuncao.map(({ funcao, total }) => (
+          <Card key={funcao} className="min-w-[120px] px-3 py-2">
+            <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={funcao}>
+              {funcao}
             </p>
             <p className="text-xl font-semibold">{total}</p>
           </Card>
