@@ -2904,10 +2904,10 @@ function DashboardTab({ colaboradores, periodos }: {
 
       {/* ── KPIs ── */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        {/* Cartão à parte, ao lado do "Embarcados" (Planejamento de Embarque, respeita os
+           filtros da tela) — consulta o Drake ao vivo, todas as unidades, sem filtro. */}
+        <FadeInView delay={0}><DrakePobTodayCard /></FadeInView>
         {kpiCards.map((k, i) => {
-          if (k.label === "Embarcados") return (
-            <FadeInView key={k.label} delay={i * 0.05}><DrakePobTodayCard /></FadeInView>
-          );
           const card = (
             <Card className={cn("bg-gradient-to-br from-white to-slate-50 p-4", k.hoverNames && "cursor-default")}>
               <div className="flex items-center justify-between">
