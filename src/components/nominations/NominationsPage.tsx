@@ -40,7 +40,7 @@ import {
   Plus, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Grid3x3, RefreshCw, Upload,
+  Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -60,6 +60,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
+import { usePlanejamentoEmbarqueQuery } from "@/components/histograma/PlanejamentoEmbarqueTab";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2951,6 +2952,26 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
     });
   }, [nominations]);
 
+  // Quantitativo de mão de obra (não de solicitações) do que está no mapa hoje: cada
+  // nomeação pede "quantidade" pessoas pra uma função/BSP; "atendida" é quanto disso já tem
+  // nomeado ativo de verdade (nunca mais que o pedido, pra Pendente nunca ficar negativo).
+  const quantitativosMaoDeObra = useMemo(() => {
+    let solicitada = 0, atendida = 0;
+    nominationsVisiveis.forEach((n) => {
+      const ativos = (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).length;
+      solicitada += n.quantidade;
+      atendida += Math.min(ativos, n.quantidade);
+    });
+    return { solicitada, atendida, pendente: solicitada - atendida };
+  }, [nominationsVisiveis, nomineesByNomination]);
+
+  // "Mão de obra x Demanda": headcount total cadastrado no Planejamento de Embarque (dentro
+  // de Histograma Offshore) comparado com a demanda de mão de obra pedida nas nomeações do
+  // mapa (mesmo total "Solicitada" acima) — dá pra ver se o efetivo disponível cobre o que
+  // está sendo pedido agora.
+  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  const maoDeObraTotal = planejamentoEmbarque.length;
+
   const bsps = useMemo(
     () => Array.from(new Set(nominationsVisiveis.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort((a, b) =>
       a === MAPA_SEM_BSP ? 1 : b === MAPA_SEM_BSP ? -1 : a.localeCompare(b),
@@ -3057,6 +3078,44 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         </div>
       </div>
       {showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
+
+      {/* ── Quantitativos de mão de obra (não de solicitações) do que está no mapa hoje ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card className="p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Mão de obra solicitada</span>
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.solicitada}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Quantidade atendida</span>
+            <CheckCircle2 className="h-4 w-4 text-success" />
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.atendida}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Quantidade pendente</span>
+            <Clock className="h-4 w-4 text-warning" />
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.pendente}</div>
+        </Card>
+        <Card className="p-3" title="Efetivo total cadastrado em Planejamento de Embarque (Histograma Offshore) x mão de obra solicitada nas nomeações do mapa">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Mão de obra x Demanda</span>
+            <Scale className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-1 flex items-baseline gap-1 text-2xl font-semibold">
+            <Users className="mb-0.5 h-4 w-4 text-muted-foreground" />
+            {maoDeObraTotal}
+            <span className="text-sm font-normal text-muted-foreground">x</span>
+            {quantitativosMaoDeObra.solicitada}
+          </div>
+        </Card>
+      </div>
+
       <TooltipProvider delayDuration={150}>
         <Card className="overflow-x-auto p-2">
           <table className="w-full border-collapse text-sm">
