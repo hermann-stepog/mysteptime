@@ -47,6 +47,10 @@ export interface PlanejamentoEmbarqueRow {
   folga_fim: string | null;
   ferias_inicio: string | null;
   ferias_fim: string | null;
+  // Colunas "PROGRAMADO 1"/"PROGRAMADO 2" da planilha dela: a 1ª é sempre data, a 2ª é texto
+  // livre (às vezes data, às vezes anotação tipo "BASE - HENRIQUE").
+  programado_1: string | null;
+  programado_2: string | null;
   updated_at: string;
   updated_by: string | null;
 }
@@ -130,6 +134,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
     embarque: row?.embarque ?? "", desembarque: row?.desembarque ?? "",
     folga_inicio: row?.folga_inicio ?? "", folga_fim: row?.folga_fim ?? "",
     ferias_inicio: row?.ferias_inicio ?? "", ferias_fim: row?.ferias_fim ?? "",
+    programado_1: row?.programado_1 ?? "", programado_2: row?.programado_2 ?? "",
   });
 
   const salvar = useMutation({
@@ -143,6 +148,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
         embarque: form.embarque || null, desembarque: form.desembarque || null,
         folga_inicio: form.folga_inicio || null, folga_fim: form.folga_fim || null,
         ferias_inicio: form.ferias_inicio || null, ferias_fim: form.ferias_fim || null,
+        programado_1: form.programado_1 || null, programado_2: form.programado_2.trim() || null,
       };
       if (row) {
         const { error } = await supabase.from("planejamento_embarque").update(patch).eq("id", row.id);
@@ -189,6 +195,10 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Início Férias</Label><Input type="date" value={form.ferias_inicio} onChange={(e) => setForm({ ...form, ferias_inicio: e.target.value })} /></div>
             <div><Label className="text-xs">Fim Férias</Label><Input type="date" value={form.ferias_fim} onChange={(e) => setForm({ ...form, ferias_fim: e.target.value })} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="text-xs">Programado 1</Label><Input type="date" value={form.programado_1} onChange={(e) => setForm({ ...form, programado_1: e.target.value })} /></div>
+            <div><Label className="text-xs">Programado 2</Label><Input value={form.programado_2} onChange={(e) => setForm({ ...form, programado_2: e.target.value })} /></div>
           </div>
         </div>
         <DialogFooter>
@@ -439,7 +449,8 @@ function ImportarPlanejamentoDialog({ totalAtual, onClose }: { totalAtual: numbe
 // ─── Aba principal ───────────────────────────────────────────────────────────────────────────
 type PlanejamentoSortColumn =
   | "matricula" | "nome" | "unidade" | "bsp" | "funcao" | "especialidade" | "status"
-  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim";
+  | "embarque" | "desembarque" | "folgaInicio" | "folgaFim" | "feriasInicio" | "feriasFim"
+  | "programado1" | "programado2";
 
 export function PlanejamentoEmbarqueTab() {
   const qc = useQueryClient();
@@ -531,13 +542,28 @@ export function PlanejamentoEmbarqueTab() {
   const especialidadesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.especialidade).filter((v): v is string => !!v))).sort(), [registros]);
   const statusExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.status).filter((v): v is string => !!v))).sort(), [registros]);
 
-  const linhas = useMemo(() => {
+  // Base sem o filtro de Status: é a partir dela que os cartões contam cada status, senão
+  // ao clicar num cartão todos os outros zerariam.
+  const linhasSemStatus = useMemo(() => {
     return registros
       .filter((r) => filterColaborador.length === 0 || filterColaborador.includes(r.nome))
       .filter((r) => filterUnidade.length === 0 || (r.unidade != null && filterUnidade.includes(r.unidade)))
       .filter((r) => filterBsp.length === 0 || (r.bsp != null && filterBsp.includes(r.bsp)))
       .filter((r) => filterFuncao.length === 0 || (r.funcao != null && filterFuncao.includes(r.funcao)))
-      .filter((r) => filterEspecialidade.length === 0 || (r.especialidade != null && filterEspecialidade.includes(r.especialidade)))
+      .filter((r) => filterEspecialidade.length === 0 || (r.especialidade != null && filterEspecialidade.includes(r.especialidade)));
+  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade]);
+
+  const contagemStatus = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const r of linhasSemStatus) {
+      const chave = (r.status ?? "").trim() || "Sem status";
+      mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
+    }
+    return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"));
+  }, [linhasSemStatus]);
+
+  const linhas = useMemo(() => {
+    return linhasSemStatus
       .filter((r) => filterStatus.length === 0 || (r.status != null && filterStatus.includes(r.status)))
       .sort((a, b) => {
         if (!sortColumn) return a.nome.localeCompare(b.nome, "pt-BR");
@@ -556,10 +582,12 @@ export function PlanejamentoEmbarqueTab() {
           case "folgaFim": return dir * (a.folga_fim ?? "").localeCompare(b.folga_fim ?? "");
           case "feriasInicio": return dir * (a.ferias_inicio ?? "").localeCompare(b.ferias_inicio ?? "");
           case "feriasFim": return dir * (a.ferias_fim ?? "").localeCompare(b.ferias_fim ?? "");
+          case "programado1": return dir * (a.programado_1 ?? "").localeCompare(b.programado_1 ?? "");
+          case "programado2": return dir * (a.programado_2 ?? "").localeCompare(b.programado_2 ?? "", "pt-BR");
           default: return 0;
         }
       });
-  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao, filterEspecialidade, filterStatus, sortColumn, sortDirection]);
+  }, [linhasSemStatus, filterStatus, sortColumn, sortDirection]);
 
   const exportarPlanejamento = () => {
     const rows = linhas.map((r) => ({
@@ -574,6 +602,8 @@ export function PlanejamentoEmbarqueTab() {
       Desembarque: r.desembarque ? fmtDateHeadcount(r.desembarque) : "—",
       "Início Folga": r.folga_inicio ? fmtDateHeadcount(r.folga_inicio) : "—",
       "Fim Folga": r.folga_fim ? fmtDateHeadcount(r.folga_fim) : "—",
+      "Programado 1": r.programado_1 ? fmtDateHeadcount(r.programado_1) : "—",
+      "Programado 2": r.programado_2 ?? "—",
       "Início Férias": r.ferias_inicio ? fmtDateHeadcount(r.ferias_inicio) : "—",
       "Fim Férias": r.ferias_fim ? fmtDateHeadcount(r.ferias_fim) : "—",
     }));
@@ -638,6 +668,33 @@ export function PlanejamentoEmbarqueTab() {
         </div>
       </Card>
 
+      {contagemStatus.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {contagemStatus.map(([status, total]) => {
+            const ativo = filterStatus.includes(status);
+            return (
+              <Card
+                key={status}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  const novo = ativo ? filterStatus.filter((s) => s !== status) : [...filterStatus, status];
+                  setFilterStatus(novo);
+                  setStatusInput(novo);
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); }}
+                className={`cursor-pointer p-3 transition-colors hover:bg-muted/60 ${ativo ? "border-primary bg-primary/5" : ""}`}
+              >
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground truncate" title={status}>{status}</div>
+                <div className="text-xl font-bold tabular-nums">{total}</div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+
+
       <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -653,6 +710,8 @@ export function PlanejamentoEmbarqueTab() {
               <SortableHead label="Desembarque" column="desembarque" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Início Folga" column="folgaInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Fim Folga" column="folgaFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Programado 1" column="programado1" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead label="Programado 2" column="programado2" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Início Férias" column="feriasInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Fim Férias" column="feriasFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <TableHead className="w-20">Ações</TableHead>
@@ -672,6 +731,8 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><DataPlanejamentoCell valor={r.desembarque} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { desembarque: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.folga_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_inicio: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.folga_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_fim: v || null } })} /></TableCell>
+                <TableCell><DataPlanejamentoCell valor={r.programado_1} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_1: v || null } })} /></TableCell>
+                <TableCell><TextoPlanejamentoCell valor={r.programado_2} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_2: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_inicio: v || null } })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_fim: v || null } })} /></TableCell>
                 <TableCell>
@@ -682,7 +743,7 @@ export function PlanejamentoEmbarqueTab() {
                 </TableCell>
               </TableRow>
             ))}
-            {linhas.length === 0 && <EmptyStateRow colSpan={14} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
+            {linhas.length === 0 && <EmptyStateRow colSpan={16} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
           </TableBody>
         </Table>
       </Card>
