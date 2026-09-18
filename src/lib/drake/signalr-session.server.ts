@@ -182,6 +182,10 @@ async function resolveAccessToken(request: DrakeHttpClient): Promise<string> {
 
 export async function openDrakeSignalRSession(
   request: DrakeHttpClient,
+  queryEvents?: {
+    executed: (payload: Record<string, unknown>) => void;
+    failed: (payload: Record<string, unknown>) => void;
+  },
 ): Promise<DrakeSignalRSession> {
   const started = Date.now();
   let connection: HubConnection | null = null;
@@ -267,13 +271,17 @@ export async function openDrakeSignalRSession(
       }
     });
 
-    connection.on("AsyncQueryExecuted", () => {
+    connection.on("AsyncQueryExecuted", (payload: unknown) => {
+      const data = parseHubPayload(payload);
+      if (data) queryEvents?.executed(data);
       logger.info("drake-signalr", "Consulta assincrona concluida", {
         connected: true,
       });
     });
 
-    connection.on("AsyncQueryFailed", () => {
+    connection.on("AsyncQueryFailed", (payload: unknown) => {
+      const data = parseHubPayload(payload);
+      if (data) queryEvents?.failed(data);
       logger.warn("drake-signalr", "Consulta assincrona falhou", {
         connected: true,
       });
