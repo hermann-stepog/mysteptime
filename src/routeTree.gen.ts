@@ -39,6 +39,7 @@ import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
 import { Route as AdminBmRouteImport } from './routes/admin/bm'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
+import { Route as ApiPublicLgpFlowMonitoringRouteImport } from './routes/api/public/lgp-flow-monitoring'
 import { Route as ApiIntegrationsDrakeUpdateRouteImport } from './routes/api/integrations/drake/update'
 import { Route as ApiIntegrationsDrakeQualificationUpdateRouteImport } from './routes/api/integrations/drake/qualification-update'
 import { Route as ApiIntegrationsDrakeQualificationEligibilityRouteImport } from './routes/api/integrations/drake/qualification-eligibility'
@@ -193,6 +194,12 @@ const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
   path: '/approvals',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const ApiPublicLgpFlowMonitoringRoute =
+  ApiPublicLgpFlowMonitoringRouteImport.update({
+    id: '/api/public/lgp-flow-monitoring',
+    path: '/api/public/lgp-flow-monitoring',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiIntegrationsDrakeUpdateRoute =
   ApiIntegrationsDrakeUpdateRouteImport.update({
     id: '/api/integrations/drake/update',
@@ -243,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
@@ -276,6 +284,7 @@ export interface FileRoutesByTo {
   '/pm/bms': typeof PmBmsRoute
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
+  '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
@@ -312,6 +321,7 @@ export interface FileRoutesById {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
@@ -349,6 +359,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
@@ -382,6 +393,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app'
     | '/pm'
+    | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
@@ -417,6 +429,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
@@ -429,6 +442,7 @@ export interface RootRouteChildren {
   PmRouteRoute: typeof PmRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
+  ApiPublicLgpFlowMonitoringRoute: typeof ApiPublicLgpFlowMonitoringRoute
   ApiIntegrationsDrakeQualificationEligibilityRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   ApiIntegrationsDrakeQualificationUpdateRoute: typeof ApiIntegrationsDrakeQualificationUpdateRoute
   ApiIntegrationsDrakeUpdateRoute: typeof ApiIntegrationsDrakeUpdateRoute
@@ -646,6 +660,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminApprovalsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/api/public/lgp-flow-monitoring': {
+      id: '/api/public/lgp-flow-monitoring'
+      path: '/api/public/lgp-flow-monitoring'
+      fullPath: '/api/public/lgp-flow-monitoring'
+      preLoaderRoute: typeof ApiPublicLgpFlowMonitoringRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/integrations/drake/update': {
       id: '/api/integrations/drake/update'
       path: '/api/integrations/drake/update'
@@ -754,6 +775,7 @@ const rootRouteChildren: RootRouteChildren = {
   PmRouteRoute: PmRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
+  ApiPublicLgpFlowMonitoringRoute: ApiPublicLgpFlowMonitoringRoute,
   ApiIntegrationsDrakeQualificationEligibilityRoute:
     ApiIntegrationsDrakeQualificationEligibilityRoute,
   ApiIntegrationsDrakeQualificationUpdateRoute:

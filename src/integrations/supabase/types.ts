@@ -14,6 +14,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_log: {
+        Row: {
+          created_at: string
+          descricao: string
+          id: string
+          modulo: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          descricao: string
+          id?: string
+          modulo: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          descricao?: string
+          id?: string
+          modulo?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       approval_requests: {
         Row: {
           approver_id: string
@@ -2191,6 +2223,7 @@ export type Database = {
           bsp: string | null
           created_at: string
           desembarque: string | null
+          duracao_embarque_dias: number | null
           embarque: string | null
           especialidade: string | null
           ferias_fim: string | null
@@ -2212,6 +2245,7 @@ export type Database = {
           bsp?: string | null
           created_at?: string
           desembarque?: string | null
+          duracao_embarque_dias?: number | null
           embarque?: string | null
           especialidade?: string | null
           ferias_fim?: string | null
@@ -2233,6 +2267,7 @@ export type Database = {
           bsp?: string | null
           created_at?: string
           desembarque?: string | null
+          duracao_embarque_dias?: number | null
           embarque?: string | null
           especialidade?: string | null
           ferias_fim?: string | null
