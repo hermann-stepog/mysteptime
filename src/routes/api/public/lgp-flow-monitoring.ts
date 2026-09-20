@@ -60,9 +60,22 @@ async function handle(request: Request) {
       )
       .order("scheduled_at", { ascending: false }),
     supabaseAdmin.from("transport_columns").select("id, name"),
+    supabaseAdmin
+      .from("planejamento_embarque")
+      .select(
+        "id, matricula, nome, funcao, especialidade, unidade, bsp, status, embarque, desembarque, duracao_embarque_dias, folga_inicio, folga_fim, ferias_inicio, ferias_fim, programado_1, programado_2, created_at, updated_at",
+      )
+      .order("nome"),
+    supabaseAdmin
+      .from("passagens_aereas")
+      .select(
+        "id, created_at, unidade, bsp, nome_usuario, companhia_aerea, origem, destino, data_ida, data_volta, tipo, valor, status, status_fluxo, motivo, solicitante, internacional, forma_pagamento, observacoes",
+      )
+      .order("data_ida", { ascending: false }),
   ]);
 
-  const firstError = nomsRes.error || histRes.error || tripsRes.error || colsRes.error;
+  const firstError =
+    nomsRes.error || histRes.error || tripsRes.error || colsRes.error || planRes.error || passRes.error;
   if (firstError) return json({ error: firstError.message }, 500);
 
   const lastChange = new Map<string, string>();
