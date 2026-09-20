@@ -113,12 +113,60 @@ async function handle(request: Request) {
     carro: t.car_number,
   }));
 
+  const histograma_offshore = (planRes.data ?? []).map((p) => ({
+    id: p.id,
+    matricula: p.matricula,
+    nome: p.nome,
+    funcao: p.funcao,
+    especialidade: p.especialidade,
+    unidade: p.unidade,
+    bsp: p.bsp,
+    status: p.status,
+    embarque: p.embarque,
+    desembarque: p.desembarque,
+    duracao_embarque_dias: p.duracao_embarque_dias,
+    folga_inicio: p.folga_inicio,
+    folga_fim: p.folga_fim,
+    ferias_inicio: p.ferias_inicio,
+    ferias_fim: p.ferias_fim,
+    programado_1: p.programado_1,
+    programado_2: p.programado_2,
+    criado_em: p.created_at,
+    atualizado_em: p.updated_at,
+  }));
+
+  const passagens_aereas = (passRes.data ?? []).map((a) => ({
+    id: a.id,
+    criado_em: a.created_at,
+    unidade: a.unidade,
+    bsp: a.bsp,
+    passageiro: a.nome_usuario,
+    companhia_aerea: a.companhia_aerea,
+    origem: a.origem,
+    destino: a.destino,
+    data_ida: a.data_ida,
+    data_volta: a.data_volta,
+    tipo: a.tipo,
+    valor: a.valor,
+    status: a.status,
+    status_fluxo: a.status_fluxo,
+    motivo: a.motivo,
+    solicitante: a.solicitante,
+    internacional: a.internacional,
+    forma_pagamento: a.forma_pagamento,
+    observacoes: a.observacoes,
+  }));
+
   return json({
     generated_at: new Date().toISOString(),
     nominations_count: nominations.length,
     trips_count: trips.length,
+    histograma_offshore_count: histograma_offshore.length,
+    passagens_aereas_count: passagens_aereas.length,
     nominations,
     trips,
+    histograma_offshore,
+    passagens_aereas,
   });
 }
 
