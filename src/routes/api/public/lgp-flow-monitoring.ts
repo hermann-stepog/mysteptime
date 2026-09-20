@@ -85,7 +85,14 @@ async function handle(request: Request) {
   ]);
 
   const firstError =
-    nomsRes.error || histRes.error || tripsRes.error || colsRes.error || planRes.error || passRes.error;
+    nomsRes.error ||
+    histRes.error ||
+    tripsRes.error ||
+    colsRes.error ||
+    planRes.error ||
+    passRes.error ||
+    auditRes.error ||
+    profRes.error;
   if (firstError) return json({ error: firstError.message }, 500);
 
   const lastChange = new Map<string, string>();
