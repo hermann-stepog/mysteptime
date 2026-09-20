@@ -74,6 +74,14 @@ async function handle(request: Request) {
         "id, created_at, unidade, bsp, nome_usuario, companhia_aerea, origem, destino, data_ida, data_volta, tipo, valor, status, status_fluxo, motivo, solicitante, internacional, forma_pagamento, observacoes",
       )
       .order("data_ida", { ascending: false }),
+    supabaseAdmin
+      .from("lgp_flow_activity_log")
+      .select(
+        "id, tabela_origem, registro_id, usuario_id, acao, etapa_anterior, etapa_nova, criado_em",
+      )
+      .gte("criado_em", auditCutoff)
+      .order("criado_em", { ascending: false }),
+    supabaseAdmin.from("profiles").select("id, full_name, email"),
   ]);
 
   const firstError =
