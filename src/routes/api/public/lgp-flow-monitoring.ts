@@ -42,7 +42,9 @@ async function handle(request: Request) {
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  const [nomsRes, histRes, tripsRes, colsRes, planRes, passRes] = await Promise.all([
+  const auditCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [nomsRes, histRes, tripsRes, colsRes, planRes, passRes, auditRes, profRes] = await Promise.all([
     supabaseAdmin
       .from("nominations")
       .select(
@@ -72,10 +74,25 @@ async function handle(request: Request) {
         "id, created_at, unidade, bsp, nome_usuario, companhia_aerea, origem, destino, data_ida, data_volta, tipo, valor, status, status_fluxo, motivo, solicitante, internacional, forma_pagamento, observacoes",
       )
       .order("data_ida", { ascending: false }),
+    supabaseAdmin
+      .from("lgp_flow_activity_log")
+      .select(
+        "id, tabela_origem, registro_id, usuario_id, acao, etapa_anterior, etapa_nova, criado_em",
+      )
+      .gte("criado_em", auditCutoff)
+      .order("criado_em", { ascending: false }),
+    supabaseAdmin.from("profiles").select("id, full_name, email"),
   ]);
 
   const firstError =
-    nomsRes.error || histRes.error || tripsRes.error || colsRes.error || planRes.error || passRes.error;
+    nomsRes.error ||
+    histRes.error ||
+    tripsRes.error ||
+    colsRes.error ||
+    planRes.error ||
+    passRes.error ||
+    auditRes.error ||
+    profRes.error;
   if (firstError) return json({ error: firstError.message }, 500);
 
   const lastChange = new Map<string, string>();
@@ -157,16 +174,52 @@ async function handle(request: Request) {
     observacoes: a.observacoes,
   }));
 
+  const perfis = new Map(
+    (profRes.data ?? []).map((p) => [p.id, p.full_name || p.email || null] as const),
+  );
+
+  const TABELA_LABELS: Record<string, string> = {
+    nominations: "Nomeações",
+    transport_trips: "Transporte (viagens)",
+  };
+  const ACAO_LABELS: Record<string, string> = {
+    criacao: "Criação",
+    mudanca_etapa: "Mudança de etapa",
+    edicao: "Edição",
+  };
+
+  const activity_log = (auditRes.data ?? []).map((l) => ({
+    id: l.id,
+    tabela_origem: l.tabela_origem,
+    modulo: TABELA_LABELS[l.tabela_origem] ?? l.tabela_origem,
+    registro_id: l.registro_id,
+    usuario_id: l.usuario_id,
+    usuario_nome: l.usuario_id ? (perfis.get(l.usuario_id) ?? null) : null,
+    acao_codigo: l.acao,
+    acao: ACAO_LABELS[l.acao] ?? l.acao,
+    etapa_anterior: l.etapa_anterior,
+    etapa_anterior_label: l.etapa_anterior
+      ? (STATUS_LABELS[l.etapa_anterior] ?? TRIP_STATUS_LABELS[l.etapa_anterior] ?? l.etapa_anterior)
+      : null,
+    etapa_nova: l.etapa_nova,
+    etapa_nova_label: l.etapa_nova
+      ? (STATUS_LABELS[l.etapa_nova] ?? TRIP_STATUS_LABELS[l.etapa_nova] ?? l.etapa_nova)
+      : null,
+    criado_em: l.criado_em,
+  }));
+
   return json({
     generated_at: new Date().toISOString(),
     nominations_count: nominations.length,
     trips_count: trips.length,
     histograma_offshore_count: histograma_offshore.length,
     passagens_aereas_count: passagens_aereas.length,
+    activity_log_count: activity_log.length,
     nominations,
     trips,
     histograma_offshore,
     passagens_aereas,
+    activity_log,
   });
 }
 

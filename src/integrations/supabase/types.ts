@@ -1611,6 +1611,39 @@ export type Database = {
           },
         ]
       }
+      lgp_flow_activity_log: {
+        Row: {
+          acao: string
+          criado_em: string
+          etapa_anterior: string | null
+          etapa_nova: string | null
+          id: string
+          registro_id: string
+          tabela_origem: string
+          usuario_id: string | null
+        }
+        Insert: {
+          acao: string
+          criado_em?: string
+          etapa_anterior?: string | null
+          etapa_nova?: string | null
+          id?: string
+          registro_id: string
+          tabela_origem: string
+          usuario_id?: string | null
+        }
+        Update: {
+          acao?: string
+          criado_em?: string
+          etapa_anterior?: string | null
+          etapa_nova?: string | null
+          id?: string
+          registro_id?: string
+          tabela_origem?: string
+          usuario_id?: string | null
+        }
+        Relationships: []
+      }
       materials: {
         Row: {
           active: boolean
