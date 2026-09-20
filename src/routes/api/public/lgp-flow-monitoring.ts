@@ -42,7 +42,9 @@ async function handle(request: Request) {
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  const [nomsRes, histRes, tripsRes, colsRes, planRes, passRes] = await Promise.all([
+  const auditCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [nomsRes, histRes, tripsRes, colsRes, planRes, passRes, auditRes, profRes] = await Promise.all([
     supabaseAdmin
       .from("nominations")
       .select(
