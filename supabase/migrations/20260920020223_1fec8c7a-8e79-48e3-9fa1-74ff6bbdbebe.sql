@@ -1,0 +1,1 @@
+REVOKE ALL ON FUNCTION public.log_lgp_flow_activity() FROM PUBLIC, anon, authenticated;
