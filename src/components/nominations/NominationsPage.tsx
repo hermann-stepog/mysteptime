@@ -3136,6 +3136,13 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
 
   return (
     <div className="space-y-3">
+      <Tabs defaultValue="calor">
+        <TabsList>
+          <TabsTrigger value="calor">Mapa de Calor</TabsTrigger>
+          <TabsTrigger value="linha-tempo">Linha do Tempo</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="calor" className="space-y-3 pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo. Equipe Formada some daqui automaticamente 5 dias após a data programada de embarque.
@@ -3320,6 +3327,16 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         </Card>
       </TooltipProvider>
 
+        </TabsContent>
+
+        <TabsContent value="linha-tempo" className="pt-3">
+          {/* Nomeações completas, não as filtradas pelo período De/Até do Mapa acima — a Linha
+             do Tempo mostra o horizonte inteiro do que já está planejado, pra comparar com a
+             mão de obra disponível nos próximos meses, não só nos 2 meses padrão do Mapa. */}
+          <LinhaDoTempoNomeacoesTab nominations={nominations} />
+        </TabsContent>
+      </Tabs>
+
       <Dialog open={!!drill} onOpenChange={(o) => !o && setDrill(null)}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -3352,6 +3369,256 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// Linha do tempo de demanda de mão de obra por Unidade/BSP — pra comparar visualmente com o
+// efetivo disponível (Planejamento de Embarque). Cada linha de Unidade/BSP soma a quantidade
+// pedida nas nomeações daquele grupo; clique expande pra ver a quantidade por função. Mesmo
+// conceito de uma ferramenta de planejamento que ela já usa fora do sistema (agrupar por
+// projeto/BSP, colunas de dia/semana/mês, número = pessoas), só que a partir dos dados reais
+// de Nomeações em vez de uma planilha à parte.
+type LinhaDoTempoGranularidade = "dia" | "semana" | "mes";
+
+interface LinhaDoTempoFuncao {
+  funcao: string;
+  qtd: number;
+  start: string;
+  end: string;
+}
+
+interface LinhaDoTempoGrupo {
+  key: string;
+  unidade: string;
+  bsp: string;
+  start: string;
+  end: string;
+  funcs: LinhaDoTempoFuncao[];
+}
+
+function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }) {
+  const [gran, setGran] = useState<LinhaDoTempoGranularidade>("semana");
+  const [ocultarEncerradas, setOcultarEncerradas] = useState(false);
+  const [ocultarSemBsp, setOcultarSemBsp] = useState(false);
+  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
+  const hoje = todayStr();
+
+  // "Disponível por função" pra comparar lado a lado com a demanda da linha do tempo — total
+  // de colaboradores cadastrados no Planejamento de Embarque por função (mesma normalização
+  // sem nível/IRATA já usada nos outros quantitativos por função de Nomeações), não é "quem
+  // está livre agora", é o efetivo total que existe naquela função.
+  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  const disponivelPorFuncao = useMemo(() => {
+    const m = new Map<string, number>();
+    planejamentoEmbarque.forEach((r) => {
+      if (!r.funcao?.trim()) return;
+      const f = normalizeFuncaoSemNivel(r.funcao);
+      m.set(f, (m.get(f) ?? 0) + 1);
+    });
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+  }, [planejamentoEmbarque]);
+
+  // Só entra quem tem início e fim programados (sem isso não dá pra desenhar na linha do
+  // tempo) e não foi cancelada — uma nomeação cancelada não é mais demanda de verdade.
+  const validas = useMemo(
+    () => nominations.filter((n) => n.period_start && n.period_end && n.outcome !== "cancelada"),
+    [nominations],
+  );
+
+  const grupos = useMemo<LinhaDoTempoGrupo[]>(() => {
+    const m = new Map<string, LinhaDoTempoGrupo>();
+    validas.forEach((n) => {
+      const unidade = n.unidade?.trim() || "Sem unidade";
+      const bsp = n.bsp?.trim() || "";
+      const key = `${unidade}::${bsp}`;
+      if (!m.has(key)) m.set(key, { key, unidade, bsp, start: n.period_start!, end: n.period_end!, funcs: [] });
+      const g = m.get(key)!;
+      if (n.period_start! < g.start) g.start = n.period_start!;
+      if (n.period_end! > g.end) g.end = n.period_end!;
+      g.funcs.push({ funcao: n.funcao, qtd: n.quantidade, start: n.period_start!, end: n.period_end! });
+    });
+    return Array.from(m.values());
+  }, [validas]);
+
+  const gruposFiltrados = useMemo(
+    () => grupos
+      .filter((g) => !(ocultarSemBsp && !g.bsp))
+      .filter((g) => !(ocultarEncerradas && g.end < hoje))
+      .sort((a, b) => a.start.localeCompare(b.start)),
+    [grupos, ocultarSemBsp, ocultarEncerradas, hoje],
+  );
+
+  const horizonte = useMemo(() => {
+    if (gruposFiltrados.length === 0) return null;
+    let inicio = gruposFiltrados[0].start, fim = gruposFiltrados[0].end;
+    gruposFiltrados.forEach((g) => {
+      if (g.start < inicio) inicio = g.start;
+      if (g.end > fim) fim = g.end;
+    });
+    return { inicio, fim };
+  }, [gruposFiltrados]);
+
+  const dias = useMemo(() => (horizonte ? generateDateRange(horizonte.inicio, horizonte.fim) : []), [horizonte]);
+
+  const periodos = useMemo(() => {
+    if (gran === "dia") return dias.map((d) => ({ label: fmtDate(d).slice(0, 5), dias: [d] }));
+    if (gran === "mes") {
+      const m = new Map<string, string[]>();
+      dias.forEach((d) => {
+        const chave = d.slice(0, 7);
+        if (!m.has(chave)) m.set(chave, []);
+        m.get(chave)!.push(d);
+      });
+      return Array.from(m.entries()).map(([chave, ds]) => ({
+        label: new Date(`${chave}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
+        dias: ds,
+      }));
+    }
+    const blocos: { label: string; dias: string[] }[] = [];
+    for (let i = 0; i < dias.length; i += 7) {
+      const bloco = dias.slice(i, i + 7);
+      blocos.push({ label: fmtDate(bloco[0]).slice(0, 5), dias: bloco });
+    }
+    return blocos;
+  }, [dias, gran]);
+
+  const ativoNoPeriodo = (start: string, end: string, diasDoPeriodo: string[]) =>
+    diasDoPeriodo.some((d) => d >= start && d <= end);
+
+  const todosAbertos = gruposFiltrados.length > 0 && gruposFiltrados.every((g) => openKeys.has(g.key));
+  const alternarTodos = () => setOpenKeys(todosAbertos ? new Set() : new Set(gruposFiltrados.map((g) => g.key)));
+  const alternar = (key: string) => setOpenKeys((atual) => {
+    const next = new Set(atual);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Demanda de mão de obra planejada nas nomeações, por Unidade/BSP e Função, ao longo do tempo — compare com o efetivo disponível no Planejamento de Embarque.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-md border bg-muted p-0.5">
+          {(["dia", "semana", "mes"] as const).map((g) => (
+            <button
+              key={g} type="button" onClick={() => setGran(g)}
+              className={cn("px-3 py-1 text-xs rounded transition capitalize", gran === g ? "bg-background shadow-sm font-medium" : "text-muted-foreground")}
+            >
+              {g === "mes" ? "Mês" : g}
+            </button>
+          ))}
+        </div>
+        <Button size="sm" variant="outline" onClick={alternarTodos}>{todosAbertos ? "Recolher todos" : "Expandir todos"}</Button>
+        <Button size="sm" variant={ocultarEncerradas ? "default" : "outline"} onClick={() => setOcultarEncerradas((v) => !v)}>Ocultar encerradas</Button>
+        <Button size="sm" variant={ocultarSemBsp ? "default" : "outline"} onClick={() => setOcultarSemBsp((v) => !v)}>Ocultar sem BSP</Button>
+        <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#0A57B0" }} />Unidade/BSP</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#6BA6DE" }} />Função</span>
+          <span>número = pessoas</span>
+        </div>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
+      {gruposFiltrados.length === 0 || !horizonte ? (
+        <EmptyState icon={ClipboardList} title="Nenhuma nomeação com período programado encontrada" />
+      ) : (
+        <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
+          <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
+            <thead className="sticky top-0 z-10">
+              <tr>
+                <th className="sticky left-0 z-20 min-w-[220px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Unidade / Função</th>
+                <th className="sticky left-[220px] z-20 min-w-[90px] border border-border bg-muted px-2 py-1.5 text-left font-medium">BSP</th>
+                {periodos.map((p, i) => (
+                  <th
+                    key={i}
+                    className="min-w-[46px] border border-border px-1 py-1 text-center font-normal"
+                    style={p.dias.includes(hoje) ? { backgroundColor: "#0E70CB", color: "white" } : { backgroundColor: "var(--muted)" }}
+                  >
+                    {p.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {gruposFiltrados.map((g) => {
+                const aberto = openKeys.has(g.key);
+                return (
+                  <Fragment key={g.key}>
+                    <tr className="cursor-pointer hover:bg-muted/40" onClick={() => alternar(g.key)}>
+                      <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1 font-semibold">
+                        <span className="mr-1 inline-block w-3 text-muted-foreground">{aberto ? "▾" : "▸"}</span>
+                        {g.unidade}
+                      </td>
+                      <td className="sticky left-[220px] z-10 border border-border bg-background px-2 py-1 text-muted-foreground">{g.bsp || "—"}</td>
+                      {periodos.map((p, i) => {
+                        const tot = g.funcs.filter((f) => ativoNoPeriodo(f.start, f.end, p.dias)).reduce((s, f) => s + f.qtd, 0);
+                        return (
+                          <td
+                            key={i}
+                            className="border border-border p-0 text-center"
+                            style={tot > 0 ? { backgroundColor: "#0A57B0", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
+                          >
+                            {tot > 0 ? tot : ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {aberto && g.funcs.map((f, fi) => (
+                      <tr key={fi} className="hover:bg-muted/30">
+                        <td className="sticky left-0 z-10 border border-border bg-background py-1 pl-8 pr-2 text-muted-foreground">{f.funcao}</td>
+                        <td className="sticky left-[220px] z-10 border border-border bg-background px-2 py-1"></td>
+                        {periodos.map((p, i) => {
+                          const on = ativoNoPeriodo(f.start, f.end, p.dias);
+                          return (
+                            <td
+                              key={i}
+                              className="border border-border p-0 text-center"
+                              style={on ? { backgroundColor: "#6BA6DE", color: "white", fontWeight: 600 } : { backgroundColor: "#f8fafc" }}
+                            >
+                              {on ? f.qtd : ""}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      <Card className="overflow-hidden p-0" style={{ maxHeight: 560 }}>
+        <div className="border-b p-3">
+          <h3 className="text-sm font-semibold">Disponível por função</h3>
+          <p className="text-xs text-muted-foreground">Efetivo total cadastrado no Planejamento de Embarque.</p>
+        </div>
+        <div className="overflow-auto" style={{ maxHeight: 500 }}>
+          <table className="w-full border-collapse text-xs">
+            <thead className="sticky top-0">
+              <tr>
+                <th className="border-b bg-muted px-3 py-1.5 text-left font-medium">Função</th>
+                <th className="border-b bg-muted px-3 py-1.5 text-right font-medium">Disponível</th>
+              </tr>
+            </thead>
+            <tbody>
+              {disponivelPorFuncao.map(([funcao, qtd]) => (
+                <tr key={funcao} className="hover:bg-muted/30">
+                  <td className="border-b px-3 py-1.5">{funcao}</td>
+                  <td className="border-b px-3 py-1.5 text-right font-semibold">{qtd}</td>
+                </tr>
+              ))}
+              {disponivelPorFuncao.length === 0 && (
+                <tr><td colSpan={2} className="px-3 py-4 text-center text-muted-foreground">Sem dados.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      </div>
     </div>
   );
 }
