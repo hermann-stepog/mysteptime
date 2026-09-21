@@ -1680,6 +1680,35 @@ export type Database = {
         }
         Relationships: []
       }
+      nomination_aptitude_alerts: {
+        Row: {
+          colaborador_nome: string
+          created_at: string
+          id: string
+          nomination_id: string
+        }
+        Insert: {
+          colaborador_nome: string
+          created_at?: string
+          id?: string
+          nomination_id: string
+        }
+        Update: {
+          colaborador_nome?: string
+          created_at?: string
+          id?: string
+          nomination_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nomination_aptitude_alerts_nomination_id_fkey"
+            columns: ["nomination_id"]
+            isOneToOne: false
+            referencedRelation: "nominations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nomination_nominees: {
         Row: {
           aptidao_checked: boolean
