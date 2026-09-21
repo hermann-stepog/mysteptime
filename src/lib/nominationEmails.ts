@@ -1,8 +1,53 @@
 import { supabase } from "@/integrations/supabase/client";
-import { sendNominationPhaseEmail } from "@/lib/api/email.functions";
+import { sendResendTemplatedEmail } from "@/lib/api/email.functions";
 import { STATUS_LABELS, STAGE_ROLE, type Nomination, type NominationStatus } from "@/lib/nominations";
 
 const supabaseAny: any = supabase;
+
+// Template único e reaproveitável no Resend (ver src/components/nominations/
+// QualificationEligibilityTab.tsx pro HTML original) — todos os alertas de nomeação usam o
+// mesmo template, só variando TITULO_ALERTA/DETALHES_LABEL/PENDENCIAS/RODAPE_TEXTO por tipo de
+// evento. Sem SMTP configurado (era só um placeholder no .env, nunca funcionou de verdade),
+// o Resend passou a ser o único jeito real de mandar esses e-mails.
+function alertTemplateId(): string | undefined {
+  return import.meta.env.VITE_RESEND_ALERT_TEMPLATE_ID as string | undefined;
+}
+
+async function sendAlert(
+  { to, cc, tituloAlerta, colaboradorNome, nomination, detalhesLabel, detalhes, rodapeTexto }: {
+    to: string;
+    cc: string[];
+    tituloAlerta: string;
+    colaboradorNome: string;
+    nomination: Nomination;
+    detalhesLabel: string;
+    detalhes: string;
+    rodapeTexto: string;
+  },
+): Promise<void> {
+  const templateId = alertTemplateId();
+  if (!templateId) {
+    console.warn("VITE_RESEND_ALERT_TEMPLATE_ID não configurado — alerta não enviado:", tituloAlerta);
+    return;
+  }
+  await sendResendTemplatedEmail({
+    data: {
+      to,
+      cc,
+      templateId,
+      variables: {
+        TITULO_ALERTA: tituloAlerta,
+        COLABORADOR_NOME: colaboradorNome,
+        NOMINATION_FUNCAO: nomination.funcao,
+        NOMINATION_UNIDADE: nomination.unidade ?? "—",
+        NOMINATION_BSP: nomination.bsp ?? "—",
+        DETALHES_LABEL: detalhesLabel,
+        PENDENCIAS: detalhes,
+        RODAPE_TEXTO: rodapeTexto,
+      },
+    },
+  });
+}
 
 // Resolve quem recebe o e-mail de uma etapa: `to` = usuários com o papel dono daquela etapa
 // (aprovacao_tecnica/rh/sms — Aprovação PM não tem papel próprio, vai só pro PM; Solicitação/
@@ -33,25 +78,6 @@ async function pmEmail(nomination: Nomination): Promise<string | null> {
   return null;
 }
 
-function subjectFor(nomination: Nomination, stage: NominationStatus): string {
-  const bspPart = nomination.bsp ? ` (${nomination.bsp})` : "";
-  return `Nomeação — ${STATUS_LABELS[stage]} — ${nomination.funcao}${bspPart}`;
-}
-
-function bodyFor(nomination: Nomination, stage: NominationStatus): string {
-  const lines = [
-    `Etapa: ${STATUS_LABELS[stage]}`,
-    `Função: ${nomination.funcao}`,
-    nomination.unidade ? `Unidade: ${nomination.unidade}` : null,
-    nomination.bsp ? `BSP: ${nomination.bsp}` : null,
-    nomination.pm_name ? `Solicitante: ${nomination.pm_name}` : null,
-    nomination.period_start && nomination.period_end
-      ? `Período: ${nomination.period_start} a ${nomination.period_end}`
-      : null,
-  ].filter((l): l is string => !!l);
-  return lines.join("\n");
-}
-
 // Chamado a cada avanço de etapa — nunca lança: falha de e-mail vira aviso, não trava nem
 // desfaz a troca de etapa (mesma postura de tolerância a falha de recordDrakeSyncRun).
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus): Promise<void> {
@@ -66,13 +92,17 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
     const toFinal = to.length > 0 ? to : ccAll; // sem dono de etapa dedicado: manda só pra logística/PM
     if (toFinal.length === 0) return;
 
-    await sendNominationPhaseEmail({
-      data: {
-        to: toFinal[0],
-        cc: Array.from(new Set([...toFinal.slice(1), ...ccAll])).join(",") || undefined,
-        subject: subjectFor(nomination, stage),
-        text: bodyFor(nomination, stage),
-      },
+    await sendAlert({
+      to: toFinal[0],
+      cc: Array.from(new Set([...toFinal.slice(1), ...ccAll])),
+      tituloAlerta: `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
+      colaboradorNome: nomination.pm_name ?? "—",
+      nomination,
+      detalhesLabel: "Período",
+      detalhes: nomination.period_start && nomination.period_end
+        ? `${nomination.period_start} a ${nomination.period_end}`
+        : "—",
+      rodapeTexto: "Este é um alerta automático do My Step Time referente ao andamento de uma nomeação.",
     });
   } catch (err) {
     console.warn("Falha ao enviar e-mail de nomeação (aviso, não bloqueia a atualização):", err);
@@ -90,17 +120,19 @@ export async function notifyAptitudeDivergence(
     const [to, cc] = await Promise.all([emailsForRole("rh"), operatorEmails()]);
     const toFinal = to.length > 0 ? to : cc;
     if (toFinal.length === 0) return;
-    await sendNominationPhaseEmail({
-      data: {
-        to: toFinal[0],
-        cc: Array.from(new Set([...toFinal.slice(1), ...cc])).join(",") || undefined,
-        subject: resolved
-          ? `Nomeação — Divergência de aptidão corrigida — ${colaboradorNome}`
-          : `Nomeação — Divergência de aptidão — ${colaboradorNome}`,
-        text: resolved
-          ? `A divergência de aptidão de ${colaboradorNome} foi corrigida no Drake e reenviada para nova validação do RH.\n\nFunção: ${nomination.funcao}`
-          : `Divergência de aptidão encontrada para ${colaboradorNome}:\n\n${divergenceText}\n\nFunção: ${nomination.funcao}\n\nCorrija no Drake e clique em "Marcar como corrigido" para reenviar para validação.`,
-      },
+    await sendAlert({
+      to: toFinal[0],
+      cc: Array.from(new Set([...toFinal.slice(1), ...cc])),
+      tituloAlerta: resolved ? "Divergência de aptidão corrigida" : "Divergência de aptidão",
+      colaboradorNome,
+      nomination,
+      detalhesLabel: resolved ? "Situação" : "Divergência encontrada",
+      detalhes: resolved
+        ? "Corrigida no Drake e reenviada para nova validação do RH."
+        : divergenceText,
+      rodapeTexto: resolved
+        ? "Este é um alerta automático do My Step Time."
+        : 'Corrija no Drake e clique em "Marcar como corrigido" para reenviar para validação.',
     });
   } catch (err) {
     console.warn("Falha ao enviar e-mail de divergência de aptidão (aviso, não bloqueia):", err);
@@ -115,20 +147,15 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
     const [cc, pm] = await Promise.all([operatorEmails(), pmEmail(nomination)]);
     const toFinal = pm ? [pm] : cc;
     if (toFinal.length === 0) return;
-    const bspPart = nomination.bsp ? ` (${nomination.bsp})` : "";
-    await sendNominationPhaseEmail({
-      data: {
-        to: toFinal[0],
-        cc: Array.from(new Set([...toFinal.slice(1), ...cc])).join(",") || undefined,
-        subject: `Nomeação — Cancelada — ${nomination.funcao}${bspPart}`,
-        text: [
-          `A solicitação foi CANCELADA.`,
-          `Função: ${nomination.funcao}`,
-          nomination.unidade ? `Unidade: ${nomination.unidade}` : null,
-          nomination.bsp ? `BSP: ${nomination.bsp}` : null,
-          reason ? `Motivo: ${reason}` : null,
-        ].filter((l): l is string => !!l).join("\n"),
-      },
+    await sendAlert({
+      to: toFinal[0],
+      cc: Array.from(new Set([...toFinal.slice(1), ...cc])),
+      tituloAlerta: "Solicitação cancelada",
+      colaboradorNome: nomination.pm_name ?? "—",
+      nomination,
+      detalhesLabel: "Motivo",
+      detalhes: reason ?? "Não informado",
+      rodapeTexto: "Este é um alerta automático do My Step Time.",
     });
   } catch (err) {
     console.warn("Falha ao enviar e-mail de cancelamento (aviso, não bloqueia):", err);
@@ -142,23 +169,47 @@ export async function notifyQualityRejection(nomination: Nomination, reason: str
     const [cc, pm] = await Promise.all([operatorEmails(), pmEmail(nomination)]);
     const toFinal = pm ? [pm] : cc;
     if (toFinal.length === 0) return;
-    const bspPart = nomination.bsp ? ` (${nomination.bsp})` : "";
-    await sendNominationPhaseEmail({
-      data: {
-        to: toFinal[0],
-        cc: Array.from(new Set([...toFinal.slice(1), ...cc])).join(",") || undefined,
-        subject: `Nomeação — Qualidade reprovou — ${nomination.funcao}${bspPart}`,
-        text: [
-          `A Qualidade REPROVOU esta solicitação em Aprovação Técnica.`,
-          `Função: ${nomination.funcao}`,
-          nomination.unidade ? `Unidade: ${nomination.unidade}` : null,
-          nomination.bsp ? `BSP: ${nomination.bsp}` : null,
-          nomination.weld_type ? `Tipo de solda: ${nomination.weld_type}` : null,
-          reason ? `Motivo: ${reason}` : null,
-        ].filter((l): l is string => !!l).join("\n"),
-      },
+    await sendAlert({
+      to: toFinal[0],
+      cc: Array.from(new Set([...toFinal.slice(1), ...cc])),
+      tituloAlerta: "Qualidade reprovou",
+      colaboradorNome: nomination.pm_name ?? "—",
+      nomination,
+      detalhesLabel: "Motivo",
+      detalhes: [reason, nomination.weld_type ? `Tipo de solda: ${nomination.weld_type}` : null]
+        .filter((l): l is string => !!l).join(" — ") || "Não informado",
+      rodapeTexto: "Este é um alerta automático do My Step Time.",
     });
   } catch (err) {
     console.warn("Falha ao enviar e-mail de reprovação de qualidade (aviso, não bloqueia):", err);
+  }
+}
+
+// Alerta de pendência de aptidão de um nomeado da solicitação EM CURSO (não é o cruzamento
+// geral do Planejamento de Embarque com o Drake — ver PendenciasAptidaoTab, aquilo é só
+// consulta na tela) — vai pro RH + o solicitante da nomeação. Quem chama é responsável por
+// checar antes se esse aviso já foi mandado pra esse nomeado nessa nomeação (ver
+// nomination_aptitude_alerts) — "automático, uma vez por nomeado", pedido dela.
+export async function notifyAptitudePendency(
+  nomination: Nomination,
+  colaboradorNome: string,
+  pendencias: string[],
+): Promise<void> {
+  try {
+    const [cc, pm] = await Promise.all([emailsForRole("rh"), pmEmail(nomination)]);
+    const toFinal = pm ? [pm] : cc;
+    if (toFinal.length === 0) return;
+    await sendAlert({
+      to: toFinal[0],
+      cc: Array.from(new Set([...toFinal.slice(1), ...cc])),
+      tituloAlerta: "Pendência de Aptidão",
+      colaboradorNome,
+      nomination,
+      detalhesLabel: "Cursos vencidos / faltando",
+      detalhes: pendencias.join(", "),
+      rodapeTexto: "Verifique e regularize a documentação no Drake.",
+    });
+  } catch (err) {
+    console.warn("Falha ao enviar alerta de pendência de aptidão (aviso, não bloqueia):", err);
   }
 }

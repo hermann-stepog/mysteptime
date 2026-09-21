@@ -12,6 +12,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// nomination_aptitude_alerts ainda não está nos tipos gerados; cast local pra não bloquear o build.
+const supabaseAny: any = supabase;
+import { notifyAptitudePendency } from "@/lib/nominationEmails";
 import { type Nomination, requestTitle } from "@/lib/nominations";
 import { notify } from "@/lib/notify";
 import { Badge } from "@/components/ui/badge";
@@ -55,9 +58,11 @@ import {
   type EligibilityStatus,
   type OperationType,
   type QualificationEligibilitySelection,
+  type QualificationWorker,
   type WorkerEligibility,
 } from "@/lib/qualification-eligibility/domain";
 import {
+  fetchAllQualificationWorkers,
   fetchQualificationFilterCatalog,
   fetchQualificationSyncState,
   type QualificationFilterOption,
@@ -91,6 +96,37 @@ function normalizeMatchText(value: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
+}
+
+// Só usada em PendenciasAptidaoTab, pra achar unidade/função do catálogo do Drake a partir do
+// texto livre do Planejamento de Embarque — mais tolerante que a comparação exata acima
+// (normalizeMatchText), usada onde já se conhece o nome exato de um lado (ex.: nome do
+// colaborador). Duas situações concretas que a comparação exata não resolve:
+// 1) Função no Planejamento vem com sufixo de nível/IRATA que o Drake não tem no nome do cargo
+//    (ex.: "WELDER IRATA N1" no Drake é só "WELDER" — o IRATA já é tratado à parte, como
+//    operationType); e às vezes a função é só o nível em si ("IRATA N3"), sem nome de cargo.
+// 2) Unidade no Planejamento vem abreviada (ex.: "GUSMAO" pra "ALEXANDRE GUSMAO" no Drake).
+function stripNivelFuncao(value: string): string {
+  return normalizeMatchText(value)
+    .replace(/\s+IRATA(\s+N\s*\d+)?$/, "")
+    .replace(/\s+N\s*\d+$/, "")
+    .replace(/\s+(IV|III|II|I)$/, "")
+    .trim();
+}
+
+function findByLooseMatch<T>(options: T[], name: (o: T) => string, value: string): T | undefined {
+  const exato = normalizeMatchText(value);
+  const semNivel = stripNivelFuncao(value);
+  return (
+    options.find((o) => normalizeMatchText(name(o)) === exato) ??
+    (semNivel ? options.find((o) => normalizeMatchText(name(o)) === semNivel) : undefined) ??
+    // Abreviação num dos dois lados (ex.: "GUSMAO" dentro de "ALEXANDRE GUSMAO") — só entra
+    // como último recurso, depois de tentar o nome exato e sem o sufixo de nível.
+    options.find((o) => {
+      const n = normalizeMatchText(name(o));
+      return n.length > 2 && exato.length > 2 && (n.includes(exato) || exato.includes(n));
+    })
+  );
 }
 
 export function QualificationEligibilityTab({
@@ -211,6 +247,26 @@ export function QualificationEligibilityTab({
   );
   const workerParaNomeado = (nomeColaborador: string): WorkerEligibility | null =>
     evaluation?.workers.find((w) => normalizeMatchText(w.worker.fullName) === normalizeMatchText(nomeColaborador)) ?? null;
+
+  // Alerta de pendência de aptidão pro RH + solicitante — automático, mas só uma vez por
+  // nomeado/nomeação (pedido dela): a linha só entra em nomination_aptitude_alerts na primeira
+  // vez, e a constraint UNIQUE da tabela garante isso mesmo com duas abas abertas ao mesmo
+  // tempo (a segunda tentativa de insert falha e a gente simplesmente não manda de novo).
+  useEffect(() => {
+    if (!activeFocus || !evaluation || nomeadosDaSolicitacao.length === 0) return;
+    nomeadosDaSolicitacao.forEach(async (n) => {
+      const found = workerParaNomeado(n.colaborador_nome);
+      if (!found) return;
+      const bloqueando = found.courses.filter((c) => c.mandatory && (c.status === "expired" || c.status === "missing"));
+      if (bloqueando.length === 0) return;
+      const { error: insertError } = await supabaseAny
+        .from("nomination_aptitude_alerts")
+        .insert({ nomination_id: activeFocus.id, colaborador_nome: n.colaborador_nome });
+      if (insertError) return; // já foi mandado antes (constraint UNIQUE) ou falha de rede — não trava a tela.
+      await notifyAptitudePendency(activeFocus, n.colaborador_nome, bloqueando.map((c) => c.courseName));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFocus, evaluation, nomeadosDaSolicitacao]);
 
   return (
     <div className="space-y-4">
@@ -533,11 +589,18 @@ export function QualificationEligibilityTab({
 // mesmo formato visual da consulta manual: filtros (Data / Função de embarque / Status) e a
 // mesma WorkerTable com Apto/Não apto e a pendência de cada um.
 //
-// Cada combinação única de Unidade+Função vira UMA chamada ao vivo pro Drake (mesma
-// `requestEligibilityEvaluation` da consulta manual, mesma queryKey — cache de 5min
-// compartilhado entre as duas abas), reaproveitada por todo mundo daquele mesmo par, em vez de
-// uma chamada por pessoa (o Planejamento de Embarque pode ter dezenas de pessoas na mesma
-// unidade/função, e cada chamada ao Drake não é barata).
+// Em vez de tentar casar o texto livre de Unidade/Função do Planejamento de Embarque direto
+// contra o catálogo (frágil — planilhas divergem do Drake em abreviação/sufixo de nível), acha
+// primeiro o colaborador pelo NOME no cadastro de trabalhadores da Matriz de Qualificação
+// (drake_qualification_workers) e usa a função/unidade que o PRÓPRIO Drake tem pra ele — que
+// por construção já bate com o catálogo, porque vêm da mesma fonte. Só quem realmente não está
+// nesse cadastro do Drake (nome não encontrado — normalmente contratação nova ainda não
+// sincronizada) fica em "não foi possível verificar".
+//
+// Cada combinação única de Função+Unidade (do Drake, não da planilha) vira UMA chamada ao vivo
+// pro Drake (mesma `requestEligibilityEvaluation` da consulta manual, mesma queryKey — cache de
+// 5min compartilhado entre as duas abas), reaproveitada por todo mundo daquele mesmo par, em vez
+// de uma chamada por pessoa.
 function PendenciasAptidaoTab() {
   const [selectedWorker, setSelectedWorker] = useState<WorkerEligibility | null>(null);
   const [dataReferencia, setDataReferencia] = useState(todayLocal());
@@ -549,12 +612,26 @@ function PendenciasAptidaoTab() {
     queryFn: () => fetchQualificationFilterCatalog(supabase),
   });
   const catalog = catalogQuery.data;
+  const drakeWorkersQuery = useQuery({
+    queryKey: ["qualification-eligibility", "all-workers"],
+    queryFn: () => fetchAllQualificationWorkers(supabase),
+  });
   const { data: planejamentoEmbarque = [], isLoading: planejamentoLoading } = usePlanejamentoEmbarqueQuery();
 
+  const drakeWorkerPorNome = useMemo(() => {
+    const m = new Map<string, QualificationWorker>();
+    (drakeWorkersQuery.data ?? []).forEach((w) => m.set(normalizeMatchText(w.fullName), w));
+    return m;
+  }, [drakeWorkersQuery.data]);
+
   const linhasValidas = useMemo(
-    () => planejamentoEmbarque.filter(
-      (r) => r.nome.trim() && r.unidade?.trim() && r.unidade.trim().toUpperCase() !== "FOLGA" && r.funcao?.trim(),
-    ),
+    () => planejamentoEmbarque.filter((r) => {
+      if (!r.nome.trim() || !r.unidade?.trim() || !r.funcao?.trim()) return false;
+      // "FOLGA"/"CASA"/"BASE" são valores de preenchimento da planilha (sem embarcação real),
+      // não unidades operacionais de verdade — não tem Matriz de Qualificação pra elas no Drake.
+      const u = r.unidade.trim().toUpperCase();
+      return u !== "FOLGA" && u !== "CASA" && u !== "BASE";
+    }),
     [planejamentoEmbarque],
   );
   const funcoesDisponiveis = useMemo(
@@ -566,23 +643,33 @@ function PendenciasAptidaoTab() {
     [linhasValidas, funcaoFiltro],
   );
 
-  const combos = useMemo(() => {
-    const m = new Map<string, { unidade: string; funcao: string; selection: QualificationEligibilitySelection | null }>();
+  // Colaborador do Planejamento de Embarque casado com o worker do Drake (por nome) — undefined
+  // quando não achou ninguém com esse nome no cadastro do Drake.
+  const drakeWorkerPorLinha = useMemo(() => {
+    const m = new Map<string, QualificationWorker>();
     linhasFiltradas.forEach((r) => {
-      const unidade = r.unidade!.trim();
-      const funcao = r.funcao!.trim();
-      const key = `${unidade}::${funcao}`;
+      const worker = drakeWorkerPorNome.get(normalizeMatchText(r.nome));
+      if (worker) m.set(r.id, worker);
+    });
+    return m;
+  }, [linhasFiltradas, drakeWorkerPorNome]);
+
+  const combos = useMemo(() => {
+    const m = new Map<string, { jobName: string; unitName: string; selection: QualificationEligibilitySelection | null }>();
+    drakeWorkerPorLinha.forEach((worker) => {
+      if (!worker.jobName || !worker.currentOperationalUnitName) return;
+      const key = `${worker.jobName}::${worker.currentOperationalUnitName}`;
       if (m.has(key)) return;
-      const unit = catalog?.operationalUnits.find((u) => normalizeMatchText(u.name) === normalizeMatchText(unidade));
-      const job = catalog?.jobs.find((j) => normalizeMatchText(j.name) === normalizeMatchText(funcao));
-      const operationType: OperationType = /irata/i.test(funcao) ? "offshore-irata" : "offshore";
+      const unit = findByLooseMatch(catalog?.operationalUnits ?? [], (u) => u.name, worker.currentOperationalUnitName!);
+      const job = findByLooseMatch(catalog?.jobs ?? [], (j) => j.name, worker.jobName!);
+      const operationType: OperationType = /irata/i.test(worker.jobName!) ? "offshore-irata" : "offshore";
       m.set(key, {
-        unidade, funcao,
+        jobName: worker.jobName!, unitName: worker.currentOperationalUnitName!,
         selection: unit && job ? { operationalUnitId: unit.id, jobId: job.id, operationType, startDate: dataReferencia, endDate: dataReferencia } : null,
       });
     });
     return Array.from(m.values());
-  }, [linhasFiltradas, catalog, dataReferencia]);
+  }, [drakeWorkerPorLinha, catalog, dataReferencia]);
 
   const combosComSelecao = useMemo(() => combos.filter((c) => c.selection), [combos]);
 
@@ -594,26 +681,29 @@ function PendenciasAptidaoTab() {
       enabled: Boolean(catalog),
     })),
   });
-  const algumaConsultaCarregando = evaluationQueries.some((q) => q.isLoading);
-  const algumaConsultaComErro = evaluationQueries.some((q) => q.isError);
+  const algumaConsultaCarregando = drakeWorkersQuery.isLoading || evaluationQueries.some((q) => q.isLoading);
+  const algumaConsultaComErro = drakeWorkersQuery.isError || evaluationQueries.some((q) => q.isError);
 
   const workersPorCombo = useMemo(() => {
     const m = new Map<string, WorkerEligibility[]>();
     combosComSelecao.forEach((c, i) => {
       const data = evaluationQueries[i]?.data;
-      if (data) m.set(`${c.unidade}::${c.funcao}`, data.workers);
+      if (data) m.set(`${c.jobName}::${c.unitName}`, data.workers);
     });
     return m;
   }, [combosComSelecao, evaluationQueries]);
 
   type Resultado = { row: PlanejamentoEmbarqueRow; worker: WorkerEligibility | null; verificado: boolean };
   const resultados = useMemo<Resultado[]>(() => linhasFiltradas.map((r) => {
-    const key = `${r.unidade!.trim()}::${r.funcao!.trim()}`;
-    const workers = workersPorCombo.get(key);
+    const drakeWorker = drakeWorkerPorLinha.get(r.id);
+    if (!drakeWorker || !drakeWorker.jobName || !drakeWorker.currentOperationalUnitName) {
+      return { row: r, worker: null, verificado: false };
+    }
+    const workers = workersPorCombo.get(`${drakeWorker.jobName}::${drakeWorker.currentOperationalUnitName}`);
     if (!workers) return { row: r, worker: null, verificado: false };
-    const worker = workers.find((w) => normalizeMatchText(w.worker.fullName) === normalizeMatchText(r.nome)) ?? null;
+    const worker = workers.find((w) => w.worker.drakeWorkerId === drakeWorker.drakeWorkerId) ?? null;
     return { row: r, worker, verificado: true };
-  }), [linhasFiltradas, workersPorCombo]);
+  }), [linhasFiltradas, drakeWorkerPorLinha, workersPorCombo]);
 
   const encontrados = useMemo(() => resultados.filter((x): x is Resultado & { worker: WorkerEligibility } => Boolean(x.worker)), [resultados]);
   const aptWorkers = useMemo(() => encontrados.filter((x) => x.worker.status !== "unfit").map((x) => x.worker), [encontrados]);
@@ -670,12 +760,15 @@ function PendenciasAptidaoTab() {
         </div>
       </Card>
 
-      {(catalogQuery.isLoading || planejamentoLoading) && <EligibilitySkeleton />}
+      {(catalogQuery.isLoading || planejamentoLoading || drakeWorkersQuery.isLoading) && <EligibilitySkeleton />}
       {catalogQuery.isError && (
         <ErrorCard message="Não foi possível carregar a Matriz de Qualificação do Drake. Aplique as migrações e atualize os dados do Drake." />
       )}
+      {drakeWorkersQuery.isError && (
+        <ErrorCard message="Não foi possível carregar o cadastro de trabalhadores da Matriz de Qualificação do Drake." />
+      )}
 
-      {catalog && !planejamentoLoading && (
+      {catalog && !planejamentoLoading && !drakeWorkersQuery.isLoading && (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard label="Aptos" value={aptWorkers.length} icon={CheckCircle2} tone="success" />
@@ -686,12 +779,11 @@ function PendenciasAptidaoTab() {
 
           {algumaConsultaCarregando && (
             <p className="text-xs text-muted-foreground">
-              Consultando o Drake para {combosComSelecao.length} combinação(ões) de unidade/função
-              do Planejamento de Embarque...
+              Consultando o Drake para {combosComSelecao.length} combinação(ões) de função/unidade...
             </p>
           )}
           {algumaConsultaComErro && (
-            <ErrorCard message="Uma ou mais combinações de unidade/função não puderam ser consultadas no Drake agora." />
+            <ErrorCard message="Uma ou mais combinações de função/unidade não puderam ser consultadas no Drake agora." />
           )}
 
           <Card className="overflow-hidden">
@@ -734,8 +826,10 @@ function PendenciasAptidaoTab() {
                 Não foi possível verificar ({naoVerificados.length})
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Unidade/função não encontrada na Matriz de Qualificação do Drake, ou colaborador
-                não está ativo lá com esse nome exato — não conte isso como "apto".
+                Nome não encontrado como ativo/funcionário no cadastro de trabalhadores da Matriz
+                de Qualificação do Drake (provável contratação nova ainda não sincronizada, ou
+                nome grafado de forma muito diferente entre as duas planilhas) — não conte isso
+                como "apto".
               </p>
               <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs text-muted-foreground">
                 {naoVerificados.map(({ row }) => (
