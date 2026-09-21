@@ -62,7 +62,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
-import { usePlanejamentoEmbarqueQuery } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import { usePlanejamentoEmbarqueQuery, type PlanejamentoEmbarqueRow } from "@/components/histograma/PlanejamentoEmbarqueTab";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -3404,20 +3404,7 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
   const hoje = todayStr();
 
-  // "Disponível por função" pra comparar lado a lado com a demanda da linha do tempo — total
-  // de colaboradores cadastrados no Planejamento de Embarque por função (mesma normalização
-  // sem nível/IRATA já usada nos outros quantitativos por função de Nomeações), não é "quem
-  // está livre agora", é o efetivo total que existe naquela função.
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
-  const disponivelPorFuncao = useMemo(() => {
-    const m = new Map<string, number>();
-    planejamentoEmbarque.forEach((r) => {
-      if (!r.funcao?.trim()) return;
-      const f = normalizeFuncaoSemNivel(r.funcao);
-      m.set(f, (m.get(f) ?? 0) + 1);
-    });
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
-  }, [planejamentoEmbarque]);
 
   // Só entra quem tem início e fim programados (sem isso não dá pra desenhar na linha do
   // tempo) e não foi cancelada — uma nomeação cancelada não é mais demanda de verdade.
@@ -3436,7 +3423,15 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
       const g = m.get(key)!;
       if (n.period_start! < g.start) g.start = n.period_start!;
       if (n.period_end! > g.end) g.end = n.period_end!;
-      g.funcs.push({ funcao: n.funcao, qtd: n.quantidade, start: n.period_start!, end: n.period_end! });
+      // Normaliza sem nível/IRATA (mesma convenção do painel de Disponível ao lado) — senão
+      // "WELDER" e "WELDER IRATA N1" apareciam como linhas de demanda separadas que não batiam
+      // com a mesma linha "WELDER" já normalizada em Disponível, impossibilitando comparar
+      // demanda x disponibilidade função a função. Junta nomeações da MESMA função normalizada
+      // e MESMO período exato num só marcador, somando a quantidade.
+      const funcaoNormalizada = normalizeFuncaoSemNivel(n.funcao);
+      const existente = g.funcs.find((f) => f.funcao === funcaoNormalizada && f.start === n.period_start && f.end === n.period_end);
+      if (existente) existente.qtd += n.quantidade;
+      else g.funcs.push({ funcao: funcaoNormalizada, qtd: n.quantidade, start: n.period_start!, end: n.period_end! });
     });
     return Array.from(m.values());
   }, [validas]);
@@ -3486,6 +3481,33 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
   const ativoNoPeriodo = (start: string, end: string, diasDoPeriodo: string[]) =>
     diasDoPeriodo.some((d) => d >= start && d <= end);
 
+  // Livre num dia = fora da janela [Embarque, Desembarque) daquela pessoa (mesma regra
+  // exclusiva no fim já usada em todo o app, já que Início Folga = Desembarque) — sem
+  // Embarque cadastrado, conta sempre como livre. "Disponível por função" por período
+  // (pedido dela) = quantas pessoas daquela função estão livres em AO MENOS um dia do
+  // período, mesmo critério de sobreposição já usado pra demanda acima (ativoNoPeriodo).
+  const livreNoDia = (row: PlanejamentoEmbarqueRow, dia: string) => {
+    if (!row.embarque) return true;
+    const fim = row.desembarque ?? row.embarque;
+    return dia < row.embarque || dia >= fim;
+  };
+  const disponivelPorFuncaoPeriodo = useMemo(() => {
+    const porFuncao = new Map<string, PlanejamentoEmbarqueRow[]>();
+    planejamentoEmbarque.forEach((r) => {
+      if (!r.funcao?.trim()) return;
+      const f = normalizeFuncaoSemNivel(r.funcao);
+      if (!porFuncao.has(f)) porFuncao.set(f, []);
+      porFuncao.get(f)!.push(r);
+    });
+    return Array.from(porFuncao.entries())
+      .map(([funcao, rows]) => ({
+        funcao,
+        total: rows.length,
+        porPeriodo: periodos.map((p) => rows.filter((r) => p.dias.some((d) => livreNoDia(r, d))).length),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [planejamentoEmbarque, periodos]);
+
   const todosAbertos = gruposFiltrados.length > 0 && gruposFiltrados.every((g) => openKeys.has(g.key));
   const alternarTodos = () => setOpenKeys(todosAbertos ? new Set() : new Set(gruposFiltrados.map((g) => g.key)));
   const alternar = (key: string) => setOpenKeys((atual) => {
@@ -3520,7 +3542,7 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
       {gruposFiltrados.length === 0 || !horizonte ? (
         <EmptyState icon={ClipboardList} title="Nenhuma nomeação com período programado encontrada" />
       ) : (
@@ -3591,32 +3613,46 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
         </Card>
       )}
 
-      <Card className="overflow-hidden p-0" style={{ maxHeight: 560 }}>
-        <div className="border-b p-3">
+      <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
+        <div className="sticky top-0 z-20 border-b bg-background p-3">
           <h3 className="text-sm font-semibold">Disponível por função</h3>
-          <p className="text-xs text-muted-foreground">Efetivo total cadastrado no Planejamento de Embarque.</p>
+          <p className="text-xs text-muted-foreground">Quem está livre (fora da janela Embarque→Desembarque) em cada período, mesmas colunas da Linha do Tempo.</p>
         </div>
-        <div className="overflow-auto" style={{ maxHeight: 500 }}>
-          <table className="w-full border-collapse text-xs">
-            <thead className="sticky top-0">
-              <tr>
-                <th className="border-b bg-muted px-3 py-1.5 text-left font-medium">Função</th>
-                <th className="border-b bg-muted px-3 py-1.5 text-right font-medium">Disponível</th>
-              </tr>
-            </thead>
-            <tbody>
-              {disponivelPorFuncao.map(([funcao, qtd]) => (
-                <tr key={funcao} className="hover:bg-muted/30">
-                  <td className="border-b px-3 py-1.5">{funcao}</td>
-                  <td className="border-b px-3 py-1.5 text-right font-semibold">{qtd}</td>
-                </tr>
+        <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
+          <thead className="sticky top-[49px] z-10">
+            <tr>
+              <th className="sticky left-0 z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Função</th>
+              {periodos.map((p, i) => (
+                <th
+                  key={i}
+                  className="min-w-[46px] border border-border px-1 py-1 text-center font-normal"
+                  style={p.dias.includes(hoje) ? { backgroundColor: "#0E70CB", color: "white" } : { backgroundColor: "var(--muted)" }}
+                >
+                  {p.label}
+                </th>
               ))}
-              {disponivelPorFuncao.length === 0 && (
-                <tr><td colSpan={2} className="px-3 py-4 text-center text-muted-foreground">Sem dados.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {disponivelPorFuncaoPeriodo.map((row) => (
+              <tr key={row.funcao} className="hover:bg-muted/30">
+                <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1">{row.funcao}</td>
+                {row.porPeriodo.map((qtd, i) => (
+                  <td
+                    key={i}
+                    className="border border-border p-0 text-center"
+                    style={qtd > 0 ? { backgroundColor: "#12A277", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
+                  >
+                    {qtd > 0 ? qtd : ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {disponivelPorFuncaoPeriodo.length === 0 && (
+              <tr><td colSpan={1 + periodos.length} className="px-3 py-4 text-center text-muted-foreground">Sem dados.</td></tr>
+            )}
+          </tbody>
+        </table>
       </Card>
       </div>
     </div>
