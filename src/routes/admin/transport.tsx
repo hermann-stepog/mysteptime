@@ -141,6 +141,14 @@ function parseValorForm(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Avisa em vez de gravar nulo quando o que foi digitado não é um número reconhecível.
+function valorOuErro(raw: string, campo: string): number | null {
+  if (!raw.trim()) return null;
+  const n = parseValorForm(raw);
+  if (n == null) throw new Error(`${campo} inválido — digite apenas números, ex.: 1.234,56`);
+  return n;
+}
+
 function custoTotal(t: Trip): number | null {
   const valores = [t.custo, t.custo_2, t.custo_3].filter((v): v is number => v != null);
   return valores.length ? valores.reduce((a, b) => a + b, 0) : null;
