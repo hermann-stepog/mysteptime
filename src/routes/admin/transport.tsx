@@ -129,6 +129,26 @@ function fmtTime(iso: string) {
   return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
 // Soma o valor rateado entre os até 3 BSPs de uma viagem (null quando nenhum foi preenchido).
+// Valor digitado no formulário — aceita o jeito brasileiro ("R$ 1.234,56", "1234,56") e também
+// o formato com ponto decimal. Sem isso, Number("1.234,56") virava NaN e o salvamento falhava.
+function parseValorForm(raw: string): number | null {
+  const limpo = raw.replace(/[^\d.,-]/g, "").trim();
+  if (!limpo) return null;
+  const temVirgula = limpo.includes(",");
+  // Com vírgula, ela é o separador decimal e o ponto é separador de milhar.
+  const normalizado = temVirgula ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
+  const n = Number(normalizado);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Avisa em vez de gravar nulo quando o que foi digitado não é um número reconhecível.
+function valorOuErro(raw: string, campo: string): number | null {
+  if (!raw.trim()) return null;
+  const n = parseValorForm(raw);
+  if (n == null) throw new Error(`${campo} inválido — digite apenas números, ex.: 1.234,56`);
+  return n;
+}
+
 function custoTotal(t: Trip): number | null {
   const valores = [t.custo, t.custo_2, t.custo_3].filter((v): v is number => v != null);
   return valores.length ? valores.reduce((a, b) => a + b, 0) : null;
@@ -606,9 +626,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         cliente: f.cliente || null, cliente_2: f.cliente_2 || null, cliente_3: f.cliente_3 || null,
         unidade: f.unidade.trim() || null,
         status: f.status,
-        custo: f.custo.trim() ? Number(f.custo.trim()) : null,
-        custo_2: f.custo_2.trim() ? Number(f.custo_2.trim()) : null,
-        custo_3: f.custo_3.trim() ? Number(f.custo_3.trim()) : null,
+        custo: valorOuErro(f.custo, "Valor"),
+        custo_2: valorOuErro(f.custo_2, "Valor 2"),
+        custo_3: valorOuErro(f.custo_3, "Valor 3"),
         realizado: f.status === "realizado", cancelado: f.status === "cancelado",
         nf: f.nf.trim() || null, motivo: f.motivo.trim() || null, forma_pagamento: f.forma_pagamento || null, cobrado: f.cobrado,
         status_lancamento: f.status_lancamento.trim() || null, faturado: f.faturado,
