@@ -61,6 +61,25 @@ export async function fetchQualificationSyncState(
   return data;
 }
 
+// Todos os trabalhadores ativos/funcionários do Drake, sem filtro de função — usado pra achar o
+// registro do Drake de um colaborador pelo NOME primeiro (ver PendenciasAptidaoTab), e só então
+// usar a função/unidade que o próprio Drake tem cadastrada pra ele, em vez de tentar casar o
+// texto livre de outra planilha (Planejamento de Embarque) direto contra o catálogo — o nome
+// completo é o dado mais confiável de cruzar entre as duas fontes.
+export async function fetchAllQualificationWorkers(db: AppDb): Promise<QualificationWorker[]> {
+  const rows = await fetchAllPages<DbWorker>((from, to) =>
+    db
+      .from("drake_qualification_workers")
+      .select("*")
+      .eq("worker_state", "Ativo")
+      .eq("worker_type", "Funcionario")
+      .order("full_name")
+      .order("drake_worker_id")
+      .range(from, to),
+  );
+  return rows.map(mapWorker);
+}
+
 export async function fetchWorkerQualificationSource(
   db: AppDb,
   jobName: string,
