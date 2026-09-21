@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { usePlanejamentoEmbarqueQuery, type PlanejamentoEmbarqueRow } from "@/components/histograma/PlanejamentoEmbarqueTab";
 import {
   AlertTriangle,
   Check,
@@ -307,6 +308,13 @@ export function QualificationEligibilityTab({
         </Card>
       )}
 
+      <Tabs defaultValue="consulta">
+        <TabsList>
+          <TabsTrigger value="consulta">Consulta por função</TabsTrigger>
+          <TabsTrigger value="pendencias">Pendências de Aptidão</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="consulta" className="space-y-4 pt-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.7fr)]">
         <Card className="space-y-4 p-4">
           <div>
@@ -505,6 +513,237 @@ export function QualificationEligibilityTab({
               </TabsContent>
             </Tabs>
           </Card>
+        </>
+      )}
+
+      <WorkerDetailsDialog worker={selectedWorker} onClose={() => setSelectedWorker(null)} />
+        </TabsContent>
+
+        <TabsContent value="pendencias" className="pt-4">
+          <PendenciasAptidaoTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// Cruza quem está listado no Planejamento de Embarque (universo considerado — pedido dela, não
+// é "todo mundo que o Drake tem cadastrado nessa função") com a Matriz de Qualificação do Drake,
+// numa lista por colaborador (não por função/unidade como a consulta manual ao lado), com o
+// mesmo formato visual da consulta manual: filtros (Data / Função de embarque / Status) e a
+// mesma WorkerTable com Apto/Não apto e a pendência de cada um.
+//
+// Cada combinação única de Unidade+Função vira UMA chamada ao vivo pro Drake (mesma
+// `requestEligibilityEvaluation` da consulta manual, mesma queryKey — cache de 5min
+// compartilhado entre as duas abas), reaproveitada por todo mundo daquele mesmo par, em vez de
+// uma chamada por pessoa (o Planejamento de Embarque pode ter dezenas de pessoas na mesma
+// unidade/função, e cada chamada ao Drake não é barata).
+function PendenciasAptidaoTab() {
+  const [selectedWorker, setSelectedWorker] = useState<WorkerEligibility | null>(null);
+  const [dataReferencia, setDataReferencia] = useState(todayLocal());
+  const [funcaoFiltro, setFuncaoFiltro] = useState("");
+  const [statusFiltro, setStatusFiltro] = useState<"" | "apto" | "nao-apto">("");
+
+  const catalogQuery = useQuery({
+    queryKey: ["qualification-eligibility", "filter-catalog"],
+    queryFn: () => fetchQualificationFilterCatalog(supabase),
+  });
+  const catalog = catalogQuery.data;
+  const { data: planejamentoEmbarque = [], isLoading: planejamentoLoading } = usePlanejamentoEmbarqueQuery();
+
+  const linhasValidas = useMemo(
+    () => planejamentoEmbarque.filter(
+      (r) => r.nome.trim() && r.unidade?.trim() && r.unidade.trim().toUpperCase() !== "FOLGA" && r.funcao?.trim(),
+    ),
+    [planejamentoEmbarque],
+  );
+  const funcoesDisponiveis = useMemo(
+    () => Array.from(new Set(linhasValidas.map((r) => r.funcao!.trim()))).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [linhasValidas],
+  );
+  const linhasFiltradas = useMemo(
+    () => (funcaoFiltro ? linhasValidas.filter((r) => r.funcao!.trim() === funcaoFiltro) : linhasValidas),
+    [linhasValidas, funcaoFiltro],
+  );
+
+  const combos = useMemo(() => {
+    const m = new Map<string, { unidade: string; funcao: string; selection: QualificationEligibilitySelection | null }>();
+    linhasFiltradas.forEach((r) => {
+      const unidade = r.unidade!.trim();
+      const funcao = r.funcao!.trim();
+      const key = `${unidade}::${funcao}`;
+      if (m.has(key)) return;
+      const unit = catalog?.operationalUnits.find((u) => normalizeMatchText(u.name) === normalizeMatchText(unidade));
+      const job = catalog?.jobs.find((j) => normalizeMatchText(j.name) === normalizeMatchText(funcao));
+      const operationType: OperationType = /irata/i.test(funcao) ? "offshore-irata" : "offshore";
+      m.set(key, {
+        unidade, funcao,
+        selection: unit && job ? { operationalUnitId: unit.id, jobId: job.id, operationType, startDate: dataReferencia, endDate: dataReferencia } : null,
+      });
+    });
+    return Array.from(m.values());
+  }, [linhasFiltradas, catalog, dataReferencia]);
+
+  const combosComSelecao = useMemo(() => combos.filter((c) => c.selection), [combos]);
+
+  const evaluationQueries = useQueries({
+    queries: combosComSelecao.map((c) => ({
+      queryKey: ["qualification-eligibility", "evaluation", c.selection],
+      queryFn: ({ signal }: { signal: AbortSignal }) => requestEligibilityEvaluation(c.selection!, signal),
+      staleTime: 5 * 60_000,
+      enabled: Boolean(catalog),
+    })),
+  });
+  const algumaConsultaCarregando = evaluationQueries.some((q) => q.isLoading);
+  const algumaConsultaComErro = evaluationQueries.some((q) => q.isError);
+
+  const workersPorCombo = useMemo(() => {
+    const m = new Map<string, WorkerEligibility[]>();
+    combosComSelecao.forEach((c, i) => {
+      const data = evaluationQueries[i]?.data;
+      if (data) m.set(`${c.unidade}::${c.funcao}`, data.workers);
+    });
+    return m;
+  }, [combosComSelecao, evaluationQueries]);
+
+  type Resultado = { row: PlanejamentoEmbarqueRow; worker: WorkerEligibility | null; verificado: boolean };
+  const resultados = useMemo<Resultado[]>(() => linhasFiltradas.map((r) => {
+    const key = `${r.unidade!.trim()}::${r.funcao!.trim()}`;
+    const workers = workersPorCombo.get(key);
+    if (!workers) return { row: r, worker: null, verificado: false };
+    const worker = workers.find((w) => normalizeMatchText(w.worker.fullName) === normalizeMatchText(r.nome)) ?? null;
+    return { row: r, worker, verificado: true };
+  }), [linhasFiltradas, workersPorCombo]);
+
+  const encontrados = useMemo(() => resultados.filter((x): x is Resultado & { worker: WorkerEligibility } => Boolean(x.worker)), [resultados]);
+  const aptWorkers = useMemo(() => encontrados.filter((x) => x.worker.status !== "unfit").map((x) => x.worker), [encontrados]);
+  const unfitWorkers = useMemo(() => encontrados.filter((x) => x.worker.status === "unfit").map((x) => x.worker), [encontrados]);
+  const naoVerificados = useMemo(() => resultados.filter((x) => !x.verificado || !x.worker), [resultados]);
+
+  // Status filtra qual das duas listas aparece — igual escolher a aba Aptos/Não aptos, só que
+  // como um filtro explícito (pedido dela), com "Todos" mostrando as duas juntas.
+  const mostrarAptos = statusFiltro !== "nao-apto";
+  const mostrarNaoAptos = statusFiltro !== "apto";
+
+  return (
+    <div className="space-y-4">
+      <Card className="space-y-4 p-4">
+        <div>
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <XCircle className="h-5 w-5" />
+            Pendências de Aptidão
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Cruza todo mundo listado na aba de Planejamento de Embarque com a Matriz de
+            Qualificação do Drake, colaborador por colaborador.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="pendencias-data">Data</Label>
+            <Input
+              id="pendencias-data" type="date"
+              value={dataReferencia} onChange={(e) => setDataReferencia(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Função de embarque</Label>
+            <Select value={funcaoFiltro || "__todas__"} onValueChange={(v) => setFuncaoFiltro(v === "__todas__" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__todas__">Todas</SelectItem>
+                {funcoesDisponiveis.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <Select value={statusFiltro || "__todos__"} onValueChange={(v) => setStatusFiltro(v === "__todos__" ? "" : (v as "apto" | "nao-apto"))}>
+              <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__todos__">Todos</SelectItem>
+                <SelectItem value="apto">Apto</SelectItem>
+                <SelectItem value="nao-apto">Não apto</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </Card>
+
+      {(catalogQuery.isLoading || planejamentoLoading) && <EligibilitySkeleton />}
+      {catalogQuery.isError && (
+        <ErrorCard message="Não foi possível carregar a Matriz de Qualificação do Drake. Aplique as migrações e atualize os dados do Drake." />
+      )}
+
+      {catalog && !planejamentoLoading && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard label="Aptos" value={aptWorkers.length} icon={CheckCircle2} tone="success" />
+            <SummaryCard label="Não aptos" value={unfitWorkers.length} icon={XCircle} tone="danger" />
+            <SummaryCard label="Não foi possível verificar" value={naoVerificados.length} icon={AlertTriangle} tone="warning" />
+            <SummaryCard label="Combinações consultadas no Drake" value={combosComSelecao.length} icon={GraduationCap} tone="neutral" />
+          </div>
+
+          {algumaConsultaCarregando && (
+            <p className="text-xs text-muted-foreground">
+              Consultando o Drake para {combosComSelecao.length} combinação(ões) de unidade/função
+              do Planejamento de Embarque...
+            </p>
+          )}
+          {algumaConsultaComErro && (
+            <ErrorCard message="Uma ou mais combinações de unidade/função não puderam ser consultadas no Drake agora." />
+          )}
+
+          <Card className="overflow-hidden">
+            <div className="border-b p-4">
+              <h3 className="font-semibold">Colaboradores do Planejamento de Embarque</h3>
+              <p className="text-xs text-muted-foreground">
+                Situação em {formatDate(dataReferencia)}
+                {funcaoFiltro ? ` — função ${funcaoFiltro}` : ""}.
+              </p>
+            </div>
+            {mostrarAptos && (
+              <div>
+                <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
+                  Aptos ({aptWorkers.length})
+                </p>
+                <WorkerTable
+                  workers={aptWorkers}
+                  emptyMessage={algumaConsultaCarregando ? "Consultando..." : "Nenhum colaborador apto encontrado."}
+                  onDetails={setSelectedWorker}
+                />
+              </div>
+            )}
+            {mostrarNaoAptos && (
+              <div>
+                <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
+                  Não aptos ({unfitWorkers.length})
+                </p>
+                <WorkerTable
+                  workers={unfitWorkers}
+                  emptyMessage={algumaConsultaCarregando ? "Consultando..." : "Nenhum colaborador não apto encontrado."}
+                  onDetails={setSelectedWorker}
+                />
+              </div>
+            )}
+          </Card>
+
+          {naoVerificados.length > 0 && (
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold text-muted-foreground">
+                Não foi possível verificar ({naoVerificados.length})
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Unidade/função não encontrada na Matriz de Qualificação do Drake, ou colaborador
+                não está ativo lá com esse nome exato — não conte isso como "apto".
+              </p>
+              <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+                {naoVerificados.map(({ row }) => (
+                  <li key={row.id}>{row.nome} — {row.funcao} / {row.unidade}</li>
+                ))}
+              </ul>
+            </Card>
+          )}
         </>
       )}
 

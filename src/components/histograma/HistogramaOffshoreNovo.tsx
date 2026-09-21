@@ -1064,6 +1064,12 @@ function LancarPeriodoProgramadoCard({ colaboradores, periodos, onEditarPeriodo 
   );
 }
 
+// Linha "P — Programado" cruzada do Planejamento de Embarque pode não ter colaborador
+// correspondente no Drake (contratação nova) — nomeVirtual/funcaoVirtual guardam o que vem da
+// própria planilha pra exibir nesse caso (ou sempre, já que a lista deve refletir a planilha,
+// não o cadastro do Drake — ver linhasProgramadoPlanejamento).
+type LancamentoRow = HistNovoPeriodo & { nomeVirtual?: string; funcaoVirtual?: string | null };
+
 function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[] }) {
   const qc = useQueryClient();
   const today = todayStr();
@@ -1238,13 +1244,18 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
   const linhasProgramadoPlanejamento = useMemo(() => {
     const hoje = todayStr();
-    const linhas: HistNovoPeriodo[] = [];
+    const linhas: LancamentoRow[] = [];
     planejamentoEmbarque.forEach((row) => {
       if (!isStatusProgramado(row.status) || !row.embarque) return;
       const fim = row.desembarque ?? row.embarque;
       if (hoje > fim) return;
-      const colaboradorId = colaboradorIdPorNome.get(normalizeNomeHistograma(row.nome));
-      if (!colaboradorId) return;
+      // Casamento com o Drake é só pra evitar duplicidade com um "E" já confirmado (ver
+      // jaConfirmado abaixo) — quem não existe no Drake (contratação nova, ainda não
+      // sincronizada) ganha um id sintético só pra não colidir com ninguém, e a linha entra
+      // igual. Nome/Função exibidos vêm sempre da própria planilha (row.nome/row.funcao),
+      // nunca do cadastro do Drake — pedido dela: essa lista reflete o que está na aba de
+      // Planejamento de Embarque, não o que o Drake tem cadastrado pra essa pessoa.
+      const colaboradorId = colaboradorIdPorNome.get(normalizeNomeHistograma(row.nome)) ?? `planejamento-sem-drake:${row.id}`;
       // Já existe um "E" real (ou a confirmar) começando na janela — o Drake/lançamento manual
       // já confirmou o embarque de verdade, a linha "Programado" não deve mais aparecer, mesmo
       // antes da data expirar tecnicamente (mesmo critério já usado pro "P" real, algumas
@@ -1267,6 +1278,8 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
         dias: dias > 0 ? dias : 1,
         origem: "planejamento_embarque",
         created_at: row.embarque!,
+        nomeVirtual: row.nome,
+        funcaoVirtual: row.funcao,
       });
     });
     return linhas;
@@ -1279,14 +1292,18 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     const desembarqueSelecionado = filterTipo.includes(EVENTO_FILTER_DESEMBARQUE);
     const tiposNormaisSelecionados = filterTipo.filter((t) => t !== EVENTO_FILTER_DESEMBARQUE);
 
-    const filtrosComuns = (p: HistNovoPeriodo) =>
+    const filtrosComuns = (p: LancamentoRow) =>
       // "BASE" só existe pro Dashboard — nunca aparece em Lançamentos, nem filtrando por ele
       // explicitamente (decisão da usuária).
       p.tipo !== "BASE" &&
       (filterColaborador.length === 0 || filterColaborador.includes(p.colaborador_id)) &&
       (filterUnidade.length === 0 || (p.unidade_operacional != null && filterUnidade.includes(p.unidade_operacional))) &&
       (filterBsp.length === 0 || (() => { const b = bspDoPeriodo(p); return b != null && filterBsp.includes(b); })()) &&
-      (filterFuncao.length === 0 || filterFuncao.includes(resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, colaboradorById.get(p.colaborador_id)?.funcao || colaboradorById.get(p.colaborador_id)?.funcao_operacao))) &&
+      (filterFuncao.length === 0 || filterFuncao.includes(
+        p.origem === "planejamento_embarque"
+          ? (p.funcaoVirtual || "—")
+          : resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, colaboradorById.get(p.colaborador_id)?.funcao || colaboradorById.get(p.colaborador_id)?.funcao_operacao),
+      )) &&
       (!filterDe || p.data_fim >= filterDe) &&
       (!filterAte || p.data_inicio <= filterAte);
 
@@ -1296,7 +1313,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     // "Embarcado" também trazia essas linhas (que a própria tabela já rotula como Programado).
     const tipoEfetivo = (p: HistNovoPeriodo): string => (p.origem === ORIGEM_PROGRAMADO ? "P" : p.tipo);
 
-    const linhasNormais = periodos.filter((p) =>
+    const linhasNormais: LancamentoRow[] = periodos.filter((p) =>
       (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(tipoEfetivo(p))) &&
       // Um "P" (Programado) que já tem um "E" (real ou a confirmar) começando logo em
       // seguida (mesmo dia ou o dia depois do fim do "P") já deixou de ser só uma
@@ -1319,7 +1336,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     // critério de filtro de colaborador/unidade/BSP/função, mas De/Até compara com a data de
     // desembarque, não com data_inicio/data_fim do embarque em si) — só entra na lista quando
     // "DES — Desembarque" está entre os selecionados (nunca aparece em "Todos").
-    const linhasDesembarque = desembarqueSelecionado
+    const linhasDesembarque: LancamentoRow[] = desembarqueSelecionado
       ? periodos
         .filter((p) => p.tipo === "E")
         .map((p) => ({ ...p, data_inicio: addDays(p.data_fim, 1), data_fim: addDays(p.data_fim, 1), dias: 1, tipo: "DES", id: `${p.id}::des` }))
@@ -1495,11 +1512,19 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
               // excluir; usa a mesma cor do status "DES" computado no Histograma pra manter a
               // linguagem visual consistente.
               const isDesembarqueVirtual = p.tipo === "DES";
-              const isVirtual = isDesembarqueVirtual || p.origem === "planejamento_embarque";
+              const isPlanejamentoVirtual = p.origem === "planejamento_embarque";
+              const isVirtual = isDesembarqueVirtual || isPlanejamentoVirtual;
+              // Nome/Função de uma linha vinda do Planejamento de Embarque saem sempre da
+              // própria planilha (row.nome/row.funcao), nunca do cadastro do Drake — mesmo
+              // quando existe casamento por nome (ver linhasProgramadoPlanejamento).
+              const nomeExibido = isPlanejamentoVirtual ? (p.nomeVirtual ?? "—") : (c?.nome ?? "—");
+              const funcaoExibida = isPlanejamentoVirtual
+                ? (p.funcaoVirtual || "—")
+                : resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, c?.funcao || c?.funcao_operacao);
               return (
                 <FadeInRow key={p.id} delay={Math.min(i, 20) * 0.015} className="border-b transition-colors duration-150 hover:bg-muted/50 data-[state=selected]:bg-muted">
-                  <TableCell className="font-medium">{c?.nome ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{resolverFuncaoEmbarque(p.colaborador_id, p.data_inicio, embarquesByColaboradorId, c?.funcao || c?.funcao_operacao)}</TableCell>
+                  <TableCell className="font-medium">{nomeExibido}</TableCell>
+                  <TableCell className="text-muted-foreground">{funcaoExibida}</TableCell>
                   <TableCell>
                     {isDesembarqueVirtual ? (
                       <span

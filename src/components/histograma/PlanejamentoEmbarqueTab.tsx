@@ -78,6 +78,25 @@ export function isStatusEmbarcado(status: string | null | undefined): boolean {
   return (status ?? "").trim().toUpperCase() === "EMBARCADO";
 }
 
+// Unidades e BSPs pra listas suspensas fora do Planejamento de Embarque (ex.: Transporte) —
+// pedido dela: essas listas devem vir da planilha de Planejamento de Embarque, não mais de
+// texto livre nem do Drake. "FOLGA" é um valor de preenchimento (sem embarcação real), nunca
+// uma unidade operacional de verdade — mesma exclusão já usada nos gráficos de POB.
+export function unidadesPlanejamento(rows: PlanejamentoEmbarqueRow[]): string[] {
+  return Array.from(new Set(
+    rows.map((r) => r.unidade?.trim()).filter((u): u is string => !!u && u.toUpperCase() !== "FOLGA"),
+  )).sort();
+}
+
+export function bspOptionsPlanejamento(rows: PlanejamentoEmbarqueRow[], unidade: string): string[] {
+  return Array.from(new Set(
+    rows
+      .filter((r) => !unidade || r.unidade?.trim() === unidade)
+      .map((r) => r.bsp?.trim())
+      .filter((b): b is string => !!b),
+  )).sort();
+}
+
 export function usePlanejamentoEmbarqueQuery() {
   return useQuery<PlanejamentoEmbarqueRow[]>({
     queryKey: ["planejamento-embarque"],
