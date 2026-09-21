@@ -129,6 +129,18 @@ function fmtTime(iso: string) {
   return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
 // Soma o valor rateado entre os até 3 BSPs de uma viagem (null quando nenhum foi preenchido).
+// Valor digitado no formulário — aceita o jeito brasileiro ("R$ 1.234,56", "1234,56") e também
+// o formato com ponto decimal. Sem isso, Number("1.234,56") virava NaN e o salvamento falhava.
+function parseValorForm(raw: string): number | null {
+  const limpo = raw.replace(/[^\d.,-]/g, "").trim();
+  if (!limpo) return null;
+  const temVirgula = limpo.includes(",");
+  // Com vírgula, ela é o separador decimal e o ponto é separador de milhar.
+  const normalizado = temVirgula ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
+  const n = Number(normalizado);
+  return Number.isFinite(n) ? n : null;
+}
+
 function custoTotal(t: Trip): number | null {
   const valores = [t.custo, t.custo_2, t.custo_3].filter((v): v is number => v != null);
   return valores.length ? valores.reduce((a, b) => a + b, 0) : null;
