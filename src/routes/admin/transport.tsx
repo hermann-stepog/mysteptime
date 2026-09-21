@@ -38,6 +38,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import { pageTitle } from "@/lib/pageTitle";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
+import { usePlanejamentoEmbarqueQuery, unidadesPlanejamento, bspOptionsPlanejamento } from "@/components/histograma/PlanejamentoEmbarqueTab";
 
 
 type TripStatus = "em_andamento" | "realizado" | "faturado" | "cancelado";
@@ -444,6 +445,32 @@ function ClientSelect({ label, value, onChange }: { label: string; value: string
   );
 }
 
+// BSP passa a vir sempre de uma lista (Planejamento de Embarque, filtrada pela Unidade
+// escolhida), nunca mais texto livre — obrigatório exceto quando o Cliente da mesma linha é
+// "Viagem". Mantém o valor legado como opção extra se ele não estiver mais na lista atual, pra
+// não sumir silenciosamente um BSP que já estava salvo numa viagem antiga.
+function BspSelect({ label, value, onChange, options, opcional }: {
+  label: string; value: string; onChange: (v: string) => void; options: string[]; opcional: boolean;
+}) {
+  return (
+    <div>
+      <Label>{label}{opcional ? " (opcional)" : ""}</Label>
+      <Select value={value || "__none__"} onValueChange={(v) => onChange(v === "__none__" ? "" : v)}>
+        <SelectTrigger><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">—</SelectItem>
+          {options.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+          {value && !options.includes(value) && <SelectItem value={value}>{value}</SelectItem>}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+// Lista fixa pedida por ela — toma o lugar de "Coluna" no formulário (ver TripDialog); a
+// coluna do Kanban continua existindo por baixo, só casada automaticamente pelo nome.
+const MOTIVOS_TRANSPORTE = ["Embarque", "Desembarque", "Trabalho Externo", "Viagem", "ASO (SMS)", "Treinamento", "Emergência (SMS)"] as const;
+
 const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
@@ -528,6 +555,15 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   const [f, setF] = useState<FormState>(() => init(trip, columns));
   const [openedFor, setOpenedFor] = useState<string | null>(null);
   const rateio = useRateioPercentual(3);
+  // Unidade e BSP passam a vir da aba de Planejamento de Embarque (não mais texto livre nem
+  // Drake) — pedido dela: primeiro escolhe a Unidade, e a partir dela a lista de BSP se
+  // restringe às BSPs que aparecem naquela unidade na planilha.
+  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  const unidadeOptions = useMemo(() => unidadesPlanejamento(planejamentoEmbarque), [planejamentoEmbarque]);
+  const bspOptions = useMemo(() => bspOptionsPlanejamento(planejamentoEmbarque, f.unidade), [planejamentoEmbarque, f.unidade]);
+  // BSP passa a ser obrigatório — só continua opcional quando o Cliente da mesma linha é
+  // "Viagem" (ex.: corrida sem vínculo com BSP de nenhum cliente/unidade).
+  const bspOpcional = (cliente: string) => cliente.trim().toLowerCase() === "viagem";
   if (open && openedFor !== (trip?.id ?? "new")) {
     setF(init(trip, columns));
     setOpenedFor(trip?.id ?? "new");
@@ -552,6 +588,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
   const save = useMutation({
     mutationFn: async () => {
+      if (!bspOpcional(f.cliente) && !f.bsp.trim()) throw new Error("Selecione o BSP.");
+      if (f.cliente_2.trim() && !bspOpcional(f.cliente_2) && !f.bsp_2.trim()) throw new Error("Selecione o BSP 2.");
+      if (f.cliente_3.trim() && !bspOpcional(f.cliente_3) && !f.bsp_3.trim()) throw new Error("Selecione o BSP 3.");
       const isNew = !f.id;
       const payload = {
         car_number: f.car_number.trim(), column_id: f.column_id || null,
@@ -659,10 +698,24 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
               )}
             </div>
             <div>
-              <Label>Coluna</Label>
-              <Select value={f.column_id} onValueChange={(v) => setF({ ...f, column_id: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{columns.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+              <Label>Motivo</Label>
+              <Select
+                value={f.motivo || "__none__"}
+                onValueChange={(v) => {
+                  const motivo = v === "__none__" ? "" : v;
+                  // A coluna do Kanban continua existindo por baixo (ver KanbanView) — só deixa
+                  // de ser escolhida à parte aqui; casa sozinha com a coluna de mesmo nome do
+                  // Motivo quando existir uma, senão mantém a coluna que já estava.
+                  const colunaCorrespondente = columns.find((c) => c.name.trim().toLowerCase() === motivo.trim().toLowerCase());
+                  setF({ ...f, motivo, column_id: colunaCorrespondente?.id ?? f.column_id });
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Selecione o motivo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {MOTIVOS_TRANSPORTE.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  {f.motivo && !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo) && <SelectItem value={f.motivo}>{f.motivo}</SelectItem>}
+                </SelectContent>
               </Select>
             </div>
           </div>
@@ -740,16 +793,30 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
 
 
+          {/* Unidade primeiro — a lista de BSP das 3 linhas abaixo se filtra a partir dela
+              (ambas vêm da aba de Planejamento de Embarque, não mais texto livre nem Drake). */}
+          <div>
+            <Label>Unidade</Label>
+            <Select value={f.unidade || "__none__"} onValueChange={(v) => setF({ ...f, unidade: v === "__none__" ? "" : v, bsp: "", bsp_2: "", bsp_3: "" })}>
+              <SelectTrigger><SelectValue placeholder="Selecione a unidade" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">—</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                {f.unidade && !unidadeOptions.includes(f.unidade) && <SelectItem value={f.unidade}>{f.unidade}</SelectItem>}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Cliente/BSP/Valor em até 3 linhas — cobre o caso raro de uma mesma viagem levar
               colaboradores de BSPs diferentes, ratear o custo entre eles preenchendo mais de
               uma linha. Na maioria das viagens só a primeira linha é usada. */}
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente" value={f.cliente} onChange={(v) => setF({ ...f, cliente: v })} />
-            <div><Label>BSP (opcional)</Label><Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} placeholder="Número do BSP" /></div>
+            <BspSelect label="BSP" value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })} options={bspOptions} opcional={bspOpcional(f.cliente)} />
             <div>
-              <Label>Valor (opcional)</Label>
+              <Label>Valor</Label>
               <Input
-                type="number" step="0.01" min="0" inputMode="decimal" readOnly={rateio.ativo}
+                type="text" inputMode="decimal" readOnly={rateio.ativo}
                 className={rateio.ativo ? "bg-muted/40" : undefined}
                 value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })}
                 placeholder="R$ 0,00"
@@ -759,11 +826,11 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente 2 (opcional)" value={f.cliente_2} onChange={(v) => setF({ ...f, cliente_2: v })} />
-            <div><Label>BSP 2 (opcional)</Label><Input value={f.bsp_2} onChange={(e) => setF({ ...f, bsp_2: e.target.value })} placeholder="Número do BSP" /></div>
+            <BspSelect label="BSP 2" value={f.bsp_2} onChange={(v) => setF({ ...f, bsp_2: v })} options={bspOptions} opcional={!f.cliente_2.trim() || bspOpcional(f.cliente_2)} />
             <div>
-              <Label>Valor 2 (opcional)</Label>
+              <Label>Valor 2</Label>
               <Input
-                type="number" step="0.01" min="0" inputMode="decimal" readOnly={rateio.ativo}
+                type="text" inputMode="decimal" readOnly={rateio.ativo}
                 className={rateio.ativo ? "bg-muted/40" : undefined}
                 value={f.custo_2} onChange={(e) => setF({ ...f, custo_2: e.target.value })}
                 placeholder="R$ 0,00"
@@ -773,11 +840,11 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
             <ClientSelect label="Cliente 3 (opcional)" value={f.cliente_3} onChange={(v) => setF({ ...f, cliente_3: v })} />
-            <div><Label>BSP 3 (opcional)</Label><Input value={f.bsp_3} onChange={(e) => setF({ ...f, bsp_3: e.target.value })} placeholder="Número do BSP" /></div>
+            <BspSelect label="BSP 3" value={f.bsp_3} onChange={(v) => setF({ ...f, bsp_3: v })} options={bspOptions} opcional={!f.cliente_3.trim() || bspOpcional(f.cliente_3)} />
             <div>
-              <Label>Valor 3 (opcional)</Label>
+              <Label>Valor 3</Label>
               <Input
-                type="number" step="0.01" min="0" inputMode="decimal" readOnly={rateio.ativo}
+                type="text" inputMode="decimal" readOnly={rateio.ativo}
                 className={rateio.ativo ? "bg-muted/40" : undefined}
                 value={f.custo_3} onChange={(e) => setF({ ...f, custo_3: e.target.value })}
                 placeholder="R$ 0,00"
@@ -786,8 +853,6 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
 
           <RateioPercentualPanel rateio={rateio} labels={["BSP 1", "BSP 2", "BSP 3"]} />
-
-          <div><Label>Unidade</Label><Input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value })} placeholder="Preenchido automaticamente ao selecionar colaborador" /></div>
 
           <div><Label>Etiquetas</Label><TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} /></div>
 
@@ -800,11 +865,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           <div><Label>Observações</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} /></div>
 
           {/* Campos de faturamento/custo — vieram da importação da planilha histórica, mas
-              seguem editáveis pra lançamentos novos também. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label>Motivo</Label><Input value={f.motivo} onChange={(e) => setF({ ...f, motivo: e.target.value })} /></div>
-            <div><Label>NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
-          </div>
+              seguem editáveis pra lançamentos novos também. Motivo saiu daqui — agora é a
+              lista lá em cima, no lugar de Coluna. */}
+          <div><Label>NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><Label>Forma de pagamento</Label><FormaPagamentoField value={f.forma_pagamento} onChange={(v) => setF({ ...f, forma_pagamento: v })} /></div>
             <div><Label>Data Faturamento</Label><Input type="date" value={f.data_faturamento} onChange={(e) => setF({ ...f, data_faturamento: e.target.value })} /></div>
