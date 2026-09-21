@@ -16,6 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 const supabaseAny: any = supabase;
 import { notifyAptitudePendency } from "@/lib/nominationEmails";
 import { type Nomination, requestTitle } from "@/lib/nominations";
+import { clienteDaUnidade } from "@/lib/clientes";
 import { notify } from "@/lib/notify";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -165,15 +166,26 @@ export function QualificationEligibilityTab({
   // selecionar manualmente, nunca finge um match que não existe.
   const [activeFocusId, setActiveFocusId] = useState<string | null>(null);
   const activeFocus = focusGroup?.find((n) => n.id === activeFocusId) ?? focusGroup?.[0] ?? null;
+  // A unidade encontrada pertence a um cliente diferente do cliente escolhido na nomeação (ver
+  // clienteDaUnidade) — pedido dela: "quando o colaborador for nomeado para determinada
+  // nomeação, o cliente deve ser considerado". A Matriz de Qualificação em si é organizada por
+  // unidade, não por cliente (confirmado com ela), então isso não impede a consulta — só marca
+  // que ela está olhando a unidade certa mas pro cliente errado, e os nomeados abaixo entram
+  // como não aptos até isso ser corrigido (unidade errada = aptidão não confirmada pro cliente
+  // certo).
+  const [clienteDivergente, setClienteDivergente] = useState(false);
 
   const aplicarFiltrosDaFuncao = (n: Nomination) => {
     if (!catalog) return;
-    const unit = catalog.operationalUnits.find((u) => normalizeMatchText(u.name) === normalizeMatchText(n.unidade ?? ""));
-    const job = catalog.jobs.find((j) => normalizeMatchText(j.name) === normalizeMatchText(n.funcao));
+    const unit = findByLooseMatch(catalog.operationalUnits, (u) => u.name, n.unidade ?? "");
+    const job = findByLooseMatch(catalog.jobs, (j) => j.name, n.funcao);
     if (!unit || !job) {
+      setClienteDivergente(false);
       notify.error(`Não encontramos "${n.unidade ?? "—"} / ${n.funcao}" na Matriz de Qualificação — selecione manualmente abaixo.`);
       return;
     }
+    const unitCliente = clienteDaUnidade(unit.name);
+    setClienteDivergente(Boolean(n.client && unitCliente && unitCliente !== n.client));
     const group = jobGroups.find((g) => g.jobs.some((j) => j.id === job.id));
     setUnitId(unit.id);
     setJobGroupId(group?.id ?? "");
@@ -257,16 +269,21 @@ export function QualificationEligibilityTab({
     nomeadosDaSolicitacao.forEach(async (n) => {
       const found = workerParaNomeado(n.colaborador_nome);
       if (!found) return;
-      const bloqueando = found.courses.filter((c) => c.mandatory && (c.status === "expired" || c.status === "missing"));
+      // Unidade verificada é de outro cliente (ver clienteDivergente) — a aptidão aqui não
+      // confirma nada pro cliente da nomeação, então conta como pendência mesmo sem nenhum
+      // curso vencido/faltando de verdade (pedido dela: "considere inapto").
+      const bloqueando = clienteDivergente
+        ? [`Unidade verificada é do cliente ${clienteDaUnidade(evaluation.context.operationalUnitName) ?? "—"}, não de ${activeFocus.client ?? "—"} (cliente desta nomeação)`]
+        : found.courses.filter((c) => c.mandatory && (c.status === "expired" || c.status === "missing")).map((c) => c.courseName);
       if (bloqueando.length === 0) return;
       const { error: insertError } = await supabaseAny
         .from("nomination_aptitude_alerts")
         .insert({ nomination_id: activeFocus.id, colaborador_nome: n.colaborador_nome });
       if (insertError) return; // já foi mandado antes (constraint UNIQUE) ou falha de rede — não trava a tela.
-      await notifyAptitudePendency(activeFocus, n.colaborador_nome, bloqueando.map((c) => c.courseName));
+      await notifyAptitudePendency(activeFocus, n.colaborador_nome, bloqueando);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFocus, evaluation, nomeadosDaSolicitacao]);
+  }, [activeFocus, evaluation, nomeadosDaSolicitacao, clienteDivergente]);
 
   return (
     <div className="space-y-4">
@@ -310,6 +327,17 @@ export function QualificationEligibilityTab({
               Aptidão específica de quem foi aprovado pelo PM para esta função, cruzada com a Matriz de Qualificação abaixo.
             </p>
           </div>
+          {clienteDivergente && evaluation && (
+            <div className="flex items-start gap-2 border-b bg-amber-50 p-3 text-xs text-amber-900">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                A unidade verificada abaixo (<strong>{evaluation.context.operationalUnitName}</strong>) é do cliente{" "}
+                <strong>{clienteDaUnidade(evaluation.context.operationalUnitName) ?? "—"}</strong>, mas essa nomeação é
+                pro cliente <strong>{activeFocus.client ?? "—"}</strong>. Todos os nomeados abaixo contam como
+                <strong> não aptos</strong> até isso ser corrigido (selecione a unidade certa desse cliente abaixo).
+              </span>
+            </div>
+          )}
           {nomeadosDaSolicitacao.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">Nenhum nomeado aprovado ainda para esta função.</p>
           ) : !selection ? (
@@ -338,24 +366,34 @@ export function QualificationEligibilityTab({
                 }
                 const bloqueando = found.courses.filter((c) => c.mandatory && (c.status === "expired" || c.status === "missing"));
                 const vencendo = found.courses.filter((c) => c.status === "expires-during-period");
+                const statusEfetivo: EligibilityStatus = clienteDivergente ? "unfit" : found.status;
                 return (
                   <div key={n.colaborador_nome} className="flex items-start justify-between gap-3 p-3 text-sm">
                     <div className="min-w-0">
                       <p className="font-medium">{n.colaborador_nome}</p>
-                      {bloqueando.length > 0 && (
+                      {clienteDivergente ? (
                         <p className="mt-1 flex items-start gap-1.5 text-xs text-red-700">
                           <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          Pendente: {bloqueando.map((c) => c.courseName).join(", ")}
+                          Não confirmado pro cliente {activeFocus.client ?? "—"} (verificação é de outro cliente)
                         </p>
-                      )}
-                      {vencendo.length > 0 && (
-                        <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700">
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          Vence no período: {vencendo.map((c) => c.courseName).join(", ")}
-                        </p>
+                      ) : (
+                        <>
+                          {bloqueando.length > 0 && (
+                            <p className="mt-1 flex items-start gap-1.5 text-xs text-red-700">
+                              <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              Pendente: {bloqueando.map((c) => c.courseName).join(", ")}
+                            </p>
+                          )}
+                          {vencendo.length > 0 && (
+                            <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700">
+                              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              Vence no período: {vencendo.map((c) => c.courseName).join(", ")}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
-                    <EligibilityBadge status={found.status} />
+                    <EligibilityBadge status={statusEfetivo} />
                   </div>
                 );
               })}
@@ -606,6 +644,7 @@ function PendenciasAptidaoTab() {
   const [dataReferencia, setDataReferencia] = useState(todayLocal());
   const [funcaoFiltro, setFuncaoFiltro] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<"" | "apto" | "nao-apto">("");
+  const [clienteFiltro, setClienteFiltro] = useState("");
 
   const catalogQuery = useQuery({
     queryKey: ["qualification-eligibility", "filter-catalog"],
@@ -706,9 +745,35 @@ function PendenciasAptidaoTab() {
   }), [linhasFiltradas, drakeWorkerPorLinha, workersPorCombo]);
 
   const encontrados = useMemo(() => resultados.filter((x): x is Resultado & { worker: WorkerEligibility } => Boolean(x.worker)), [resultados]);
-  const aptWorkers = useMemo(() => encontrados.filter((x) => x.worker.status !== "unfit").map((x) => x.worker), [encontrados]);
-  const unfitWorkers = useMemo(() => encontrados.filter((x) => x.worker.status === "unfit").map((x) => x.worker), [encontrados]);
   const naoVerificados = useMemo(() => resultados.filter((x) => !x.verificado || !x.worker), [resultados]);
+
+  // Cliente é derivado da unidade verificada (a Matriz de Qualificação é organizada por
+  // unidade, não por cliente — confirmado com ela), não um dado próprio da consulta. Pedido
+  // dela: dividir o resultado por cliente, mostrando em qual cliente cada colaborador está
+  // apto ou não.
+  const encontradosComCliente = useMemo(
+    () => encontrados.map((x) => ({ ...x, cliente: clienteDaUnidade(x.worker.worker.currentOperationalUnitName) ?? "Sem cliente identificado" })),
+    [encontrados],
+  );
+  const clientesDisponiveis = useMemo(
+    () => Array.from(new Set(encontradosComCliente.map((x) => x.cliente))).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [encontradosComCliente],
+  );
+  const encontradosFiltrados = useMemo(
+    () => (clienteFiltro ? encontradosComCliente.filter((x) => x.cliente === clienteFiltro) : encontradosComCliente),
+    [encontradosComCliente, clienteFiltro],
+  );
+  const porCliente = useMemo(() => {
+    const m = new Map<string, { apt: WorkerEligibility[]; unfit: WorkerEligibility[] }>();
+    encontradosFiltrados.forEach((x) => {
+      if (!m.has(x.cliente)) m.set(x.cliente, { apt: [], unfit: [] });
+      const bucket = m.get(x.cliente)!;
+      (x.worker.status === "unfit" ? bucket.unfit : bucket.apt).push(x.worker);
+    });
+    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
+  }, [encontradosFiltrados]);
+  const aptWorkers = useMemo(() => encontradosFiltrados.filter((x) => x.worker.status !== "unfit").map((x) => x.worker), [encontradosFiltrados]);
+  const unfitWorkers = useMemo(() => encontradosFiltrados.filter((x) => x.worker.status === "unfit").map((x) => x.worker), [encontradosFiltrados]);
 
   // Status filtra qual das duas listas aparece — igual escolher a aba Aptos/Não aptos, só que
   // como um filtro explícito (pedido dela), com "Todos" mostrando as duas juntas.
@@ -728,7 +793,7 @@ function PendenciasAptidaoTab() {
             Qualificação do Drake, colaborador por colaborador.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="space-y-1.5">
             <Label htmlFor="pendencias-data">Data</Label>
             <Input
@@ -743,6 +808,16 @@ function PendenciasAptidaoTab() {
               <SelectContent>
                 <SelectItem value="__todas__">Todas</SelectItem>
                 {funcoesDisponiveis.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Cliente</Label>
+            <Select value={clienteFiltro || "__todos__"} onValueChange={(v) => setClienteFiltro(v === "__todos__" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__todos__">Todos</SelectItem>
+                {clientesDisponiveis.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -786,39 +861,47 @@ function PendenciasAptidaoTab() {
             <ErrorCard message="Uma ou mais combinações de função/unidade não puderam ser consultadas no Drake agora." />
           )}
 
-          <Card className="overflow-hidden">
-            <div className="border-b p-4">
-              <h3 className="font-semibold">Colaboradores do Planejamento de Embarque</h3>
-              <p className="text-xs text-muted-foreground">
-                Situação em {formatDate(dataReferencia)}
-                {funcaoFiltro ? ` — função ${funcaoFiltro}` : ""}.
-              </p>
-            </div>
-            {mostrarAptos && (
-              <div>
-                <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
-                  Aptos ({aptWorkers.length})
-                </p>
-                <WorkerTable
-                  workers={aptWorkers}
-                  emptyMessage={algumaConsultaCarregando ? "Consultando..." : "Nenhum colaborador apto encontrado."}
-                  onDetails={setSelectedWorker}
-                />
-              </div>
-            )}
-            {mostrarNaoAptos && (
-              <div>
-                <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
-                  Não aptos ({unfitWorkers.length})
-                </p>
-                <WorkerTable
-                  workers={unfitWorkers}
-                  emptyMessage={algumaConsultaCarregando ? "Consultando..." : "Nenhum colaborador não apto encontrado."}
-                  onDetails={setSelectedWorker}
-                />
-              </div>
-            )}
-          </Card>
+          {porCliente.length === 0 ? (
+            <Card className="p-8 text-center text-sm text-muted-foreground">
+              {algumaConsultaCarregando ? "Consultando..." : "Nenhum colaborador encontrado pra esses filtros."}
+            </Card>
+          ) : (
+            porCliente.map(([cliente, { apt, unfit }]) => (
+              <Card key={cliente} className="overflow-hidden">
+                <div className="border-b p-4">
+                  <h3 className="font-semibold">{cliente}</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Situação em {formatDate(dataReferencia)}
+                    {funcaoFiltro ? ` — função ${funcaoFiltro}` : ""}.
+                  </p>
+                </div>
+                {mostrarAptos && (
+                  <div>
+                    <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
+                      Aptos ({apt.length})
+                    </p>
+                    <WorkerTable
+                      workers={apt}
+                      emptyMessage="Nenhum colaborador apto encontrado."
+                      onDetails={setSelectedWorker}
+                    />
+                  </div>
+                )}
+                {mostrarNaoAptos && (
+                  <div>
+                    <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
+                      Não aptos ({unfit.length})
+                    </p>
+                    <WorkerTable
+                      workers={unfit}
+                      emptyMessage="Nenhum colaborador não apto encontrado."
+                      onDetails={setSelectedWorker}
+                    />
+                  </div>
+                )}
+              </Card>
+            ))
+          )}
 
           {naoVerificados.length > 0 && (
             <Card className="p-4">
