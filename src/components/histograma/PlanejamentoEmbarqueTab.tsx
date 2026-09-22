@@ -25,7 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
-import { SortableHead, useTableSort } from "@/components/SortableTableHead";
+import { MultiSortableHead, useMultiTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
 import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus, History, ChevronRight } from "lucide-react";
 
@@ -318,6 +318,54 @@ function DataPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave:
       <PopoverContent className="w-56 space-y-2" align="start">
         <Input type="date" value={input} onChange={(e) => setInput(e.target.value)} />
         <Button size="sm" className="w-full" onClick={() => { onSave(input); setOpen(false); }}>Salvar</Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Formata pro mesmo padrão dd/mm/aaaa de Programado 1 — tanto pra valores novos (salvos em ISO
+// pelo seletor de data abaixo) quanto pros textos antigos que já vieram nesse formato da
+// importação. Anotações que não são data (ex.: "BASE - HENRIQUE") saem como estão.
+function formatarProgramado2(valor: string | null): string | null {
+  if (!valor) return null;
+  return ISO_DATE_RE.test(valor) ? fmtDateHeadcount(valor) : valor;
+}
+
+// Programado 2 é texto livre (às vezes é uma data, às vezes uma anotação tipo "BASE -
+// HENRIQUE") — mas quando é data, tem que ter o mesmo formato/UX de Programado 1: seletor de
+// data, gravado em ISO, exibido em dd/mm/aaaa. Mesmo padrão de alternância já usado em
+// SelectPlanejamentoCell, só que aqui a escolha é "Data" (input type=date) vs "Texto" (livre).
+function DataOuTextoPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave: (novoValor: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [modoData, setModoData] = useState(true);
+  const [input, setInput] = useState(valor ?? "");
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) { setInput(valor ?? ""); setModoData(!valor || ISO_DATE_RE.test(valor)); }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded px-1.5 py-0.5 text-left hover:bg-muted">
+          {formatarProgramado2(valor) || <span className="text-muted-foreground">—</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 space-y-2" align="start">
+        <div className="flex gap-2">
+          {modoData ? (
+            <Input type="date" value={ISO_DATE_RE.test(input) ? input : ""} onChange={(e) => setInput(e.target.value)} className="flex-1" />
+          ) : (
+            <Input value={input} onChange={(e) => setInput(e.target.value)} className="flex-1" autoFocus placeholder="Anotação (ex.: BASE - HENRIQUE)" />
+          )}
+          <Button type="button" variant="outline" size="sm" onClick={() => { setModoData(!modoData); setInput(""); }}>
+            {modoData ? "Texto" : "Data"}
+          </Button>
+        </div>
+        <Button size="sm" className="w-full" onClick={() => { onSave(modoData ? input : input.trim()); setOpen(false); }}>Salvar</Button>
       </PopoverContent>
     </Popover>
   );
@@ -894,7 +942,7 @@ export function PlanejamentoEmbarqueTab() {
   const primeiroNome = (nomeCompleto: string | null | undefined) => nomeCompleto?.trim().split(/\s+/)[0] ?? null;
   const ultimaAtualizacao = logEntries[0] ?? null;
 
-  const { sortColumn, sortDirection, toggleSort } = useTableSort<PlanejamentoSortColumn>();
+  const { sortRules, toggleSort } = useMultiTableSort<PlanejamentoSortColumn>();
 
   const [colaboradorInput, setColaboradorInput] = useState<string[]>([]);
   const [unidadeInput, setUnidadeInput] = useState<string[]>([]);
@@ -961,37 +1009,50 @@ export function PlanejamentoEmbarqueTab() {
       if (!b) return -1;
       return dir * a.localeCompare(b, "pt-BR");
     };
+    // Programado 2 mistura ISO (novo padrão) com textos antigos "dd/mm/aaaa" da importação —
+    // normaliza os dois pra ISO antes de comparar, senão a ordenação por data sai errada.
+    const paraComparacao = (v: string | null | undefined) => {
+      const m = (v ?? "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      return m ? `${m[3]}-${m[2]}-${m[1]}` : v;
+    };
+    // Um critério por rule (na ordem em que ela clicou nos cabeçalhos) — a primeira coluna
+    // clicada manda, as próximas só desempatam sem nunca sair da ordem da(s) anterior(es).
+    const compararColuna = (a: PlanejamentoEmbarqueRow, b: PlanejamentoEmbarqueRow, coluna: PlanejamentoSortColumn, dir: number): number => {
+      switch (coluna) {
+        case "matricula": return cmp(a.matricula, b.matricula, dir);
+        case "nome": return cmp(a.nome, b.nome, dir);
+        case "unidade": return cmp(a.unidade, b.unidade, dir);
+        case "bsp": return cmp(a.bsp, b.bsp, dir);
+        case "funcao": return cmp(a.funcao, b.funcao, dir);
+        case "especialidade": return cmp(a.especialidade, b.especialidade, dir);
+        case "status": return cmp(a.status, b.status, dir);
+        case "embarque": return cmp(a.embarque, b.embarque, dir);
+        case "duracao": {
+          if (a.duracao_embarque_dias == null && b.duracao_embarque_dias == null) return 0;
+          if (a.duracao_embarque_dias == null) return 1;
+          if (b.duracao_embarque_dias == null) return -1;
+          return dir * (a.duracao_embarque_dias - b.duracao_embarque_dias);
+        }
+        case "desembarque": return cmp(a.desembarque, b.desembarque, dir);
+        case "folgaInicio": return cmp(a.folga_inicio, b.folga_inicio, dir);
+        case "folgaFim": return cmp(a.folga_fim, b.folga_fim, dir);
+        case "feriasInicio": return cmp(a.ferias_inicio, b.ferias_inicio, dir);
+        case "feriasFim": return cmp(a.ferias_fim, b.ferias_fim, dir);
+        case "programado1": return cmp(a.programado_1, b.programado_1, dir);
+        case "programado2": return cmp(paraComparacao(a.programado_2), paraComparacao(b.programado_2), dir);
+        default: return 0;
+      }
+    };
     return linhasSemStatus
       .filter((r) => filterStatus.length === 0 || (r.status != null && filterStatus.includes(r.status)))
       .sort((a, b) => {
-        if (!sortColumn) return a.nome.localeCompare(b.nome, "pt-BR");
-        const dir = sortDirection === "asc" ? 1 : -1;
-        switch (sortColumn) {
-          case "matricula": return cmp(a.matricula, b.matricula, dir);
-          case "nome": return cmp(a.nome, b.nome, dir);
-          case "unidade": return cmp(a.unidade, b.unidade, dir);
-          case "bsp": return cmp(a.bsp, b.bsp, dir);
-          case "funcao": return cmp(a.funcao, b.funcao, dir);
-          case "especialidade": return cmp(a.especialidade, b.especialidade, dir);
-          case "status": return cmp(a.status, b.status, dir);
-          case "embarque": return cmp(a.embarque, b.embarque, dir);
-          case "duracao": {
-            if (a.duracao_embarque_dias == null && b.duracao_embarque_dias == null) return 0;
-            if (a.duracao_embarque_dias == null) return 1;
-            if (b.duracao_embarque_dias == null) return -1;
-            return dir * (a.duracao_embarque_dias - b.duracao_embarque_dias);
-          }
-          case "desembarque": return cmp(a.desembarque, b.desembarque, dir);
-          case "folgaInicio": return cmp(a.folga_inicio, b.folga_inicio, dir);
-          case "folgaFim": return cmp(a.folga_fim, b.folga_fim, dir);
-          case "feriasInicio": return cmp(a.ferias_inicio, b.ferias_inicio, dir);
-          case "feriasFim": return cmp(a.ferias_fim, b.ferias_fim, dir);
-          case "programado1": return cmp(a.programado_1, b.programado_1, dir);
-          case "programado2": return cmp(a.programado_2, b.programado_2, dir);
-          default: return 0;
+        for (const regra of sortRules) {
+          const resultado = compararColuna(a, b, regra.column, regra.direction === "asc" ? 1 : -1);
+          if (resultado !== 0) return resultado;
         }
+        return a.nome.localeCompare(b.nome, "pt-BR");
       });
-  }, [linhasSemStatus, filterStatus, sortColumn, sortDirection]);
+  }, [linhasSemStatus, filterStatus, sortRules]);
 
 
   const exportarPlanejamento = () => {
@@ -1009,7 +1070,7 @@ export function PlanejamentoEmbarqueTab() {
       "Início Folga": r.folga_inicio ? fmtDateHeadcount(r.folga_inicio) : "—",
       "Fim Folga": r.folga_fim ? fmtDateHeadcount(r.folga_fim) : "—",
       "Programado 1": r.programado_1 ? fmtDateHeadcount(r.programado_1) : "—",
-      "Programado 2": r.programado_2 ?? "—",
+      "Programado 2": formatarProgramado2(r.programado_2) ?? "—",
       "Início Férias": r.ferias_inicio ? fmtDateHeadcount(r.ferias_inicio) : "—",
       "Fim Férias": r.ferias_fim ? fmtDateHeadcount(r.ferias_fim) : "—",
     }));
@@ -1200,22 +1261,22 @@ export function PlanejamentoEmbarqueTab() {
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Matrícula" column="matricula" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Nome" column="nome" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Unidade/Localização" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Função" column="funcao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Especialidade" column="especialidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Embarque" column="embarque" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Duração (dias)" column="duracao" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Desembarque" column="desembarque" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Início Folga" column="folgaInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Fim Folga" column="folgaFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Programado 1" column="programado1" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Programado 2" column="programado2" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Início Férias" column="feriasInicio" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Fim Férias" column="feriasFim" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <MultiSortableHead label="Matrícula" column="matricula" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Nome" column="nome" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Unidade/Localização" column="unidade" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="BSP" column="bsp" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Função" column="funcao" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Especialidade" column="especialidade" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Status" column="status" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Embarque" column="embarque" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Duração (dias)" column="duracao" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Desembarque" column="desembarque" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Início Folga" column="folgaInicio" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Fim Folga" column="folgaFim" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Programado 1" column="programado1" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Programado 2" column="programado2" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Início Férias" column="feriasInicio" sortRules={sortRules} onSort={toggleSort} />
+              <MultiSortableHead label="Fim Férias" column="feriasFim" sortRules={sortRules} onSort={toggleSort} />
               <TableHead className="w-20">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -1265,7 +1326,7 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><DataPlanejamentoCell valor={r.folga_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_inicio: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Início Folga", r.folga_inicio, v || null, true) })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.folga_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { folga_fim: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Fim Folga", r.folga_fim, v || null, true) })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.programado_1} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_1: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Programado 1", r.programado_1, v || null, true) })} /></TableCell>
-                <TableCell><TextoPlanejamentoCell valor={r.programado_2} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_2: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Programado 2", r.programado_2, v || null) })} /></TableCell>
+                <TableCell><DataOuTextoPlanejamentoCell valor={r.programado_2} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { programado_2: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Programado 2", r.programado_2, v || null) })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_inicio} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_inicio: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Início Férias", r.ferias_inicio, v || null, true) })} /></TableCell>
                 <TableCell><DataPlanejamentoCell valor={r.ferias_fim} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { ferias_fim: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Fim Férias", r.ferias_fim, v || null, true) })} /></TableCell>
                 <TableCell>
