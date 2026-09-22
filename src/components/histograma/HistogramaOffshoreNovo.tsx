@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useSearch } from "@tanstack/react-router";
 import { DrakePobTodayCard } from "./DrakePobTodayCard";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
@@ -145,6 +146,10 @@ function usePeriodosQuery() {
 // Exportado pra ser reaproveitado como aba dentro do ambiente do Solicitante (ver
 // src/routes/pm/index.tsx) — mesmo componente, mesmos dados, sem duplicar nada.
 export function HistogramaOffshoreNovo() {
+  // strict:false porque esse componente também é reaproveitado dentro de /pm (sem a mesma
+  // busca de "/admin/histograma-novo") — lê o "tab" só quando ele existir, sem exigir que a
+  // rota atual seja exatamente essa.
+  const search = useSearch({ strict: false }) as { tab?: string };
   const { data: colaboradores = [], isLoading: loadingColabs, error: errorColabs } = useColaboradoresQuery();
   const { data: periodos = [], isLoading: loadingPeriodos, error: errorPeriodos } = usePeriodosQuery();
 
@@ -200,11 +205,11 @@ export function HistogramaOffshoreNovo() {
       </div>
     );
 
-  return <HistogramaOffshoreNovoContent colaboradores={colaboradores} periodos={periodos} />;
+  return <HistogramaOffshoreNovoContent colaboradores={colaboradores} periodos={periodos} initialTab={search.tab} />;
 }
 
-function HistogramaOffshoreNovoContent({ colaboradores, periodos }: {
-  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[];
+function HistogramaOffshoreNovoContent({ colaboradores, periodos, initialTab }: {
+  colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; initialTab?: string;
 }) {
   const { role } = useAuth();
   const isOperator = role === "logistics_operator";
@@ -225,7 +230,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos }: {
   // sempre com a lista completa, pra nunca travar o lançamento de quem ainda não está marcado
   // como Offshore.
   const [origem, setOrigem] = useState<"geral" | "offshore">("offshore");
-  const [innerTab, setInnerTab] = useState("dashboard");
+  const [innerTab, setInnerTab] = useState(initialTab ?? "dashboard");
   const { data: offshoreNomes = new Set<string>() } = useOffshoreNomesQuery(innerTab === "histograma");
   const colaboradoresOffshore = useMemo(
     () => colaboradores.filter((c) => offshoreNomes.has(normalizeNomeHistograma(c.nome))),

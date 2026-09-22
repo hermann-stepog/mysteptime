@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -18,9 +18,13 @@ import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Check, X, FileSpreadsheet, ChevronRight, History } from "lucide-react";
 import { type Bm, type BmLineMo, type BmLineLogistica, type BmLineMateriais, STATUS_LABELS, STATUS_TONE } from "@/lib/bm";
-import { pageTitle } from "@/lib/pageTitle";
 
-export const Route = createFileRoute("/pm/bms")({ head: () => pageTitle("BMs"), component: PmBmsPage });
+// BMs para Aprovar virou uma aba dentro de /pm (ver PmHome em pm/index.tsx), junto das outras
+// — pedido dela pra unificar a navegação num só lugar. Essa rota continua existindo só pra não
+// quebrar links/favoritos antigos: redireciona pra lá com a aba já selecionada.
+export const Route = createFileRoute("/pm/bms")({
+  beforeLoad: () => { throw redirect({ to: "/pm", search: { tab: "bms" } }); },
+});
 
 function fmt(d: string): string {
   return d.split("-").reverse().join("/");
@@ -29,7 +33,7 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function PmBmsPage() {
+export function PmBmsTab() {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Bm | null>(null);

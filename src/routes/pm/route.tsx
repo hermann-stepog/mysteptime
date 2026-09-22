@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
@@ -7,21 +7,12 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
 import { AnimatedOutlet } from "@/components/AnimatedOutlet";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pm")({ component: PmLayout });
-
-// Histograma Offshore e Nomeações entraram como abas dentro de "/pm" (ver PmHome) em vez de
-// links pra fora, pra não trocar de ambiente/header no meio da navegação do Solicitante.
-const NAV = [
-  { to: "/pm", label: "Minhas Solicitações" },
-  { to: "/pm/bms", label: "BMs para Aprovar" },
-];
 
 function PmLayout() {
   const { user, role, loading, signOut, profile } = useAuth();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
     if (loading) return;
@@ -67,23 +58,6 @@ function PmLayout() {
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-1 px-3 pb-2 sm:px-4 lg:px-6">
-          {NAV.map((n) => {
-            const active = pathname === n.to;
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  active ? "bg-white/15 text-white" : "text-white/55 hover:bg-white/8 hover:text-white/85",
-                )}
-              >
-                {n.label}
-              </Link>
-            );
-          })}
         </div>
       </header>
 
