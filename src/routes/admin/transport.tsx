@@ -482,7 +482,9 @@ function useLocationOptionsQuery() {
 // campos, já que o mesmo lugar pode ser origem numa viagem e destino em outra. Mesmo padrão de
 // "Outro (digitar)..." do ClientSelect acima, tamanho padrão de Select (sem combobox de busca).
 function LocationSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
-  const isKnown = (v: string) => options.includes(v);
+  // Compara já normalizado — uma viagem antiga salva como "MACAÉ" (maiúscula) deve casar com a
+  // opção "Macaé" da lista, não cair em "digitar manualmente" só por causa da caixa.
+  const isKnown = (v: string) => options.includes(toDisplayCase(v));
   const [manual, setManual] = useState(() => !!value && !isKnown(value));
 
   useEffect(() => {
@@ -599,8 +601,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       id: t.id, car_number: t.car_number, ...parseCarro(t.car_number), column_id: t.column_id ?? (cols[0]?.id ?? ""),
       scheduled_at: (t.scheduled_at ?? "").slice(0, 10),
       departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
-      origin: t.origin, destination: t.destination,
-      origens_extras: t.origens_extras ?? [], destinos_extras: t.destinos_extras ?? [],
+      // Normaliza a caixa aqui também — uma viagem antiga salva como "MACAÉ" precisa bater com
+      // a opção "Macaé" da lista assim que o formulário abre, não só depois de salvar de novo.
+      origin: toDisplayCase(t.origin), destination: toDisplayCase(t.destination),
+      origens_extras: (t.origens_extras ?? []).map((s) => toDisplayCase(s)), destinos_extras: (t.destinos_extras ?? []).map((s) => toDisplayCase(s)),
       notes: t.notes ?? "",
       tipo: t.tipo,
       bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
@@ -669,10 +673,13 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   // pras linhas extras, sem repetir.
   const { data: locationRows = [] } = useLocationOptionsQuery();
   const locationOptions = useMemo(() => {
+    // toDisplayCase normaliza maiúsculo/minúsculo (mesmo padrão já usado pro nome do Transporte
+    // acima) — sem isso, "MACAÉ"/"Macaé"/"macaé" viravam 3 entradas repetidas na lista em vez
+    // de uma só com a frequência somada.
     const freq = new Map<string, number>();
     locationRows.forEach((t) => {
       [t.origin, t.destination, ...(t.origens_extras ?? []), ...(t.destinos_extras ?? [])].forEach((loc) => {
-        const v = loc?.trim();
+        const v = toDisplayCase(loc?.trim());
         if (!v) return;
         freq.set(v, (freq.get(v) ?? 0) + 1);
       });
@@ -691,9 +698,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         scheduled_at: `${f.scheduled_at}T12:00:00.000Z`,
         departure_time: f.departure_time || null,
         arrival_time: f.arrival_time || null,
-        origin: f.origin.trim(), destination: f.destination.trim(),
-        origens_extras: f.origens_extras.map((s) => s.trim()).filter((_, i) => f.origens_extras[i].trim() || (f.destinos_extras[i] ?? "").trim()),
-        destinos_extras: f.destinos_extras.map((s) => s.trim()).filter((_, i) => (f.origens_extras[i] ?? "").trim() || f.destinos_extras[i].trim()),
+        origin: toDisplayCase(f.origin.trim()), destination: toDisplayCase(f.destination.trim()),
+        origens_extras: f.origens_extras.map((s) => toDisplayCase(s.trim())).filter((_, i) => f.origens_extras[i].trim() || (f.destinos_extras[i] ?? "").trim()),
+        destinos_extras: f.destinos_extras.map((s) => toDisplayCase(s.trim())).filter((_, i) => (f.origens_extras[i] ?? "").trim() || f.destinos_extras[i].trim()),
         notes: f.notes.trim() || null,
         tipo: f.tipo,
         bsp: f.bsp.trim() || null, bsp_2: f.bsp_2.trim() || null, bsp_3: f.bsp_3.trim() || null,
