@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -22,6 +22,7 @@ import {
   AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
@@ -181,6 +182,54 @@ function TextoPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave
   );
 }
 
+// Mesmo padrão popover-com-Salvar do TextoPlanejamentoCell, mas com uma lista dos valores já
+// usados na coluna (sem repetir) em vez de sempre texto livre — pedido dela pro Status. Ainda
+// permite digitar um valor novo ("Outro"), já que a coluna continua sendo texto livre no fundo.
+function SelectPlanejamentoCell({ valor, opcoes, onSave }: { valor: string | null; opcoes: string[]; onSave: (novoValor: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState(valor ?? "");
+  const [manual, setManual] = useState(false);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) { setInput(valor ?? ""); setManual(!!valor && !opcoes.includes(valor)); }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded px-1.5 py-0.5 text-left hover:bg-muted">
+          {valor || <span className="text-muted-foreground">—</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 space-y-2" align="start">
+        {manual ? (
+          <div className="flex gap-2">
+            <Input value={input} onChange={(e) => setInput(e.target.value)} className="flex-1" autoFocus />
+            <Button type="button" variant="outline" size="sm" onClick={() => { setManual(false); setInput(""); }}>Lista</Button>
+          </div>
+        ) : (
+          <Select
+            value={input || "__none__"}
+            onValueChange={(v) => {
+              if (v === "__custom__") { setManual(true); setInput(""); }
+              else setInput(v === "__none__" ? "" : v);
+            }}
+          >
+            <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">—</SelectItem>
+              {opcoes.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+              <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        <Button size="sm" className="w-full" onClick={() => { onSave(input.trim()); setOpen(false); }}>Salvar</Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function DataPlanejamentoCell({ valor, onSave }: { valor: string | null; onSave: (novaData: string) => void }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState(valor ?? "");
@@ -224,6 +273,14 @@ function NumeroPlanejamentoCell({ valor, onSave }: { valor: number | null; onSav
 function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow | null; onClose: () => void }) {
   const qc = useQueryClient();
   const registrarLog = useRegistrarLogPlanejamento();
+  // Mesma lista de Status já usados (sem repetir) da célula da tabela — reaproveita a mesma
+  // consulta já em cache, sem custo extra.
+  const { data: registrosTodos = [] } = usePlanejamentoEmbarqueQuery();
+  const statusExistentes = useMemo(
+    () => Array.from(new Set(registrosTodos.map((r) => r.status).filter((v): v is string => !!v))).sort(),
+    [registrosTodos],
+  );
+  const [statusManual, setStatusManual] = useState(() => !!row?.status && !statusExistentes.includes(row.status));
   const [form, setForm] = useState({
     matricula: row?.matricula ?? "", nome: row?.nome ?? "", unidade: row?.unidade ?? "", bsp: row?.bsp ?? "",
     funcao: row?.funcao ?? "", especialidade: row?.especialidade ?? "", status: row?.status ?? "",
@@ -292,7 +349,30 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
             <div><Label className="text-xs">Função</Label><Input value={form.funcao} onChange={(e) => setForm({ ...form, funcao: e.target.value })} /></div>
             <div><Label className="text-xs">Especialidade</Label><Input value={form.especialidade} onChange={(e) => setForm({ ...form, especialidade: e.target.value })} /></div>
           </div>
-          <div><Label className="text-xs">Status</Label><Input value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} /></div>
+          <div>
+            <Label className="text-xs">Status</Label>
+            {statusManual ? (
+              <div className="flex gap-2">
+                <Input value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="flex-1" />
+                <Button type="button" variant="outline" size="sm" onClick={() => { setStatusManual(false); setForm({ ...form, status: "" }); }}>Lista</Button>
+              </div>
+            ) : (
+              <Select
+                value={form.status || "__none__"}
+                onValueChange={(v) => {
+                  if (v === "__custom__") { setStatusManual(true); setForm({ ...form, status: "" }); }
+                  else setForm({ ...form, status: v === "__none__" ? "" : v });
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {statusExistentes.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <Label className="text-xs">Embarque</Label>
@@ -656,6 +736,35 @@ export function PlanejamentoEmbarqueTab() {
     onError: (e: any) => notify.error(e.message),
   });
 
+  // Assim que a tela carrega, quem está "Embarcado" e já chegou (ou passou) da data de
+  // Desembarque muda sozinho pra "Folga" — mesma regra Início Folga = Desembarque já usada em
+  // todo o app. O campo continua editável normalmente depois (ela pode trocar na mão quando
+  // quiser), isso só evita deixar "Embarcado" parado indefinidamente sem ninguém mexer. O Set
+  // evita mandar o update de novo pro mesmo registro enquanto o primeiro ainda está em voo.
+  const autoFolgaEmAndamento = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const hoje = todayStr();
+    const pendentes = registros.filter((r) =>
+      isStatusEmbarcado(r.status) && r.desembarque && r.desembarque <= hoje && !autoFolgaEmAndamento.current.has(r.id),
+    );
+    if (pendentes.length === 0) return;
+    pendentes.forEach((r) => autoFolgaEmAndamento.current.add(r.id));
+    (async () => {
+      let ok = 0;
+      for (const r of pendentes) {
+        const { error } = await supabase.from("planejamento_embarque").update({ status: "FOLGA" }).eq("id", r.id);
+        if (!error) {
+          ok++;
+          registrarLog(`${descricaoEdicaoCampo(r.nome, "Status", r.status, "FOLGA")} (automático — desembarque em ${fmtDateHeadcount(r.desembarque!)})`);
+        }
+      }
+      if (ok > 0) {
+        qc.invalidateQueries({ queryKey: ["planejamento-embarque"] });
+        notify.success(`${ok} colaborador${ok > 1 ? "es" : ""} passou pra Folga automaticamente (desembarque de hoje)`);
+      }
+    })();
+  }, [registros, qc, registrarLog]);
+
   const excluirRegistro = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("planejamento_embarque").delete().eq("id", id);
@@ -959,7 +1068,7 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><TextoPlanejamentoCell valor={r.bsp} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { bsp: v || null }, descricao: descricaoEdicaoCampo(r.nome, "BSP", r.bsp, v || null) })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Função", r.funcao, v || null) })} /></TableCell>
                 <TableCell>{r.especialidade ?? "—"}</TableCell>
-                <TableCell><TextoPlanejamentoCell valor={r.status} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Status", r.status, v || null) })} /></TableCell>
+                <TableCell><SelectPlanejamentoCell valor={r.status} opcoes={statusExistentes} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Status", r.status, v || null) })} /></TableCell>
                 <TableCell>
                   <DataPlanejamentoCell
                     valor={r.embarque}
