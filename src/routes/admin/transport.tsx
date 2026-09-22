@@ -465,6 +465,65 @@ function ClientSelect({ label, value, onChange }: { label: string; value: string
   );
 }
 
+// Só os campos necessários pra montar a lista de Origem/Destino por frequência — consulta bem
+// mais leve que a de transport_trips inteira (sem tags/colaboradores/materiais), com sua
+// própria queryKey pra cachear separado.
+function useLocationOptionsQuery() {
+  return useQuery({
+    queryKey: ["transport_trip_locations"],
+    queryFn: () => selectAllPages<{ origin: string; destination: string; origens_extras: string[] | null; destinos_extras: string[] | null }>(
+      (from, to) => supabase.from("transport_trips").select("origin, destination, origens_extras, destinos_extras").range(from, to),
+    ),
+    staleTime: 5 * 60_000,
+  });
+}
+
+// Lista de Origem/Destino ordenada pelas mais preenchidas (sem repetir) — mesma pool pros dois
+// campos, já que o mesmo lugar pode ser origem numa viagem e destino em outra. Mesmo padrão de
+// "Outro (digitar)..." do ClientSelect acima, tamanho padrão de Select (sem combobox de busca).
+function LocationSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+  const isKnown = (v: string) => options.includes(v);
+  const [manual, setManual] = useState(() => !!value && !isKnown(value));
+
+  useEffect(() => {
+    setManual(!!value && !isKnown(value));
+  }, [value]);
+
+  return (
+    <div>
+      <Label>{label}</Label>
+      {manual ? (
+        <div className="flex gap-2">
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Digite o local"
+            className="flex-1"
+          />
+          <Button type="button" variant="outline" size="sm" onClick={() => { setManual(false); onChange(""); }}>
+            Lista
+          </Button>
+        </div>
+      ) : (
+        <Select
+          value={value || "__none__"}
+          onValueChange={(v) => {
+            if (v === "__custom__") { setManual(true); onChange(""); }
+            else onChange(v === "__none__" ? "" : v);
+          }}
+        >
+          <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">—</SelectItem>
+            {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+            <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+}
+
 // BSP passa a vir sempre de uma lista (Planejamento de Embarque, filtrada pela Unidade
 // escolhida), nunca mais texto livre — obrigatório exceto quando o Cliente da mesma linha é
 // "Viagem". Mantém o valor legado como opção extra se ele não estiver mais na lista atual, pra
@@ -605,6 +664,21 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   }, [rateio.ativo, rateio.valores[0], rateio.valores[1], rateio.valores[2]]);
 
   const registrarLog = useRegistrarLog("transporte_quadro_detalhado");
+
+  // Lista de Origem/Destino ordenada pelas mais preenchidas — mesma pool pros dois campos e
+  // pras linhas extras, sem repetir.
+  const { data: locationRows = [] } = useLocationOptionsQuery();
+  const locationOptions = useMemo(() => {
+    const freq = new Map<string, number>();
+    locationRows.forEach((t) => {
+      [t.origin, t.destination, ...(t.origens_extras ?? []), ...(t.destinos_extras ?? [])].forEach((loc) => {
+        const v = loc?.trim();
+        if (!v) return;
+        freq.set(v, (freq.get(v) ?? 0) + 1);
+      });
+    });
+    return Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).map(([loc]) => loc);
+  }, [locationRows]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -758,34 +832,32 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
             <div><Label>Horário de Destino</Label><Input type="time" value={f.arrival_time} onChange={(e) => setF({ ...f, arrival_time: e.target.value })} /></div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div><Label>Origem</Label><Input value={f.origin} onChange={(e) => setF({ ...f, origin: e.target.value })} /></div>
-            <div><Label>Destino</Label><Input value={f.destination} onChange={(e) => setF({ ...f, destination: e.target.value })} /></div>
+            <LocationSelect label="Origem" value={f.origin} onChange={(v) => setF({ ...f, origin: v })} options={locationOptions} />
+            <LocationSelect label="Destino" value={f.destination} onChange={(v) => setF({ ...f, destination: v })} options={locationOptions} />
           </div>
 
           {f.origens_extras.map((_, i) => (
             <div key={`extra-${i}`} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
-              <div>
-                <Label>Origem {i + 2}</Label>
-                <Input
-                  value={f.origens_extras[i] ?? ""}
-                  onChange={(e) => {
-                    const next = [...f.origens_extras];
-                    next[i] = e.target.value;
-                    setF({ ...f, origens_extras: next });
-                  }}
-                />
-              </div>
-              <div>
-                <Label>Destino {i + 2}</Label>
-                <Input
-                  value={f.destinos_extras[i] ?? ""}
-                  onChange={(e) => {
-                    const next = [...f.destinos_extras];
-                    next[i] = e.target.value;
-                    setF({ ...f, destinos_extras: next });
-                  }}
-                />
-              </div>
+              <LocationSelect
+                label={`Origem ${i + 2}`}
+                value={f.origens_extras[i] ?? ""}
+                onChange={(v) => {
+                  const next = [...f.origens_extras];
+                  next[i] = v;
+                  setF({ ...f, origens_extras: next });
+                }}
+                options={locationOptions}
+              />
+              <LocationSelect
+                label={`Destino ${i + 2}`}
+                value={f.destinos_extras[i] ?? ""}
+                onChange={(v) => {
+                  const next = [...f.destinos_extras];
+                  next[i] = v;
+                  setF({ ...f, destinos_extras: next });
+                }}
+                options={locationOptions}
+              />
               <Button
                 type="button"
                 variant="ghost"
