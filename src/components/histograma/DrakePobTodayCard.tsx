@@ -6,7 +6,7 @@ import { getTodayDrakePob } from "@/lib/api/drakePob.functions";
 import { pobToday } from "@/lib/drake/pob";
 import { Card } from "@/components/ui/card";
 
-export function DrakePobTodayCard() {
+export function DrakePobTodayCard({ compact = false }: { compact?: boolean }) {
   const { user } = useAuth();
   const [date, setDate] = useState(pobToday);
   useEffect(() => {
@@ -22,6 +22,25 @@ export function DrakePobTodayCard() {
     retry: 1,
   });
   const snapshot = query.data?.date === date ? query.data : undefined;
+  const valor = snapshot ? snapshot.total : query.isPending ? "…" : "—";
+
+  // Versão pequena, só pra consulta (sem botão de atualizar) — usada na aba Lançamentos.
+  if (compact) {
+    const atualizadoEm = snapshot
+      ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(snapshot.updatedAt))
+      : null;
+    return (
+      <div
+        className="inline-flex w-fit items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs text-muted-foreground"
+        title={atualizadoEm ? `Todas as unidades · Drake · atualizado em ${atualizadoEm}` : "Todas as unidades · Drake"}
+      >
+        <Ship className="h-3.5 w-3.5 shrink-0" />
+        <span className="font-semibold text-foreground">{valor}</span>
+        <span>embarcados hoje (Drake, todas as unidades)</span>
+      </div>
+    );
+  }
+
   return (
     <Card className="bg-gradient-to-br from-white to-slate-50 p-4" aria-live="polite">
       <div className="flex items-center justify-between gap-1">

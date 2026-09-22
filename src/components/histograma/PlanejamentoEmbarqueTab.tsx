@@ -129,6 +129,81 @@ export function usePlanejamentoEmbarqueLogQuery() {
   });
 }
 
+// ─── Histórico "histograma" (painel Histórico) ──────────────────────────────────────────────
+// A listagem em si não guarda histórico (Embarque/Desembarque/Status são reescritos na mesma
+// linha a cada edição, sem deixar rastro do valor antigo) — isso tira uma foto por colaborador
+// por dia (ver migração 20260922130000_planejamento_embarque_snapshots.sql) pra montar um
+// histograma pequeno de "quem estava em que status, em que dia" ao longo do tempo.
+export interface PlanejamentoEmbarqueSnapshotRow {
+  id: string;
+  snapshot_date: string;
+  colaborador_nome: string;
+  status: string | null;
+  unidade: string | null;
+  bsp: string | null;
+  funcao: string | null;
+  embarque: string | null;
+  desembarque: string | null;
+  created_at: string;
+}
+
+export function usePlanejamentoEmbarqueSnapshotsQuery() {
+  return useQuery<PlanejamentoEmbarqueSnapshotRow[]>({
+    queryKey: ["planejamento-embarque-snapshots"],
+    queryFn: () =>
+      selectAllPages<PlanejamentoEmbarqueSnapshotRow>((from, to) =>
+        supabase.from("planejamento_embarque_snapshots").select("*").order("snapshot_date").range(from, to),
+      ),
+  });
+}
+
+// Tira a foto do dia uma única vez — na primeira abertura da aba naquele dia, por qualquer
+// pessoa (checa se já existe alguma linha pra hoje antes de gravar, então não duplica nem
+// sobrescreve fotos já tiradas mais cedo no mesmo dia). O ref evita disparar de novo a cada
+// edição de célula (que muda a referência de `registros`) dentro da mesma sessão.
+function useCapturarSnapshotDiarioPlanejamento(registros: PlanejamentoEmbarqueRow[]) {
+  const qc = useQueryClient();
+  const jaTentou = useRef(false);
+  useEffect(() => {
+    if (jaTentou.current || registros.length === 0) return;
+    jaTentou.current = true;
+    (async () => {
+      const hoje = todayStr();
+      const { count } = await supabase
+        .from("planejamento_embarque_snapshots")
+        .select("id", { count: "exact", head: true })
+        .eq("snapshot_date", hoje);
+      if (count && count > 0) return;
+      const linhas = registros.map((r) => ({
+        snapshot_date: hoje,
+        colaborador_nome: r.nome,
+        status: r.status,
+        unidade: r.unidade,
+        bsp: r.bsp,
+        funcao: r.funcao,
+        embarque: r.embarque,
+        desembarque: r.desembarque,
+      }));
+      const { error } = await supabase
+        .from("planejamento_embarque_snapshots")
+        .upsert(linhas, { onConflict: "snapshot_date,colaborador_nome" });
+      if (!error) qc.invalidateQueries({ queryKey: ["planejamento-embarque-snapshots"] });
+    })();
+  }, [registros, qc]);
+}
+
+// Cor de cada célula do histograma — mesma ideia de balde já usada no resto da aba
+// (isStatusEmbarcado/Programado/NaBase), com mais duas categorias comuns (Folga/vazio).
+function corHistogramaStatus(status: string | null): { bg: string; cor: string } {
+  if (isStatusEmbarcado(status)) return { bg: "#0A57B0", cor: "white" };
+  if (isStatusProgramado(status)) return { bg: "#38BDF8", cor: "white" };
+  if (isStatusNaBase(status)) return { bg: "#6366F1", cor: "white" };
+  const s = (status ?? "").trim().toUpperCase();
+  if (s === "FOLGA") return { bg: "#F59E0B", cor: "white" };
+  if (!s) return { bg: "#f1f5f9", cor: "#64748b" };
+  return { bg: "#94A3B8", cor: "white" };
+}
+
 // Descrição padrão de uma edição de célula (De → Para), usada nos onSave de cada coluna
 // editável da tabela — data formatada quando o campo é de data, texto puro nos outros.
 function descricaoEdicaoCampo(nome: string, campo: string, antigo: string | null, novo: string | null, ehData = false): string {
@@ -722,6 +797,25 @@ export function PlanejamentoEmbarqueTab() {
   const [editing, setEditing] = useState<PlanejamentoEmbarqueRow | null>(null);
   const [excluindo, setExcluindo] = useState<PlanejamentoEmbarqueRow | null>(null);
   const [showHistorico, setShowHistorico] = useState(false);
+  const [showHistograma, setShowHistograma] = useState(false);
+  useCapturarSnapshotDiarioPlanejamento(registros);
+  const { data: snapshots = [] } = usePlanejamentoEmbarqueSnapshotsQuery();
+  const histogramaDatas = useMemo(
+    () => Array.from(new Set(snapshots.map((s) => s.snapshot_date))).sort(),
+    [snapshots],
+  );
+  const histogramaNomes = useMemo(
+    () => Array.from(new Set(snapshots.map((s) => s.colaborador_nome))).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [snapshots],
+  );
+  const histogramaPorNome = useMemo(() => {
+    const m = new Map<string, Map<string, PlanejamentoEmbarqueSnapshotRow>>();
+    snapshots.forEach((s) => {
+      if (!m.has(s.colaborador_nome)) m.set(s.colaborador_nome, new Map());
+      m.get(s.colaborador_nome)!.set(s.snapshot_date, s);
+    });
+    return m;
+  }, [snapshots]);
 
   const updateCampo = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Record<string, unknown>; descricao?: string }) => {
@@ -966,6 +1060,13 @@ export function PlanejamentoEmbarqueTab() {
             <span className="font-bold">{linhas.length}</span>
             <span className="text-muted-foreground">colaborador(es)</span>
           </div>
+          <Button
+            type="button" size="sm" variant="outline" className="h-8"
+            onClick={() => setShowHistograma(true)}
+            title="Histograma de status por dia — uma foto por colaborador, tirada uma vez por dia"
+          >
+            <History className="mr-1.5 h-3.5 w-3.5" />Histórico
+          </Button>
           {ultimaAtualizacao && (
             <button
               type="button"
@@ -1004,6 +1105,65 @@ export function PlanejamentoEmbarqueTab() {
                   <p className="mt-1">{l.descricao}</p>
                 </div>
               ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={showHistograma} onOpenChange={setShowHistograma}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-3xl">
+          <SheetHeader>
+            <SheetTitle>Histórico — histograma do Planejamento de Embarque</SheetTitle>
+            <SheetDescription>
+              Uma foto por colaborador, tirada uma vez por dia — pra ver como o status foi mudando ao longo do tempo (a listagem acima só mostra o estado atual).
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            {histogramaDatas.length === 0 ? (
+              <EmptyState icon={History} title="Ainda sem histórico registrado" description="A primeira foto é tirada automaticamente na próxima vez que essa aba for aberta." />
+            ) : (
+              <>
+                <div className="mb-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#0A57B0" }} />Embarcado</span>
+                  <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#38BDF8" }} />Programado</span>
+                  <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#6366F1" }} />Na Base</span>
+                  <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#F59E0B" }} />Folga</span>
+                  <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#94A3B8" }} />Outro</span>
+                </div>
+                <div className="overflow-auto rounded-md border" style={{ maxHeight: 520 }}>
+                  <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
+                    <thead className="sticky top-0 z-10">
+                      <tr>
+                        <th className="sticky left-0 z-20 min-w-[170px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Colaborador</th>
+                        {histogramaDatas.map((d) => (
+                          <th key={d} className="min-w-[64px] border border-border bg-muted px-1 py-1 text-center font-normal">{fmtDateHeadcount(d)}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {histogramaNomes.map((nome) => (
+                        <tr key={nome}>
+                          <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1 font-medium">{nome}</td>
+                          {histogramaDatas.map((d) => {
+                            const snap = histogramaPorNome.get(nome)?.get(d);
+                            const cor = corHistogramaStatus(snap?.status ?? null);
+                            return (
+                              <td
+                                key={d}
+                                className="border border-border p-1 text-center"
+                                style={{ backgroundColor: cor.bg, color: cor.cor }}
+                                title={snap ? `${snap.status || "—"} · ${snap.unidade || "—"}` : "Sem registro nesse dia"}
+                              >
+                                {snap?.status ? snap.status.slice(0, 3) : ""}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </SheetContent>

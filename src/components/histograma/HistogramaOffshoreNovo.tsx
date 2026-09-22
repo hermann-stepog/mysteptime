@@ -1459,6 +1459,8 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
 
   return (
     <div className="space-y-4">
+      <DrakePobTodayCard compact />
+
       {/* ── Atualização Drake e lançamento manual ── */}
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-4">
@@ -2688,17 +2690,6 @@ function DashboardTab({ colaboradores, periodos }: {
     [planejamentoEmbarque],
   );
 
-  const kpiCards = [
-    { label: "Headcount Total", value: planejamentoEmbarque.length, icon: Users },
-    { label: "Embarcados", value: embarcadosDoPlanejamento.length, icon: Ship, hoverNames: embarcadosDoPlanejamento.map((r) => r.nome) },
-    { label: "Programados", value: programadosDoPlanejamento.length, icon: CalendarDays, hoverNames: programadosDoPlanejamento.map((r) => r.nome) },
-    { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
-    { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
-    { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
-    { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
-    { label: "Utilização", value: kpis.utilizacao, suffix: "%", icon: TrendingUp },
-  ];
-
   // ── Taxa de Ocupação média no período filtrado — a rosquinha acima é sempre a foto de UM
   // dia (pobReferenceDate); aqui calcula o % de ocupados em CADA dia do período (mesmo
   // conceito de "ocupado" de isOcupadoBucket) e tira a média, sobre o mesmo headcount total
@@ -2766,10 +2757,22 @@ function DashboardTab({ colaboradores, periodos }: {
   }, [kpis]);
 
   // Mesma soma das duas rosquinhas acima, sobre o Headcount Total do cartão (Planejamento de
-  // Embarque) — alimenta só o % no centro das rosquinhas. O cartão "Utilização" continua com
-  // a conta antiga (kpis.utilizacao), intocado.
+  // Embarque) — alimenta o % no centro das rosquinhas e também o cartão "Utilização" abaixo
+  // (mesmo número da Taxa de Ocupação — antes o cartão usava uma conta à parte, do Drake, que
+  // não batia com a rosquinha por vir de uma base de colaboradores diferente).
   const ocupadoCards = ocupacaoData.reduce((sum, d) => sum + d.value, 0);
   const pctOcupacaoCards = planejamentoEmbarque.length > 0 ? Math.round((ocupadoCards / planejamentoEmbarque.length) * 100) : 0;
+
+  const kpiCards = [
+    { label: "Headcount Total", value: planejamentoEmbarque.length, icon: Users },
+    { label: "Embarcados", value: embarcadosDoPlanejamento.length, icon: Ship, hoverNames: embarcadosDoPlanejamento.map((r) => r.nome) },
+    { label: "Programados", value: programadosDoPlanejamento.length, icon: CalendarDays, hoverNames: programadosDoPlanejamento.map((r) => r.nome) },
+    { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
+    { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
+    { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
+    { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
+    { label: "Utilização", value: pctOcupacaoCards, suffix: "%", icon: TrendingUp },
+  ];
 
   // Linhas da tabela "POB por Unidade × Dia" — a pedido dela, passa a vir do Planejamento de
   // Embarque em vez do Drake (dailyRecords continua existindo, intocado, pros outros gráficos
@@ -2964,16 +2967,13 @@ function DashboardTab({ colaboradores, periodos }: {
             />
           </div>
           <p className="w-full pb-1 text-xs text-muted-foreground">
-            De/Até define quem conta como "ativo" nos KPIs e no "Status por Unidade" (e alimenta os gráficos de unidade/semana). O total de embarcados hoje consulta todas as unidades no Drake, independentemente destes filtros. Os demais indicadores acompanham os filtros; POB por Mês sempre mostra do início do ano até hoje.
+            De/Até define quem conta como "ativo" nos KPIs e no "Status por Unidade" (e alimenta os gráficos de unidade/semana). Os indicadores acompanham os filtros; POB por Mês sempre mostra do início do ano até hoje.
           </p>
         </div>
       </Card>
 
       {/* ── KPIs ── */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        {/* Cartão à parte, ao lado do "Embarcados" (Planejamento de Embarque, respeita os
-           filtros da tela) — consulta o Drake ao vivo, todas as unidades, sem filtro. */}
-        <FadeInView delay={0}><DrakePobTodayCard /></FadeInView>
         {kpiCards.map((k, i) => {
           const card = (
             <Card className={cn("bg-gradient-to-br from-white to-slate-50 p-4", k.hoverNames && "cursor-default")}>

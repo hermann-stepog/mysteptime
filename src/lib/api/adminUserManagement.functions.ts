@@ -39,25 +39,18 @@ export const adminCreateUser = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertOperator(context.supabase, context.userId);
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
-      password: data.password,
-      email_confirm: true,
-      user_metadata: { full_name: data.fullName },
+    // A criação de usuário exige a service_role key, que o Lovable Cloud nunca expõe pro app
+    // (nem no .env, nem no painel) — só as Edge Functions recebem essa chave automaticamente.
+    // Por isso a ação em si roda lá (ver supabase/functions/admin-user-management), e aqui só
+    // encaminha a chamada com o token de quem está logado (o cliente já vem com ele no header,
+    // graças ao requireSupabaseAuth).
+    const { data: result, error } = await context.supabase.functions.invoke("admin-user-management", {
+      body: { action: "createUser", email: data.email, password: data.password, fullName: data.fullName, role: data.role },
     });
-    if (createErr) throw new Error(createErr.message);
-    const userId = created.user?.id;
-    if (!userId) throw new Error("Falha ao criar usuário.");
+    if (error) throw new Error("Falha ao comunicar com o servidor de autenticação.");
+    if (!result?.ok) throw new Error(result?.error ?? "Falha ao criar usuário.");
 
-    const { error: roleErr } = await supabaseAdmin
-      .from("user_roles")
-      .update({ role: data.role })
-      .eq("user_id", userId);
-    if (roleErr) throw new Error(roleErr.message);
-
-    return { userId };
+    return { userId: result.userId as string };
   });
 
 export const adminResetPassword = createServerFn({ method: "POST" })
@@ -71,12 +64,13 @@ export const adminResetPassword = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertOperator(context.supabase, context.userId);
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
-      password: data.newPassword,
+    // Mesmo motivo do adminCreateUser acima: redefinir senha de outro usuário exige
+    // service_role, que só a Edge Function recebe automaticamente no Lovable Cloud.
+    const { data: result, error } = await context.supabase.functions.invoke("admin-user-management", {
+      body: { action: "resetPassword", userId: data.userId, newPassword: data.newPassword },
     });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error("Falha ao comunicar com o servidor de autenticação.");
+    if (!result?.ok) throw new Error(result?.error ?? "Falha ao redefinir senha.");
 
     return { ok: true };
   });
