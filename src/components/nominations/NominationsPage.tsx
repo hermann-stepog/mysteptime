@@ -3230,6 +3230,20 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
     return m;
   }, [linhasDemanda, periodos]);
 
+  // Mesma lista e mesma ordem de funções nos dois quadros — é isso que deixa Provisão e
+  // Disponibilidade "emparelhadas" linha a linha, permitindo comparar visualmente as duas.
+  // Começa pela ordem de Disponibilidade (mais efetivo primeiro) e só acrescenta no fim uma
+  // função que só exista do lado da Provisão (nomeação pra função sem ninguém cadastrado ainda
+  // no Planejamento de Embarque).
+  const funcoesUnificadas = useMemo(() => {
+    const ordem = disponivelPorFuncaoPeriodo.map((r) => r.funcao);
+    const vistas = new Set(ordem);
+    demandaPorFuncaoPeriodo.forEach((_, funcao) => {
+      if (!vistas.has(funcao)) { ordem.push(funcao); vistas.add(funcao); }
+    });
+    return ordem;
+  }, [disponivelPorFuncaoPeriodo, demandaPorFuncaoPeriodo]);
+
   // Cor da célula de Disponibilidade: vermelho quando o disponível não cobre a provisão daquele
   // período, amarelo quando cobre só por uma margem pequena (perto de não atender) e verde
   // quando há folga confortável. Sem provisão pra aquela função no período, mantém o estilo
@@ -3249,10 +3263,6 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Provisão de POB</h3>
-      <p className="text-sm text-muted-foreground">
-        Demanda de mão de obra planejada nas nomeações, por Unidade/BSP e Função, ao longo do tempo — compare com o efetivo disponível no Planejamento de Embarque.
-      </p>
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-md border bg-muted p-0.5">
           {(["dia", "semana", "mes"] as const).map((g) => (
@@ -3272,16 +3282,19 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-      {linhasDemanda.length === 0 || !horizonte ? (
+      <div className="grid gap-3 xl:grid-cols-2">
+      {funcoesUnificadas.length === 0 || !horizonte ? (
         <EmptyState icon={ClipboardList} title="Nenhuma nomeação com período programado encontrada" />
       ) : (
         <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
+          <div className="sticky top-0 z-20 border-b bg-background p-3">
+            <h3 className="text-sm font-semibold">Provisão de POB</h3>
+            <p className="text-xs text-muted-foreground">Demanda de mão de obra planejada nas nomeações, por Função, ao longo do tempo.</p>
+          </div>
           <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
-            <thead className="sticky top-0 z-10">
+            <thead className="sticky top-[49px] z-10">
               <tr>
-                <th className="sticky left-0 z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Unidade</th>
-                <th className="sticky left-[160px] z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Função</th>
+                <th className="sticky left-0 z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Função</th>
                 {periodos.map((p, i) => (
                   <th
                     key={i}
@@ -3294,24 +3307,23 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
               </tr>
             </thead>
             <tbody>
-              {linhasDemanda.map((l, li) => (
-                <tr key={li} className="hover:bg-muted/30">
-                  <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1 font-medium">{l.unidade}</td>
-                  <td className="sticky left-[160px] z-10 border border-border bg-background px-2 py-1 text-muted-foreground">{l.funcao}</td>
-                  {periodos.map((p, i) => {
-                    const on = ativoNoPeriodo(l.start, l.end, p.dias);
-                    return (
+              {funcoesUnificadas.map((funcao) => {
+                const porPeriodo = demandaPorFuncaoPeriodo.get(funcao) ?? periodos.map(() => 0);
+                return (
+                  <tr key={funcao} className="hover:bg-muted/30">
+                    <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1">{funcao}</td>
+                    {porPeriodo.map((tot, i) => (
                       <td
                         key={i}
                         className="border border-border p-0 text-center"
-                        style={on ? { backgroundColor: "#0A57B0", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
+                        style={tot > 0 ? { backgroundColor: "#0A57B0", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
                       >
-                        {on ? l.qtd : ""}
+                        {tot > 0 ? tot : ""}
                       </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </Card>
@@ -3338,11 +3350,13 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
             </tr>
           </thead>
           <tbody>
-            {disponivelPorFuncaoPeriodo.map((row) => (
-              <tr key={row.funcao} className="hover:bg-muted/30">
-                <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1">{row.funcao}</td>
-                {row.porPeriodo.map((qtd, i) => {
-                  const demanda = demandaPorFuncaoPeriodo.get(row.funcao)?.[i] ?? 0;
+            {funcoesUnificadas.map((funcao) => {
+              const porPeriodo = disponivelPorFuncaoPeriodo.find((r) => r.funcao === funcao)?.porPeriodo ?? periodos.map(() => 0);
+              return (
+              <tr key={funcao} className="hover:bg-muted/30">
+                <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1">{funcao}</td>
+                {porPeriodo.map((qtd, i) => {
+                  const demanda = demandaPorFuncaoPeriodo.get(funcao)?.[i] ?? 0;
                   const { label, ...estilo } = celulaDisponibilidade(qtd, demanda);
                   return (
                     <td key={i} className="border border-border p-0 text-center" style={estilo}>
@@ -3351,8 +3365,9 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
                   );
                 })}
               </tr>
-            ))}
-            {disponivelPorFuncaoPeriodo.length === 0 && (
+              );
+            })}
+            {funcoesUnificadas.length === 0 && (
               <tr><td colSpan={1 + periodos.length} className="px-3 py-4 text-center text-muted-foreground">Sem dados.</td></tr>
             )}
           </tbody>
