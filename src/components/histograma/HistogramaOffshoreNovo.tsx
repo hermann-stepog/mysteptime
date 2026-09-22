@@ -1285,6 +1285,43 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     return linhas;
   }, [planejamentoEmbarque, colaboradorIdPorNome, periodos]);
 
+  // Mesma ideia acima, agora pra quem já está com Status "Embarcado" no Planejamento de
+  // Embarque — pedido dela: a lista de Lançamentos também reflete quem está embarcado ali, não
+  // só quem o Drake já sincronizou (cobre gente cadastrada na planilha antes de entrar no
+  // Drake, ou nomes que nunca batem por alguma diferença de grafia). Some sozinha quando expira
+  // (mesma regra do Programado) e não duplica quem o Drake já confirma como "E" nessa janela.
+  const linhasEmbarcadoPlanejamento = useMemo(() => {
+    const hoje = todayStr();
+    const linhas: LancamentoRow[] = [];
+    planejamentoEmbarque.forEach((row) => {
+      if (!isStatusEmbarcado(row.status) || !row.embarque) return;
+      const fim = row.desembarque ?? row.embarque;
+      if (hoje > fim) return;
+      const colaboradorId = colaboradorIdPorNome.get(normalizeNomeHistograma(row.nome)) ?? `planejamento-sem-drake:${row.id}`;
+      const jaConfirmado = periodos.some((e) =>
+        e.colaborador_id === colaboradorId && e.tipo === "E" && e.data_inicio <= fim && e.data_fim >= row.embarque!,
+      );
+      if (jaConfirmado) return;
+      const dias = Math.round((new Date(fim).getTime() - new Date(row.embarque!).getTime()) / 86400000) + 1;
+      linhas.push({
+        id: `planejamento-embarcado:${row.id}`,
+        colaborador_id: colaboradorId,
+        unidade_operacional: row.unidade,
+        centro_de_custo: null,
+        bsp: row.bsp,
+        tipo: "E",
+        data_inicio: row.embarque!,
+        data_fim: fim,
+        dias: dias > 0 ? dias : 1,
+        origem: "planejamento_embarque",
+        created_at: row.embarque!,
+        nomeVirtual: row.nome,
+        funcaoVirtual: row.funcao,
+      });
+    });
+    return linhas;
+  }, [planejamentoEmbarque, colaboradorIdPorNome, periodos]);
+
   const filteredPeriodos = useMemo(() => {
     // Evento agora é multi-seleção: filterTipo é uma lista de tipos (TipoPeriodo) + talvez o
     // sentinela EVENTO_FILTER_DESEMBARQUE misturado junto — lista vazia significa "Todos".
@@ -1348,8 +1385,13 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
     const linhasProgramado = linhasProgramadoPlanejamento.filter((p) =>
       (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(tipoEfetivo(p))) && filtrosComuns(p),
     );
+    // Mesma ideia, pros "E — Embarcado" cruzados do Planejamento de Embarque (ver
+    // linhasEmbarcadoPlanejamento) — entram junto com os "E" reais do Drake.
+    const linhasEmbarcado = linhasEmbarcadoPlanejamento.filter((p) =>
+      (nenhumFiltroDeTipo || tiposNormaisSelecionados.includes(tipoEfetivo(p))) && filtrosComuns(p),
+    );
 
-    return [...linhasNormais, ...linhasDesembarque, ...linhasProgramado].sort((a, b) => {
+    return [...linhasNormais, ...linhasDesembarque, ...linhasProgramado, ...linhasEmbarcado].sort((a, b) => {
       if (!sortColumn) return a.data_inicio.localeCompare(b.data_inicio);
       const dir = sortDirection === "asc" ? 1 : -1;
       switch (sortColumn) {
@@ -1390,7 +1432,7 @@ function LancamentosTab({ colaboradores, periodos }: { colaboradores: HistNovoCo
           return 0;
       }
     });
-  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection, embarquesByColaboradorId, ultimaFolgaPorColaborador, linhasProgramadoPlanejamento]);
+  }, [periodos, filterColaborador, filterTipo, filterUnidade, filterBsp, filterFuncao, filterDe, filterAte, colaboradorById, sortColumn, sortDirection, embarquesByColaboradorId, ultimaFolgaPorColaborador, linhasProgramadoPlanejamento, linhasEmbarcadoPlanejamento]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de filteredPeriodos, já com
   // todos os filtros (incluindo "Atualizado hoje") aplicados, não a base inteira de períodos.
