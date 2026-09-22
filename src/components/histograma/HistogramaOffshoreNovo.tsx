@@ -2690,27 +2690,6 @@ function DashboardTab({ colaboradores, periodos }: {
     [planejamentoEmbarque],
   );
 
-  // ── Taxa de Ocupação média no período filtrado — a rosquinha acima é sempre a foto de UM
-  // dia (pobReferenceDate); aqui calcula o % de ocupados em CADA dia do período (mesmo
-  // conceito de "ocupado" de isOcupadoBucket) e tira a média, sobre o mesmo headcount total
-  // (activeColaboradores) usado no resto do card. Só considera dias até hoje — dias futuros
-  // do período (ex.: resto do mês corrente) ainda não têm dado nenhum lançado pra maioria dos
-  // colaboradores, então entrariam quase todos como Standby e derrubariam a média sem
-  // significar nada de verdade.
-  const datesAteHoje = useMemo(() => dates.filter((d) => d <= today), [dates, today]);
-  const mediaOcupacaoPeriodo = useMemo(() => {
-    if (datesAteHoje.length === 0 || activeColaboradores.length === 0) return 0;
-    let somaOcupados = 0;
-    datesAteHoje.forEach((d) => {
-      activeColaboradores.forEach((c) => {
-        const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
-        const bucket = toOldBucket(result.status);
-        if (isOcupadoBucket(bucket) || ehUnidadeBase(result.periodo?.unidade_operacional)) somaOcupados++;
-      });
-    });
-    return Math.round((somaOcupados / (datesAteHoje.length * activeColaboradores.length)) * 100);
-  }, [datesAteHoje, activeColaboradores, periodosByColaborador]);
-
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
   // cálculo de computeDayStatus pra cada gráfico separadamente. ──
@@ -3117,15 +3096,6 @@ function DashboardTab({ colaboradores, periodos }: {
               ))}
             </div>
           </div>
-        </div>
-        <div className="border-t mt-5 pt-4">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Taxa de Ocupação Média no período (até hoje)</p>
-          <p
-            className="mt-1 text-2xl font-bold"
-            style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-          >
-            {mediaOcupacaoPeriodo}%
-          </p>
         </div>
       </Card>
 
