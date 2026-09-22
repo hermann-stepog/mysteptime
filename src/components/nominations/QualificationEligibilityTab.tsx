@@ -643,8 +643,6 @@ function PendenciasAptidaoTab() {
   const [selectedWorker, setSelectedWorker] = useState<WorkerEligibility | null>(null);
   const [dataReferencia, setDataReferencia] = useState(todayLocal());
   const [funcaoFiltro, setFuncaoFiltro] = useState("");
-  const [statusFiltro, setStatusFiltro] = useState<"" | "apto" | "nao-apto">("");
-  const [clienteFiltro, setClienteFiltro] = useState("");
 
   const catalogQuery = useQuery({
     queryKey: ["qualification-eligibility", "filter-catalog"],
@@ -693,24 +691,53 @@ function PendenciasAptidaoTab() {
     return m;
   }, [linhasFiltradas, drakeWorkerPorNome]);
 
-  const combos = useMemo(() => {
-    const m = new Map<string, { jobName: string; unitName: string; selection: QualificationEligibilitySelection | null }>();
-    drakeWorkerPorLinha.forEach((worker) => {
-      if (!worker.jobName || !worker.currentOperationalUnitName) return;
-      const key = `${worker.jobName}::${worker.currentOperationalUnitName}`;
-      if (m.has(key)) return;
-      const unit = findByLooseMatch(catalog?.operationalUnits ?? [], (u) => u.name, worker.currentOperationalUnitName!);
-      const job = findByLooseMatch(catalog?.jobs ?? [], (j) => j.name, worker.jobName!);
-      const operationType: OperationType = /irata/i.test(worker.jobName!) ? "offshore-irata" : "offshore";
-      m.set(key, {
-        jobName: worker.jobName!, unitName: worker.currentOperationalUnitName!,
-        selection: unit && job ? { operationalUnitId: unit.id, jobId: job.id, operationType, startDate: dataReferencia, endDate: dataReferencia } : null,
+  // Um cliente não é uma opção real do catálogo do Drake (a Matriz é por unidade — confirmado
+  // com ela) — pra montar a coluna "por cliente" da matriz, uso UMA unidade representante de
+  // cada cliente (a primeira encontrada no catálogo com esse cliente, via clienteDaUnidade) e
+  // avalio a aptidão do colaborador nessa unidade. É uma aproximação: se o cliente tiver mais
+  // de uma unidade com matrizes diferentes, isso não captura a diferença — mas é o único jeito
+  // de comparar "apto em outro cliente" sem ela escolher unidade por unidade.
+  const unidadeRepresentantePorCliente = useMemo(() => {
+    const m = new Map<string, QualificationFilterOption>();
+    (catalog?.operationalUnits ?? []).forEach((u) => {
+      const cliente = clienteDaUnidade(u.name);
+      if (cliente && !m.has(cliente)) m.set(cliente, u);
+    });
+    return m;
+  }, [catalog]);
+  const clientesTodos = useMemo(
+    () => Array.from(unidadeRepresentantePorCliente.keys()).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [unidadeRepresentantePorCliente],
+  );
+
+  // Pra não disparar uma combinação função×cliente pra cada função que existe no Planejamento
+  // de Embarque inteiro (dezenas de chamadas ao vivo no Drake de uma vez), a matriz só calcula
+  // depois que ela escolhe uma Função específica no filtro.
+  const jobsNecessarios = useMemo(() => {
+    if (!funcaoFiltro) return [];
+    const s = new Set<string>();
+    drakeWorkerPorLinha.forEach((w) => { if (w.jobName) s.add(w.jobName); });
+    return Array.from(s);
+  }, [funcaoFiltro, drakeWorkerPorLinha]);
+
+  const combosMatriz = useMemo(() => {
+    const list: { key: string; job: string; cliente: string; selection: QualificationEligibilitySelection | null }[] = [];
+    jobsNecessarios.forEach((job) => {
+      const jobOpt = findByLooseMatch(catalog?.jobs ?? [], (j) => j.name, job);
+      const operationType: OperationType = /irata/i.test(job) ? "offshore-irata" : "offshore";
+      clientesTodos.forEach((cliente) => {
+        const unit = unidadeRepresentantePorCliente.get(cliente)!;
+        list.push({
+          key: `${job}::${cliente}`,
+          job, cliente,
+          selection: unit && jobOpt ? { operationalUnitId: unit.id, jobId: jobOpt.id, operationType, startDate: dataReferencia, endDate: dataReferencia } : null,
+        });
       });
     });
-    return Array.from(m.values());
-  }, [drakeWorkerPorLinha, catalog, dataReferencia]);
+    return list;
+  }, [jobsNecessarios, clientesTodos, unidadeRepresentantePorCliente, catalog, dataReferencia]);
 
-  const combosComSelecao = useMemo(() => combos.filter((c) => c.selection), [combos]);
+  const combosComSelecao = useMemo(() => combosMatriz.filter((c) => c.selection), [combosMatriz]);
 
   const evaluationQueries = useQueries({
     queries: combosComSelecao.map((c) => ({
@@ -727,58 +754,29 @@ function PendenciasAptidaoTab() {
     const m = new Map<string, WorkerEligibility[]>();
     combosComSelecao.forEach((c, i) => {
       const data = evaluationQueries[i]?.data;
-      if (data) m.set(`${c.jobName}::${c.unitName}`, data.workers);
+      if (data) m.set(c.key, data.workers);
     });
     return m;
   }, [combosComSelecao, evaluationQueries]);
 
-  type Resultado = { row: PlanejamentoEmbarqueRow; worker: WorkerEligibility | null; verificado: boolean };
-  const resultados = useMemo<Resultado[]>(() => linhasFiltradas.map((r) => {
-    const drakeWorker = drakeWorkerPorLinha.get(r.id);
-    if (!drakeWorker || !drakeWorker.jobName || !drakeWorker.currentOperationalUnitName) {
-      return { row: r, worker: null, verificado: false };
+  // Uma linha por colaborador, uma célula por cliente — status de aptidão daquele colaborador
+  // (pela função dele) na unidade representante daquele cliente.
+  type CelulaMatriz = { status: EligibilityStatus; worker: WorkerEligibility } | "nao-verificado";
+  type LinhaMatriz = { row: PlanejamentoEmbarqueRow; drakeWorker: QualificationWorker | null; porCliente: Map<string, CelulaMatriz> };
+  const matriz = useMemo<LinhaMatriz[]>(() => linhasFiltradas.map((r) => {
+    const drakeWorker = drakeWorkerPorLinha.get(r.id) ?? null;
+    const porCliente = new Map<string, CelulaMatriz>();
+    if (drakeWorker?.jobName) {
+      clientesTodos.forEach((cliente) => {
+        const workers = workersPorCombo.get(`${drakeWorker.jobName}::${cliente}`);
+        const worker = workers?.find((w) => w.worker.drakeWorkerId === drakeWorker.drakeWorkerId);
+        porCliente.set(cliente, worker ? { status: worker.status, worker } : "nao-verificado");
+      });
     }
-    const workers = workersPorCombo.get(`${drakeWorker.jobName}::${drakeWorker.currentOperationalUnitName}`);
-    if (!workers) return { row: r, worker: null, verificado: false };
-    const worker = workers.find((w) => w.worker.drakeWorkerId === drakeWorker.drakeWorkerId) ?? null;
-    return { row: r, worker, verificado: true };
-  }), [linhasFiltradas, drakeWorkerPorLinha, workersPorCombo]);
+    return { row: r, drakeWorker, porCliente };
+  }), [linhasFiltradas, drakeWorkerPorLinha, clientesTodos, workersPorCombo]);
 
-  const encontrados = useMemo(() => resultados.filter((x): x is Resultado & { worker: WorkerEligibility } => Boolean(x.worker)), [resultados]);
-  const naoVerificados = useMemo(() => resultados.filter((x) => !x.verificado || !x.worker), [resultados]);
-
-  // Cliente é derivado da unidade verificada (a Matriz de Qualificação é organizada por
-  // unidade, não por cliente — confirmado com ela), não um dado próprio da consulta. Pedido
-  // dela: dividir o resultado por cliente, mostrando em qual cliente cada colaborador está
-  // apto ou não.
-  const encontradosComCliente = useMemo(
-    () => encontrados.map((x) => ({ ...x, cliente: clienteDaUnidade(x.worker.worker.currentOperationalUnitName) ?? "Sem cliente identificado" })),
-    [encontrados],
-  );
-  const clientesDisponiveis = useMemo(
-    () => Array.from(new Set(encontradosComCliente.map((x) => x.cliente))).sort((a, b) => a.localeCompare(b, "pt-BR")),
-    [encontradosComCliente],
-  );
-  const encontradosFiltrados = useMemo(
-    () => (clienteFiltro ? encontradosComCliente.filter((x) => x.cliente === clienteFiltro) : encontradosComCliente),
-    [encontradosComCliente, clienteFiltro],
-  );
-  const porCliente = useMemo(() => {
-    const m = new Map<string, { apt: WorkerEligibility[]; unfit: WorkerEligibility[] }>();
-    encontradosFiltrados.forEach((x) => {
-      if (!m.has(x.cliente)) m.set(x.cliente, { apt: [], unfit: [] });
-      const bucket = m.get(x.cliente)!;
-      (x.worker.status === "unfit" ? bucket.unfit : bucket.apt).push(x.worker);
-    });
-    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
-  }, [encontradosFiltrados]);
-  const aptWorkers = useMemo(() => encontradosFiltrados.filter((x) => x.worker.status !== "unfit").map((x) => x.worker), [encontradosFiltrados]);
-  const unfitWorkers = useMemo(() => encontradosFiltrados.filter((x) => x.worker.status === "unfit").map((x) => x.worker), [encontradosFiltrados]);
-
-  // Status filtra qual das duas listas aparece — igual escolher a aba Aptos/Não aptos, só que
-  // como um filtro explícito (pedido dela), com "Todos" mostrando as duas juntas.
-  const mostrarAptos = statusFiltro !== "nao-apto";
-  const mostrarNaoAptos = statusFiltro !== "apto";
+  const naoVerificados = useMemo(() => matriz.filter((l) => !l.drakeWorker), [matriz]);
 
   return (
     <div className="space-y-4">
@@ -793,7 +791,7 @@ function PendenciasAptidaoTab() {
             Qualificação do Drake, colaborador por colaborador.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="pendencias-data">Data</Label>
             <Input
@@ -804,37 +802,25 @@ function PendenciasAptidaoTab() {
           <div className="space-y-1.5">
             <Label>Função de embarque</Label>
             <Select value={funcaoFiltro || "__todas__"} onValueChange={(v) => setFuncaoFiltro(v === "__todas__" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Selecione uma função" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="__todas__">Todas</SelectItem>
+                <SelectItem value="__todas__">Selecione uma função</SelectItem>
                 {funcoesDisponiveis.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Cliente</Label>
-            <Select value={clienteFiltro || "__todos__"} onValueChange={(v) => setClienteFiltro(v === "__todos__" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__todos__">Todos</SelectItem>
-                {clientesDisponiveis.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Status</Label>
-            <Select value={statusFiltro || "__todos__"} onValueChange={(v) => setStatusFiltro(v === "__todos__" ? "" : (v as "apto" | "nao-apto"))}>
-              <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__todos__">Todos</SelectItem>
-                <SelectItem value="apto">Apto</SelectItem>
-                <SelectItem value="nao-apto">Não apto</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Escolha uma função pra ver, colaborador por colaborador, se está apto em cada cliente — cada
+          coluna consulta o Drake ao vivo, então escolher uma função de cada vez evita dezenas de
+          consultas ao mesmo tempo.
+        </p>
       </Card>
 
+      {!funcaoFiltro ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground">Selecione uma função acima pra montar a matriz.</Card>
+      ) : (
+        <>
       {(catalogQuery.isLoading || planejamentoLoading || drakeWorkersQuery.isLoading) && <EligibilitySkeleton />}
       {catalogQuery.isError && (
         <ErrorCard message="Não foi possível carregar a Matriz de Qualificação do Drake. Aplique as migrações e atualize os dados do Drake." />
@@ -845,62 +831,58 @@ function PendenciasAptidaoTab() {
 
       {catalog && !planejamentoLoading && !drakeWorkersQuery.isLoading && (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard label="Aptos" value={aptWorkers.length} icon={CheckCircle2} tone="success" />
-            <SummaryCard label="Não aptos" value={unfitWorkers.length} icon={XCircle} tone="danger" />
+          <div className="grid gap-3 sm:grid-cols-2">
             <SummaryCard label="Não foi possível verificar" value={naoVerificados.length} icon={AlertTriangle} tone="warning" />
             <SummaryCard label="Combinações consultadas no Drake" value={combosComSelecao.length} icon={GraduationCap} tone="neutral" />
           </div>
 
           {algumaConsultaCarregando && (
             <p className="text-xs text-muted-foreground">
-              Consultando o Drake para {combosComSelecao.length} combinação(ões) de função/unidade...
+              Consultando o Drake para {combosComSelecao.length} combinação(ões) de função/cliente...
             </p>
           )}
           {algumaConsultaComErro && (
-            <ErrorCard message="Uma ou mais combinações de função/unidade não puderam ser consultadas no Drake agora." />
+            <ErrorCard message="Uma ou mais combinações de função/cliente não puderam ser consultadas no Drake agora." />
           )}
 
-          {porCliente.length === 0 ? (
-            <Card className="p-8 text-center text-sm text-muted-foreground">
-              {algumaConsultaCarregando ? "Consultando..." : "Nenhum colaborador encontrado pra esses filtros."}
-            </Card>
+          {matriz.length === 0 ? (
+            <Card className="p-8 text-center text-sm text-muted-foreground">Nenhum colaborador encontrado pra essa função.</Card>
           ) : (
-            porCliente.map(([cliente, { apt, unfit }]) => (
-              <Card key={cliente} className="overflow-hidden">
-                <div className="border-b p-4">
-                  <h3 className="font-semibold">{cliente}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Situação em {formatDate(dataReferencia)}
-                    {funcaoFiltro ? ` — função ${funcaoFiltro}` : ""}.
-                  </p>
-                </div>
-                {mostrarAptos && (
-                  <div>
-                    <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
-                      Aptos ({apt.length})
-                    </p>
-                    <WorkerTable
-                      workers={apt}
-                      emptyMessage="Nenhum colaborador apto encontrado."
-                      onDetails={setSelectedWorker}
-                    />
-                  </div>
-                )}
-                {mostrarNaoAptos && (
-                  <div>
-                    <p className="border-b bg-muted/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
-                      Não aptos ({unfit.length})
-                    </p>
-                    <WorkerTable
-                      workers={unfit}
-                      emptyMessage="Nenhum colaborador não apto encontrado."
-                      onDetails={setSelectedWorker}
-                    />
-                  </div>
-                )}
-              </Card>
-            ))
+            <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
+              <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
+                <thead className="sticky top-0 z-10">
+                  <tr>
+                    <th className="sticky left-0 z-20 min-w-[220px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Colaborador</th>
+                    {clientesTodos.map((c) => (
+                      <th key={c} className="min-w-[110px] border border-border bg-muted px-2 py-1.5 text-center font-medium">{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {matriz.map((linha) => (
+                    <tr key={linha.row.id} className="hover:bg-muted/30">
+                      <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1.5">
+                        <p className="font-medium">{linha.row.nome}</p>
+                        <p className="text-[11px] text-muted-foreground">{linha.row.funcao}</p>
+                      </td>
+                      {clientesTodos.map((c) => {
+                        const cel = linha.porCliente.get(c);
+                        if (!linha.drakeWorker || !cel || cel === "nao-verificado") {
+                          return <td key={c} className="border border-border px-2 py-1.5 text-center text-muted-foreground">—</td>;
+                        }
+                        return (
+                          <td key={c} className="border border-border px-2 py-1.5 text-center">
+                            <button type="button" onClick={() => setSelectedWorker(cel.worker)} className="hover:underline">
+                              <EligibilityBadge status={cel.status} />
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
           )}
 
           {naoVerificados.length > 0 && (
@@ -921,6 +903,8 @@ function PendenciasAptidaoTab() {
               </ul>
             </Card>
           )}
+        </>
+      )}
         </>
       )}
 

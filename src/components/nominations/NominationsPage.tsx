@@ -3024,26 +3024,6 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
     });
   }, [nominations, periodoDe, periodoAte]);
 
-  // Quantitativo de mão de obra (não de solicitações) do que está no mapa hoje: cada
-  // nomeação pede "quantidade" pessoas pra uma função/BSP; "atendida" é quanto disso já tem
-  // nomeado ativo de verdade (nunca mais que o pedido, pra Pendente nunca ficar negativo).
-  const quantitativosMaoDeObra = useMemo(() => {
-    let solicitada = 0, atendida = 0;
-    nominationsVisiveis.forEach((n) => {
-      const ativos = (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).length;
-      solicitada += n.quantidade;
-      atendida += Math.min(ativos, n.quantidade);
-    });
-    return { solicitada, atendida, pendente: solicitada - atendida };
-  }, [nominationsVisiveis, nomineesByNomination]);
-
-  // "Mão de obra x Demanda": headcount total cadastrado no Planejamento de Embarque (dentro
-  // de Histograma Offshore) comparado com a demanda de mão de obra pedida nas nomeações do
-  // mapa (mesmo total "Solicitada" acima) — dá pra ver se o efetivo disponível cobre o que
-  // está sendo pedido agora.
-  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
-  const maoDeObraTotal = planejamentoEmbarque.length;
-
   const bsps = useMemo(
     () => Array.from(new Set(nominationsVisiveis.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort((a, b) =>
       a === MAPA_SEM_BSP ? 1 : b === MAPA_SEM_BSP ? -1 : a.localeCompare(b),
@@ -3165,43 +3145,6 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         </div>
       </div>
       {showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
-
-      {/* ── Quantitativos de mão de obra (não de solicitações) do que está no mapa hoje ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Mão de obra solicitada</span>
-            <ClipboardList className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.solicitada}</div>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Quantidade atendida</span>
-            <CheckCircle2 className="h-4 w-4 text-success" />
-          </div>
-          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.atendida}</div>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Quantidade pendente</span>
-            <Clock className="h-4 w-4 text-warning" />
-          </div>
-          <div className="mt-1 text-2xl font-semibold">{quantitativosMaoDeObra.pendente}</div>
-        </Card>
-        <Card className="p-3" title="Efetivo total cadastrado em Planejamento de Embarque (Histograma Offshore) x mão de obra solicitada nas nomeações do mapa">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Mão de obra x Demanda</span>
-            <Scale className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-1 text-2xl font-semibold">
-            <Users className="mb-0.5 h-4 w-4 text-muted-foreground" />
-            {maoDeObraTotal}
-            <span className="text-sm font-normal text-muted-foreground">x</span>
-            {quantitativosMaoDeObra.solicitada}
-          </div>
-        </Card>
-      </div>
 
       <TooltipProvider delayDuration={150}>
         <Card className="overflow-x-auto p-2">
@@ -3399,8 +3342,6 @@ interface LinhaDoTempoGrupo {
 
 function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }) {
   const [gran, setGran] = useState<LinhaDoTempoGranularidade>("semana");
-  const [ocultarEncerradas, setOcultarEncerradas] = useState(false);
-  const [ocultarSemBsp, setOcultarSemBsp] = useState(false);
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
   const hoje = todayStr();
 
@@ -3437,11 +3378,8 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
   }, [validas]);
 
   const gruposFiltrados = useMemo(
-    () => grupos
-      .filter((g) => !(ocultarSemBsp && !g.bsp))
-      .filter((g) => !(ocultarEncerradas && g.end < hoje))
-      .sort((a, b) => a.start.localeCompare(b.start)),
-    [grupos, ocultarSemBsp, ocultarEncerradas, hoje],
+    () => grupos.slice().sort((a, b) => a.start.localeCompare(b.start)),
+    [grupos],
   );
 
   const horizonte = useMemo(() => {
@@ -3533,8 +3471,6 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
           ))}
         </div>
         <Button size="sm" variant="outline" onClick={alternarTodos}>{todosAbertos ? "Recolher todos" : "Expandir todos"}</Button>
-        <Button size="sm" variant={ocultarEncerradas ? "default" : "outline"} onClick={() => setOcultarEncerradas((v) => !v)}>Ocultar encerradas</Button>
-        <Button size="sm" variant={ocultarSemBsp ? "default" : "outline"} onClick={() => setOcultarSemBsp((v) => !v)}>Ocultar sem BSP</Button>
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#0A57B0" }} />Unidade/BSP</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#6BA6DE" }} />Função</span>
