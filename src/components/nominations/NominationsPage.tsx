@@ -59,7 +59,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
-import { usePlanejamentoEmbarqueQuery, type PlanejamentoEmbarqueRow } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import { usePlanejamentoEmbarqueQuery, isStatusProgramado, type PlanejamentoEmbarqueRow } from "@/components/histograma/PlanejamentoEmbarqueTab";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2104,9 +2104,12 @@ function useAllNominations() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type PlanejamentoBspGroup = { name: string; rows: PlanejamentoEmbarqueRow[] };
-type PlanejamentoUnitGroup = { name: string; bsps: PlanejamentoBspGroup[]; rows: PlanejamentoEmbarqueRow[] };
-type PlanejamentoClientGroup = { name: string; units: PlanejamentoUnitGroup[]; rows: PlanejamentoEmbarqueRow[] };
+// "embarcado" = dentro da janela [Embarque, Desembarque) na data de referência; "programado" =
+// Status "Programado" com Embarque batendo exatamente com a data de referência (pedido dela).
+type EquipeItem = { row: PlanejamentoEmbarqueRow; tipo: "embarcado" | "programado" };
+type PlanejamentoBspGroup = { name: string; items: EquipeItem[] };
+type PlanejamentoUnitGroup = { name: string; bsps: PlanejamentoBspGroup[]; items: EquipeItem[] };
+type PlanejamentoClientGroup = { name: string; units: PlanejamentoUnitGroup[]; items: EquipeItem[] };
 
 // Tira o nível/certificação do fim da função (ex.: "SOLDADOR IV" -> "SOLDADOR", "SUPERVISOR
 // ESCALADOR N3" -> "SUPERVISOR ESCALADOR") pros cartões de quantitativo por função em Equipes
@@ -2134,10 +2137,9 @@ function ClientCascadeView() {
   const [collapsedClients, setCollapsedClients] = useState<Set<string>>(new Set());
   const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
   const [collapsedBsps, setCollapsedBsps] = useState<Set<string>>(new Set());
-  // Cartões de Unidade/Função viram filtro clicável (pedido dela) — clicar mostra só aquilo na
-  // árvore abaixo; clicar de novo no mesmo cartão (ou em "Total embarcado") limpa.
+  // Cartão de Unidade vira filtro clicável (pedido dela) — clicar mostra só aquela unidade na
+  // árvore abaixo; clicar de novo (ou em "Total embarcado") limpa.
   const [unidadeFiltro, setUnidadeFiltro] = useState<string | null>(null);
-  const [funcaoFiltro, setFuncaoFiltro] = useState<string | null>(null);
   const today = todayStr();
   const teamReferenceDate = periodStart || periodEnd || today;
 
@@ -2151,79 +2153,71 @@ function ClientCascadeView() {
 
   // Fonte passa a ser o Planejamento de Embarque (aba do Histograma Offshore), não mais o
   // Drake direto — pedido dela. "Embarcado em teamReferenceDate" usa a mesma janela exclusiva
-  // no fim [Embarque, Desembarque) de todo o app (Início Folga = Desembarque).
+  // no fim [Embarque, Desembarque) de todo o app (Início Folga = Desembarque). "Programado do
+  // dia" (pedido dela também) entra à parte: mesmo critério de status já usado em Lançamentos
+  // (isStatusProgramado) com Embarque batendo exatamente com a data de referência — sem
+  // duplicar quem já conta como embarcado.
   const { data: planejamentoEmbarque = [], isLoading: isLoadingPlanejamento } = usePlanejamentoEmbarqueQuery();
-  const embarcadosNaData = useMemo(
-    () => planejamentoEmbarque.filter((row) => {
-      if (!row.unidade?.trim() || row.unidade.trim().toUpperCase() === "FOLGA") return false;
-      if (!row.embarque || row.embarque > teamReferenceDate) return false;
-      if (row.desembarque && teamReferenceDate >= row.desembarque) return false;
-      return true;
-    }),
-    [planejamentoEmbarque, teamReferenceDate],
-  );
+  const equipeNaData = useMemo(() => {
+    const unidadeValida = (row: PlanejamentoEmbarqueRow) => row.unidade?.trim() && row.unidade.trim().toUpperCase() !== "FOLGA";
+    const embarcados: EquipeItem[] = planejamentoEmbarque
+      .filter((row) => unidadeValida(row) && row.embarque && row.embarque <= teamReferenceDate
+        && !(row.desembarque && teamReferenceDate >= row.desembarque))
+      .map((row) => ({ row, tipo: "embarcado" as const }));
+    const embarcadosIds = new Set(embarcados.map((item) => item.row.id));
+    const programados: EquipeItem[] = planejamentoEmbarque
+      .filter((row) => !embarcadosIds.has(row.id) && unidadeValida(row) && isStatusProgramado(row.status) && row.embarque === teamReferenceDate)
+      .map((row) => ({ row, tipo: "programado" as const }));
+    return [...embarcados, ...programados];
+  }, [planejamentoEmbarque, teamReferenceDate]);
 
-  const embarcadosComBusca = useMemo(() => {
+  const equipeComBusca = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
-    if (!query) return embarcadosNaData;
-    return embarcadosNaData.filter((row) => {
+    if (!query) return equipeNaData;
+    return equipeNaData.filter(({ row }) => {
       const cliente = clienteDaUnidade(row.unidade) ?? "";
       return [cliente, row.unidade, row.bsp, row.funcao, row.nome].some((v) => v?.toLocaleLowerCase("pt-BR").includes(query));
     });
-  }, [embarcadosNaData, search]);
+  }, [equipeNaData, search]);
 
-  // Cartões sempre mostram o total completo (só com a busca aplicada) — clicar neles filtra a
-  // árvore abaixo (visibleRows/groups), sem os cartões sumirem uns aos outros.
+  // Cartão sempre mostra o total completo (só com a busca aplicada) — clicar nele filtra a
+  // árvore abaixo (visibleItems/groups), sem os cartões sumirem uns aos outros.
   const embarqueSummary = useMemo(() => {
     const porUnidade = new Map<string, number>();
-    embarcadosComBusca.forEach((row) => {
+    equipeComBusca.forEach(({ row }) => {
       const u = row.unidade!.trim();
       porUnidade.set(u, (porUnidade.get(u) ?? 0) + 1);
     });
     return Array.from(porUnidade.entries()).map(([unidade, total]) => ({ unidade, total })).sort((a, b) => b.total - a.total);
-  }, [embarcadosComBusca]);
+  }, [equipeComBusca]);
 
-  const embarqueSummaryPorFuncao = useMemo(() => {
-    const porFuncao = new Map<string, number>();
-    embarcadosComBusca.forEach((row) => {
-      const funcao = normalizeFuncaoSemNivel(row.funcao?.trim() || "Função não informada");
-      porFuncao.set(funcao, (porFuncao.get(funcao) ?? 0) + 1);
-    });
-    return Array.from(porFuncao.entries())
-      .map(([funcao, total]) => ({ funcao, total }))
-      .sort((a, b) => b.total - a.total || a.funcao.localeCompare(b.funcao, "pt-BR"));
-  }, [embarcadosComBusca]);
-
-  const visibleRows = useMemo(() => embarcadosComBusca.filter((row) => {
-    if (unidadeFiltro && row.unidade!.trim() !== unidadeFiltro) return false;
-    if (funcaoFiltro && normalizeFuncaoSemNivel(row.funcao?.trim() || "Função não informada") !== funcaoFiltro) return false;
-    return true;
-  }), [embarcadosComBusca, unidadeFiltro, funcaoFiltro]);
+  const visibleItems = useMemo(() => equipeComBusca.filter(({ row }) => !unidadeFiltro || row.unidade!.trim() === unidadeFiltro),
+    [equipeComBusca, unidadeFiltro]);
 
   const groups = useMemo<PlanejamentoClientGroup[]>(() => {
-    const clients = new Map<string, Map<string, Map<string, PlanejamentoEmbarqueRow[]>>>();
-    visibleRows.forEach((row) => {
-      const unit = row.unidade!.trim();
+    const clients = new Map<string, Map<string, Map<string, EquipeItem[]>>>();
+    visibleItems.forEach((item) => {
+      const unit = item.row.unidade!.trim();
       const client = clienteDaUnidade(unit) ?? "Cliente não identificado";
-      const bsp = row.bsp?.trim() || "BSP não informado";
+      const bsp = item.row.bsp?.trim() || "BSP não informado";
       if (!clients.has(client)) clients.set(client, new Map());
       const units = clients.get(client)!;
       if (!units.has(unit)) units.set(unit, new Map());
       const bsps = units.get(unit)!;
       if (!bsps.has(bsp)) bsps.set(bsp, []);
-      bsps.get(bsp)!.push(row);
+      bsps.get(bsp)!.push(item);
     });
     return [...clients.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([name, units]) => {
       const unitGroups = [...units.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([unitName, bsps]) => {
-        const bspGroups = [...bsps.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([bspName, rows]) => ({
+        const bspGroups = [...bsps.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([bspName, items]) => ({
           name: bspName,
-          rows: [...rows].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+          items: [...items].sort((a, b) => a.row.nome.localeCompare(b.row.nome, "pt-BR")),
         }));
-        return { name: unitName, bsps: bspGroups, rows: bspGroups.flatMap((bsp) => bsp.rows) };
+        return { name: unitName, bsps: bspGroups, items: bspGroups.flatMap((bsp) => bsp.items) };
       });
-      return { name, units: unitGroups, rows: unitGroups.flatMap((unit) => unit.rows) };
+      return { name, units: unitGroups, items: unitGroups.flatMap((unit) => unit.items) };
     });
-  }, [visibleRows]);
+  }, [visibleItems]);
 
   return (
     <div className="space-y-4">
@@ -2267,15 +2261,15 @@ function ClientCascadeView() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => { setUnidadeFiltro(null); setFuncaoFiltro(null); }}>
+        <button type="button" onClick={() => setUnidadeFiltro(null)}>
           <Card className={cn(
             "min-w-[150px] border-primary/30 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10",
-            !unidadeFiltro && !funcaoFiltro && "ring-2 ring-primary",
+            !unidadeFiltro && "ring-2 ring-primary",
           )}>
             <p className="text-[10px] font-medium uppercase tracking-wide text-primary/80">
               Total embarcado {teamReferenceDate === today ? "hoje" : `em ${fmtDate(teamReferenceDate)}`}
             </p>
-            <p className="text-xl font-semibold text-primary">{embarcadosComBusca.length}</p>
+            <p className="text-xl font-semibold text-primary">{equipeComBusca.length}</p>
           </Card>
         </button>
         {embarqueSummary.map(({ unidade, total }) => (
@@ -2283,21 +2277,6 @@ function ClientCascadeView() {
             <Card className={cn("min-w-[120px] px-3 py-2 text-left transition-colors hover:bg-muted", unidadeFiltro === unidade && "ring-2 ring-primary")}>
               <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={unidade}>
                 {unidade}
-              </p>
-              <p className="text-xl font-semibold">{total}</p>
-            </Card>
-          </button>
-        ))}
-      </div>
-
-      {/* Mesmo total de embarcados acima, quebrado por função (sem nível/certificação) —
-          a pedido dela, sem mexer em nada da fileira de cima. */}
-      <div className="flex flex-wrap gap-2">
-        {embarqueSummaryPorFuncao.map(({ funcao, total }) => (
-          <button key={funcao} type="button" onClick={() => setFuncaoFiltro(funcaoFiltro === funcao ? null : funcao)}>
-            <Card className={cn("min-w-[120px] px-3 py-2 text-left transition-colors hover:bg-muted", funcaoFiltro === funcao && "ring-2 ring-primary")}>
-              <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={funcao}>
-                {funcao}
               </p>
               <p className="text-xl font-semibold">{total}</p>
             </Card>
@@ -2322,7 +2301,7 @@ function ClientCascadeView() {
                 </button>
                 <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{client.name}</span>
               </span>
-              <span className="text-sm font-medium text-muted-foreground">{client.rows.length}</span>
+              <span className="text-sm font-medium text-muted-foreground">{client.items.length}</span>
             </div>
             {clientOpen && client.units.map((unit) => {
               const unitKey = `${client.name}::${unit.name}`;
@@ -2337,18 +2316,21 @@ function ClientCascadeView() {
                     <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{unit.name}</span>
                     <span className="text-xs font-normal text-muted-foreground">({unit.bsps.length} BSP)</span>
                   </span>
-                  <span className="text-sm font-medium text-sky-950">{unit.rows.length}</span>
+                  <span className="text-sm font-medium text-sky-950">{unit.items.length}</span>
                 </div>
               {unitOpen && unit.bsps.map((bsp) => {
               const bspKey = `${unitKey}::${bsp.name}`;
               const bspOpen = !collapsedBsps.has(bspKey);
               // Próxima troca de turma do BSP = desembarque mais próximo entre os embarcados —
-              // é o próximo dia em que ALGUÉM daquele BSP precisa ser rendido.
-              const proximaTrocaData = bsp.rows.reduce<string | null>(
-                (min, r) => (r.desembarque && (!min || r.desembarque < min) ? r.desembarque : min), null,
+              // é o próximo dia em que ALGUÉM daquele BSP precisa ser rendido. Programado ainda
+              // não tem desembarque (nem embarcou de verdade), não conta pra essa conta.
+              const proximaTrocaData = bsp.items.reduce<string | null>(
+                (min, { row, tipo }) => (tipo === "embarcado" && row.desembarque && (!min || row.desembarque < min) ? row.desembarque : min), null,
               );
               const diasProximaTroca = proximaTrocaData ? diasAteData(proximaTrocaData, today) : null;
               const trocaUrgente = diasProximaTroca != null && diasProximaTroca <= 3;
+              const qtdEmbarcados = bsp.items.filter((i) => i.tipo === "embarcado").length;
+              const qtdProgramados = bsp.items.length - qtdEmbarcados;
               return <div key={bspKey}>
                 <div className="flex w-full items-center justify-between border-t bg-white px-4 py-2.5 text-left">
                   <span className="flex min-w-0 flex-wrap items-center gap-2 pl-14 font-medium">
@@ -2357,7 +2339,8 @@ function ClientCascadeView() {
                       {bspOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                     </button>
                     <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{bsp.name}</span>
-                    <Badge className="bg-emerald-100 font-normal text-emerald-800 hover:bg-emerald-100">{bsp.rows.length} embarcado(s) em {fmtDate(teamReferenceDate)}</Badge>
+                    {qtdEmbarcados > 0 && <Badge className="bg-emerald-100 font-normal text-emerald-800 hover:bg-emerald-100">{qtdEmbarcados} embarcado(s) em {fmtDate(teamReferenceDate)}</Badge>}
+                    {qtdProgramados > 0 && <Badge className="bg-sky-100 font-normal text-sky-800 hover:bg-sky-100">{qtdProgramados} programado(s) pra {fmtDate(teamReferenceDate)}</Badge>}
                     {proximaTrocaData && (
                       <Badge
                         className={cn(
@@ -2374,14 +2357,21 @@ function ClientCascadeView() {
                 </div>
                 {bspOpen && <div className="border-t bg-emerald-50/40 px-4 py-3 pl-[4.5rem]">
                   <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                    <User className="h-3.5 w-3.5" /> Equipe embarcada em {fmtDate(teamReferenceDate)}
+                    <User className="h-3.5 w-3.5" /> Equipe em {fmtDate(teamReferenceDate)}
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {bsp.rows.map((row) => (
-                      <div key={row.id} className="rounded-md border border-emerald-200 bg-white px-3 py-2">
-                        <p className="text-sm font-medium">{row.nome}</p>
+                    {bsp.items.map(({ row, tipo }) => (
+                      <div key={row.id} className={cn("rounded-md border bg-white px-3 py-2", tipo === "embarcado" ? "border-emerald-200" : "border-sky-200")}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium">{row.nome}</p>
+                          {tipo === "programado" && <Badge className="bg-sky-100 font-normal text-sky-800 hover:bg-sky-100">Programado</Badge>}
+                        </div>
                         <p className="text-xs text-muted-foreground">{row.funcao || "Função não informada"}</p>
-                        <p className="mt-1 text-xs text-emerald-700">Embarcado desde {fmtDate(row.embarque!)} · previsto até {row.desembarque ? fmtDate(row.desembarque) : "—"}</p>
+                        <p className={cn("mt-1 text-xs", tipo === "embarcado" ? "text-emerald-700" : "text-sky-700")}>
+                          {tipo === "embarcado"
+                            ? `Embarcado desde ${fmtDate(row.embarque!)} · previsto até ${row.desembarque ? fmtDate(row.desembarque) : "—"}`
+                            : `Programado para embarcar em ${fmtDate(row.embarque!)}`}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -3438,7 +3428,7 @@ export function NominationsPage() {
   // de nominations, assim quantidade/status editados durante a Simulação aparecem na hora, sem
   // depender de um retrato antigo passado por aqui.
   const [simulacaoFocusIds, setSimulacaoFocusIds] = useState<string[] | null>(null);
-  const [tab, setTab] = useState("simulacao");
+  const [tab, setTab] = useState("nomeacoes");
   const { canViewAs, viewAsRole, setViewAsRole } = useViewAs();
 
   const goToSimulacao = (group: Nomination[]) => {
@@ -3549,14 +3539,14 @@ export function NominationsPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="simulacao">Simulação</TabsTrigger>
           <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
-          <TabsTrigger value="mapa">
-            <Grid3x3 className="mr-1.5 h-3.5 w-3.5" /> Mapa
-          </TabsTrigger>
           <TabsTrigger value="clientes">
             <Building2 className="mr-1.5 h-3.5 w-3.5" /> Equipes Embarcadas
           </TabsTrigger>
+          <TabsTrigger value="mapa">
+            <Grid3x3 className="mr-1.5 h-3.5 w-3.5" /> Mapa
+          </TabsTrigger>
+          <TabsTrigger value="simulacao">Simulação</TabsTrigger>
           <TabsTrigger value="aptidao">
             <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
           </TabsTrigger>
