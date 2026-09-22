@@ -1058,21 +1058,21 @@ function PmHome() {
     <Tabs value={tab} onValueChange={setTab}>
       <TabsList>
         <TabsTrigger value="solicitacoes">Minhas Solicitações</TabsTrigger>
-        <TabsTrigger value="bms">BMs para Aprovar</TabsTrigger>
         <TabsTrigger value="histograma">Histograma Offshore</TabsTrigger>
         <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+        <TabsTrigger value="bms">BMs para Aprovar</TabsTrigger>
       </TabsList>
       <TabsContent value="solicitacoes" className="pt-4">
         <MinhasSolicitacoesTab />
-      </TabsContent>
-      <TabsContent value="bms" className="pt-4">
-        <PmBmsTab />
       </TabsContent>
       <TabsContent value="histograma" className="pt-4">
         <HistogramaOffshoreNovo />
       </TabsContent>
       <TabsContent value="nomeacoes" className="pt-4">
         <NominationsPage />
+      </TabsContent>
+      <TabsContent value="bms" className="pt-4">
+        <PmBmsTab />
       </TabsContent>
     </Tabs>
   );
