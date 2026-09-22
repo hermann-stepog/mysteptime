@@ -53,11 +53,8 @@ import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import {
   generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
   displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, bspOptionsForUnidade,
-  bspDoPeriodo, normalizeUnidadeOperacional,
   type ComputedStatus, type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
-import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
-import { resolverFuncaoEmbarque, type TimesheetEmbarque } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
@@ -2107,30 +2104,9 @@ function useAllNominations() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type NominationBspGroup = { name: string; nominations: Nomination[] };
-type NominationUnitGroup = { name: string; bsps: NominationBspGroup[]; nominations: Nomination[] };
-type NominationClientGroup = { name: string; units: NominationUnitGroup[]; nominations: Nomination[] };
-type DrakeEmbarkedWorker = {
-  id: string;
-  nome: string;
-  funcao: string | null;
-  empresa: string | null;
-};
-type BmClientRelation = { client_name: string; vessel: string; project_name: string | null };
-
-function hierarchyKey(value: string | null | undefined): string {
-  return value?.trim().toLocaleUpperCase("pt-BR") ?? "";
-}
-
-// Normaliza unidade (apelidos conhecidos do Drake, ver normalizeUnidadeOperacional) e BSP
-// (mesmo normalizeBmBspKey usado no BM, em bmUnitResolver.ts, que trata prefixo/hífen/espaço
-// e apelidos de BSP) antes de comparar — sem isso, uma grafia levemente diferente entre o
-// texto salvo na nomeação e o período do Drake ("Bravo" vs "BRAVO", "26-535-02" vs
-// "26 - 535 - 02") faz a equipe embarcada nunca "casar" com a nomeação certa e sumir pra
-// debaixo de "Cliente não identificado".
-function drakeAssignmentKey(unit: string | null | undefined, bsp: string | null | undefined): string {
-  return `${hierarchyKey(normalizeUnidadeOperacional(unit))}::${normalizeBmBspKey(bsp)}`;
-}
+type PlanejamentoBspGroup = { name: string; rows: PlanejamentoEmbarqueRow[] };
+type PlanejamentoUnitGroup = { name: string; bsps: PlanejamentoBspGroup[]; rows: PlanejamentoEmbarqueRow[] };
+type PlanejamentoClientGroup = { name: string; units: PlanejamentoUnitGroup[]; rows: PlanejamentoEmbarqueRow[] };
 
 // Tira o nível/certificação do fim da função (ex.: "SOLDADOR IV" -> "SOLDADOR", "SUPERVISOR
 // ESCALADOR N3" -> "SUPERVISOR ESCALADOR") pros cartões de quantitativo por função em Equipes
@@ -2150,11 +2126,7 @@ function diasAteData(data: string, referencia: string): number {
   return Math.round((parse(data) - parse(referencia)) / 86400000);
 }
 
-function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
-  nominations: Nomination[];
-  nomineesByNomination: Map<string, NominationNominee[]>;
-  onOpen: (nomination: Nomination) => void;
-}) {
+function ClientCascadeView() {
   const [search, setSearch] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -2162,6 +2134,10 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
   const [collapsedClients, setCollapsedClients] = useState<Set<string>>(new Set());
   const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
   const [collapsedBsps, setCollapsedBsps] = useState<Set<string>>(new Set());
+  // Cartões de Unidade/Função viram filtro clicável (pedido dela) — clicar mostra só aquilo na
+  // árvore abaixo; clicar de novo no mesmo cartão (ou em "Total embarcado") limpa.
+  const [unidadeFiltro, setUnidadeFiltro] = useState<string | null>(null);
+  const [funcaoFiltro, setFuncaoFiltro] = useState<string | null>(null);
   const today = todayStr();
   const teamReferenceDate = periodStart || periodEnd || today;
 
@@ -2173,207 +2149,81 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
     });
   };
 
-  const { data: currentDrakePeriods = [], isLoading: isLoadingDrake } = useQuery<HistNovoPeriodo[]>({
-    queryKey: ["nominations-drake-teams-by-date", teamReferenceDate],
-    queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) =>
-      supabase.from("hist_novo_periodos").select("*")
-        .eq("tipo", "E").lte("data_inicio", teamReferenceDate).gte("data_fim", teamReferenceDate)
-        .order("data_inicio").range(from, to),
-    ),
-  });
+  // Fonte passa a ser o Planejamento de Embarque (aba do Histograma Offshore), não mais o
+  // Drake direto — pedido dela. "Embarcado em teamReferenceDate" usa a mesma janela exclusiva
+  // no fim [Embarque, Desembarque) de todo o app (Início Folga = Desembarque).
+  const { data: planejamentoEmbarque = [], isLoading: isLoadingPlanejamento } = usePlanejamentoEmbarqueQuery();
+  const embarcadosNaData = useMemo(
+    () => planejamentoEmbarque.filter((row) => {
+      if (!row.unidade?.trim() || row.unidade.trim().toUpperCase() === "FOLGA") return false;
+      if (!row.embarque || row.embarque > teamReferenceDate) return false;
+      if (row.desembarque && teamReferenceDate >= row.desembarque) return false;
+      return true;
+    }),
+    [planejamentoEmbarque, teamReferenceDate],
+  );
 
-  const { data: bmClientRelations = [] } = useQuery<BmClientRelation[]>({
-    queryKey: ["nominations-bm-client-relations"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("bms")
-        .select("client_name, vessel, project_name").order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as BmClientRelation[];
-    },
-  });
-
-  const currentDrakeWorkerIds = useMemo(() => Array.from(new Set(
-    currentDrakePeriods.filter((period) => period.origem !== "programado").map((period) => period.colaborador_id),
-  )).sort(), [currentDrakePeriods]);
-
-  const { data: currentDrakeWorkers = [] } = useQuery<DrakeEmbarkedWorker[]>({
-    queryKey: ["nominations-current-drake-workers", currentDrakeWorkerIds],
-    enabled: currentDrakeWorkerIds.length > 0,
-    queryFn: async () => {
-      const batches: DrakeEmbarkedWorker[] = [];
-      for (let index = 0; index < currentDrakeWorkerIds.length; index += 200) {
-        const ids = currentDrakeWorkerIds.slice(index, index + 200);
-        const { data, error } = await supabase.from("hist_novo_colaboradores")
-          .select("id, nome, funcao, empresa").in("id", ids).order("nome");
-        if (error) throw error;
-        batches.push(...((data ?? []) as DrakeEmbarkedWorker[]));
-      }
-      return batches;
-    },
-  });
-
-  // Função de embarque (Drake, ver resolverFuncaoEmbarque) — não a cadastral de
-  // hist_novo_colaboradores acima, que pode não bater com a função real desse embarque.
-  const { data: timesheetEmbarques = [] } = useQuery({
-    queryKey: ["timesheet-embarques"],
-    queryFn: () => selectAllPages<TimesheetEmbarque>((from, to) => supabase.from("timesheet_embarques").select("*").gte("data_fim_embarque", DRAKE_DATA_CUTOFF).order("id").range(from, to)),
-  });
-  const embarquesByColaboradorId = useMemo(() => {
-    const m = new Map<string, TimesheetEmbarque[]>();
-    timesheetEmbarques.forEach((e) => {
-      if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []);
-      m.get(e.colaborador_id)!.push(e);
-    });
-    return m;
-  }, [timesheetEmbarques]);
-
-  const drakeWorkersByAssignment = useMemo(() => {
-    const workerById = new Map(currentDrakeWorkers.map((worker) => [worker.id, worker]));
-    const result = new Map<string, { worker: DrakeEmbarkedWorker; period: HistNovoPeriodo }[]>();
-    currentDrakePeriods.forEach((period) => {
-      if (period.origem === "programado") return;
-      const worker = workerById.get(period.colaborador_id);
-      if (!worker) return;
-      // Sem cair fora da lista quando o período não tem BSP preenchido — antes isso descartava
-      // o embarcado por inteiro, silenciosamente, sem nem entrar no grupo de pendência.
-      const bsp = bspDoPeriodo(period)?.trim() || "BSP não informado";
-      const key = drakeAssignmentKey(period.unidade_operacional, bsp);
-      if (!result.has(key)) result.set(key, []);
-      if (!result.get(key)!.some((item) => item.worker.id === worker.id)) result.get(key)!.push({ worker, period });
-    });
-    result.forEach((items) => items.sort((a, b) => a.worker.nome.localeCompare(b.worker.nome, "pt-BR")));
-    return result;
-  }, [currentDrakePeriods, currentDrakeWorkers]);
-
-  const visibleNominations = useMemo(() => {
+  const embarcadosComBusca = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
-    return nominations.filter((nomination) => {
-      if (periodStart || periodEnd) {
-        if (!nomination.period_start || !nomination.period_end) return false;
-        // Sobreposição de períodos: basta ao menos um dia da nomeação estar dentro do filtro.
-        if (periodStart && nomination.period_end < periodStart) return false;
-        if (periodEnd && nomination.period_start > periodEnd) return false;
-      }
-      if (!query) return true;
-      const nominees = nomineesByNomination.get(nomination.id) ?? [];
-      return [nomination.client, nomination.bsp, nomination.funcao, nomination.project,
-        nomination.pm_name, ...nominees.map((nominee) => nominee.colaborador_nome)]
-        .some((value) => value?.toLocaleLowerCase("pt-BR").includes(query));
+    if (!query) return embarcadosNaData;
+    return embarcadosNaData.filter((row) => {
+      const cliente = clienteDaUnidade(row.unidade) ?? "";
+      return [cliente, row.unidade, row.bsp, row.funcao, row.nome].some((v) => v?.toLocaleLowerCase("pt-BR").includes(query));
     });
-  }, [nominations, nomineesByNomination, search, periodStart, periodEnd]);
+  }, [embarcadosNaData, search]);
 
-  const groups = useMemo<NominationClientGroup[]>(() => {
-    const clients = new Map<string, Map<string, Map<string, Nomination[]>>>();
-    const ensureBsp = (client: string, unit: string, bsp: string): Nomination[] => {
+  // Cartões sempre mostram o total completo (só com a busca aplicada) — clicar neles filtra a
+  // árvore abaixo (visibleRows/groups), sem os cartões sumirem uns aos outros.
+  const embarqueSummary = useMemo(() => {
+    const porUnidade = new Map<string, number>();
+    embarcadosComBusca.forEach((row) => {
+      const u = row.unidade!.trim();
+      porUnidade.set(u, (porUnidade.get(u) ?? 0) + 1);
+    });
+    return Array.from(porUnidade.entries()).map(([unidade, total]) => ({ unidade, total })).sort((a, b) => b.total - a.total);
+  }, [embarcadosComBusca]);
+
+  const embarqueSummaryPorFuncao = useMemo(() => {
+    const porFuncao = new Map<string, number>();
+    embarcadosComBusca.forEach((row) => {
+      const funcao = normalizeFuncaoSemNivel(row.funcao?.trim() || "Função não informada");
+      porFuncao.set(funcao, (porFuncao.get(funcao) ?? 0) + 1);
+    });
+    return Array.from(porFuncao.entries())
+      .map(([funcao, total]) => ({ funcao, total }))
+      .sort((a, b) => b.total - a.total || a.funcao.localeCompare(b.funcao, "pt-BR"));
+  }, [embarcadosComBusca]);
+
+  const visibleRows = useMemo(() => embarcadosComBusca.filter((row) => {
+    if (unidadeFiltro && row.unidade!.trim() !== unidadeFiltro) return false;
+    if (funcaoFiltro && normalizeFuncaoSemNivel(row.funcao?.trim() || "Função não informada") !== funcaoFiltro) return false;
+    return true;
+  }), [embarcadosComBusca, unidadeFiltro, funcaoFiltro]);
+
+  const groups = useMemo<PlanejamentoClientGroup[]>(() => {
+    const clients = new Map<string, Map<string, Map<string, PlanejamentoEmbarqueRow[]>>>();
+    visibleRows.forEach((row) => {
+      const unit = row.unidade!.trim();
+      const client = clienteDaUnidade(unit) ?? "Cliente não identificado";
+      const bsp = row.bsp?.trim() || "BSP não informado";
       if (!clients.has(client)) clients.set(client, new Map());
       const units = clients.get(client)!;
       if (!units.has(unit)) units.set(unit, new Map());
       const bsps = units.get(unit)!;
       if (!bsps.has(bsp)) bsps.set(bsp, []);
-      return bsps.get(bsp)!;
-    };
-    visibleNominations.forEach((nomination) => {
-      const unit = nomination.unidade?.trim() || "Unidade não informada";
-      // O vínculo confirmado por unidade é prioritário também para nomeações antigas que
-      // tenham sido salvas sem cliente ou com cliente divergente.
-      const client = clienteDaUnidade(unit) ?? (nomination.client?.trim() || "Cliente não informado");
-      const bsp = nomination.bsp?.trim() || "BSP não informado";
-      ensureBsp(client, unit, bsp).push(nomination);
-    });
-    // O Drake não possui coluna de cliente. A associação é recuperada das nomeações que já
-    // relacionam aquele BSP a um cliente. BSPs ainda não conhecidos continuam visíveis num
-    // grupo de pendência, em vez de serem descartados silenciosamente.
-    const bspRelation = new Map<string, { client: string; bsp: string }>();
-    const unitRelation = new Map<string, { client: string; unit: string }>();
-    bmClientRelations.forEach((bm) => {
-      const client = bm.client_name?.trim();
-      const unit = bm.vessel?.trim();
-      const bsp = bm.project_name?.trim();
-      if (client && unit && !unitRelation.has(hierarchyKey(unit))) unitRelation.set(hierarchyKey(unit), { client, unit });
-      if (client && bsp && !bspRelation.has(hierarchyKey(bsp))) bspRelation.set(hierarchyKey(bsp), { client, bsp });
-    });
-    nominations.forEach((nomination) => {
-      const bsp = nomination.bsp?.trim();
-      const unit = nomination.unidade?.trim();
-      const client = nomination.client?.trim() || "Cliente não informado";
-      if (unit) unitRelation.set(hierarchyKey(unit), { client, unit });
-      if (bsp) bspRelation.set(hierarchyKey(bsp), {
-        client,
-        bsp,
-      });
-    });
-    const query = search.trim().toLocaleLowerCase("pt-BR");
-    drakeWorkersByAssignment.forEach((drakeTeam) => {
-      const rawUnit = drakeTeam[0].period.unidade_operacional?.trim() || "Unidade não informada";
-      const rawBsp = bspDoPeriodo(drakeTeam[0].period)?.trim() || "BSP não informado";
-      const bspRelationFound = bspRelation.get(hierarchyKey(rawBsp));
-      const unitRelationFound = unitRelation.get(hierarchyKey(rawUnit));
-      const client = clienteDaUnidade(rawUnit) ?? bspRelationFound?.client ?? unitRelationFound?.client ?? "Cliente não identificado";
-      const unit = unitRelationFound?.unit ?? rawUnit;
-      const bsp = bspRelationFound?.bsp ?? rawBsp;
-      const matchesDrakeSearch = !query || client.toLocaleLowerCase("pt-BR").includes(query)
-        || unit.toLocaleLowerCase("pt-BR").includes(query)
-        || bsp.toLocaleLowerCase("pt-BR").includes(query)
-        || drakeTeam.some(({ worker }) => worker.nome.toLocaleLowerCase("pt-BR").includes(query));
-      if (!matchesDrakeSearch) return;
-      ensureBsp(client, unit, bsp);
+      bsps.get(bsp)!.push(row);
     });
     return [...clients.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([name, units]) => {
       const unitGroups = [...units.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([unitName, bsps]) => {
-        const bspGroups = [...bsps.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([bspName, items]) => ({
+        const bspGroups = [...bsps.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([bspName, rows]) => ({
           name: bspName,
-          nominations: [...items].sort((a, b) => (a.period_start ?? a.created_at).localeCompare(b.period_start ?? b.created_at)),
+          rows: [...rows].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
         }));
-        return { name: unitName, bsps: bspGroups, nominations: bspGroups.flatMap((bsp) => bsp.nominations) };
+        return { name: unitName, bsps: bspGroups, rows: bspGroups.flatMap((bsp) => bsp.rows) };
       });
-      return { name, units: unitGroups, nominations: unitGroups.flatMap((unit) => unit.nominations) };
+      return { name, units: unitGroups, rows: unitGroups.flatMap((unit) => unit.rows) };
     });
-  }, [visibleNominations, nominations, bmClientRelations, drakeWorkersByAssignment, search]);
-
-  const totalPositions = (items: Nomination[]) => items.reduce((sum, item) => sum + (item.quantidade || 1), 0);
-
-  // Total e por unidade de quem está REALMENTE embarcado (Drake) em teamReferenceDate — hoje por
-  // padrão, ou a data filtrada em "De"/"Até" — não confundir com totalPositions acima, que soma
-  // vaga de nomeação (quantidade), não gente de fato embarcada agora.
-  const embarqueSummary = useMemo(() => {
-    let total = 0;
-    const porUnidade: { unidade: string; total: number }[] = [];
-    groups.forEach((client) => {
-      client.units.forEach((unit) => {
-        const unidadeTotal = unit.bsps.reduce(
-          (sum, bsp) => sum + (drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name))?.length ?? 0),
-          0,
-        );
-        if (unidadeTotal > 0) porUnidade.push({ unidade: unit.name, total: unidadeTotal });
-        total += unidadeTotal;
-      });
-    });
-    porUnidade.sort((a, b) => b.total - a.total);
-    return { total, porUnidade };
-  }, [groups, drakeWorkersByAssignment]);
-
-  // Mesmo total de quem está embarcado agora (embarqueSummary acima), só que quebrado por
-  // função em vez de por unidade — e sem considerar o nível/certificação no fim da função
-  // (ver normalizeFuncaoSemNivel), a pedido dela. Função de embarque (não a cadastral) via
-  // resolverFuncaoEmbarque, igual ao resto da tela.
-  const embarqueSummaryPorFuncao = useMemo(() => {
-    const porFuncao = new Map<string, number>();
-    groups.forEach((client) => {
-      client.units.forEach((unit) => {
-        unit.bsps.forEach((bsp) => {
-          const workers = drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name)) ?? [];
-          workers.forEach(({ worker, period }) => {
-            const funcaoBruta = resolverFuncaoEmbarque(worker.id, period.data_inicio, embarquesByColaboradorId, worker.funcao) || "Função não informada";
-            const funcao = normalizeFuncaoSemNivel(funcaoBruta);
-            porFuncao.set(funcao, (porFuncao.get(funcao) ?? 0) + 1);
-          });
-        });
-      });
-    });
-    return Array.from(porFuncao.entries())
-      .map(([funcao, total]) => ({ funcao, total }))
-      .sort((a, b) => b.total - a.total || a.funcao.localeCompare(b.funcao, "pt-BR"));
-  }, [groups, drakeWorkersByAssignment, embarquesByColaboradorId]);
+  }, [visibleRows]);
 
   return (
     <div className="space-y-4">
@@ -2417,19 +2267,26 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Card className="min-w-[150px] border-primary/30 bg-primary/5 px-3 py-2">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-primary/80">
-            Total embarcado {teamReferenceDate === today ? "hoje" : `em ${fmtDate(teamReferenceDate)}`}
-          </p>
-          <p className="text-xl font-semibold text-primary">{embarqueSummary.total}</p>
-        </Card>
-        {embarqueSummary.porUnidade.map(({ unidade, total }) => (
-          <Card key={unidade} className="min-w-[120px] px-3 py-2">
-            <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={unidade}>
-              {unidade}
+        <button type="button" onClick={() => { setUnidadeFiltro(null); setFuncaoFiltro(null); }}>
+          <Card className={cn(
+            "min-w-[150px] border-primary/30 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10",
+            !unidadeFiltro && !funcaoFiltro && "ring-2 ring-primary",
+          )}>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-primary/80">
+              Total embarcado {teamReferenceDate === today ? "hoje" : `em ${fmtDate(teamReferenceDate)}`}
             </p>
-            <p className="text-xl font-semibold">{total}</p>
+            <p className="text-xl font-semibold text-primary">{embarcadosComBusca.length}</p>
           </Card>
+        </button>
+        {embarqueSummary.map(({ unidade, total }) => (
+          <button key={unidade} type="button" onClick={() => setUnidadeFiltro(unidadeFiltro === unidade ? null : unidade)}>
+            <Card className={cn("min-w-[120px] px-3 py-2 text-left transition-colors hover:bg-muted", unidadeFiltro === unidade && "ring-2 ring-primary")}>
+              <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={unidade}>
+                {unidade}
+              </p>
+              <p className="text-xl font-semibold">{total}</p>
+            </Card>
+          </button>
         ))}
       </div>
 
@@ -2437,23 +2294,27 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
           a pedido dela, sem mexer em nada da fileira de cima. */}
       <div className="flex flex-wrap gap-2">
         {embarqueSummaryPorFuncao.map(({ funcao, total }) => (
-          <Card key={funcao} className="min-w-[120px] px-3 py-2">
-            <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={funcao}>
-              {funcao}
-            </p>
-            <p className="text-xl font-semibold">{total}</p>
-          </Card>
+          <button key={funcao} type="button" onClick={() => setFuncaoFiltro(funcaoFiltro === funcao ? null : funcao)}>
+            <Card className={cn("min-w-[120px] px-3 py-2 text-left transition-colors hover:bg-muted", funcaoFiltro === funcao && "ring-2 ring-primary")}>
+              <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={funcao}>
+                {funcao}
+              </p>
+              <p className="text-xl font-semibold">{total}</p>
+            </Card>
+          </button>
         ))}
       </div>
 
       <Card className="overflow-x-auto">
-        <div className="min-w-[980px]">
-        {groups.length === 0 ? (
-          <EmptyState icon={Layers3} title="Nenhuma nomeação encontrada" description="Ajuste a busca ou o período selecionado." />
+        <div className="min-w-[720px]">
+        {isLoadingPlanejamento ? (
+          <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando Planejamento de Embarque...</div>
+        ) : groups.length === 0 ? (
+          <EmptyState icon={Layers3} title="Nenhum colaborador encontrado" description="Ajuste a busca, o período ou os filtros selecionados." />
         ) : groups.map((client) => {
           const clientOpen = !collapsedClients.has(client.name);
           return <div key={client.name} className="border-b last:border-b-0">
-            <div className="flex w-full items-center bg-slate-50 px-4 py-3 text-left">
+            <div className="flex w-full items-center justify-between bg-slate-50 px-4 py-3 text-left">
               <span className="flex min-w-0 items-center gap-2 font-semibold">
                 <button type="button" className="rounded p-0.5 hover:bg-slate-200" aria-label={clientOpen ? `Recolher ${client.name}` : `Abrir ${client.name}`}
                   aria-expanded={clientOpen} onClick={() => toggleCollapsed(setCollapsedClients, client.name)}>
@@ -2461,12 +2322,13 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
                 </button>
                 <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{client.name}</span>
               </span>
+              <span className="text-sm font-medium text-muted-foreground">{client.rows.length}</span>
             </div>
             {clientOpen && client.units.map((unit) => {
               const unitKey = `${client.name}::${unit.name}`;
               const unitOpen = !collapsedUnits.has(unitKey);
               return <div key={unitKey}>
-                <div className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t bg-sky-50/60 px-4 py-2.5 text-left max-md:flex max-md:justify-between">
+                <div className="flex w-full items-center justify-between border-t bg-sky-50/60 px-4 py-2.5 text-left">
                   <span className="flex min-w-0 items-center gap-2 pl-7 font-semibold text-sky-950">
                     <button type="button" className="rounded p-0.5 hover:bg-sky-100" aria-label={unitOpen ? `Recolher ${unit.name}` : `Abrir ${unit.name}`}
                       aria-expanded={unitOpen} onClick={() => toggleCollapsed(setCollapsedUnits, unitKey)}>
@@ -2475,29 +2337,27 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
                     <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{unit.name}</span>
                     <span className="text-xs font-normal text-muted-foreground">({unit.bsps.length} BSP)</span>
                   </span>
-                  <span className="text-center text-sm font-medium max-md:hidden">{totalPositions(unit.nominations)}</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span>
+                  <span className="text-sm font-medium text-sky-950">{unit.rows.length}</span>
                 </div>
               {unitOpen && unit.bsps.map((bsp) => {
               const bspKey = `${unitKey}::${bsp.name}`;
               const bspOpen = !collapsedBsps.has(bspKey);
-              const drakeTeam = drakeWorkersByAssignment.get(drakeAssignmentKey(unit.name, bsp.name)) ?? [];
               // Próxima troca de turma do BSP = desembarque mais próximo entre os embarcados —
               // é o próximo dia em que ALGUÉM daquele BSP precisa ser rendido.
-              const proximaTrocaData = drakeTeam.length
-                ? drakeTeam.reduce((min, t) => (t.period.data_fim < min ? t.period.data_fim : min), drakeTeam[0].period.data_fim)
-                : null;
+              const proximaTrocaData = bsp.rows.reduce<string | null>(
+                (min, r) => (r.desembarque && (!min || r.desembarque < min) ? r.desembarque : min), null,
+              );
               const diasProximaTroca = proximaTrocaData ? diasAteData(proximaTrocaData, today) : null;
               const trocaUrgente = diasProximaTroca != null && diasProximaTroca <= 3;
               return <div key={bspKey}>
-                <div className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t bg-white px-4 py-2.5 text-left max-md:flex max-md:justify-between">
+                <div className="flex w-full items-center justify-between border-t bg-white px-4 py-2.5 text-left">
                   <span className="flex min-w-0 flex-wrap items-center gap-2 pl-14 font-medium">
                     <button type="button" className="rounded p-0.5 hover:bg-muted" aria-label={bspOpen ? `Recolher ${bsp.name}` : `Abrir ${bsp.name}`}
                       aria-expanded={bspOpen} onClick={() => toggleCollapsed(setCollapsedBsps, bspKey)}>
                       {bspOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                     </button>
                     <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{bsp.name}</span>
-                    <span className="text-xs font-normal text-muted-foreground">({bsp.nominations.length})</span>
-                    {drakeTeam.length > 0 && <Badge className="bg-emerald-100 font-normal text-emerald-800 hover:bg-emerald-100">{drakeTeam.length} embarcado(s) em {fmtDate(teamReferenceDate)}</Badge>}
+                    <Badge className="bg-emerald-100 font-normal text-emerald-800 hover:bg-emerald-100">{bsp.rows.length} embarcado(s) em {fmtDate(teamReferenceDate)}</Badge>
                     {proximaTrocaData && (
                       <Badge
                         className={cn(
@@ -2511,50 +2371,21 @@ function ClientCascadeView({ nominations, nomineesByNomination, onOpen }: {
                       </Badge>
                     )}
                   </span>
-                  <span className="text-center text-sm font-medium max-md:hidden">{totalPositions(bsp.nominations)}</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span><span className="max-md:hidden">—</span>
                 </div>
                 {bspOpen && <div className="border-t bg-emerald-50/40 px-4 py-3 pl-[4.5rem]">
                   <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-800">
                     <User className="h-3.5 w-3.5" /> Equipe embarcada em {fmtDate(teamReferenceDate)}
                   </div>
-                  {isLoadingDrake ? (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando equipe atual...</div>
-                  ) : drakeTeam.length > 0 ? (
-                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                      {drakeTeam.map(({ worker, period }) => (
-                        <div key={worker.id} className="rounded-md border border-emerald-200 bg-white px-3 py-2">
-                          <p className="text-sm font-medium">{worker.nome}</p>
-                          <p className="text-xs text-muted-foreground">{resolverFuncaoEmbarque(worker.id, teamReferenceDate, embarquesByColaboradorId, worker.funcao)}</p>
-                          <p className="mt-1 text-xs text-emerald-700">Embarcado desde {fmtDate(period.data_inicio)} · previsto até {fmtDate(period.data_fim)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Nenhum profissional consta como embarcado em {fmtDate(teamReferenceDate)} neste BSP.</p>
-                  )}
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {bsp.rows.map((row) => (
+                      <div key={row.id} className="rounded-md border border-emerald-200 bg-white px-3 py-2">
+                        <p className="text-sm font-medium">{row.nome}</p>
+                        <p className="text-xs text-muted-foreground">{row.funcao || "Função não informada"}</p>
+                        <p className="mt-1 text-xs text-emerald-700">Embarcado desde {fmtDate(row.embarque!)} · previsto até {row.desembarque ? fmtDate(row.desembarque) : "—"}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>}
-                {bspOpen && bsp.nominations.map((nomination) => {
-                  const team = (nomineesByNomination.get(nomination.id) ?? [])
-                    .filter((item) => item.is_active && item.technical_selected_at);
-                  return <button key={nomination.id} type="button" onClick={() => onOpen(nomination)}
-                    className="grid w-full grid-cols-[minmax(260px,1fr)_90px_180px_minmax(240px,1fr)_140px] items-center border-t px-4 py-3 text-left transition-colors hover:bg-primary/5 max-md:block">
-                    <span className="min-w-0 pl-[4.5rem] max-md:pl-9">
-                      <span className="flex items-center gap-2 text-sm font-medium"><span className="truncate">{nomination.funcao}</span>
-                        {nomination.sequence_number != null && <span className="text-xs font-normal text-muted-foreground">#{String(nomination.sequence_number).padStart(3, "0")}</span>}
-                      </span>
-                      {(nomination.project || nomination.pm_name) && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{nomination.project || nomination.pm_name}</span>}
-                    </span>
-                    <span className="text-center text-sm max-md:ml-9 max-md:mt-1 max-md:block max-md:text-left">{nomination.quantidade || 1}</span>
-                    <span className="text-xs text-muted-foreground max-md:ml-9 max-md:mt-1 max-md:block">
-                      {nomination.period_start && nomination.period_end ? `${fmtDate(nomination.period_start)} – ${fmtDate(nomination.period_end)}` : "Não informado"}
-                    </span>
-                    <span className="flex flex-wrap gap-1.5 max-md:ml-9 max-md:mt-2">
-                      {team.length ? team.map((item) => <Badge key={item.id} variant="secondary" className="font-normal">{item.colaborador_nome}</Badge>)
-                        : <span className="text-xs text-muted-foreground">Equipe ainda não definida</span>}
-                    </span>
-                    <span className="max-md:ml-9 max-md:mt-2 max-md:block"><StatusBadge status={nomination.current_status} /></span>
-                  </button>;
-                })}
               </div>;
             })}
               </div>;
@@ -3792,11 +3623,7 @@ export function NominationsPage() {
         </TabsContent>
 
         <TabsContent value="clientes" className="pt-4">
-          <ClientCascadeView
-            nominations={nominations}
-            nomineesByNomination={nomineesByNomination}
-            onOpen={setSelected}
-          />
+          <ClientCascadeView />
         </TabsContent>
 
         {/* ── Aptidão (Matriz de Qualificação) ── */}
