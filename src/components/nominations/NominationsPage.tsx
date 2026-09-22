@@ -3108,33 +3108,22 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   );
 }
 
-// Linha do tempo de demanda de mão de obra por Unidade/BSP — pra comparar visualmente com o
-// efetivo disponível (Planejamento de Embarque). Cada linha de Unidade/BSP soma a quantidade
-// pedida nas nomeações daquele grupo; clique expande pra ver a quantidade por função. Mesmo
-// conceito de uma ferramenta de planejamento que ela já usa fora do sistema (agrupar por
-// projeto/BSP, colunas de dia/semana/mês, número = pessoas), só que a partir dos dados reais
-// de Nomeações em vez de uma planilha à parte.
+// Linha do tempo de demanda de mão de obra por Unidade/Função — pra comparar visualmente com o
+// efetivo disponível (Planejamento de Embarque). Uma linha por combinação Unidade+Função (sem
+// cascata/expansão), colunas de dia/semana/mês, número = pessoas — a partir dos dados reais de
+// Nomeações em vez de uma planilha à parte.
 type LinhaDoTempoGranularidade = "dia" | "semana" | "mes";
 
-interface LinhaDoTempoFuncao {
+interface LinhaDemanda {
+  unidade: string;
   funcao: string;
   qtd: number;
   start: string;
   end: string;
 }
 
-interface LinhaDoTempoGrupo {
-  key: string;
-  unidade: string;
-  bsp: string;
-  start: string;
-  end: string;
-  funcs: LinhaDoTempoFuncao[];
-}
-
 function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }) {
   const [gran, setGran] = useState<LinhaDoTempoGranularidade>("semana");
-  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
   const hoje = todayStr();
 
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
@@ -3146,43 +3135,32 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
     [nominations],
   );
 
-  const grupos = useMemo<LinhaDoTempoGrupo[]>(() => {
-    const m = new Map<string, LinhaDoTempoGrupo>();
+  const linhasDemanda = useMemo<LinhaDemanda[]>(() => {
+    const m = new Map<string, LinhaDemanda>();
     validas.forEach((n) => {
       const unidade = n.unidade?.trim() || "Sem unidade";
-      const bsp = n.bsp?.trim() || "";
-      const key = `${unidade}::${bsp}`;
-      if (!m.has(key)) m.set(key, { key, unidade, bsp, start: n.period_start!, end: n.period_end!, funcs: [] });
-      const g = m.get(key)!;
-      if (n.period_start! < g.start) g.start = n.period_start!;
-      if (n.period_end! > g.end) g.end = n.period_end!;
-      // Normaliza sem nível/IRATA (mesma convenção do painel de Disponível ao lado) — senão
-      // "WELDER" e "WELDER IRATA N1" apareciam como linhas de demanda separadas que não batiam
-      // com a mesma linha "WELDER" já normalizada em Disponível, impossibilitando comparar
-      // demanda x disponibilidade função a função. Junta nomeações da MESMA função normalizada
-      // e MESMO período exato num só marcador, somando a quantidade.
+      // Normaliza sem nível/IRATA (mesma convenção do painel de Disponibilidade ao lado) —
+      // senão "WELDER" e "WELDER IRATA N1" apareciam como linhas de demanda separadas que não
+      // batiam com a mesma linha "WELDER" já normalizada em Disponibilidade, impossibilitando
+      // comparar demanda x disponibilidade função a função. Junta nomeações da MESMA
+      // Unidade+função normalizada e MESMO período exato numa só linha, somando a quantidade.
       const funcaoNormalizada = normalizeFuncaoSemNivel(n.funcao);
-      const existente = g.funcs.find((f) => f.funcao === funcaoNormalizada && f.start === n.period_start && f.end === n.period_end);
-      if (existente) existente.qtd += n.quantidade;
-      else g.funcs.push({ funcao: funcaoNormalizada, qtd: n.quantidade, start: n.period_start!, end: n.period_end! });
+      const key = `${unidade}::${funcaoNormalizada}::${n.period_start}::${n.period_end}`;
+      if (!m.has(key)) m.set(key, { unidade, funcao: funcaoNormalizada, qtd: 0, start: n.period_start!, end: n.period_end! });
+      m.get(key)!.qtd += n.quantidade;
     });
-    return Array.from(m.values());
+    return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade, "pt-BR") || a.funcao.localeCompare(b.funcao, "pt-BR"));
   }, [validas]);
 
-  const gruposFiltrados = useMemo(
-    () => grupos.slice().sort((a, b) => a.start.localeCompare(b.start)),
-    [grupos],
-  );
-
   const horizonte = useMemo(() => {
-    if (gruposFiltrados.length === 0) return null;
-    let inicio = gruposFiltrados[0].start, fim = gruposFiltrados[0].end;
-    gruposFiltrados.forEach((g) => {
-      if (g.start < inicio) inicio = g.start;
-      if (g.end > fim) fim = g.end;
+    if (linhasDemanda.length === 0) return null;
+    let inicio = linhasDemanda[0].start, fim = linhasDemanda[0].end;
+    linhasDemanda.forEach((l) => {
+      if (l.start < inicio) inicio = l.start;
+      if (l.end > fim) fim = l.end;
     });
     return { inicio, fim };
-  }, [gruposFiltrados]);
+  }, [linhasDemanda]);
 
   const dias = useMemo(() => (horizonte ? generateDateRange(horizonte.inicio, horizonte.fim) : []), [horizonte]);
 
@@ -3238,16 +3216,40 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
       .sort((a, b) => b.total - a.total);
   }, [planejamentoEmbarque, periodos]);
 
-  const todosAbertos = gruposFiltrados.length > 0 && gruposFiltrados.every((g) => openKeys.has(g.key));
-  const alternarTodos = () => setOpenKeys(todosAbertos ? new Set() : new Set(gruposFiltrados.map((g) => g.key)));
-  const alternar = (key: string) => setOpenKeys((atual) => {
-    const next = new Set(atual);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
+  // Provisão total por função em cada período (soma entre unidades) — pra cruzar com a
+  // Disponibilidade ao lado e sinalizar quando o efetivo livre não cobre a demanda.
+  const demandaPorFuncaoPeriodo = useMemo(() => {
+    const m = new Map<string, number[]>();
+    linhasDemanda.forEach((l) => {
+      if (!m.has(l.funcao)) m.set(l.funcao, periodos.map(() => 0));
+      const arr = m.get(l.funcao)!;
+      periodos.forEach((p, i) => {
+        if (ativoNoPeriodo(l.start, l.end, p.dias)) arr[i] += l.qtd;
+      });
+    });
+    return m;
+  }, [linhasDemanda, periodos]);
+
+  // Cor da célula de Disponibilidade: vermelho quando o disponível não cobre a provisão daquele
+  // período, amarelo quando cobre só por uma margem pequena (perto de não atender) e verde
+  // quando há folga confortável. Sem provisão pra aquela função no período, mantém o estilo
+  // neutro de antes (sem comparação a fazer).
+  const celulaDisponibilidade = (qtd: number, demanda: number) => {
+    if (demanda <= 0) {
+      return qtd > 0
+        ? { backgroundColor: "#12A277", color: "white", fontWeight: 700 as const, label: String(qtd) }
+        : { backgroundColor: "#f1f5f9", label: "" };
+    }
+    const folga = qtd - demanda;
+    if (folga < 0) return { backgroundColor: "#DC2626", color: "white", fontWeight: 700 as const, label: String(qtd) };
+    const margem = Math.max(1, Math.ceil(demanda * 0.1));
+    if (folga <= margem) return { backgroundColor: "#D97706", color: "white", fontWeight: 700 as const, label: String(qtd) };
+    return { backgroundColor: "#12A277", color: "white", fontWeight: 700 as const, label: String(qtd) };
+  };
 
   return (
     <div className="space-y-3">
+      <h3 className="text-sm font-semibold">Provisão de POB</h3>
       <p className="text-sm text-muted-foreground">
         Demanda de mão de obra planejada nas nomeações, por Unidade/BSP e Função, ao longo do tempo — compare com o efetivo disponível no Planejamento de Embarque.
       </p>
@@ -3262,24 +3264,24 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
             </button>
           ))}
         </div>
-        <Button size="sm" variant="outline" onClick={alternarTodos}>{todosAbertos ? "Recolher todos" : "Expandir todos"}</Button>
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#0A57B0" }} />Unidade/BSP</span>
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#6BA6DE" }} />Função</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#12A277" }} />Atende</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#D97706" }} />Perto do limite</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#DC2626" }} />Não atende</span>
           <span>número = pessoas</span>
         </div>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-      {gruposFiltrados.length === 0 || !horizonte ? (
+      {linhasDemanda.length === 0 || !horizonte ? (
         <EmptyState icon={ClipboardList} title="Nenhuma nomeação com período programado encontrada" />
       ) : (
         <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
           <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
             <thead className="sticky top-0 z-10">
               <tr>
-                <th className="sticky left-0 z-20 min-w-[220px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Unidade / Função</th>
-                <th className="sticky left-[220px] z-20 min-w-[90px] border border-border bg-muted px-2 py-1.5 text-left font-medium">BSP</th>
+                <th className="sticky left-0 z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Unidade</th>
+                <th className="sticky left-[160px] z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Função</th>
                 {periodos.map((p, i) => (
                   <th
                     key={i}
@@ -3292,50 +3294,24 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
               </tr>
             </thead>
             <tbody>
-              {gruposFiltrados.map((g) => {
-                const aberto = openKeys.has(g.key);
-                return (
-                  <Fragment key={g.key}>
-                    <tr className="cursor-pointer hover:bg-muted/40" onClick={() => alternar(g.key)}>
-                      <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1 font-semibold">
-                        <span className="mr-1 inline-block w-3 text-muted-foreground">{aberto ? "▾" : "▸"}</span>
-                        {g.unidade}
+              {linhasDemanda.map((l, li) => (
+                <tr key={li} className="hover:bg-muted/30">
+                  <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1 font-medium">{l.unidade}</td>
+                  <td className="sticky left-[160px] z-10 border border-border bg-background px-2 py-1 text-muted-foreground">{l.funcao}</td>
+                  {periodos.map((p, i) => {
+                    const on = ativoNoPeriodo(l.start, l.end, p.dias);
+                    return (
+                      <td
+                        key={i}
+                        className="border border-border p-0 text-center"
+                        style={on ? { backgroundColor: "#0A57B0", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
+                      >
+                        {on ? l.qtd : ""}
                       </td>
-                      <td className="sticky left-[220px] z-10 border border-border bg-background px-2 py-1 text-muted-foreground">{g.bsp || "—"}</td>
-                      {periodos.map((p, i) => {
-                        const tot = g.funcs.filter((f) => ativoNoPeriodo(f.start, f.end, p.dias)).reduce((s, f) => s + f.qtd, 0);
-                        return (
-                          <td
-                            key={i}
-                            className="border border-border p-0 text-center"
-                            style={tot > 0 ? { backgroundColor: "#0A57B0", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
-                          >
-                            {tot > 0 ? tot : ""}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {aberto && g.funcs.map((f, fi) => (
-                      <tr key={fi} className="hover:bg-muted/30">
-                        <td className="sticky left-0 z-10 border border-border bg-background py-1 pl-8 pr-2 text-muted-foreground">{f.funcao}</td>
-                        <td className="sticky left-[220px] z-10 border border-border bg-background px-2 py-1"></td>
-                        {periodos.map((p, i) => {
-                          const on = ativoNoPeriodo(f.start, f.end, p.dias);
-                          return (
-                            <td
-                              key={i}
-                              className="border border-border p-0 text-center"
-                              style={on ? { backgroundColor: "#6BA6DE", color: "white", fontWeight: 600 } : { backgroundColor: "#f8fafc" }}
-                            >
-                              {on ? f.qtd : ""}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </Fragment>
-                );
-              })}
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </Card>
@@ -3343,7 +3319,7 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
 
       <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
         <div className="sticky top-0 z-20 border-b bg-background p-3">
-          <h3 className="text-sm font-semibold">Disponível por função</h3>
+          <h3 className="text-sm font-semibold">Disponibilidade de POB</h3>
           <p className="text-xs text-muted-foreground">Quem está livre (fora da janela Embarque→Desembarque) em cada período, mesmas colunas da Linha do Tempo.</p>
         </div>
         <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
@@ -3365,15 +3341,15 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
             {disponivelPorFuncaoPeriodo.map((row) => (
               <tr key={row.funcao} className="hover:bg-muted/30">
                 <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1">{row.funcao}</td>
-                {row.porPeriodo.map((qtd, i) => (
-                  <td
-                    key={i}
-                    className="border border-border p-0 text-center"
-                    style={qtd > 0 ? { backgroundColor: "#12A277", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
-                  >
-                    {qtd > 0 ? qtd : ""}
-                  </td>
-                ))}
+                {row.porPeriodo.map((qtd, i) => {
+                  const demanda = demandaPorFuncaoPeriodo.get(row.funcao)?.[i] ?? 0;
+                  const { label, ...estilo } = celulaDisponibilidade(qtd, demanda);
+                  return (
+                    <td key={i} className="border border-border p-0 text-center" style={estilo}>
+                      {label}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
             {disponivelPorFuncaoPeriodo.length === 0 && (
