@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // Tabelas ainda não migradas (transport_solicitations/nominations/nomination_nominees/
@@ -41,8 +41,19 @@ import {
   CreateNominationDialog, useNominationFormData, uploadScopeDocument, currentAuthUserId,
   SCOPE_DOCUMENT_TYPES, SCOPE_BUCKET,
 } from "@/components/nominations/CreateNominationDialog";
+import { PmBmsTab } from "@/routes/pm/bms";
 
-export const Route = createFileRoute("/pm/")({ head: () => pageTitle("Minhas Solicitações"), component: PmHome });
+type PmHomeSearch = { tab?: string };
+
+export const Route = createFileRoute("/pm/")({
+  head: () => pageTitle("Minhas Solicitações"),
+  component: PmHome,
+  // "tab" permite abrir direto numa aba (ex.: /pm/bms redireciona pra cá com tab=bms) — mesmo
+  // padrão já usado em /admin/histograma-novo.
+  validateSearch: (s: Record<string, unknown>): PmHomeSearch => ({
+    tab: typeof s.tab === "string" ? s.tab : undefined,
+  }),
+});
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -1036,20 +1047,26 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
 }
 
 // ── Ambiente principal do Solicitante ───────────────────────────────────────────
-// Histograma Offshore e Nomeações entram como abas aqui dentro (mesmos componentes já usados
-// em /admin/*, só reaproveitados) em vez de links que levavam pra outro ambiente/header no
-// meio da navegação — pedido dela.
+// Histograma Offshore, Nomeações e BMs para Aprovar entram como abas aqui dentro (mesmos
+// componentes já usados em /admin/* e /pm/bms, só reaproveitados) em vez de links que levavam
+// pra outro ambiente/header no meio da navegação — pedido dela: só a marca (logo + "My Step
+// Time — Área do Solicitante") fica no header, todas as abas ficam juntas aqui embaixo.
 function PmHome() {
-  const [tab, setTab] = useState("solicitacoes");
+  const search = useSearch({ from: "/pm/" });
+  const [tab, setTab] = useState(search.tab ?? "solicitacoes");
   return (
     <Tabs value={tab} onValueChange={setTab}>
       <TabsList>
         <TabsTrigger value="solicitacoes">Minhas Solicitações</TabsTrigger>
+        <TabsTrigger value="bms">BMs para Aprovar</TabsTrigger>
         <TabsTrigger value="histograma">Histograma Offshore</TabsTrigger>
         <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
       </TabsList>
       <TabsContent value="solicitacoes" className="pt-4">
         <MinhasSolicitacoesTab />
+      </TabsContent>
+      <TabsContent value="bms" className="pt-4">
+        <PmBmsTab />
       </TabsContent>
       <TabsContent value="histograma" className="pt-4">
         <HistogramaOffshoreNovo />
