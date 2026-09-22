@@ -2130,9 +2130,6 @@ function diasAteData(data: string, referencia: string): number {
 }
 
 function ClientCascadeView() {
-  const [search, setSearch] = useState("");
-  const [periodStart, setPeriodStart] = useState("");
-  const [periodEnd, setPeriodEnd] = useState("");
   // Tudo começa aberto, como solicitado. Os sets guardam somente os itens recolhidos.
   const [collapsedClients, setCollapsedClients] = useState<Set<string>>(new Set());
   const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
@@ -2141,7 +2138,7 @@ function ClientCascadeView() {
   // árvore abaixo; clicar de novo (ou em "Total embarcado") limpa.
   const [unidadeFiltro, setUnidadeFiltro] = useState<string | null>(null);
   const today = todayStr();
-  const teamReferenceDate = periodStart || periodEnd || today;
+  const teamReferenceDate = today;
 
   const toggleCollapsed = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
     setter((current) => {
@@ -2171,28 +2168,19 @@ function ClientCascadeView() {
     return [...embarcados, ...programados];
   }, [planejamentoEmbarque, teamReferenceDate]);
 
-  const equipeComBusca = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase("pt-BR");
-    if (!query) return equipeNaData;
-    return equipeNaData.filter(({ row }) => {
-      const cliente = clienteDaUnidade(row.unidade) ?? "";
-      return [cliente, row.unidade, row.bsp, row.funcao, row.nome].some((v) => v?.toLocaleLowerCase("pt-BR").includes(query));
-    });
-  }, [equipeNaData, search]);
-
-  // Cartão sempre mostra o total completo (só com a busca aplicada) — clicar nele filtra a
-  // árvore abaixo (visibleItems/groups), sem os cartões sumirem uns aos outros.
+  // Cartão sempre mostra o total completo — clicar nele filtra a árvore abaixo
+  // (visibleItems/groups), sem os cartões sumirem uns aos outros.
   const embarqueSummary = useMemo(() => {
     const porUnidade = new Map<string, number>();
-    equipeComBusca.forEach(({ row }) => {
+    equipeNaData.forEach(({ row }) => {
       const u = row.unidade!.trim();
       porUnidade.set(u, (porUnidade.get(u) ?? 0) + 1);
     });
     return Array.from(porUnidade.entries()).map(([unidade, total]) => ({ unidade, total })).sort((a, b) => b.total - a.total);
-  }, [equipeComBusca]);
+  }, [equipeNaData]);
 
-  const visibleItems = useMemo(() => equipeComBusca.filter(({ row }) => !unidadeFiltro || row.unidade!.trim() === unidadeFiltro),
-    [equipeComBusca, unidadeFiltro]);
+  const visibleItems = useMemo(() => equipeNaData.filter(({ row }) => !unidadeFiltro || row.unidade!.trim() === unidadeFiltro),
+    [equipeNaData, unidadeFiltro]);
 
   const groups = useMemo<PlanejamentoClientGroup[]>(() => {
     const clients = new Map<string, Map<string, Map<string, EquipeItem[]>>>();
@@ -2222,23 +2210,6 @@ function ClientCascadeView() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Input placeholder="Buscar cliente, BSP, função ou profissional..." value={search}
-          onChange={(event) => setSearch(event.target.value)} className="h-8 max-w-sm text-sm" />
-        <div className="flex items-center gap-1.5">
-          <Label htmlFor="cascade-period-start" className="text-xs text-muted-foreground">De</Label>
-          <Input id="cascade-period-start" type="date" value={periodStart}
-            onChange={(event) => setPeriodStart(event.target.value)} className="h-8 w-auto text-sm" />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Label htmlFor="cascade-period-end" className="text-xs text-muted-foreground">Até</Label>
-          <Input id="cascade-period-end" type="date" min={periodStart || undefined} value={periodEnd}
-            onChange={(event) => setPeriodEnd(event.target.value)} className="h-8 w-auto text-sm" />
-        </div>
-        {(periodStart || periodEnd) && (
-          <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => { setPeriodStart(""); setPeriodEnd(""); }}>
-            <X className="mr-1.5 h-3.5 w-3.5" /> Limpar período
-          </Button>
-        )}
         <Button
           type="button" size="sm" variant="ghost" className="h-8 ml-auto text-muted-foreground"
           onClick={() => {
@@ -2269,7 +2240,7 @@ function ClientCascadeView() {
             <p className="text-[10px] font-medium uppercase tracking-wide text-primary/80">
               Total embarcado {teamReferenceDate === today ? "hoje" : `em ${fmtDate(teamReferenceDate)}`}
             </p>
-            <p className="text-xl font-semibold text-primary">{equipeComBusca.length}</p>
+            <p className="text-xl font-semibold text-primary">{equipeNaData.length}</p>
           </Card>
         </button>
         {embarqueSummary.map(({ unidade, total }) => (
