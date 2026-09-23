@@ -909,6 +909,43 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir nomeação."),
   });
 
+  // Datas do período podem mudar a qualquer momento (adiamento de embarque, troca de janela),
+  // então a edição fica disponível em todas as etapas do kanban, não só na solicitação.
+  const [editPeriodo, setEditPeriodo]   = useState(false);
+  const [periodoStart, setPeriodoStart] = useState(nomination.period_start ?? "");
+  const [periodoEnd, setPeriodoEnd]     = useState(nomination.period_end ?? "");
+  useEffect(() => {
+    setPeriodoStart(nomination.period_start ?? "");
+    setPeriodoEnd(nomination.period_end ?? "");
+  }, [nomination.period_start, nomination.period_end]);
+
+  const savePeriodo = useMutation({
+    mutationFn: async () => {
+      if (periodoStart && periodoEnd && periodoEnd < periodoStart) {
+        throw new Error("A data fim não pode ser anterior à data início.");
+      }
+      const { error } = await supabase.from("nominations").update({
+        period_start: periodoStart || null,
+        period_end:   periodoEnd || null,
+      }).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id:   nomination.id,
+        status:          nomination.current_status,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes:           `Período alterado para ${periodoStart ? fmtDate(periodoStart) : "—"} – ${periodoEnd ? fmtDate(periodoEnd) : "—"}`,
+      });
+    },
+    onSuccess: () => {
+      notify.success("Datas atualizadas.");
+      registrarLog(`Alterou período de ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${periodoStart || "—"} – ${periodoEnd || "—"}`);
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      setEditPeriodo(false);
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao salvar as datas."),
+  });
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -999,9 +1036,45 @@ function ManageDialog({
               {nomination.weld_material && (
                 <div><span className="text-muted-foreground">Material:</span> <span className="font-medium">{nomination.weld_material}</span></div>
               )}
-              {nomination.period_start && nomination.period_end && (
-                <div><span className="text-muted-foreground">Período:</span> <span className="font-medium">{fmtDate(nomination.period_start)} – {fmtDate(nomination.period_end)}</span></div>
-              )}
+              <div className="col-span-2">
+                <span className="text-muted-foreground">Período:</span>{" "}
+                {editPeriodo ? (
+                  <div className="mt-1 flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Início</Label>
+                      <Input type="date" className="h-8 w-[150px] text-xs" value={periodoStart} onChange={(e) => setPeriodoStart(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Fim</Label>
+                      <Input type="date" className="h-8 w-[150px] text-xs" value={periodoEnd} onChange={(e) => setPeriodoEnd(e.target.value)} />
+                    </div>
+                    <Button size="sm" className="h-8" loading={savePeriodo.isPending} onClick={() => savePeriodo.mutate()}>Salvar</Button>
+                    <Button
+                      size="sm" variant="ghost" className="h-8"
+                      onClick={() => {
+                        setPeriodoStart(nomination.period_start ?? "");
+                        setPeriodoEnd(nomination.period_end ?? "");
+                        setEditPeriodo(false);
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="font-medium">
+                      {nomination.period_start || nomination.period_end
+                        ? `${nomination.period_start ? fmtDate(nomination.period_start) : "—"} – ${nomination.period_end ? fmtDate(nomination.period_end) : "—"}`
+                        : "Sem data"}
+                    </span>
+                    {canOperate && (
+                      <Button variant="link" size="sm" className="h-auto p-0 pl-2 text-xs" onClick={() => setEditPeriodo(true)}>
+                        Alterar datas
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
               {nomination.project && (
                 <div><span className="text-muted-foreground">Projeto:</span> <span className="font-medium">{nomination.project}</span></div>
               )}

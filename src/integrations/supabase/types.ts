@@ -3316,6 +3316,7 @@ export type Database = {
           status_lancamento: string | null
           tipo: Database["public"]["Enums"]["transport_tipo"]
           unidade: string | null
+          unidades: string[]
           updated_at: string
           usuario_faturamento: string | null
         }
@@ -3355,6 +3356,7 @@ export type Database = {
           status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
           unidade?: string | null
+          unidades?: string[]
           updated_at?: string
           usuario_faturamento?: string | null
         }
@@ -3394,6 +3396,7 @@ export type Database = {
           status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
           unidade?: string | null
+          unidades?: string[]
           updated_at?: string
           usuario_faturamento?: string | null
         }
