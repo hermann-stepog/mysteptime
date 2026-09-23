@@ -1813,6 +1813,17 @@ function SimulacaoTab({
     if (val !== n.quantidade) updateQuantidade.mutate({ id: n.id, quantidade: val });
   };
 
+  // Fonte de verdade da disponibilidade na simulação (pedido da usuária).
+  const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
+  const planejamentoPorNome = useMemo(() => {
+    const m = new Map<string, string | null>();
+    planejamentoSim.forEach((r) => {
+      const k = normNomePlanejamento(r.nome ?? "");
+      if (k && !m.has(k)) m.set(k, r.status ?? null);
+    });
+    return m;
+  }, [planejamentoSim]);
+
   // A seleção de candidatos em Nomeações parte do cadastro ativo completo. Ter histórico de
   // embarque ajuda a calcular a disponibilidade, mas não determina se a pessoa pode aparecer.
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
