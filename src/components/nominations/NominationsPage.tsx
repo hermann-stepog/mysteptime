@@ -1603,7 +1603,6 @@ function SimulacaoTab({
   const [periodoAte, setPeriodoAte] = useState(() => defaultSimEnd(hoje));
   const [filterFuncao, setFilterFuncao] = useState("all");
   const [searchNome, setSearchNome] = useState("");
-  const [incluirFolga, setIncluirFolga] = useState(false);
   // Cascata "Disponíveis por função" — tudo começa aberto (mesmo padrão da aba Equipes
   // Embarcadas); o set guarda só as funções recolhidas.
   const [collapsedFuncoes, setCollapsedFuncoes] = useState<Set<string>>(new Set());
