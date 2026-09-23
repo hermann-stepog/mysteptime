@@ -1830,14 +1830,17 @@ function SimulacaoTab({
         const codigos = statusPorDia.map((r) => r.status);
         const temDesembarque = codigos.includes("DES");
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
-        const todosDisponivel = codigos.every((s) => s === "STB");
+        // Quem está de folga só entra como disponível quando a usuária liga o interruptor
+        // "Incluir quem está de folga" — a regra padrão continua sendo só Standby.
+        const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
+        const todosDisponivel = codigos.every((s) => s === "STB" || (incluirFolga && FOLGA_SIM_STATUS.has(s)));
         const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
-        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket };
+        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome, incluirFolga]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
