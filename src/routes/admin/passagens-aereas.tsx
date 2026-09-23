@@ -981,7 +981,10 @@ function ImportCustosPassagensDialog({ open, onOpenChange }: { open: boolean; on
 }
 
 // ─── Página ─────────────────────────────────────────────────────────────────
-function PassagensAereasPage() {
+// Exportada pra ser reaproveitada como aba dentro da Área de RH/SMS (ver
+// src/routes/rh-sms/index.tsx) — mesmo componente, já se ajusta sozinho pro role (ver
+// somenteRelatorioInternacional abaixo), sem duplicar nada.
+export function PassagensAereasPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { role } = useAuth();

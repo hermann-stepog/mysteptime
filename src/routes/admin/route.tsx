@@ -47,14 +47,21 @@ const ADM_MASTER_PATHS = NAO_OPERADOR_PATHS;
 
 // Papéis de etapa do fluxo de Nomeações (Aprovação Técnica/Qualidade/RH/SMS) — a ação real (o
 // que cada um pode editar dentro de Nomeações) continua restrita por etapa via RLS, isso aqui
-// só decide o que aparece no menu.
+// só decide o que aparece no menu. RH/SMS deixaram de logar aqui (ver REAL_STAGE_ROLES abaixo
+// — ganharam a própria área em /rh-sms, só com o kanban de Nomeações + Viagens
+// Internacionais), mas continuam nesta lista pra "Ver como outro papel" (useViewAs) ainda
+// conseguir pré-visualizar o recorte de menu que eles tinham aqui.
 const STAGE_ROLES = ["aprovacao_tecnica", "qualidade", "rh", "sms"];
 const STAGE_ROLE_PATHS = NAO_OPERADOR_PATHS;
 
 // RH e SMS (só esses dois papéis de etapa, não Aprovação Técnica/Qualidade) também
-// acompanham o Relatório de Viagens Internacionais — a própria PassagensAereasPage esconde
-// o resto da tela (Solicitações/Próximas Viagens) pra esses dois papéis, mostra só o relatório.
+// acompanhavam o Relatório de Viagens Internacionais por aqui — hoje mora em /rh-sms como
+// segunda aba; mantido só pro "Ver como outro papel" continuar mostrando o recorte antigo.
 const RH_SMS_EXTRA_PATHS = ["/admin/passagens-aereas"];
+
+// Só Aprovação Técnica e Qualidade continuam logando de verdade dentro de /admin — RH e SMS
+// agora são redirecionados pra /rh-sms (ver auth.tsx, app/route.tsx e rh-sms/route.tsx).
+const REAL_STAGE_ROLES = ["aprovacao_tecnica", "qualidade"];
 
 function AdminLayout() {
   const { user, role, loading, signOut, profile } = useAuth();
@@ -63,7 +70,7 @@ function AdminLayout() {
   const { viewAsRole, setViewAsRole } = useViewAs();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "pm" || STAGE_ROLES.includes(role ?? "");
+  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;
