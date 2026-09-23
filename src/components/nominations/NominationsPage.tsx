@@ -1547,6 +1547,11 @@ function KanbanBoard({
 // deixa de ser contado como disponível (era o bug relatado: afastado aparecia como disponível).
 type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 
+// Status considerados "de folga" na simulação (folga de embarque, folga indenizada e
+// desembarque em dia não útil, que já é folga) — só entram como disponíveis quando a
+// usuária liga o interruptor "Incluir quem está de folga".
+const FOLGA_SIM_STATUS = new Set<string>(["F", "FI", "DDN"]);
+
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
 // nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
