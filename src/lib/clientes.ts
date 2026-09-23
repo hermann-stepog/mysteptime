@@ -42,6 +42,10 @@ export const CLIENTE_POR_UNIDADE: Readonly<Record<string, Cliente>> = {
   "SAFE ZEPHYRUS": "Qualitech",
   // Mesmo caso do Gusmão acima: se a fonte grafar só "Zephyrus", sem o "Safe" na frente.
   ZEPHYRUS: "Qualitech",
+  // No Planejamento de Embarque a Unidade dessa equipe foi cadastrada com o nome do cliente
+  // ("Qualitech") em vez do nome da embarcação (Safe Zephyrus) — sem essa chave, caía em
+  // "Cliente não identificado" com "QUALITECH" aparecendo como se fosse a própria unidade.
+  QUALITECH: "Qualitech",
 };
 
 // Al\u00e9m de mai\u00fascula/acento, ignora conectivos ("DE"/"DO"/"DA") pra casar grafias que s\u00f3
