@@ -1973,6 +1973,13 @@ function SimulacaoTab({
             </SelectContent>
           </Select>
         </div>
+        <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border px-2.5 text-xs">
+          <input
+            type="checkbox" className="h-3.5 w-3.5 accent-primary"
+            checked={incluirFolga} onChange={(e) => setIncluirFolga(e.target.checked)}
+          />
+          Incluir quem está de folga
+        </label>
       </div>
 
       <div>
