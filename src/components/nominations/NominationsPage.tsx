@@ -1951,7 +1951,7 @@ function SimulacaoTab({
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome, planejamentoPorNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
