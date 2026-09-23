@@ -2060,7 +2060,10 @@ function SimulacaoTab({
                       {f.disponiveis.map((l) => (
                         <div key={l.colaborador.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{l.colaborador.nome}</p>
+                            <p className="flex items-center gap-1.5 truncate font-medium">
+                              {l.colaborador.nome}
+                              {l.emFolga && <Badge variant="outline" className="shrink-0 text-[10px] font-normal">Em folga</Badge>}
+                            </p>
                             {l.funcoesAno.length > 0 && (
                               <p className="text-xs text-muted-foreground">Já embarcou como: {l.funcoesAno.join(", ")}</p>
                             )}
