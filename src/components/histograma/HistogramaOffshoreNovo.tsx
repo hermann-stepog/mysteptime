@@ -2412,6 +2412,16 @@ function ehUnidadeBase(unidade: string | null | undefined): boolean {
   return (unidade ?? "").trim().toUpperCase() === "BASE";
 }
 
+// "FOLGA"/"BASE"/"BASE - HENRIQUE"/"DISPONÍVEL" são valores de Status que às vezes aparecem
+// digitados no campo Unidade do Planejamento de Embarque (quem preencheu não tinha uma
+// embarcação real pra pôr ali) — não são unidades operacionais de verdade, então não entram
+// nos gráficos de POB por Unidade (pedido dela). `unidadeUpper` já deve vir em maiúsculas/
+// trim (ver chamadas).
+const UNIDADES_NAO_OPERACIONAIS = new Set(["FOLGA", "BASE", "BASE - HENRIQUE", "DISPONIVEL", "DISPONÍVEL"]);
+function ehUnidadeNaoOperacional(unidadeUpper: string): boolean {
+  return UNIDADES_NAO_OPERACIONAIS.has(unidadeUpper);
+}
+
 function DashboardTab({ colaboradores, periodos }: {
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[];
 }) {
@@ -2768,19 +2778,27 @@ function DashboardTab({ colaboradores, periodos }: {
   const unidadeBspRows = useMemo(() => {
     const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number> }>();
     planejamentoEmbarque.forEach((row) => {
-      // "FOLGA" aparece como texto literal no campo Unidade quando a pessoa está de folga (sem
-      // embarcação de verdade no momento) — não é uma unidade operacional, então não entra
-      // nessa contagem de POB.
-      if (!row.unidade || row.unidade.trim().toUpperCase() === "FOLGA" || !row.embarque || !row.desembarque) return;
+      if (!row.unidade || !row.embarque || !row.desembarque) return;
+      const unidadeTexto = row.unidade.trim().toUpperCase();
+      // "FOLGA"/"BASE"/"BASE - HENRIQUE"/"DISPONÍVEL" são valores de Status que às vezes
+      // aparecem digitados no campo Unidade (sem embarcação de verdade pra essa pessoa
+      // naquele momento) — não são unidades operacionais, então não entram na contagem de POB.
+      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+      const bspTexto = row.bsp?.trim() || "";
+      // "Qualitech" é o cliente, não a unidade — a unidade de verdade é "Safe Zephyrus". Quem
+      // foi lançado com Unidade="Qualitech" e sem BSP é dado incompleto (não entra); quem já
+      // tem BSP de verdade mostra com o nome certo da unidade.
+      if (unidadeTexto === "QUALITECH" && !bspTexto) return;
+      const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
       // O dia do Desembarque não conta como "embarcado" — é o mesmo dia em que a Folga começa
       // (Início Folga = Desembarque, ver PlanejamentoEmbarqueTab), então o intervalo é
       // [Embarque, Desembarque). Só cria a linha se o período realmente cruza com o mês
       // selecionado — senão ela aparecia na tabela com todos os dias zerados.
       const diasNoPeriodo = datesMesAtual.filter((d) => d >= row.embarque! && d < row.desembarque!);
       if (diasNoPeriodo.length === 0) return;
-      const bsp = row.bsp?.trim() || "Sem BSP";
-      const key = `${row.unidade}::${bsp}`;
-      if (!m.has(key)) m.set(key, { unidade: row.unidade, bsp, countByDate: new Map() });
+      const bsp = bspTexto || "Sem BSP";
+      const key = `${unidadeExibida}::${bsp}`;
+      if (!m.has(key)) m.set(key, { unidade: unidadeExibida, bsp, countByDate: new Map() });
       const linha = m.get(key)!;
       diasNoPeriodo.forEach((d) => linha.countByDate.set(d, (linha.countByDate.get(d) ?? 0) + 1));
     });
@@ -2794,9 +2812,12 @@ function DashboardTab({ colaboradores, periodos }: {
   const byUnitStatus = useMemo(() => {
     const m: Record<string, { total: number; porFuncao: Record<string, { count: number; nomes: string[] }> }> = {};
     planejamentoEmbarque.forEach((row) => {
-      if (!row.unidade || row.unidade.trim().toUpperCase() === "FOLGA" || !row.embarque || !row.desembarque) return;
+      if (!row.unidade || !row.embarque || !row.desembarque) return;
+      const unidadeTexto = row.unidade.trim().toUpperCase();
+      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+      if (unidadeTexto === "QUALITECH" && !row.bsp?.trim()) return;
       if (pobReferenceDate < row.embarque || pobReferenceDate >= row.desembarque) return;
-      const u = row.unidade;
+      const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
       if (!m[u]) m[u] = { total: 0, porFuncao: {} };
       m[u].total++;
       const fn = row.funcao?.trim() || "—";
