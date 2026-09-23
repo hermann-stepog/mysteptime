@@ -2296,6 +2296,7 @@ export type Database = {
           id: string
           matricula: string | null
           nome: string
+          observacoes: string | null
           programado_1: string | null
           programado_2: string | null
           status: string | null
@@ -2318,6 +2319,7 @@ export type Database = {
           id?: string
           matricula?: string | null
           nome: string
+          observacoes?: string | null
           programado_1?: string | null
           programado_2?: string | null
           status?: string | null
@@ -2340,6 +2342,7 @@ export type Database = {
           id?: string
           matricula?: string | null
           nome?: string
+          observacoes?: string | null
           programado_1?: string | null
           programado_2?: string | null
           status?: string | null
@@ -2386,6 +2389,45 @@ export type Database = {
           },
         ]
       }
+      planejamento_embarque_snapshots: {
+        Row: {
+          bsp: string | null
+          colaborador_nome: string
+          created_at: string
+          desembarque: string | null
+          embarque: string | null
+          funcao: string | null
+          id: string
+          snapshot_date: string
+          status: string | null
+          unidade: string | null
+        }
+        Insert: {
+          bsp?: string | null
+          colaborador_nome: string
+          created_at?: string
+          desembarque?: string | null
+          embarque?: string | null
+          funcao?: string | null
+          id?: string
+          snapshot_date: string
+          status?: string | null
+          unidade?: string | null
+        }
+        Update: {
+          bsp?: string | null
+          colaborador_nome?: string
+          created_at?: string
+          desembarque?: string | null
+          embarque?: string | null
+          funcao?: string | null
+          id?: string
+          snapshot_date?: string
+          status?: string | null
+          unidade?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -2394,6 +2436,7 @@ export type Database = {
           full_name: string | null
           id: string
           matricula: string | null
+          must_change_password: boolean
           phone: string | null
           updated_at: string
         }
@@ -2404,6 +2447,7 @@ export type Database = {
           full_name?: string | null
           id: string
           matricula?: string | null
+          must_change_password?: boolean
           phone?: string | null
           updated_at?: string
         }
@@ -2414,6 +2458,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           matricula?: string | null
+          must_change_password?: boolean
           phone?: string | null
           updated_at?: string
         }

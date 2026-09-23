@@ -1547,6 +1547,11 @@ function KanbanBoard({
 // deixa de ser contado como disponível (era o bug relatado: afastado aparecia como disponível).
 type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 
+// Status considerados "de folga" na simulação (folga de embarque, folga indenizada e
+// desembarque em dia não útil, que já é folga) — só entram como disponíveis quando a
+// usuária liga o interruptor "Incluir quem está de folga".
+const FOLGA_SIM_STATUS = new Set<string>(["F", "FI", "DDN"]);
+
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
 // nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
@@ -1830,9 +1835,12 @@ function SimulacaoTab({
         const codigos = statusPorDia.map((r) => r.status);
         const temDesembarque = codigos.includes("DES");
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
-        const todosDisponivel = codigos.every((s) => s === "STB");
+        // Quem está de folga entra sempre na lista de disponíveis (sinalizado com "Em folga"),
+        // junto de quem está em Standby — pedido da usuária.
+        const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
+        const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
         const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
-        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket };
+        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
@@ -2044,7 +2052,10 @@ function SimulacaoTab({
                       {f.disponiveis.map((l) => (
                         <div key={l.colaborador.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{l.colaborador.nome}</p>
+                            <p className="flex items-center gap-1.5 truncate font-medium">
+                              {l.colaborador.nome}
+                              {l.emFolga && <Badge variant="outline" className="shrink-0 text-[10px] font-normal">Em folga</Badge>}
+                            </p>
                             {l.funcoesAno.length > 0 && (
                               <p className="text-xs text-muted-foreground">Já embarcou como: {l.funcoesAno.join(", ")}</p>
                             )}
