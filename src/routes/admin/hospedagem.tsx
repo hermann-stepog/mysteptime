@@ -915,7 +915,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                                   <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
                                     <div className="min-w-0">
                                       <p className="truncate font-medium">{h.nome_usuario}</p>
-                                      <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}</p>
+                                      <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
                                     </div>
                                     <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                   </div>
@@ -948,7 +948,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                                     <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
                                       <div className="min-w-0">
                                         <p className="truncate font-medium">{h.nome_usuario}</p>
-                                        <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}</p>
+                                        <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
                                       </div>
                                       <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                     </div>
@@ -983,12 +983,13 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
               <SortableHead label="Valor diária" column="valor_diaria" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Valor total" column="valor_total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead>NF</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtradas.length === 0 ? (
-              <EmptyStateRow colSpan={11} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
+              <EmptyStateRow colSpan={12} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
             ) : filtradas.map((h) => {
               const hotel = hotelById.get(h.hotel_id);
               const rateios = rateiosDaHospedagem(h);
@@ -1004,6 +1005,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                   <TableCell className="text-right">{fmtMoney(h.valor_diaria)}</TableCell>
                   <TableCell className="text-right font-medium">{fmtMoney(h.valor_total)}</TableCell>
                   <TableCell>{h.motivo ?? "—"}</TableCell>
+                  <TableCell>{h.nf ?? "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditing(h); setDialogOpen(true); }}>

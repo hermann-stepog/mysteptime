@@ -39,6 +39,15 @@ import { pageTitle } from "@/lib/pageTitle";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import { usePlanejamentoEmbarqueQuery, unidadesPlanejamento, bspOptionsPlanejamento } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import { StringMultiCombobox } from "@/components/histograma/HistogramaOffshoreNovo";
+
+// Unidades/BSPs fixas pedidas por ela pro formulário de Transporte, sempre disponíveis mesmo
+// sem nenhum registro correspondente ainda em Planejamento de Embarque (fonte normal dessas
+// listas — ver unidadesPlanejamento/bspOptionsPlanejamento).
+const UNIDADES_TRANSPORTE_EXTRAS = ["Espírito Santo"];
+const BSP_TRANSPORTE_EXTRAS: Record<string, string[]> = {
+  "Espírito Santo": ["Produção", "SMS", "TI", "RH", "Executiva", "25-394-08"],
+};
 
 
 type TripStatus = "em_andamento" | "realizado" | "faturado" | "cancelado";
@@ -76,6 +85,7 @@ type Trip = {
   cliente_2: string | null;
   cliente_3: string | null;
   unidade: string | null;
+  unidades: string[] | null;
   departure_time: string | null;
   arrival_time: string | null;
   status: TripStatus;
@@ -174,7 +184,7 @@ function tripToRelatorioRow(t: Trip, tagsById: Map<string, Tag>, collabsById: Ma
     BSP: t.bsp ?? "",
     "BSP 2": t.bsp_2 ?? "",
     "BSP 3": t.bsp_3 ?? "",
-    Unidade: t.unidade ?? "",
+    Unidade: (t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ?? "",
     Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
     Horário: fmtTime(t.scheduled_at),
     Origem: [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; "),
@@ -357,7 +367,7 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
   );
 }
 
-type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string; unidade: string };
+type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string; unidades: string[] };
 
 function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; setF: (v: T) => void }) {
   const { data: collaborators = [] } = useCollaboratorsQuery();
@@ -410,7 +420,7 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
               if (!f.origin.trim()) next = { ...next, origin: c.city };
               else if (!f.destination.trim()) next = { ...next, destination: c.city };
             }
-            if (c?.unit && !f.unidade.trim()) next = { ...next, unidade: c.unit };
+            if (c?.unit && f.unidades.length === 0) next = { ...next, unidades: [c.unit] };
           }
           setF(next);
         }}
@@ -591,7 +601,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     origin: string; destination: string;
     origens_extras: string[]; destinos_extras: string[];
     notes: string;
-    tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidade: string; status: TripStatus;
+    tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidades: string[]; status: TripStatus;
     custo: string; custo_2: string; custo_3: string;
     nf: string; motivo: string; forma_pagamento: string; cobrado: boolean; status_lancamento: string; faturado: boolean; usuario_faturamento: string; data_faturamento: string;
     tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
@@ -609,7 +619,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       tipo: t.tipo,
       bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
       cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
-      unidade: t.unidade ?? "", status: t.status,
+      unidades: t.unidades && t.unidades.length > 0 ? t.unidades : (t.unidade ? [t.unidade] : []), status: t.status,
       custo: t.custo != null ? String(t.custo) : "",
       custo_2: t.custo_2 != null ? String(t.custo_2) : "",
       custo_3: t.custo_3 != null ? String(t.custo_3) : "",
@@ -629,7 +639,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
       tipo: "pessoas",
       bsp: "", bsp_2: "", bsp_3: "",
       cliente: "", cliente_2: "", cliente_3: "",
-      unidade: "", status: "em_andamento",
+      unidades: [], status: "em_andamento",
       custo: "", custo_2: "", custo_3: "",
       nf: "", motivo: "", forma_pagamento: "", cobrado: false, status_lancamento: "", faturado: false, usuario_faturamento: "", data_faturamento: "",
       tag_ids: [], collab_ids: [], materials: [],
@@ -642,8 +652,22 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   // Drake) — pedido dela: primeiro escolhe a Unidade, e a partir dela a lista de BSP se
   // restringe às BSPs que aparecem naquela unidade na planilha.
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
-  const unidadeOptions = useMemo(() => unidadesPlanejamento(planejamentoEmbarque), [planejamentoEmbarque]);
-  const bspOptions = useMemo(() => bspOptionsPlanejamento(planejamentoEmbarque, f.unidade), [planejamentoEmbarque, f.unidade]);
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set([...unidadesPlanejamento(planejamentoEmbarque), ...UNIDADES_TRANSPORTE_EXTRAS])).sort(),
+    [planejamentoEmbarque],
+  );
+  // Com mais de uma Unidade marcada, a lista de BSP é a união das BSPs de cada uma (mais as
+  // fixas de cada unidade, se houver) — sem nenhuma marcada, mostra todas (mesmo padrão de
+  // antes, quando o campo era de uma unidade só).
+  const bspOptions = useMemo(() => {
+    const unidadesParaBsp = f.unidades.length > 0 ? f.unidades : [""];
+    const bsps = new Set<string>();
+    unidadesParaBsp.forEach((u) => {
+      bspOptionsPlanejamento(planejamentoEmbarque, u).forEach((b) => bsps.add(b));
+      (BSP_TRANSPORTE_EXTRAS[u] ?? []).forEach((b) => bsps.add(b));
+    });
+    return Array.from(bsps).sort();
+  }, [planejamentoEmbarque, f.unidades]);
   // BSP passa a ser obrigatório — só continua opcional quando o Cliente da mesma linha é
   // "Viagem" (ex.: corrida sem vínculo com BSP de nenhum cliente/unidade).
   const bspOpcional = (cliente: string) => cliente.trim().toLowerCase() === "viagem";
@@ -705,7 +729,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         tipo: f.tipo,
         bsp: f.bsp.trim() || null, bsp_2: f.bsp_2.trim() || null, bsp_3: f.bsp_3.trim() || null,
         cliente: f.cliente || null, cliente_2: f.cliente_2 || null, cliente_3: f.cliente_3 || null,
-        unidade: f.unidade.trim() || null,
+        // "unidade" (singular) segue espelhando a primeira da lista — quem ainda lê só esse
+        // campo (filtro/ordenação/relatório) continua funcionando sem precisar mudar.
+        unidade: f.unidades[0]?.trim() || null,
+        unidades: f.unidades.map((u) => u.trim()).filter(Boolean),
         status: f.status,
         custo: valorOuErro(f.custo, "Valor"),
         custo_2: valorOuErro(f.custo_2, "Valor 2"),
@@ -892,18 +919,18 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
 
 
-          {/* Unidade primeiro — a lista de BSP das 3 linhas abaixo se filtra a partir dela
-              (ambas vêm da aba de Planejamento de Embarque, não mais texto livre nem Drake). */}
+          {/* Unidade primeiro (pode marcar mais de uma) — a lista de BSP das 3 linhas abaixo se
+              filtra a partir dela (ambas vêm da aba de Planejamento de Embarque, não mais texto
+              livre nem Drake). */}
           <div>
             <Label>Unidade</Label>
-            <Select value={f.unidade || "__none__"} onValueChange={(v) => setF({ ...f, unidade: v === "__none__" ? "" : v, bsp: "", bsp_2: "", bsp_3: "" })}>
-              <SelectTrigger><SelectValue placeholder="Selecione a unidade" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">—</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                {f.unidade && !unidadeOptions.includes(f.unidade) && <SelectItem value={f.unidade}>{f.unidade}</SelectItem>}
-              </SelectContent>
-            </Select>
+            <StringMultiCombobox
+              options={Array.from(new Set([...unidadeOptions, ...f.unidades]))}
+              value={f.unidades}
+              onChange={(v) => setF({ ...f, unidades: v, bsp: "", bsp_2: "", bsp_3: "" })}
+              placeholder="Selecione a(s) unidade(s)"
+              searchPlaceholder="Buscar unidade..."
+            />
           </div>
 
           {/* Cliente/BSP/Valor em até 3 linhas — cobre o caso raro de uma mesma viagem levar
@@ -1523,7 +1550,7 @@ function CustosTab({ trips }: { trips: Trip[] }) {
               <TableRow key={t.id}>
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
                 <TableCell>{t.car_number}</TableCell>
-                <TableCell>{t.unidade ?? "—"}</TableCell>
+                <TableCell>{(t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ?? "—"}</TableCell>
                 <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
                 <TableCell>{t.nf ?? "—"}</TableCell>
                 <TableCell>{t.motivo ?? "—"}</TableCell>
