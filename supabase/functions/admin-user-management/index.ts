@@ -57,6 +57,9 @@ serve(async (req) => {
       }
       const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword });
       if (error) return fail(error.message);
+      // A senha que o operador digitou aqui é só provisória — a pessoa é obrigada a trocar
+      // por uma só dela no próximo login (ver RequirePasswordChange no app).
+      await admin.from("profiles").update({ must_change_password: true }).eq("id", userId);
       return ok();
     }
 
@@ -77,6 +80,10 @@ serve(async (req) => {
 
       const { error: roleUpdateErr } = await admin.from("user_roles").update({ role }).eq("user_id", newUserId);
       if (roleUpdateErr) return fail(roleUpdateErr.message);
+
+      // Mesmo motivo do resetPassword acima: a senha definida aqui é provisória, tem que ser
+      // trocada no primeiro acesso.
+      await admin.from("profiles").update({ must_change_password: true }).eq("id", newUserId);
 
       return ok({ userId: newUserId });
     }

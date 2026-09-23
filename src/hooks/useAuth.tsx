@@ -10,7 +10,7 @@ interface AuthCtx {
   user: User | null;
   session: Session | null;
   role: AppRole | null;
-  profile: { id: string; full_name: string | null; email: string } | null;
+  profile: { id: string; full_name: string | null; email: string; must_change_password: boolean } | null;
   loading: boolean;
   roleLoaded: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
@@ -33,7 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadRole = async (uid: string) => {
     const [{ data: roleRow }, { data: profileRow }] = await Promise.all([
       supabase.from("user_roles").select("role").eq("user_id", uid).maybeSingle(),
-      supabase.from("profiles").select("id, full_name, email").eq("id", uid).maybeSingle(),
+      // must_change_password ainda não está nos tipos gerados (coluna nova); cast local nesta
+      // consulta, mesmo padrão já usado em planejamento_embarque e outras colunas recentes.
+      (supabase as any).from("profiles").select("id, full_name, email, must_change_password").eq("id", uid).maybeSingle(),
     ]);
     setRole((roleRow?.role as AppRole) ?? "pending");
     setProfile(profileRow ?? null);

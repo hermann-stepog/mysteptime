@@ -6,6 +6,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ViewAsProvider } from "@/hooks/useViewAs";
+import { RequirePasswordChange } from "@/components/ChangePassword";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppVersionWatcher } from "@/components/AppVersionWatcher";
@@ -98,7 +99,9 @@ function RootComponent() {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <ViewAsProvider>
-              <Outlet />
+              <RequirePasswordChange>
+                <Outlet />
+              </RequirePasswordChange>
               <AppVersionWatcher />
               <Toaster richColors position="top-right" />
             </ViewAsProvider>
