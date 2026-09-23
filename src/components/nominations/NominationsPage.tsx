@@ -1625,6 +1625,24 @@ type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 // usuária liga o interruptor "Incluir quem está de folga".
 const FOLGA_SIM_STATUS = new Set<string>(["F", "FI", "DDN"]);
 
+// A disponibilidade da simulação é decidida pelo Status da aba Planejamento de Embarque
+// (fonte de verdade pedida pela usuária). O status por dia do Drake continua sendo exibido na
+// grade, mas não define mais sozinho se a pessoa pode ou não ser selecionada.
+function normNomePlanejamento(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+
+// Status livres da planilha (às vezes com sufixo, ex.: "BASE - HENRIQUE") → balde da simulação.
+function bucketFromPlanejamentoStatus(statusRaw: string | null): { bucket: SimBucket; emFolga: boolean } | null {
+  const s = normNomePlanejamento(statusRaw ?? "");
+  if (!s) return null;
+  if (s.startsWith("EMBARCADO")) return { bucket: "embarcado", emFolga: false };
+  if (s.startsWith("FOLGA")) return { bucket: "disponivel", emFolga: true };
+  if (s.startsWith("DISPONIVEL") || s.startsWith("BASE") || s.startsWith("CASA")) return { bucket: "disponivel", emFolga: false };
+  // PROGRAMADO, INDISPONIVEL, ATESTADO, TERCEIRIZADO e qualquer outro texto: não disponível.
+  return { bucket: "outro", emFolga: false };
+}
+
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
 // nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
@@ -1795,6 +1813,17 @@ function SimulacaoTab({
     if (val !== n.quantidade) updateQuantidade.mutate({ id: n.id, quantidade: val });
   };
 
+  // Fonte de verdade da disponibilidade na simulação (pedido da usuária).
+  const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
+  const planejamentoPorNome = useMemo(() => {
+    const m = new Map<string, string | null>();
+    planejamentoSim.forEach((r) => {
+      const k = normNomePlanejamento(r.nome ?? "");
+      if (k && !m.has(k)) m.set(k, r.status ?? null);
+    });
+    return m;
+  }, [planejamentoSim]);
+
   // A seleção de candidatos em Nomeações parte do cadastro ativo completo. Ter histórico de
   // embarque ajuda a calcular a disponibilidade, mas não determina se a pessoa pode aparecer.
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
@@ -1910,15 +1939,19 @@ function SimulacaoTab({
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
         // Quem está de folga entra sempre na lista de disponíveis (sinalizado com "Em folga"),
         // junto de quem está em Standby — pedido da usuária.
-        const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
+        const emFolgaDrake = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
         const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
-        const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
+        const bucketDrake: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
+        // Planejamento de Embarque manda; Drake só cobre quem não está na planilha.
+        const doPlanejamento = bucketFromPlanejamentoStatus(planejamentoPorNome.get(normNomePlanejamento(c.nome)) ?? null);
+        const bucket = doPlanejamento?.bucket ?? bucketDrake;
+        const emFolga = doPlanejamento ? doPlanejamento.emFolga : emFolgaDrake;
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome, planejamentoPorNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
