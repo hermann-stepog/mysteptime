@@ -1836,10 +1836,10 @@ function SimulacaoTab({
         const codigos = statusPorDia.map((r) => r.status);
         const temDesembarque = codigos.includes("DES");
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
-        // Quem está de folga só entra como disponível quando a usuária liga o interruptor
-        // "Incluir quem está de folga" — a regra padrão continua sendo só Standby.
+        // Quem está de folga entra sempre na lista de disponíveis (sinalizado com "Em folga"),
+        // junto de quem está em Standby — pedido da usuária.
         const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
-        const todosDisponivel = codigos.every((s) => s === "STB" || (incluirFolga && FOLGA_SIM_STATUS.has(s)));
+        const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
         const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
