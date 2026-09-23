@@ -909,6 +909,43 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir nomeação."),
   });
 
+  // Datas do período podem mudar a qualquer momento (adiamento de embarque, troca de janela),
+  // então a edição fica disponível em todas as etapas do kanban, não só na solicitação.
+  const [editPeriodo, setEditPeriodo]   = useState(false);
+  const [periodoStart, setPeriodoStart] = useState(nomination.period_start ?? "");
+  const [periodoEnd, setPeriodoEnd]     = useState(nomination.period_end ?? "");
+  useEffect(() => {
+    setPeriodoStart(nomination.period_start ?? "");
+    setPeriodoEnd(nomination.period_end ?? "");
+  }, [nomination.period_start, nomination.period_end]);
+
+  const savePeriodo = useMutation({
+    mutationFn: async () => {
+      if (periodoStart && periodoEnd && periodoEnd < periodoStart) {
+        throw new Error("A data fim não pode ser anterior à data início.");
+      }
+      const { error } = await supabase.from("nominations").update({
+        period_start: periodoStart || null,
+        period_end:   periodoEnd || null,
+      }).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id:   nomination.id,
+        status:          nomination.current_status,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes:           `Período alterado para ${periodoStart ? fmtDate(periodoStart) : "—"} – ${periodoEnd ? fmtDate(periodoEnd) : "—"}`,
+      });
+    },
+    onSuccess: () => {
+      notify.success("Datas atualizadas.");
+      registrarLog(`Alterou período de ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${periodoStart || "—"} – ${periodoEnd || "—"}`);
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      setEditPeriodo(false);
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao salvar as datas."),
+  });
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
