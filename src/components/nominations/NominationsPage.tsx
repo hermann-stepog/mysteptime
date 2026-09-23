@@ -914,6 +914,43 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir nomeação."),
   });
 
+  // Datas do período podem mudar a qualquer momento (adiamento de embarque, troca de janela),
+  // então a edição fica disponível em todas as etapas do kanban, não só na solicitação.
+  const [editPeriodo, setEditPeriodo]   = useState(false);
+  const [periodoStart, setPeriodoStart] = useState(nomination.period_start ?? "");
+  const [periodoEnd, setPeriodoEnd]     = useState(nomination.period_end ?? "");
+  useEffect(() => {
+    setPeriodoStart(nomination.period_start ?? "");
+    setPeriodoEnd(nomination.period_end ?? "");
+  }, [nomination.period_start, nomination.period_end]);
+
+  const savePeriodo = useMutation({
+    mutationFn: async () => {
+      if (periodoStart && periodoEnd && periodoEnd < periodoStart) {
+        throw new Error("A data fim não pode ser anterior à data início.");
+      }
+      const { error } = await supabase.from("nominations").update({
+        period_start: periodoStart || null,
+        period_end:   periodoEnd || null,
+      }).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id:   nomination.id,
+        status:          nomination.current_status,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes:           `Período alterado para ${periodoStart ? fmtDate(periodoStart) : "—"} – ${periodoEnd ? fmtDate(periodoEnd) : "—"}`,
+      });
+    },
+    onSuccess: () => {
+      notify.success("Datas atualizadas.");
+      registrarLog(`Alterou período de ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${periodoStart || "—"} – ${periodoEnd || "—"}`);
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      setEditPeriodo(false);
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao salvar as datas."),
+  });
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1004,9 +1041,45 @@ function ManageDialog({
               {nomination.weld_material && (
                 <div><span className="text-muted-foreground">Material:</span> <span className="font-medium">{nomination.weld_material}</span></div>
               )}
-              {nomination.period_start && nomination.period_end && (
-                <div><span className="text-muted-foreground">Período:</span> <span className="font-medium">{fmtDate(nomination.period_start)} – {fmtDate(nomination.period_end)}</span></div>
-              )}
+              <div className="col-span-2">
+                <span className="text-muted-foreground">Período:</span>{" "}
+                {editPeriodo ? (
+                  <div className="mt-1 flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Início</Label>
+                      <Input type="date" className="h-8 w-[150px] text-xs" value={periodoStart} onChange={(e) => setPeriodoStart(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Fim</Label>
+                      <Input type="date" className="h-8 w-[150px] text-xs" value={periodoEnd} onChange={(e) => setPeriodoEnd(e.target.value)} />
+                    </div>
+                    <Button size="sm" className="h-8" loading={savePeriodo.isPending} onClick={() => savePeriodo.mutate()}>Salvar</Button>
+                    <Button
+                      size="sm" variant="ghost" className="h-8"
+                      onClick={() => {
+                        setPeriodoStart(nomination.period_start ?? "");
+                        setPeriodoEnd(nomination.period_end ?? "");
+                        setEditPeriodo(false);
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="font-medium">
+                      {nomination.period_start || nomination.period_end
+                        ? `${nomination.period_start ? fmtDate(nomination.period_start) : "—"} – ${nomination.period_end ? fmtDate(nomination.period_end) : "—"}`
+                        : "Sem data"}
+                    </span>
+                    {canOperate && (
+                      <Button variant="link" size="sm" className="h-auto p-0 pl-2 text-xs" onClick={() => setEditPeriodo(true)}>
+                        Alterar datas
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
               {nomination.project && (
                 <div><span className="text-muted-foreground">Projeto:</span> <span className="font-medium">{nomination.project}</span></div>
               )}
@@ -1557,6 +1630,24 @@ type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 // usuária liga o interruptor "Incluir quem está de folga".
 const FOLGA_SIM_STATUS = new Set<string>(["F", "FI", "DDN"]);
 
+// A disponibilidade da simulação é decidida pelo Status da aba Planejamento de Embarque
+// (fonte de verdade pedida pela usuária). O status por dia do Drake continua sendo exibido na
+// grade, mas não define mais sozinho se a pessoa pode ou não ser selecionada.
+function normNomePlanejamento(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+
+// Status livres da planilha (às vezes com sufixo, ex.: "BASE - HENRIQUE") → balde da simulação.
+// Pedido da usuária: TODO mundo que aparece na aba Planejamento de Embarque fica disponível para
+// ser adicionado na simulação, mesmo que o status não seja de disponibilidade (embarcado,
+// programado, atestado etc.). O status só define o aviso mostrado ao lado do nome.
+function bucketFromPlanejamentoStatus(statusRaw: string | null): { bucket: SimBucket; emFolga: boolean } | null {
+  const s = normNomePlanejamento(statusRaw ?? "");
+  if (!s) return null;
+  return { bucket: "disponivel", emFolga: s.startsWith("FOLGA") };
+}
+
+
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
 // nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
@@ -1727,6 +1818,17 @@ function SimulacaoTab({
     if (val !== n.quantidade) updateQuantidade.mutate({ id: n.id, quantidade: val });
   };
 
+  // Fonte de verdade da disponibilidade na simulação (pedido da usuária).
+  const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
+  const planejamentoPorNome = useMemo(() => {
+    const m = new Map<string, string | null>();
+    planejamentoSim.forEach((r) => {
+      const k = normNomePlanejamento(r.nome ?? "");
+      if (k && !m.has(k)) m.set(k, r.status ?? null);
+    });
+    return m;
+  }, [planejamentoSim]);
+
   // A seleção de candidatos em Nomeações parte do cadastro ativo completo. Ter histórico de
   // embarque ajuda a calcular a disponibilidade, mas não determina se a pessoa pode aparecer.
   const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
@@ -1842,15 +1944,22 @@ function SimulacaoTab({
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
         // Quem está de folga entra sempre na lista de disponíveis (sinalizado com "Em folga"),
         // junto de quem está em Standby — pedido da usuária.
-        const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
+        const emFolgaDrake = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
         const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
-        const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
+        const bucketDrake: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
+        // Planejamento de Embarque manda; Drake só cobre quem não está na planilha.
+        const chavePlan = normNomePlanejamento(c.nome);
+        const naPlanilha = planejamentoPorNome.has(chavePlan);
+        const doPlanejamento = bucketFromPlanejamentoStatus(planejamentoPorNome.get(chavePlan) ?? null);
+        const bucket: SimBucket = naPlanilha ? "disponivel" : (doPlanejamento?.bucket ?? bucketDrake);
+
+        const emFolga = doPlanejamento ? doPlanejamento.emFolga : emFolgaDrake;
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome, planejamentoPorNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
