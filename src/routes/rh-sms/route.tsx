@@ -7,6 +7,7 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
 import { AnimatedOutlet } from "@/components/AnimatedOutlet";
 import { Button } from "@/components/ui/button";
+import { ChangePasswordButton } from "@/components/ChangePassword";
 
 export const Route = createFileRoute("/rh-sms")({ component: RhSmsLayout });
 
@@ -54,6 +55,7 @@ function RhSmsLayout() {
             <span className="text-xs text-white/60 hidden sm:block">
               {profile?.full_name ?? profile?.email}
             </span>
+            <ChangePasswordButton className="text-white/50 hover:bg-white/10 hover:text-white/85" />
             <Button
               variant="ghost"
               size="sm"

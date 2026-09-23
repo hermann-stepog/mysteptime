@@ -7,6 +7,7 @@ import { LogOut, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
 import { AnimatedOutlet } from "@/components/AnimatedOutlet";
+import { ChangePasswordButton } from "@/components/ChangePassword";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin")({ component: AdminLayout });
@@ -149,6 +150,8 @@ function AdminLayout() {
               Vendo como: {viewAsLabel}<X className="h-3.5 w-3.5" />
             </button>
           )}
+
+          <ChangePasswordButton className="mt-1 h-auto w-auto shrink-0 p-0 text-white/50 hover:bg-transparent hover:text-white/85" />
 
           <button
             onClick={async () => { await signOut(); navigate({ to: "/auth" }); }}
