@@ -1943,8 +1943,11 @@ function SimulacaoTab({
         const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
         const bucketDrake: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
         // Planejamento de Embarque manda; Drake só cobre quem não está na planilha.
-        const doPlanejamento = bucketFromPlanejamentoStatus(planejamentoPorNome.get(normNomePlanejamento(c.nome)) ?? null);
-        const bucket = doPlanejamento?.bucket ?? bucketDrake;
+        const chavePlan = normNomePlanejamento(c.nome);
+        const naPlanilha = planejamentoPorNome.has(chavePlan);
+        const doPlanejamento = bucketFromPlanejamentoStatus(planejamentoPorNome.get(chavePlan) ?? null);
+        const bucket: SimBucket = naPlanilha ? "disponivel" : (doPlanejamento?.bucket ?? bucketDrake);
+
         const emFolga = doPlanejamento ? doPlanejamento.emFolga : emFolgaDrake;
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
