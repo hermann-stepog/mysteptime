@@ -11,10 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PendingRouteImport } from './routes/pending'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as RhSmsRouteRouteImport } from './routes/rh-sms/route'
 import { Route as PmRouteRouteImport } from './routes/pm/route'
 import { Route as AppRouteRouteImport } from './routes/app/route'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RhSmsIndexRouteImport } from './routes/rh-sms/index'
 import { Route as PmIndexRouteImport } from './routes/pm/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as PmBmsRouteImport } from './routes/pm/bms'
@@ -29,6 +31,7 @@ import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminReembolsosRouteImport } from './routes/admin/reembolsos'
 import { Route as AdminRatesRouteImport } from './routes/admin/rates'
+import { Route as AdminPlanejamentoEmbarqueHistoricoRouteImport } from './routes/admin/planejamento-embarque-historico'
 import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
 import { Route as AdminPassagensAereasRouteImport } from './routes/admin/passagens-aereas'
 import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
@@ -54,6 +57,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RhSmsRouteRoute = RhSmsRouteRouteImport.update({
+  id: '/rh-sms',
+  path: '/rh-sms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PmRouteRoute = PmRouteRouteImport.update({
   id: '/pm',
   path: '/pm',
@@ -73,6 +81,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const RhSmsIndexRoute = RhSmsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RhSmsRouteRoute,
 } as any)
 const PmIndexRoute = PmIndexRouteImport.update({
   id: '/',
@@ -144,6 +157,12 @@ const AdminRatesRoute = AdminRatesRouteImport.update({
   path: '/rates',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminPlanejamentoEmbarqueHistoricoRoute =
+  AdminPlanejamentoEmbarqueHistoricoRouteImport.update({
+    id: '/planejamento-embarque-historico',
+    path: '/planejamento-embarque-historico',
+    getParentRoute: () => AdminRouteRoute,
+  } as any)
 const AdminPayrollRoute = AdminPayrollRouteImport.update({
   id: '/payroll',
   path: '/payroll',
@@ -224,6 +243,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteRouteWithChildren
   '/app': typeof AppRouteRouteWithChildren
   '/pm': typeof PmRouteRouteWithChildren
+  '/rh-sms': typeof RhSmsRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
@@ -236,6 +256,7 @@ export interface FileRoutesByFullPath {
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/planejamento-embarque-historico': typeof AdminPlanejamentoEmbarqueHistoricoRoute
   '/admin/rates': typeof AdminRatesRoute
   '/admin/reembolsos': typeof AdminReembolsosRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -250,6 +271,7 @@ export interface FileRoutesByFullPath {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/rh-sms/': typeof RhSmsIndexRoute
   '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
@@ -270,6 +292,7 @@ export interface FileRoutesByTo {
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/planejamento-embarque-historico': typeof AdminPlanejamentoEmbarqueHistoricoRoute
   '/admin/rates': typeof AdminRatesRoute
   '/admin/reembolsos': typeof AdminReembolsosRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -284,6 +307,7 @@ export interface FileRoutesByTo {
   '/pm/bms': typeof PmBmsRoute
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
+  '/rh-sms': typeof RhSmsIndexRoute
   '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
@@ -295,6 +319,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteRouteWithChildren
   '/app': typeof AppRouteRouteWithChildren
   '/pm': typeof PmRouteRouteWithChildren
+  '/rh-sms': typeof RhSmsRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/pending': typeof PendingRoute
   '/admin/approvals': typeof AdminApprovalsRoute
@@ -307,6 +332,7 @@ export interface FileRoutesById {
   '/admin/nominations': typeof AdminNominationsRoute
   '/admin/passagens-aereas': typeof AdminPassagensAereasRoute
   '/admin/payroll': typeof AdminPayrollRoute
+  '/admin/planejamento-embarque-historico': typeof AdminPlanejamentoEmbarqueHistoricoRoute
   '/admin/rates': typeof AdminRatesRoute
   '/admin/reembolsos': typeof AdminReembolsosRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -321,6 +347,7 @@ export interface FileRoutesById {
   '/pm/bms': typeof PmBmsRoute
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
+  '/rh-sms/': typeof RhSmsIndexRoute
   '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
@@ -333,6 +360,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/app'
     | '/pm'
+    | '/rh-sms'
     | '/auth'
     | '/pending'
     | '/admin/approvals'
@@ -345,6 +373,7 @@ export interface FileRouteTypes {
     | '/admin/nominations'
     | '/admin/passagens-aereas'
     | '/admin/payroll'
+    | '/admin/planejamento-embarque-historico'
     | '/admin/rates'
     | '/admin/reembolsos'
     | '/admin/reports'
@@ -359,6 +388,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/rh-sms/'
     | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
@@ -379,6 +409,7 @@ export interface FileRouteTypes {
     | '/admin/nominations'
     | '/admin/passagens-aereas'
     | '/admin/payroll'
+    | '/admin/planejamento-embarque-historico'
     | '/admin/rates'
     | '/admin/reembolsos'
     | '/admin/reports'
@@ -393,6 +424,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app'
     | '/pm'
+    | '/rh-sms'
     | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
@@ -403,6 +435,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/app'
     | '/pm'
+    | '/rh-sms'
     | '/auth'
     | '/pending'
     | '/admin/approvals'
@@ -415,6 +448,7 @@ export interface FileRouteTypes {
     | '/admin/nominations'
     | '/admin/passagens-aereas'
     | '/admin/payroll'
+    | '/admin/planejamento-embarque-historico'
     | '/admin/rates'
     | '/admin/reembolsos'
     | '/admin/reports'
@@ -429,6 +463,7 @@ export interface FileRouteTypes {
     | '/pm/bms'
     | '/app/'
     | '/pm/'
+    | '/rh-sms/'
     | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
@@ -440,6 +475,7 @@ export interface RootRouteChildren {
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
   AppRouteRoute: typeof AppRouteRouteWithChildren
   PmRouteRoute: typeof PmRouteRouteWithChildren
+  RhSmsRouteRoute: typeof RhSmsRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
   ApiPublicLgpFlowMonitoringRoute: typeof ApiPublicLgpFlowMonitoringRoute
@@ -462,6 +498,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/rh-sms': {
+      id: '/rh-sms'
+      path: '/rh-sms'
+      fullPath: '/rh-sms'
+      preLoaderRoute: typeof RhSmsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pm': {
@@ -491,6 +534,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/rh-sms/': {
+      id: '/rh-sms/'
+      path: '/'
+      fullPath: '/rh-sms/'
+      preLoaderRoute: typeof RhSmsIndexRouteImport
+      parentRoute: typeof RhSmsRouteRoute
     }
     '/pm/': {
       id: '/pm/'
@@ -588,6 +638,13 @@ declare module '@tanstack/react-router' {
       path: '/rates'
       fullPath: '/admin/rates'
       preLoaderRoute: typeof AdminRatesRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/planejamento-embarque-historico': {
+      id: '/admin/planejamento-embarque-historico'
+      path: '/planejamento-embarque-historico'
+      fullPath: '/admin/planejamento-embarque-historico'
+      preLoaderRoute: typeof AdminPlanejamentoEmbarqueHistoricoRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/payroll': {
@@ -702,6 +759,7 @@ interface AdminRouteRouteChildren {
   AdminNominationsRoute: typeof AdminNominationsRoute
   AdminPassagensAereasRoute: typeof AdminPassagensAereasRoute
   AdminPayrollRoute: typeof AdminPayrollRoute
+  AdminPlanejamentoEmbarqueHistoricoRoute: typeof AdminPlanejamentoEmbarqueHistoricoRoute
   AdminRatesRoute: typeof AdminRatesRoute
   AdminReembolsosRoute: typeof AdminReembolsosRoute
   AdminReportsRoute: typeof AdminReportsRoute
@@ -721,6 +779,8 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminNominationsRoute: AdminNominationsRoute,
   AdminPassagensAereasRoute: AdminPassagensAereasRoute,
   AdminPayrollRoute: AdminPayrollRoute,
+  AdminPlanejamentoEmbarqueHistoricoRoute:
+    AdminPlanejamentoEmbarqueHistoricoRoute,
   AdminRatesRoute: AdminRatesRoute,
   AdminReembolsosRoute: AdminReembolsosRoute,
   AdminReportsRoute: AdminReportsRoute,
@@ -768,11 +828,24 @@ const PmRouteRouteChildren: PmRouteRouteChildren = {
 const PmRouteRouteWithChildren =
   PmRouteRoute._addFileChildren(PmRouteRouteChildren)
 
+interface RhSmsRouteRouteChildren {
+  RhSmsIndexRoute: typeof RhSmsIndexRoute
+}
+
+const RhSmsRouteRouteChildren: RhSmsRouteRouteChildren = {
+  RhSmsIndexRoute: RhSmsIndexRoute,
+}
+
+const RhSmsRouteRouteWithChildren = RhSmsRouteRoute._addFileChildren(
+  RhSmsRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRouteRoute: AdminRouteRouteWithChildren,
   AppRouteRoute: AppRouteRouteWithChildren,
   PmRouteRoute: PmRouteRouteWithChildren,
+  RhSmsRouteRoute: RhSmsRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
   ApiPublicLgpFlowMonitoringRoute: ApiPublicLgpFlowMonitoringRoute,

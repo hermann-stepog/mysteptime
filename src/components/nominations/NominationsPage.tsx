@@ -1547,6 +1547,11 @@ function KanbanBoard({
 // deixa de ser contado como disponível (era o bug relatado: afastado aparecia como disponível).
 type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 
+// Status considerados "de folga" na simulação (folga de embarque, folga indenizada e
+// desembarque em dia não útil, que já é folga) — só entram como disponíveis quando a
+// usuária liga o interruptor "Incluir quem está de folga".
+const FOLGA_SIM_STATUS = new Set<string>(["F", "FI", "DDN"]);
+
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
 // nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
@@ -1598,6 +1603,7 @@ function SimulacaoTab({
   const [periodoAte, setPeriodoAte] = useState(() => defaultSimEnd(hoje));
   const [filterFuncao, setFilterFuncao] = useState("all");
   const [searchNome, setSearchNome] = useState("");
+  const [incluirFolga, setIncluirFolga] = useState(false);
   // Cascata "Disponíveis por função" — tudo começa aberto (mesmo padrão da aba Equipes
   // Embarcadas); o set guarda só as funções recolhidas.
   const [collapsedFuncoes, setCollapsedFuncoes] = useState<Set<string>>(new Set());
@@ -1830,14 +1836,17 @@ function SimulacaoTab({
         const codigos = statusPorDia.map((r) => r.status);
         const temDesembarque = codigos.includes("DES");
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
-        const todosDisponivel = codigos.every((s) => s === "STB");
+        // Quem está de folga só entra como disponível quando a usuária liga o interruptor
+        // "Incluir quem está de folga" — a regra padrão continua sendo só Standby.
+        const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
+        const todosDisponivel = codigos.every((s) => s === "STB" || (incluirFolga && FOLGA_SIM_STATUS.has(s)));
         const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
-        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket };
+        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome, incluirFolga]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
@@ -1964,6 +1973,13 @@ function SimulacaoTab({
             </SelectContent>
           </Select>
         </div>
+        <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border px-2.5 text-xs">
+          <input
+            type="checkbox" className="h-3.5 w-3.5 accent-primary"
+            checked={incluirFolga} onChange={(e) => setIncluirFolga(e.target.checked)}
+          />
+          Incluir quem está de folga
+        </label>
       </div>
 
       <div>
@@ -2044,7 +2060,10 @@ function SimulacaoTab({
                       {f.disponiveis.map((l) => (
                         <div key={l.colaborador.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{l.colaborador.nome}</p>
+                            <p className="flex items-center gap-1.5 truncate font-medium">
+                              {l.colaborador.nome}
+                              {l.emFolga && <Badge variant="outline" className="shrink-0 text-[10px] font-normal">Em folga</Badge>}
+                            </p>
                             {l.funcoesAno.length > 0 && (
                               <p className="text-xs text-muted-foreground">Já embarcou como: {l.funcoesAno.join(", ")}</p>
                             )}
