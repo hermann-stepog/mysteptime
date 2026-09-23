@@ -1603,7 +1603,6 @@ function SimulacaoTab({
   const [periodoAte, setPeriodoAte] = useState(() => defaultSimEnd(hoje));
   const [filterFuncao, setFilterFuncao] = useState("all");
   const [searchNome, setSearchNome] = useState("");
-  const [incluirFolga, setIncluirFolga] = useState(false);
   // Cascata "Disponíveis por função" — tudo começa aberto (mesmo padrão da aba Equipes
   // Embarcadas); o set guarda só as funções recolhidas.
   const [collapsedFuncoes, setCollapsedFuncoes] = useState<Set<string>>(new Set());
@@ -1836,17 +1835,17 @@ function SimulacaoTab({
         const codigos = statusPorDia.map((r) => r.status);
         const temDesembarque = codigos.includes("DES");
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
-        // Quem está de folga só entra como disponível quando a usuária liga o interruptor
-        // "Incluir quem está de folga" — a regra padrão continua sendo só Standby.
+        // Quem está de folga entra sempre na lista de disponíveis (sinalizado com "Em folga"),
+        // junto de quem está em Standby — pedido da usuária.
         const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
-        const todosDisponivel = codigos.every((s) => s === "STB" || (incluirFolga && FOLGA_SIM_STATUS.has(s)));
+        const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
         const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
       .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome, incluirFolga]);
+  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
@@ -1973,13 +1972,6 @@ function SimulacaoTab({
             </SelectContent>
           </Select>
         </div>
-        <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border px-2.5 text-xs">
-          <input
-            type="checkbox" className="h-3.5 w-3.5 accent-primary"
-            checked={incluirFolga} onChange={(e) => setIncluirFolga(e.target.checked)}
-          />
-          Incluir quem está de folga
-        </label>
       </div>
 
       <div>
