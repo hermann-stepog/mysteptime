@@ -1633,15 +1633,15 @@ function normNomePlanejamento(s: string): string {
 }
 
 // Status livres da planilha (às vezes com sufixo, ex.: "BASE - HENRIQUE") → balde da simulação.
+// Pedido da usuária: TODO mundo que aparece na aba Planejamento de Embarque fica disponível para
+// ser adicionado na simulação, mesmo que o status não seja de disponibilidade (embarcado,
+// programado, atestado etc.). O status só define o aviso mostrado ao lado do nome.
 function bucketFromPlanejamentoStatus(statusRaw: string | null): { bucket: SimBucket; emFolga: boolean } | null {
   const s = normNomePlanejamento(statusRaw ?? "");
   if (!s) return null;
-  if (s.startsWith("EMBARCADO")) return { bucket: "embarcado", emFolga: false };
-  if (s.startsWith("FOLGA")) return { bucket: "disponivel", emFolga: true };
-  if (s.startsWith("DISPONIVEL") || s.startsWith("BASE") || s.startsWith("CASA")) return { bucket: "disponivel", emFolga: false };
-  // PROGRAMADO, INDISPONIVEL, ATESTADO, TERCEIRIZADO e qualquer outro texto: não disponível.
-  return { bucket: "outro", emFolga: false };
+  return { bucket: "disponivel", emFolga: s.startsWith("FOLGA") };
 }
+
 
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
