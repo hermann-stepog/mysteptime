@@ -1939,9 +1939,13 @@ function SimulacaoTab({
         const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
         // Quem está de folga entra sempre na lista de disponíveis (sinalizado com "Em folga"),
         // junto de quem está em Standby — pedido da usuária.
-        const emFolga = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
+        const emFolgaDrake = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
         const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
-        const bucket: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
+        const bucketDrake: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
+        // Planejamento de Embarque manda; Drake só cobre quem não está na planilha.
+        const doPlanejamento = bucketFromPlanejamentoStatus(planejamentoPorNome.get(normNomePlanejamento(c.nome)) ?? null);
+        const bucket = doPlanejamento?.bucket ?? bucketDrake;
+        const emFolga = doPlanejamento ? doPlanejamento.emFolga : emFolgaDrake;
         return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
       })
       .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
