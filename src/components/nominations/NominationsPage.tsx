@@ -1625,6 +1625,24 @@ type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 // usuária liga o interruptor "Incluir quem está de folga".
 const FOLGA_SIM_STATUS = new Set<string>(["F", "FI", "DDN"]);
 
+// A disponibilidade da simulação é decidida pelo Status da aba Planejamento de Embarque
+// (fonte de verdade pedida pela usuária). O status por dia do Drake continua sendo exibido na
+// grade, mas não define mais sozinho se a pessoa pode ou não ser selecionada.
+function normNomePlanejamento(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+
+// Status livres da planilha (às vezes com sufixo, ex.: "BASE - HENRIQUE") → balde da simulação.
+function bucketFromPlanejamentoStatus(statusRaw: string | null): { bucket: SimBucket; emFolga: boolean } | null {
+  const s = normNomePlanejamento(statusRaw ?? "");
+  if (!s) return null;
+  if (s.startsWith("EMBARCADO")) return { bucket: "embarcado", emFolga: false };
+  if (s.startsWith("FOLGA")) return { bucket: "disponivel", emFolga: true };
+  if (s.startsWith("DISPONIVEL") || s.startsWith("BASE") || s.startsWith("CASA")) return { bucket: "disponivel", emFolga: false };
+  // PROGRAMADO, INDISPONIVEL, ATESTADO, TERCEIRIZADO e qualquer outro texto: não disponível.
+  return { bucket: "outro", emFolga: false };
+}
+
 // Histórico real de função por embarque (importado do relatório Access — ver migração
 // colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
 // nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
