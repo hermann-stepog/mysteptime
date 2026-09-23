@@ -14,7 +14,7 @@ describe("clienteDaUnidade", () => {
     ["MSI - CIDADE DE VITÓRIA", "MSI"], ["MSI CIDADE DE VITORIA", "MSI"],
     ["PCH-1", "Perenco"], ["PCH-2", "Perenco"],
     ["CIDADE DE ITAJAÍ", "Altera"], ["PIONEIRO DE LIBRA", "Altera"],
-    ["SAFE ZEPHYRUS", "Qualitech"], ["ZEPHYRUS", "Qualitech"],
+    ["SAFE ZEPHYRUS", "Qualitech"], ["ZEPHYRUS", "Qualitech"], ["QUALITECH", "Qualitech"],
   ])("identifica %s como %s", (unidade, cliente) => {
     expect(clienteDaUnidade(unidade)).toBe(cliente);
   });
