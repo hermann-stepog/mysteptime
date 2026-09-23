@@ -147,21 +147,24 @@ export interface WeldMaterialConfig {
 
 // Colunas do kanban, na ordem fixa do processo — cores conforme definidas com a usuária pra
 // as 6 originais; as demais seguem a mesma família pastel, avisar a usuária se quiser trocar
-// algum tom. "Validação de Qualidade" entra logo depois de "Nomeados" (antes ficava embutida
-// como gate dentro de "Aprovação Técnica") — pedido dela. "Aptidão (RH)" saiu daqui (etapa
-// removida do kanban a pedido da usuária — a aba "Aptidão"/Matriz de Qualificação continua
-// existindo normalmente como consulta avulsa, só deixou de ser um checkpoint obrigatório do
-// fluxo); "Validação SMS (ASO)" libera direto pra "Validação RH" agora.
+// algum tom. "Aptidão (RH)" saiu daqui (etapa removida do kanban a pedido da usuária — a aba
+// "Aptidão"/Matriz de Qualificação continua existindo normalmente como consulta avulsa, só
+// deixou de ser um checkpoint obrigatório do fluxo).
+// "Validação SMS (ASO)" e "Validação RH" vêm logo depois de "Simulação" (antes de "Aprovação
+// Técnica") — pedido dela: assim que alguém é simulado (candidato adicionado na Simulação), já
+// precisa ser validado por SMS e RH antes de seguir pra Aprovação Técnica/PM. Por isso os gates
+// dessas duas etapas em canMoveToColumn checam TODOS os nomeados ativos (não só quem o PM já
+// aprovou — isso só existe mais adiante no fluxo agora).
 export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; text: string }[] = [
   { id: "solicitacao",         label: "Solicitação",              bg: "#F1EFE8", text: "#2C2C2A" },
   { id: "recebido_logistica",  label: "Recebido pela Logística",  bg: "#EFEDE3", text: "#4A4636" },
   { id: "simulacao",           label: "Simulação",                bg: "#E6F1FB", text: "#0C447C" },
+  { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
+  { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
   { id: "aprovacao_tecnica",   label: "Aprovação Técnica",        bg: "#EEEDFE", text: "#3C3489" },
   { id: "nomeados",            label: "Nomeados",                 bg: "#F3E8FD", text: "#5B2A8C" },
   { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
   { id: "aprovacao_pm",        label: "Aprovação PM",             bg: "#FAEEDA", text: "#633806" },
-  { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
-  { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
   { id: "briefing_sms",        label: "Briefing",                 bg: "#E0F7F5", text: "#0F5E59" },
   { id: "equipe_formada",      label: "Equipe Formada",           bg: "#DCFCE7", text: "#166534" },
 ];
@@ -236,24 +239,27 @@ export function canMoveToColumn(
     }
   }
 
+  // "Validação SMS (ASO)" e "Validação RH" agora vêm logo depois de "Simulação" — checam TODOS
+  // os nomeados ativos (quem foi simulado), não só quem o PM já aprovou (isso só acontece bem
+  // mais adiante no fluxo agora, depois de Aprovação Técnica/Nomeados/Qualidade).
   const validacaoSmsAsoIdx = COLUMN_ORDER.indexOf("validacao_sms_aso");
   const saiDeValidacaoSmsAso = currentIdx <= validacaoSmsAsoIdx && targetIdx > validacaoSmsAsoIdx;
   if (saiDeValidacaoSmsAso) {
-    const aprovados = activeNominees(nominees).filter((n) => n.pm_decision === "aprovado");
-    if (aprovados.length > 0 && !aprovados.every((n) => n.sms_aso_checked)) {
-      return { ok: false, reason: "Marque o ASO de todos os nomeados aprovados antes de avançar." };
+    const simulados = activeNominees(nominees);
+    if (simulados.length > 0 && !simulados.every((n) => n.sms_aso_checked)) {
+      return { ok: false, reason: "Marque o ASO de todos os nomeados simulados antes de avançar." };
     }
   }
 
   const validacaoRhIdx = COLUMN_ORDER.indexOf("validacao_rh");
   const saiDeValidacaoRh = currentIdx <= validacaoRhIdx && targetIdx > validacaoRhIdx;
   if (saiDeValidacaoRh) {
-    const aprovados = activeNominees(nominees).filter((n) => n.pm_decision === "aprovado");
-    if (aprovados.some((n) => n.aptidao_divergence)) {
+    const simulados = activeNominees(nominees);
+    if (simulados.some((n) => n.aptidao_divergence)) {
       return { ok: false, reason: "Há divergência de aptidão pendente — resolva antes de avançar." };
     }
-    if (aprovados.length > 0 && !aprovados.every((n) => n.rh_validated)) {
-      return { ok: false, reason: "Valide o RH de todos os nomeados aprovados antes de avançar." };
+    if (simulados.length > 0 && !simulados.every((n) => n.rh_validated)) {
+      return { ok: false, reason: "Valide o RH de todos os nomeados simulados antes de avançar." };
     }
   }
 
