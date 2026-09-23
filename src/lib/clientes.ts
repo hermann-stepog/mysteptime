@@ -18,6 +18,10 @@ export const CLIENTE_POR_UNIDADE: Readonly<Record<string, Cliente>> = {
   "ILHA BELA": "SBM",
   PARATY: "SBM",
   "ALEXANDRE GUSMAO": "SBM",
+  // Planejamento de Embarque grafa só o sobrenome ("Gusmão"), sem o "Alexandre" que o Drake usa
+  // — sem essa chave curta, o casamento por sufixo (matchUnidade) não encontrava o vínculo com
+  // SBM pra quem vem só dessa fonte.
+  GUSMAO: "SBM",
   SAQUAREMA: "SBM",
   SAQUEREMA: "SBM", // grafia com erro de digitação que aparece em algumas planilhas importadas
   TAMANDARE: "SBM",
@@ -36,6 +40,8 @@ export const CLIENTE_POR_UNIDADE: Readonly<Record<string, Cliente>> = {
   "CIDADE DE ITAJAI": "Altera",
   "PIONEIRO DE LIBRA": "Altera",
   "SAFE ZEPHYRUS": "Qualitech",
+  // Mesmo caso do Gusmão acima: se a fonte grafar só "Zephyrus", sem o "Safe" na frente.
+  ZEPHYRUS: "Qualitech",
 };
 
 // Al\u00e9m de mai\u00fascula/acento, ignora conectivos ("DE"/"DO"/"DA") pra casar grafias que s\u00f3

@@ -27,6 +27,7 @@ function AuthPage() {
       if (!role || role === "pending") navigate({ to: "/pending" });
       else if (role === "logistics_operator") navigate({ to: "/admin/histograma-novo" });
       else if (role === "pm") navigate({ to: "/pm" });
+      else if (role === "rh" || role === "sms") navigate({ to: "/rh-sms" });
       else if (role === "visitante") navigate({ to: "/admin/transport" });
       else if (role === "collaborator") navigate({ to: "/app" });
       else navigate({ to: "/admin/histograma-novo" });

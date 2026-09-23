@@ -2658,7 +2658,10 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   nominations: Nomination[];
   nomineesByNomination: Map<string, NominationNominee[]>;
 }) {
-  const { profile } = useAuth();
+  const { profile, role } = useAuth();
+  // Importar Solicitações / Sincronizar Programados são ações operacionais (mexem em dados de
+  // verdade) — não aparecem na Área do Solicitante (role "pm"), só pro operador de logística.
+  const isPm = role === "pm";
   const qc = useQueryClient();
   const [drill, setDrill] = useState<{ bsp: string; coluna: MapaColuna } | null>(null);
   const [showImportarSolicitacoes, setShowImportarSolicitacoes] = useState(false);
@@ -2928,15 +2931,19 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
             <Label htmlFor="mapa-periodo-ate" className="text-xs text-muted-foreground">Até</Label>
             <Input id="mapa-periodo-ate" type="date" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} className="h-8 w-auto text-sm" />
           </div>
-          <Button size="sm" variant="outline" onClick={() => setShowImportarSolicitacoes(true)}>
-            <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar Solicitações
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => sincronizarProgramados.mutate()} loading={sincronizarProgramados.isPending}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do Histograma
-          </Button>
+          {!isPm && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setShowImportarSolicitacoes(true)}>
+                <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar Solicitações
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => sincronizarProgramados.mutate()} loading={sincronizarProgramados.isPending}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do Histograma
+              </Button>
+            </>
+          )}
         </div>
       </div>
-      {showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
+      {!isPm && showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
 
       <TooltipProvider delayDuration={150}>
         <Card className="overflow-x-auto p-2">
@@ -3380,7 +3387,12 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
 
 // Exportado pra ser reaproveitado como aba dentro do ambiente do Solicitante (ver
 // src/routes/pm/index.tsx) — mesmo componente, mesmos dados, sem duplicar nada.
-export function NominationsPage() {
+// `onlyKanban` é usado pela Área de RH/SMS (ver src/routes/rh-sms/route.tsx): só o board
+// (busca/filtro + colunas) aparece, sem as outras abas do módulo (Equipes Embarcadas, Mapa,
+// Simulação, Aptidão) nem o botão de criar solicitação — a restrição de só poder mover os
+// próprios cards já existe hoje (ver STAGE_ROLE / useCanActOnStage), isso aqui só recorta a
+// tela pra mostrar exclusivamente o board.
+export function NominationsPage({ onlyKanban = false }: { onlyKanban?: boolean } = {}) {
   const [selected, setSelected]       = useState<Nomination | null>(null);
   const [showCreate, setShowCreate]   = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("todos");
@@ -3500,27 +3512,31 @@ export function NominationsPage() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
-          <TabsTrigger value="clientes">
-            <Building2 className="mr-1.5 h-3.5 w-3.5" /> Equipes Embarcadas
-          </TabsTrigger>
-          <TabsTrigger value="mapa">
-            <Grid3x3 className="mr-1.5 h-3.5 w-3.5" /> Mapa
-          </TabsTrigger>
-          <TabsTrigger value="simulacao">Simulação</TabsTrigger>
-          <TabsTrigger value="aptidao">
-            <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
-          </TabsTrigger>
-        </TabsList>
+        {!onlyKanban && (
+          <TabsList>
+            <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+            <TabsTrigger value="clientes">
+              <Building2 className="mr-1.5 h-3.5 w-3.5" /> Equipes Embarcadas
+            </TabsTrigger>
+            <TabsTrigger value="mapa">
+              <Grid3x3 className="mr-1.5 h-3.5 w-3.5" /> Mapa
+            </TabsTrigger>
+            <TabsTrigger value="simulacao">Simulação</TabsTrigger>
+            <TabsTrigger value="aptidao">
+              <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
+            </TabsTrigger>
+          </TabsList>
+        )}
 
         {/* ── Simulação de disponibilidade ── */}
-        <TabsContent value="simulacao" className="pt-4">
-          <SimulacaoTab
-            focusGroupIds={simulacaoFocusIds}
-            onExitFocus={() => { setSimulacaoFocusIds(null); setTab("nomeacoes"); }}
-          />
-        </TabsContent>
+        {!onlyKanban && (
+          <TabsContent value="simulacao" className="pt-4">
+            <SimulacaoTab
+              focusGroupIds={simulacaoFocusIds}
+              onExitFocus={() => { setSimulacaoFocusIds(null); setTab("nomeacoes"); }}
+            />
+          </TabsContent>
+        )}
 
         {/* ── Lista + Kanban lado a lado ── */}
         <TabsContent value="nomeacoes" className="space-y-4 pt-4">
@@ -3543,13 +3559,15 @@ export function NominationsPage() {
             </select>
             <div className="ml-auto flex items-center gap-2">
               <HistoricoAlteracoesButton modulo="nomeacoes" titulo="Nomeações" />
-              <Button size="sm" onClick={() => setShowCreate(true)}>
-                <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova Solicitação
-              </Button>
+              {!onlyKanban && (
+                <Button size="sm" onClick={() => setShowCreate(true)}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova Solicitação
+                </Button>
+              )}
             </div>
           </div>
 
-          {showCreate && <CreateNominationDialog onClose={() => setShowCreate(false)} />}
+          {!onlyKanban && showCreate && <CreateNominationDialog onClose={() => setShowCreate(false)} />}
 
           {isLoading ? (
             <div className="flex justify-center py-12">
@@ -3570,18 +3588,24 @@ export function NominationsPage() {
         </TabsContent>
 
         {/* ── Mapa das Nomeações (matriz Unidade x Etapa) ── */}
-        <TabsContent value="mapa" className="pt-4">
-          <MapaNomeacoesTab nominations={nominations} nomineesByNomination={nomineesByNomination} />
-        </TabsContent>
+        {!onlyKanban && (
+          <TabsContent value="mapa" className="pt-4">
+            <MapaNomeacoesTab nominations={nominations} nomineesByNomination={nomineesByNomination} />
+          </TabsContent>
+        )}
 
-        <TabsContent value="clientes" className="pt-4">
-          <ClientCascadeView />
-        </TabsContent>
+        {!onlyKanban && (
+          <TabsContent value="clientes" className="pt-4">
+            <ClientCascadeView />
+          </TabsContent>
+        )}
 
         {/* ── Aptidão (Matriz de Qualificação) ── */}
-        <TabsContent value="aptidao" className="pt-4">
-          <QualificationEligibilityTab />
-        </TabsContent>
+        {!onlyKanban && (
+          <TabsContent value="aptidao" className="pt-4">
+            <QualificationEligibilityTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       {selected && (
