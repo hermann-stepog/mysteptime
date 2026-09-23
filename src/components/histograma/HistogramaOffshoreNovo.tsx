@@ -54,7 +54,10 @@ import {
 import type { TimesheetEmbarque, TimesheetSemana } from "@/lib/timesheetOffshore";
 import { UNIDADES_OPERACIONAIS_FIXAS, resolverFuncaoEmbarque } from "@/lib/timesheetOffshore";
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
-import { PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, isStatusNaBase, isStatusProgramado, isStatusEmbarcado } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import {
+  PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, usePlanejamentoEmbarqueSnapshotsQuery,
+  isStatusNaBase, isStatusProgramado, isStatusEmbarcado,
+} from "@/components/histograma/PlanejamentoEmbarqueTab";
 import { KpiValue } from "@/components/KpiValue";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
 import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
@@ -2412,14 +2415,18 @@ function ehUnidadeBase(unidade: string | null | undefined): boolean {
   return (unidade ?? "").trim().toUpperCase() === "BASE";
 }
 
-// "FOLGA"/"BASE"/"BASE - HENRIQUE"/"DISPONÍVEL" são valores de Status que às vezes aparecem
-// digitados no campo Unidade do Planejamento de Embarque (quem preencheu não tinha uma
-// embarcação real pra pôr ali) — não são unidades operacionais de verdade, então não entram
-// nos gráficos de POB por Unidade (pedido dela). `unidadeUpper` já deve vir em maiúsculas/
-// trim (ver chamadas).
-const UNIDADES_NAO_OPERACIONAIS = new Set(["FOLGA", "BASE", "BASE - HENRIQUE", "DISPONIVEL", "DISPONÍVEL"]);
+// Valores de Status que às vezes aparecem digitados no campo Unidade do Planejamento de
+// Embarque (quem preencheu não tinha uma embarcação real pra pôr ali) — não são unidades
+// operacionais de verdade, então não entram nos gráficos de POB por Unidade (pedido dela): só
+// os embarcados de verdade, por dia, em cada unidade. `unidadeUpper` já deve vir em
+// maiúsculas/trim (ver chamadas). Além dos valores exatos, "INDISPONÍVEL" e "FÉRIAS" também
+// aparecem com sufixo variável (ex.: "INDISPONIVEL - SMS", "FÉRIAS 08/09 ATÉ"), por isso
+// entram como prefixo em vez de valor fechado.
+const UNIDADES_NAO_OPERACIONAIS = new Set(["FOLGA", "BASE", "BASE - HENRIQUE", "DISPONIVEL", "DISPONÍVEL", "CASA"]);
+const PREFIXOS_UNIDADE_NAO_OPERACIONAL = ["INDISPONIVEL", "INDISPONÍVEL", "FERIAS", "FÉRIAS"];
 function ehUnidadeNaoOperacional(unidadeUpper: string): boolean {
-  return UNIDADES_NAO_OPERACIONAIS.has(unidadeUpper);
+  if (UNIDADES_NAO_OPERACIONAIS.has(unidadeUpper)) return true;
+  return PREFIXOS_UNIDADE_NAO_OPERACIONAL.some((p) => unidadeUpper.startsWith(p));
 }
 
 function DashboardTab({ colaboradores, periodos }: {
@@ -2443,6 +2450,13 @@ function DashboardTab({ colaboradores, periodos }: {
   // (sem nenhum cálculo por cima — ver isStatusNaBase): quem inclui/edita um registro lá com
   // Status "Base"/"Na Base" já reflete direto aqui, sem esperar sincronização com o Drake.
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  // Foto diária do Planejamento de Embarque (ver Histórico, na própria aba) — a listagem ao
+  // vivo é editada o tempo todo (status/datas são sobrescritos na mesma linha), então pra dia
+  // já fotografado o "POB por Unidade × Dia" usa a foto daquele dia (o que realmente estava
+  // valendo então), em vez de recalcular com os dados de hoje. Só cai pro cálculo ao vivo (via
+  // janela Embarque→Desembarque) nos dias que ainda não têm foto — hoje mesmo (se ainda não
+  // rodou) e dias futuros, que são só uma projeção do planejamento atual.
+  const { data: planejamentoSnapshots = [] } = usePlanejamentoEmbarqueSnapshotsQuery();
   const colaboradoresNaBaseDoPlanejamento = useMemo(
     () => planejamentoEmbarque
       .filter((r) => isStatusNaBase(r.status))
@@ -2775,35 +2789,72 @@ function DashboardTab({ colaboradores, periodos }: {
   // não importa a origem, o valor já está gravado) pra contar quem está a bordo em cada dia do
   // período selecionado, mantendo a mesma Unidade que o Planejamento traz (inclusive unidades
   // que ainda não existem no cadastro do Drake), sem depender de status/texto livre.
+  // Dias que já têm foto tirada (ver Histórico, na própria aba de Planejamento de Embarque) —
+  // pra esses dias a tabela usa exatamente o que foi fotografado, não o dado ao vivo de hoje.
+  const diasComFotoPlanejamento = useMemo(
+    () => new Set(planejamentoSnapshots.map((s) => s.snapshot_date)),
+    [planejamentoSnapshots],
+  );
+
+  // Agrupa as fotos por dia → "unidade::bsp" → quantidade, com as mesmas regras de sempre
+  // (unidade não-operacional fora, Qualitech vira Safe Zephyrus, só quem estava com Status
+  // "Embarcado" naquele dia conta).
+  const contagemPorDiaSnapshot = useMemo(() => {
+    const porDia = new Map<string, Map<string, { unidade: string; bsp: string; count: number }>>();
+    planejamentoSnapshots.forEach((s) => {
+      if (!isStatusEmbarcado(s.status) || !s.unidade) return;
+      const unidadeTexto = s.unidade.trim().toUpperCase();
+      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+      const bspTexto = s.bsp?.trim() || "";
+      if (unidadeTexto === "QUALITECH" && !bspTexto) return;
+      const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : s.unidade;
+      const bsp = bspTexto || "Sem BSP";
+      if (!porDia.has(s.snapshot_date)) porDia.set(s.snapshot_date, new Map());
+      const doDia = porDia.get(s.snapshot_date)!;
+      const key = `${unidadeExibida}::${bsp}`;
+      const atual = doDia.get(key) ?? { unidade: unidadeExibida, bsp, count: 0 };
+      atual.count++;
+      doDia.set(key, atual);
+    });
+    return porDia;
+  }, [planejamentoSnapshots]);
+
+  // Linha do tempo da tabela "POB por Unidade × Dia" — a listagem ao vivo de Planejamento de
+  // Embarque é editada o tempo todo (a mesma linha é sobrescrita, sem guardar o valor antigo),
+  // então pra um dia que já passou e já tem foto, usa a foto daquele dia (o retrato real de
+  // quem estava embarcado ali) em vez de recalcular com os dados de hoje — é isso que faz o
+  // dia em que fulano esteve embarcado "ontem" continuar gravado aqui, mesmo que a linha dele
+  // já tenha mudado hoje. Só cai pro cálculo ao vivo (janela Embarque→Desembarque + Status)
+  // nos dias sem foto ainda: hoje (antes da foto do dia rodar) e dias futuros, que são só uma
+  // projeção do planejamento atual.
   const unidadeBspRows = useMemo(() => {
     const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number> }>();
-    planejamentoEmbarque.forEach((row) => {
-      if (!row.unidade || !row.embarque || !row.desembarque) return;
-      const unidadeTexto = row.unidade.trim().toUpperCase();
-      // "FOLGA"/"BASE"/"BASE - HENRIQUE"/"DISPONÍVEL" são valores de Status que às vezes
-      // aparecem digitados no campo Unidade (sem embarcação de verdade pra essa pessoa
-      // naquele momento) — não são unidades operacionais, então não entram na contagem de POB.
-      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
-      const bspTexto = row.bsp?.trim() || "";
-      // "Qualitech" é o cliente, não a unidade — a unidade de verdade é "Safe Zephyrus". Quem
-      // foi lançado com Unidade="Qualitech" e sem BSP é dado incompleto (não entra); quem já
-      // tem BSP de verdade mostra com o nome certo da unidade.
-      if (unidadeTexto === "QUALITECH" && !bspTexto) return;
-      const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
-      // O dia do Desembarque não conta como "embarcado" — é o mesmo dia em que a Folga começa
-      // (Início Folga = Desembarque, ver PlanejamentoEmbarqueTab), então o intervalo é
-      // [Embarque, Desembarque). Só cria a linha se o período realmente cruza com o mês
-      // selecionado — senão ela aparecia na tabela com todos os dias zerados.
-      const diasNoPeriodo = datesMesAtual.filter((d) => d >= row.embarque! && d < row.desembarque!);
-      if (diasNoPeriodo.length === 0) return;
-      const bsp = bspTexto || "Sem BSP";
-      const key = `${unidadeExibida}::${bsp}`;
-      if (!m.has(key)) m.set(key, { unidade: unidadeExibida, bsp, countByDate: new Map() });
-      const linha = m.get(key)!;
-      diasNoPeriodo.forEach((d) => linha.countByDate.set(d, (linha.countByDate.get(d) ?? 0) + 1));
+    const addCount = (key: string, unidade: string, bsp: string, date: string, count: number) => {
+      if (!m.has(key)) m.set(key, { unidade, bsp, countByDate: new Map() });
+      m.get(key)!.countByDate.set(date, count);
+    };
+    datesMesAtual.forEach((d) => {
+      if (diasComFotoPlanejamento.has(d)) {
+        contagemPorDiaSnapshot.get(d)?.forEach((v, key) => addCount(key, v.unidade, v.bsp, d, v.count));
+        return;
+      }
+      planejamentoEmbarque.forEach((row) => {
+        if (!row.unidade || !row.embarque || !row.desembarque) return;
+        if (d < row.embarque || d >= row.desembarque) return;
+        if (d >= today && !isStatusEmbarcado(row.status)) return;
+        const unidadeTexto = row.unidade.trim().toUpperCase();
+        if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+        const bspTexto = row.bsp?.trim() || "";
+        if (unidadeTexto === "QUALITECH" && !bspTexto) return;
+        const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
+        const bsp = bspTexto || "Sem BSP";
+        const key = `${unidadeExibida}::${bsp}`;
+        const atual = m.get(key)?.countByDate.get(d) ?? 0;
+        addCount(key, unidadeExibida, bsp, d, atual + 1);
+      });
     });
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
-  }, [planejamentoEmbarque, datesMesAtual]);
+  }, [planejamentoEmbarque, datesMesAtual, today, diasComFotoPlanejamento, contagemPorDiaSnapshot]);
 
   // "POB x Unidade" — a pedido dela, passa a vir do Planejamento de Embarque (mesma janela
   // Embarque→Desembarque exclusiva do fim, mesma exclusão de "FOLGA" como unidade, já usadas em
@@ -2811,22 +2862,41 @@ function DashboardTab({ colaboradores, periodos }: {
   // (name/Embarcado/porFuncao) pra não mexer em nada da renderização/config já existente.
   const byUnitStatus = useMemo(() => {
     const m: Record<string, { total: number; porFuncao: Record<string, { count: number; nomes: string[] }> }> = {};
-    planejamentoEmbarque.forEach((row) => {
-      if (!row.unidade || !row.embarque || !row.desembarque) return;
-      const unidadeTexto = row.unidade.trim().toUpperCase();
-      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
-      if (unidadeTexto === "QUALITECH" && !row.bsp?.trim()) return;
-      if (pobReferenceDate < row.embarque || pobReferenceDate >= row.desembarque) return;
-      const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
-      if (!m[u]) m[u] = { total: 0, porFuncao: {} };
-      m[u].total++;
-      const fn = row.funcao?.trim() || "—";
-      if (!m[u].porFuncao[fn]) m[u].porFuncao[fn] = { count: 0, nomes: [] };
-      m[u].porFuncao[fn].count++;
+    const addPessoa = (unidade: string, funcao: string | null | undefined, nome: string) => {
+      if (!m[unidade]) m[unidade] = { total: 0, porFuncao: {} };
+      m[unidade].total++;
+      const fn = funcao?.trim() || "—";
+      if (!m[unidade].porFuncao[fn]) m[unidade].porFuncao[fn] = { count: 0, nomes: [] };
+      m[unidade].porFuncao[fn].count++;
       // Só primeiro + último nome no tooltip — nome completo fica grande demais pra caber.
-      const partesNome = row.nome.trim().split(/\s+/);
-      m[u].porFuncao[fn].nomes.push(partesNome.length > 1 ? `${partesNome[0]} ${partesNome[partesNome.length - 1]}` : partesNome[0]);
-    });
+      const partesNome = nome.trim().split(/\s+/);
+      m[unidade].porFuncao[fn].nomes.push(partesNome.length > 1 ? `${partesNome[0]} ${partesNome[partesNome.length - 1]}` : partesNome[0]);
+    };
+    // Mesma ideia do "POB por Unidade × Dia" acima: se pobReferenceDate já tem foto tirada, usa
+    // ela (retrato real daquele dia); senão cai pro cálculo ao vivo.
+    if (diasComFotoPlanejamento.has(pobReferenceDate)) {
+      planejamentoSnapshots
+        .filter((s) => s.snapshot_date === pobReferenceDate && isStatusEmbarcado(s.status) && s.unidade)
+        .forEach((s) => {
+          const unidadeTexto = s.unidade!.trim().toUpperCase();
+          if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+          const bspTexto = s.bsp?.trim() || "";
+          if (unidadeTexto === "QUALITECH" && !bspTexto) return;
+          const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : s.unidade!;
+          addPessoa(u, s.funcao, s.colaborador_nome);
+        });
+    } else {
+      planejamentoEmbarque.forEach((row) => {
+        if (!row.unidade || !row.embarque || !row.desembarque) return;
+        const unidadeTexto = row.unidade.trim().toUpperCase();
+        if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+        if (unidadeTexto === "QUALITECH" && !row.bsp?.trim()) return;
+        if (pobReferenceDate < row.embarque || pobReferenceDate >= row.desembarque) return;
+        if (pobReferenceDate >= today && !isStatusEmbarcado(row.status)) return;
+        const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
+        addPessoa(u, row.funcao, row.nome);
+      });
+    }
     return Object.entries(m)
       .map(([name, v]) => ({
         name, Embarcado: v.total,
@@ -2835,7 +2905,7 @@ function DashboardTab({ colaboradores, periodos }: {
           .sort((a, b) => b.count - a.count),
       }))
       .sort((a, b) => b.Embarcado - a.Embarcado);
-  }, [planejamentoEmbarque, pobReferenceDate]);
+  }, [planejamentoEmbarque, planejamentoSnapshots, pobReferenceDate, diasComFotoPlanejamento, today]);
 
   const funcaoColor = useMemo(() => {
     const todasFuncoes = Array.from(new Set(byUnitStatus.flatMap((u) => u.porFuncao.map((f) => f.funcao))));
