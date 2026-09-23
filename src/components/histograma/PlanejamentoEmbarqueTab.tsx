@@ -96,7 +96,12 @@ export function isStatusDisponivel(status: string | null | undefined): boolean {
 // base sob responsabilidade de uma pessoa específica, sem ser o "Na Base" normal). Prefixo em
 // vez de valor fechado porque o nome depois do "-" varia.
 export function isStatusBloqueioTemporario(status: string | null | undefined): boolean {
-  return (status ?? "").trim().toUpperCase().startsWith("BASE -");
+  const s = (status ?? "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return s.startsWith("BASE -") || s === "BLOQUEIO TEMPORARIO";
 }
 
 // Unidades e BSPs pra listas suspensas fora do Planejamento de Embarque (ex.: Transporte) —
