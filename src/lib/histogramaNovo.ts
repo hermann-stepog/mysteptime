@@ -845,6 +845,10 @@ export const OCUPACAO_BLUE_PALETTE = ["#0f2744", "#1e3a5f", "#2c5282", "#2563eb"
 // NAO_OCUPACAO_COLOR logo abaixo, pra nenhum outro status cair nela por coincidência do ciclo.
 export const OCUPACAO_WARM_PALETTE = ["#fbbf24", "#f97316", "#fde68a", "#c2410c", "#fdba74", "#9a3412", "#fcd34d", "#ea580c", "#fed7aa"];
 
+// Paleta em 2 tons de vermelho pro terceiro donut (Na Base + Bloqueio Temporário) — pedido
+// dela, pra distinguir visualmente das outras duas categorias (ocupado/fora da ocupação).
+export const OCUPACAO_RED_PALETTE = ["#7f1d1d", "#ef4444"];
+
 // Cores fixas por status (em vez de ciclar a paleta) pro donut "fora da ocupação" — Standby
 // vira cinza (não é bem "quente" como os outros, é só quem está sem alocação), Férias
 // mantém o tom marrom-escuro original, e Desembarque usa o mesmo laranja/âmbar já usado pra

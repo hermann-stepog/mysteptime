@@ -36,7 +36,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
-  Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight,
+  Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight, Lock,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
@@ -45,7 +45,7 @@ import {
   buildYearDates, groupDatesByMonth, addDays, getPeriodoColor, getPeriodoLabel, ORIGEM_PROGRAMADO, E_A_CONFIRMAR_COLOR,
   generateDateRange, todayStr, weekdayAbbr, latestPeriodo, DRAKE_DATA_CUTOFF, bspOptionsForUnidade, bspDoPeriodo,
   normalizeUnidadeOperacional, buildUnidadeCanonMap, canonUnidade,
-  toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, NAO_OCUPACAO_COLOR,
+  toOldBucket, pobBucket, isOcupadoBucket, OCUPACAO_BLUE_PALETTE, OCUPACAO_WARM_PALETTE, OCUPACAO_RED_PALETTE, NAO_OCUPACAO_COLOR,
   calcularHistoricoOcupacaoColaborador, getColaboradoresComMultiploEmbarque,
   type OldBucket,
   type HistNovoColaborador, type HistNovoPeriodo, type TipoPeriodo, type ComputedStatus, type DayStatusResult,
@@ -56,7 +56,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS, resolverFuncaoEmbarque } from "@/lib/times
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
 import {
   PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, usePlanejamentoEmbarqueSnapshotsQuery,
-  isStatusNaBase, isStatusProgramado, isStatusEmbarcado,
+  isStatusNaBase, isStatusProgramado, isStatusEmbarcado, isStatusFolga, isStatusDisponivel, isStatusBloqueioTemporario,
 } from "@/components/histograma/PlanejamentoEmbarqueTab";
 import { KpiValue } from "@/components/KpiValue";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
@@ -2718,6 +2718,22 @@ function DashboardTab({ colaboradores, periodos }: {
     () => planejamentoEmbarque.filter((r) => isStatusProgramado(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
     [planejamentoEmbarque],
   );
+  // "Folga de Embarque" e "Aguardando Escala" também passam a vir do Planejamento de Embarque
+  // (antes vinham de uma conta à parte, do Drake — kpis.folga/kpis.disponiveis, agora só usados
+  // como reserva de outros cálculos que não mudaram). "Bloqueio Temporário" é novo, ver
+  // isStatusBloqueioTemporario.
+  const folgaDoPlanejamento = useMemo(
+    () => planejamentoEmbarque.filter((r) => isStatusFolga(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    [planejamentoEmbarque],
+  );
+  const disponivelDoPlanejamento = useMemo(
+    () => planejamentoEmbarque.filter((r) => isStatusDisponivel(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    [planejamentoEmbarque],
+  );
+  const bloqueioTemporarioDoPlanejamento = useMemo(
+    () => planejamentoEmbarque.filter((r) => isStatusBloqueioTemporario(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    [planejamentoEmbarque],
+  );
 
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
@@ -2733,51 +2749,59 @@ function DashboardTab({ colaboradores, periodos }: {
     return recs;
   }, [datesMesAtual, activeColaboradoresMesAtual, periodosByColaborador]);
 
-  // ── Ocupação (donut) — quebra pelo status exato de hoje (mesmas cores/labels do
-  // Histograma), em vez de um balde genérico "Outros" que escondia Folga/Férias/Atestado/
-  // Desembarque/Trabalho Externo/Hotel tudo junto sem discriminação. Dividido em dois donuts
-  // lado a lado: um só com quem está "ocupado" (ver isOcupadoBucket) em tons de azul, outro
-  // com o restante ("fora da ocupação" — Standby, Férias, Atestado etc.) em tons de
-  // amarelo/laranja, pra ficar visualmente claro que são as duas metades complementares.
-  // Pedido dela: as rosquinhas passam a ser só uma visualização dos MESMOS números já
-  // mostrados nos cartões acima (Embarcados/Programados/Na Base do Planejamento de Embarque;
-  // Folga/Aguardando Escala/Não Disponíveis do cálculo antigo do Drake) — sem recalcular nada
-  // por conta própria, pra nunca mais divergir do cartão, seja qual for a fonte de cada um.
+  // ── Ocupação (donuts) — três rosquinhas lado a lado, cada uma só uma visualização dos MESMOS
+  // números já mostrados nos cartões acima, sem recalcular nada por conta própria (pra nunca
+  // divergir do cartão): "Ocupado" em tons de azul (Embarcados/Programados/Folga de Embarque —
+  // "Na Base" saiu daqui, pedido dela), "Fora da ocupação" em tons de amarelo/laranja
+  // (Aguardando Escala + Não Disponíveis detalhado) e "Na Base"/"Bloqueio Temporário" — os dois
+  // que ficaram de fora do "Ocupado" — em 2 tons de vermelho, num terceiro donut à parte.
   const ocupacaoData = useMemo(() => {
     return [
       { name: "Embarcados", value: embarcadosDoPlanejamento.length, nomes: embarcadosDoPlanejamento.map((r) => r.nome) },
-      { name: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, nomes: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
       { name: "Programados", value: programadosDoPlanejamento.length, nomes: programadosDoPlanejamento.map((r) => r.nome) },
-      { name: "Folga de Embarque", value: kpis.folga, nomes: kpis.folgaNomes },
+      { name: "Folga de Embarque", value: folgaDoPlanejamento.length, nomes: folgaDoPlanejamento.map((r) => r.nome) },
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
-  }, [embarcadosDoPlanejamento, colaboradoresNaBaseDoPlanejamento, programadosDoPlanejamento, kpis]);
+  }, [embarcadosDoPlanejamento, programadosDoPlanejamento, folgaDoPlanejamento]);
 
   const naoOcupacaoData = useMemo(() => {
     return [
-      { name: "Aguardando Escala", value: kpis.disponiveis, nomes: kpis.disponiveisNomes },
+      { name: "Aguardando Escala", value: disponivelDoPlanejamento.length, nomes: disponivelDoPlanejamento.map((r) => r.nome) },
       // "Não Disponíveis" destrinchado por status real (Férias, Atestado, etc.)
       ...kpis.naoDispDetalhado,
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length] }));
-  }, [kpis]);
+  }, [disponivelDoPlanejamento, kpis]);
 
-  // Mesma soma das duas rosquinhas acima, sobre o Headcount Total do cartão (Planejamento de
-  // Embarque) — alimenta o % no centro das rosquinhas e também o cartão "Utilização" abaixo
-  // (mesmo número da Taxa de Ocupação — antes o cartão usava uma conta à parte, do Drake, que
-  // não batia com a rosquinha por vir de uma base de colaboradores diferente).
+  const baseData = useMemo(() => {
+    return [
+      { name: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, nomes: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
+      { name: "Bloqueio Temporário", value: bloqueioTemporarioDoPlanejamento.length, nomes: bloqueioTemporarioDoPlanejamento.map((r) => r.nome) },
+    ]
+      .filter((d) => d.value > 0)
+      .map((d, i) => ({ ...d, color: OCUPACAO_RED_PALETTE[i % OCUPACAO_RED_PALETTE.length] }));
+  }, [colaboradoresNaBaseDoPlanejamento, bloqueioTemporarioDoPlanejamento]);
+
+  // Cada donut calcula sua própria % sobre o Headcount Total do cartão (Planejamento de
+  // Embarque) — não são mais complementares entre si (100 - ocupação), já que agora são 3
+  // categorias, não 2. A % de "Ocupado" também alimenta o cartão "Utilização" abaixo.
   const ocupadoCards = ocupacaoData.reduce((sum, d) => sum + d.value, 0);
   const pctOcupacaoCards = planejamentoEmbarque.length > 0 ? Math.round((ocupadoCards / planejamentoEmbarque.length) * 100) : 0;
+  const foraOcupacaoCards = naoOcupacaoData.reduce((sum, d) => sum + d.value, 0);
+  const pctForaOcupacaoCards = planejamentoEmbarque.length > 0 ? Math.round((foraOcupacaoCards / planejamentoEmbarque.length) * 100) : 0;
+  const baseCards = baseData.reduce((sum, d) => sum + d.value, 0);
+  const pctBaseCards = planejamentoEmbarque.length > 0 ? Math.round((baseCards / planejamentoEmbarque.length) * 100) : 0;
 
   const kpiCards = [
     { label: "Headcount Total", value: planejamentoEmbarque.length, icon: Users },
     { label: "Embarcados", value: embarcadosDoPlanejamento.length, icon: Ship, hoverNames: embarcadosDoPlanejamento.map((r) => r.nome) },
     { label: "Programados", value: programadosDoPlanejamento.length, icon: CalendarDays, hoverNames: programadosDoPlanejamento.map((r) => r.nome) },
-    { label: "Folga de Embarque", value: kpis.folga, icon: BedDouble },
+    { label: "Folga de Embarque", value: folgaDoPlanejamento.length, icon: BedDouble, hoverNames: folgaDoPlanejamento.map((r) => r.nome) },
     { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
-    { label: "Aguardando Escala", value: kpis.disponiveis, icon: CheckCircle2 },
+    { label: "Bloqueio Temporário", value: bloqueioTemporarioDoPlanejamento.length, icon: Lock, hoverNames: bloqueioTemporarioDoPlanejamento.map((r) => r.nome) },
+    { label: "Aguardando Escala", value: disponivelDoPlanejamento.length, icon: CheckCircle2, hoverNames: disponivelDoPlanejamento.map((r) => r.nome) },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: pctOcupacaoCards, suffix: "%", icon: TrendingUp },
   ];
@@ -3048,7 +3072,7 @@ function DashboardTab({ colaboradores, periodos }: {
       </Card>
 
       {/* ── KPIs ── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9">
         {kpiCards.map((k, i) => {
           const card = (
             <Card className={cn("bg-gradient-to-br from-white to-slate-50 p-4", k.hoverNames && "cursor-default")}>
@@ -3068,13 +3092,13 @@ function DashboardTab({ colaboradores, periodos }: {
                 <HoverCard openDelay={150} closeDelay={100}>
                   <HoverCardTrigger asChild>{card}</HoverCardTrigger>
                   <HoverCardContent className="w-72 p-3" align="center" side="bottom">
-                    <p className="text-xs font-semibold">Colaboradores na base ({k.hoverNames.length})</p>
+                    <p className="text-xs font-semibold">{k.label} ({k.hoverNames.length})</p>
                     {k.hoverNames.length > 0 ? (
                       <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/85">
                         {k.hoverNames.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
                       </ul>
                     ) : (
-                      <p className="mt-2 text-[11px] text-muted-foreground">Nenhum colaborador na base.</p>
+                      <p className="mt-2 text-[11px] text-muted-foreground">Ninguém nessa condição.</p>
                     )}
                   </HoverCardContent>
                 </HoverCard>
@@ -3096,14 +3120,17 @@ function DashboardTab({ colaboradores, periodos }: {
             </PopoverTrigger>
             <PopoverContent className="w-80 space-y-2 text-xs" align="start">
               <p>
-                <span className="font-semibold" style={{ color: DASH_COLORS.navy }}>Ocupado</span> (fatia azul): Embarcado, Dobra, Folga
-                Indenizada, Folga de Embarque, Trabalho Externo, Programado, Na Base e Desembarque — vaga comprometida no ciclo de
-                rotação, mesmo quando a pessoa não está fisicamente a bordo naquele dia (folga do ciclo, mobilização já lançada,
-                trabalhando na base em vez de offshore, ou desembarcando — que já entra de folga em seguida).
+                <span className="font-semibold" style={{ color: DASH_COLORS.navy }}>Ocupado</span> (fatia azul): Embarcado, Programado e
+                Folga de Embarque — vaga comprometida no ciclo de rotação, mesmo quando a pessoa não está fisicamente a bordo naquele dia
+                (folga do ciclo ou mobilização já lançada).
               </p>
               <p>
-                <span className="font-semibold" style={{ color: "#c2410c" }}>Fora da ocupação</span> (fatia laranja): Standby (Aguardando
-                Escala), Férias e Atestado — sem vaga reservada em nenhuma unidade no momento.
+                <span className="font-semibold" style={{ color: "#c2410c" }}>Fora da ocupação</span> (fatia laranja): Aguardando Escala,
+                Férias e Atestado — sem vaga reservada em nenhuma unidade no momento.
+              </p>
+              <p>
+                <span className="font-semibold" style={{ color: "#7f1d1d" }}>Na Base / Bloqueio Temporário</span> (fatia vermelha): dentro
+                do Headcount Total, mas numa categoria à parte — não entram nem em "Ocupado" nem em "Fora da ocupação".
               </p>
             </PopoverContent>
           </Popover>
@@ -3111,7 +3138,7 @@ function DashboardTab({ colaboradores, periodos }: {
         <p className="text-xs text-muted-foreground mb-3">
           {pobReferenceDate === today ? "Status de hoje" : `Status em ${fmtDiaCurto(pobReferenceDate)}`}, por colaborador ativo no período filtrado
         </p>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-3">
           <div className="flex flex-wrap items-center gap-4">
             <div className="relative h-[180px] w-[180px] shrink-0">
               <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px]">
@@ -3167,13 +3194,53 @@ function DashboardTab({ colaboradores, periodos }: {
                   className="text-2xl font-bold"
                   style={{ backgroundImage: "linear-gradient(135deg, #9a3412, #f59e0b)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
                 >
-                  {100 - pctOcupacaoCards}%
+                  {pctForaOcupacaoCards}%
                 </span>
                 <span className="text-[10px] text-muted-foreground">fora da ocupação</span>
               </div>
             </div>
             <div className="flex-1 min-w-[160px] space-y-2">
               {naoOcupacaoData.map((d) => (
+                <HoverCard key={d.name} openDelay={120} closeDelay={80}>
+                  <HoverCardTrigger asChild>
+                    <div className="flex cursor-default items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50">
+                      <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                      <span className="text-muted-foreground">{d.name}</span>
+                      <span className="ml-auto font-semibold">{d.value}</span>
+                    </div>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-64 p-2.5" side="top" align="start">
+                    <p className="text-xs font-semibold">{d.name} ({d.value})</p>
+                    <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
+                      {d.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
+                    </ul>
+                  </HoverCardContent>
+                </HoverCard>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-4 lg:border-l lg:pl-6">
+            <div className="relative h-[180px] w-[180px] shrink-0">
+              <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px]">
+                <PieChart>
+                  <Pie data={baseData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
+                    {baseData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
+                  </Pie>
+                  <ChartTooltip content={renderDonutNamesTooltip} />
+                </PieChart>
+              </ChartContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span
+                  className="text-2xl font-bold"
+                  style={{ backgroundImage: "linear-gradient(135deg, #7f1d1d, #ef4444)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+                >
+                  {pctBaseCards}%
+                </span>
+                <span className="text-[10px] text-muted-foreground">na base / bloqueio</span>
+              </div>
+            </div>
+            <div className="flex-1 min-w-[160px] space-y-2">
+              {baseData.map((d) => (
                 <HoverCard key={d.name} openDelay={120} closeDelay={80}>
                   <HoverCardTrigger asChild>
                     <div className="flex cursor-default items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50">

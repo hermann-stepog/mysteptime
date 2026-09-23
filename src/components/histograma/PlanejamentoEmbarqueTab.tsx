@@ -80,6 +80,25 @@ export function isStatusEmbarcado(status: string | null | undefined): boolean {
   return (status ?? "").trim().toUpperCase() === "EMBARCADO";
 }
 
+// Idem, pra "Folga" e "Disponível" — cartões "Folga de Embarque"/"Aguardando Escala" do
+// Dashboard passam a vir do Planejamento de Embarque também (antes vinham de uma conta à
+// parte, do Drake).
+export function isStatusFolga(status: string | null | undefined): boolean {
+  return (status ?? "").trim().toUpperCase() === "FOLGA";
+}
+
+export function isStatusDisponivel(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toUpperCase();
+  return s === "DISPONIVEL" || s === "DISPONÍVEL";
+}
+
+// "Bloqueio Temporário" — status tipo "BASE - HENRIQUE" (alguém temporariamente retido numa
+// base sob responsabilidade de uma pessoa específica, sem ser o "Na Base" normal). Prefixo em
+// vez de valor fechado porque o nome depois do "-" varia.
+export function isStatusBloqueioTemporario(status: string | null | undefined): boolean {
+  return (status ?? "").trim().toUpperCase().startsWith("BASE -");
+}
+
 // Unidades e BSPs pra listas suspensas fora do Planejamento de Embarque (ex.: Transporte) —
 // pedido dela: essas listas devem vir da planilha de Planejamento de Embarque, não mais de
 // texto livre nem do Drake. "FOLGA" é um valor de preenchimento (sem embarcação real), nunca

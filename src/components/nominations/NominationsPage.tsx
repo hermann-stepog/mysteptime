@@ -522,16 +522,16 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
         }),
       );
       const merged = ativos.map((n) => ({ ...n, pm_decision: decisionFor(n) }));
-      const gate = canMoveToColumn(nomination, "validacao_sms_aso", merged);
+      const gate = canMoveToColumn(nomination, "briefing_sms", merged);
       if (!gate.ok) throw new Error(gate.reason ?? "Não é possível avançar ainda.");
 
-      const { error } = await supabase.from("nominations").update({ current_status: "validacao_sms_aso" }).eq("id", nomination.id);
+      const { error } = await supabase.from("nominations").update({ current_status: "briefing_sms" }).eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id, status: "validacao_sms_aso",
+        nomination_id: nomination.id, status: "briefing_sms",
         changed_by_name: profile?.full_name ?? profile?.email ?? "Logística", notes: "Decisões de Aprovação PM confirmadas pela Logística",
       });
-      await notifyStageAdvance({ ...nomination, current_status: "validacao_sms_aso" }, "validacao_sms_aso");
+      await notifyStageAdvance({ ...nomination, current_status: "briefing_sms" }, "briefing_sms");
     },
     onSuccess: () => {
       notify.success("Decisões enviadas.");
@@ -592,20 +592,23 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
         })}
       </div>
       <Button size="sm" disabled={!todosDecididos} loading={confirmar.isPending} onClick={() => confirmar.mutate()}>
-        <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar decisões e avançar para Validação SMS (ASO)
+        <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar decisões e avançar para Briefing
       </Button>
     </div>
   );
 }
 
-// Validação SMS (ASO) — mesmo papel (sms) que já cuida do Briefing mais à frente. Checklist
-// por nomeado aprovado, igual ao antigo formato de Aptidão (que virou parte de Validação RH).
+// Validação SMS (ASO) — mesmo papel (sms) que já cuida do Briefing mais à frente. Vem logo
+// depois de Simulação agora (pedido dela) — checklist por todo nomeado simulado, ainda antes
+// de qualquer seleção da Aprovação Técnica ou decisão do PM.
 function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
   const advance = useAdvanceStage();
-  const aprovados = nominees.filter((n) => n.is_active && n.pm_decision === "aprovado");
+  // Vem logo depois de Simulação agora — checa todo mundo que foi simulado, não só quem o PM
+  // já aprovou (isso só acontece bem mais adiante no fluxo).
+  const aprovados = nominees.filter((n) => n.is_active);
 
   const toggleCheck = useMutation({
     mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
@@ -648,7 +651,9 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
   const advance = useAdvanceStage();
-  const aprovados = nominees.filter((n) => n.is_active && n.pm_decision === "aprovado");
+  // Mesmo motivo do ValidacaoSmsAsoSection acima: checa todo mundo simulado, não só quem já foi
+  // decidido pelo PM (etapa que só acontece mais adiante agora).
+  const aprovados = nominees.filter((n) => n.is_active);
   const [divergenceDraft, setDivergenceDraft] = useState<Record<string, string>>({});
 
   const validate = useMutation({
@@ -742,8 +747,8 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
       </div>
 
       {canAct && (
-        <Button size="sm" disabled={!podeAvancar} onClick={() => advance.mutate({ nomination, target: "briefing_sms" })} loading={advance.isPending}>
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Briefing
+        <Button size="sm" disabled={!podeAvancar} onClick={() => advance.mutate({ nomination, target: "aprovacao_tecnica" })} loading={advance.isPending}>
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Aprovação Técnica
         </Button>
       )}
     </div>
@@ -1042,10 +1047,10 @@ function ManageDialog({
               {nomination.current_status === "simulacao" && canOperate && (
                 <Button
                   size="sm"
-                  onClick={() => { advance.mutate({ nomination, target: "aprovacao_tecnica" }); advanceGroupTo("aprovacao_tecnica"); }}
+                  onClick={() => { advance.mutate({ nomination, target: "validacao_sms_aso" }); advanceGroupTo("validacao_sms_aso"); }}
                   loading={advance.isPending}
                 >
-                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação Técnica
+                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação SMS (ASO)
                 </Button>
               )}
               {canOperate && showRevert && earlierStages.length > 0 && (
