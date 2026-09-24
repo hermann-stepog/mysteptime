@@ -99,10 +99,12 @@ async function pmEmail(nomination: Nomination): Promise<string | null> {
   return null;
 }
 
-// Destinatários fixos combinados com a usuária: Paulo Nunes recebe TODAS as etapas de TODAS as
-// solicitações; Douglas (Operações) é responsável direto por "Equipe Formada".
+// Destinatários fixos combinados com a usuária: Paulo Nunes (Líder de Planejamento) recebe
+// TODAS as etapas de TODAS as solicitações, e é também o responsável direto pelo cartão
+// "Nomeação (Simulação)"; Douglas (Operações) é responsável direto por "Equipe Formada".
 const SEMPRE_RECEBE = ["paulo.nunes@step-og.com"];
 const EXTRA_POR_ETAPA: Partial<Record<NominationStatus, string[]>> = {
+  simulacao: ["paulo.nunes@step-og.com"],
   equipe_formada: ["douglas.jacinto@step-og.com"],
 };
 
