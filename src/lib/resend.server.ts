@@ -1,9 +1,7 @@
-import process from "node:process";
+import { loadResendConfig } from "./emailSettings.server";
 
-// Server-only Resend helper. A chave nunca pode ter prefixo VITE_ (não pode
-// chegar no bundle do navegador) — mesmo padrão do SMTP em email.server.ts.
-// Usa fetch direto na API do Resend em vez de instalar o SDK, só pra mandar
-// e-mails de Template (id + variáveis), que é tudo que a gente precisa aqui.
+// Server-only Resend helper. Usa a configuração salva em Configurações (chave cifrada no
+// banco); se não houver, cai em API_RESEND/RESEND_FROM das variáveis de ambiente.
 export async function sendResendTemplateEmail(
   { to, cc, templateId, variables }: {
     to: string;
@@ -11,21 +9,20 @@ export async function sendResendTemplateEmail(
     templateId: string;
     variables: Record<string, string>;
   },
+  supabase: any,
 ) {
-  const apiKey = process.env.API_RESEND;
-  const from = process.env.RESEND_FROM;
-  if (!apiKey) throw new Error("Credencial do Resend (API_RESEND) não configurada.");
-  if (!from) throw new Error("Remetente do Resend (RESEND_FROM) não configurado.");
+  const cfg = await loadResendConfig(supabase);
+  if (!cfg) throw new Error("Avisos por e-mail não configurados/ativados em Configurações.");
   if (!templateId) throw new Error("Template do Resend não configurado.");
 
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${cfg.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from,
+      from: cfg.from,
       to,
       ...(cc && cc.length > 0 ? { cc } : {}),
       template: { id: templateId, variables },
