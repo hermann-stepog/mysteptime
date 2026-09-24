@@ -46,13 +46,15 @@ const PM_PATHS = NAO_OPERADOR_PATHS;
 // não é um operador logístico de verdade, é só autonomia de teste dentro de Nomeações.
 const ADM_MASTER_PATHS = NAO_OPERADOR_PATHS;
 
-// Papéis de etapa do fluxo de Nomeações (Aprovação Técnica/Qualidade/RH/SMS) — a ação real (o
-// que cada um pode editar dentro de Nomeações) continua restrita por etapa via RLS, isso aqui
-// só decide o que aparece no menu. RH/SMS deixaram de logar aqui (ver REAL_STAGE_ROLES abaixo
-// — ganharam a própria área em /rh-sms, só com o kanban de Nomeações + Viagens
-// Internacionais), mas continuam nesta lista pra "Ver como outro papel" (useViewAs) ainda
-// conseguir pré-visualizar o recorte de menu que eles tinham aqui.
-const STAGE_ROLES = ["aprovacao_tecnica", "qualidade", "rh", "sms"];
+// Papéis de etapa do fluxo de Nomeações (Aprovação Técnica/Qualidade/RH/SMS/Solicitante Master)
+// — a ação real (o que cada um pode editar dentro de Nomeações) continua restrita por etapa via
+// RLS, isso aqui só decide o que aparece no menu. RH/SMS deixaram de logar aqui (ver
+// REAL_STAGE_ROLES abaixo — ganharam a própria área em /rh-sms, só com o kanban de Nomeações +
+// Viagens Internacionais), mas continuam nesta lista pra "Ver como outro papel" (useViewAs)
+// ainda conseguir pré-visualizar o recorte de menu que eles tinham aqui. Solicitante Master
+// (Paulo Nunes) é responsável pelo cartão "Nomeação (Simulação)" em qualquer solicitação — ver
+// STAGE_ROLE em lib/nominations.ts e as policies solicitante_master_* no banco.
+const STAGE_ROLES = ["aprovacao_tecnica", "qualidade", "rh", "sms", "solicitante_master"];
 const STAGE_ROLE_PATHS = NAO_OPERADOR_PATHS;
 
 // RH e SMS (só esses dois papéis de etapa, não Aprovação Técnica/Qualidade) também
@@ -60,9 +62,9 @@ const STAGE_ROLE_PATHS = NAO_OPERADOR_PATHS;
 // segunda aba; mantido só pro "Ver como outro papel" continuar mostrando o recorte antigo.
 const RH_SMS_EXTRA_PATHS = ["/admin/passagens-aereas"];
 
-// Só Aprovação Técnica e Qualidade continuam logando de verdade dentro de /admin — RH e SMS
-// agora são redirecionados pra /rh-sms (ver auth.tsx, app/route.tsx e rh-sms/route.tsx).
-const REAL_STAGE_ROLES = ["aprovacao_tecnica", "qualidade"];
+// Aprovação Técnica, Qualidade e Solicitante Master logam de verdade dentro de /admin — RH e
+// SMS são redirecionados pra /rh-sms (ver auth.tsx, app/route.tsx e rh-sms/route.tsx).
+const REAL_STAGE_ROLES = ["aprovacao_tecnica", "qualidade", "solicitante_master"];
 
 function AdminLayout() {
   const { user, role, loading, signOut, profile } = useAuth();

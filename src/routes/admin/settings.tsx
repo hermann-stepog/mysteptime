@@ -29,6 +29,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "logistics_operator", label: "Operador Logístico" },
   { value: "adm_master", label: "Admin Master (Nomeações)" },
   { value: "pm", label: "Solicitante" },
+  { value: "solicitante_master", label: "Solicitante Master" },
   { value: "visitante", label: "Visitante" },
   { value: "aprovacao_tecnica", label: "Nomeações — Aprovação Técnica" },
   { value: "qualidade", label: "Nomeações — Qualidade" },

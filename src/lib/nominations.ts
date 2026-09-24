@@ -377,6 +377,7 @@ export function isSoldador(fn: string) {
 // mostrar/habilitar na UI conforme o `role` logado (useAuth()). `logistics_operator`
 // continua com acesso total em qualquer etapa (não entra neste mapa).
 export const STAGE_ROLE: Partial<Record<NominationStatus, string>> = {
+  simulacao: "solicitante_master",
   aprovacao_tecnica: "aprovacao_tecnica",
   validacao_qualidade: "qualidade",
   validacao_sms_aso: "sms",

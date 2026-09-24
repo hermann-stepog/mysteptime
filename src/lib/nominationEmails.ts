@@ -100,11 +100,14 @@ async function pmEmail(nomination: Nomination): Promise<string | null> {
 }
 
 // Destinatários fixos combinados com a usuária: Paulo Nunes (Líder de Planejamento) recebe
-// TODAS as etapas de TODAS as solicitações, e é também o responsável direto pelo cartão
-// "Nomeação (Simulação)"; Douglas (Operações) é responsável direto por "Equipe Formada".
+// TODAS as etapas de TODAS as solicitações. Ele também é o responsável direto pelo cartão
+// "Nomeação (Simulação)" — isso não precisa de entrada fixa aqui: ele tem o papel próprio
+// "solicitante_master" (ver STAGE_ROLE em lib/nominations.ts), então emailsForRole já resolve o
+// e-mail dele automaticamente pra esse "to", igual acontece com aprovacao_tecnica/qualidade/
+// rh/sms. Douglas (Operações) é responsável direto por "Equipe Formada", que não tem papel
+// próprio, por isso continua fixo aqui.
 const SEMPRE_RECEBE = ["paulo.nunes@step-og.com"];
 const EXTRA_POR_ETAPA: Partial<Record<NominationStatus, string[]>> = {
-  simulacao: ["paulo.nunes@step-og.com"],
   equipe_formada: ["douglas.jacinto@step-og.com"],
 };
 
