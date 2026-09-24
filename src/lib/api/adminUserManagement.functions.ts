@@ -70,8 +70,9 @@ export const adminCreateUser = createServerFn({ method: "POST" })
         "",
         `Acesse: ${loginUrl}`,
         `E-mail de login: ${data.email}`,
+        `Senha provisória: ${data.password}`,
         "",
-        "Use a senha provisória informada pela Logística de Pessoal — no primeiro acesso você será solicitado(a) a definir uma nova senha.",
+        "Por segurança, troque a senha no primeiro acesso.",
       ];
       const subject = "Bem-vindo(a) ao My Step Time";
       const { loadResendConfig, sendResendHtml } = await import("@/lib/emailSettings.server");
