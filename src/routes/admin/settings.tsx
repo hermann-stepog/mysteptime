@@ -406,6 +406,34 @@ function ResetPasswordDialog({ userId, userLabel, onClose }: { userId: string; u
   );
 }
 
+function PerfilCell({ userId, perfil }: { userId: string; perfil: string | null }) {
+  const qc = useQueryClient();
+  const [value, setValue] = useState(perfil ?? "");
+  const save = useMutation({
+    mutationFn: async () => {
+      const trimmed = value.trim();
+      // perfil ainda não está nos tipos gerados (coluna nova); cast local, mesmo padrão já
+      // usado em must_change_password.
+      const { error } = await (supabase as any).from("profiles").update({ perfil: trimmed || null }).eq("id", userId);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["users-with-roles"] });
+      notify.success("Perfil atualizado.");
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao salvar perfil."),
+  });
+  return (
+    <Input
+      className="h-8 w-36"
+      value={value}
+      placeholder="—"
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => { if (value.trim() !== (perfil ?? "").trim()) save.mutate(); }}
+    />
+  );
+}
+
 function Users() {
   const qc = useQueryClient();
   const [resetTarget, setResetTarget] = useState<{ id: string; label: string } | null>(null);
@@ -462,7 +490,9 @@ function Users() {
           <TableBody>
             {(data ?? []).map((u: any) => (
               <TableRow key={u.id}>
-                <TableCell>{u.full_name ?? "—"}</TableCell><TableCell>{u.perfil ?? "—"}</TableCell><TableCell>{u.email}</TableCell>
+                <TableCell>{u.full_name ?? "—"}</TableCell>
+                <TableCell><PerfilCell key={u.perfil ?? ""} userId={u.id} perfil={u.perfil} /></TableCell>
+                <TableCell>{u.email}</TableCell>
                 <TableCell>
                   <Select value={u.role} onValueChange={(v) => setRole(u.id, v, u.roleId)}>
                     <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>

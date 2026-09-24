@@ -320,6 +320,14 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         </div>
       )}
 
+      {custoTotal(trip) != null && (
+        <div className="mt-2">
+          <span className="inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
+            Valor: {fmtMoney(custoTotal(trip)!)}
+          </span>
+        </div>
+      )}
+
       <div className="mt-2 text-sm space-y-0.5">
         <div>
           <span className="text-muted-foreground">{trip.origin}</span>
@@ -2180,6 +2188,13 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                           ))}
                         </div>
                       )}
+                      {custoTotal(t) != null && (
+                        <div className="mt-1">
+                          <span className="inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
+                            Valor: {fmtMoney(custoTotal(t)!)}
+                          </span>
+                        </div>
+                      )}
                       <div className="mt-2 text-sm">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}</div>
                       {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
                       {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
@@ -2242,6 +2257,44 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
   );
 }
 
+// Busca com autocomplete pro filtro de NF do Quadro Detalhado — mesmo padrão do
+// ColaboradorFiltroCombobox acima, só que as opções vêm dos próprios dados carregados (NF é
+// texto livre, sem cadastro fixo, então a lista é tudo que já foi preenchido até agora).
+function NfFiltroCombobox({ value, onChange, options }: { value: string; onChange: (nf: string) => void; options: string[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-40 justify-between font-normal">
+          <span className="truncate">{value || "Todas"}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command filter={(v, search) => (matchesNameSearch(v, search) ? 1 : 0)}>
+          <CommandInput placeholder="Digitar NF..." />
+          <CommandList>
+            <CommandEmpty>Nenhuma encontrada.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem value="Todas" onSelect={() => { onChange(""); setOpen(false); }}>
+                <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                Todas
+              </CommandItem>
+              {options.map((nf) => (
+                <CommandItem key={nf} value={nf} onSelect={() => { onChange(nf); setOpen(false); }}>
+                  <Check className={cn("mr-2 h-4 w-4", value === nf ? "opacity-100" : "opacity-0")} />
+                  {nf}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "nf" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
 
 function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
@@ -2253,7 +2306,15 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   const [tipo, setTipo] = useState(initialTipo ?? "all");
   const [carro, setCarro] = useState("all");
   const [colaboradorId, setColaboradorId] = useState("");
+  const [nf, setNf] = useState("");
   const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
+
+  // NF é texto livre (sem cadastro fixo) — as opções do filtro vêm de tudo que já foi
+  // preenchido nas viagens carregadas.
+  const nfOptions = useMemo(
+    () => Array.from(new Set((trips as Trip[]).map((t) => t.nf?.trim()).filter((v): v is string => !!v))).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true })),
+    [trips],
+  );
 
   // Transporte é texto livre (Uber, Motorista X, Future NN, etc.), não um cadastro fixo — a
   // lista de opções vem dos próprios dados carregados, não de uma constante como CLIENTES.
@@ -2277,6 +2338,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
+      if (nf && t.nf?.trim() !== nf) return false;
       return true;
     });
 
@@ -2311,7 +2373,7 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       }
       return txt(a).localeCompare(txt(b), "pt-BR", { sensitivity: "base", numeric: true }) * dir;
     });
-  }, [trips, from, to, tagId, status, cliente, tipo, carro, colaboradorId, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
+  }, [trips, from, to, tagId, status, cliente, tipo, carro, colaboradorId, nf, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
 
   // Soma o custo de tudo que está filtrado na tela agora (recalcula sozinho a cada mudança de
   // filtro, inclusive o período De/Até) — não é só das linhas "Realizado", é o total exibido.
@@ -2388,6 +2450,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         <div>
           <Label className="text-xs">Colaborador</Label>
           <ColaboradorFiltroCombobox value={colaboradorId} onChange={setColaboradorId} />
+        </div>
+        <div>
+          <Label className="text-xs">NF</Label>
+          <NfFiltroCombobox value={nf} onChange={setNf} options={nfOptions} />
         </div>
         <div className="ml-auto flex items-center gap-2">
           <HistoricoAlteracoesButton modulo="transporte_quadro_detalhado" titulo="Quadro Detalhado — Transporte" />
