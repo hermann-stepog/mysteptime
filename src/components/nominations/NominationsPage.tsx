@@ -610,29 +610,59 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
   // já aprovou (isso só acontece bem mais adiante no fluxo).
   const aprovados = nominees.filter((n) => n.is_active);
 
-  const toggleCheck = useMutation({
-    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
-      const { error } = await supabase.from("nomination_nominees").update({
-        sms_aso_checked: val,
-        sms_aso_checked_at: val ? new Date().toISOString() : null,
-        sms_aso_checked_by: val ? (profile?.full_name ?? profile?.email ?? null) : null,
+  // "Bloqueio de saúde" e "ASO em dia" (Sim/Não). O nomeado conta como checado (sms_aso_checked)
+  // quando os dois foram respondidos — é isso que libera o avanço (gate em canMoveToColumn).
+  const setCampo = useMutation({
+    mutationFn: async ({ nominee, campo, val }: { nominee: NominationNominee; campo: "sms_bloqueio_saude" | "sms_aso_em_dia"; val: boolean }) => {
+      const atual: any = nominee;
+      const bloqueio = campo === "sms_bloqueio_saude" ? val : atual.sms_bloqueio_saude;
+      const aso = campo === "sms_aso_em_dia" ? val : atual.sms_aso_em_dia;
+      const completo = bloqueio != null && aso != null;
+      const { error } = await (supabase as any).from("nomination_nominees").update({
+        [campo]: val,
+        sms_aso_checked: completo,
+        sms_aso_checked_at: completo ? new Date().toISOString() : null,
+        sms_aso_checked_by: completo ? (profile?.full_name ?? profile?.email ?? null) : null,
       }).eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onError: (err: Error) => notify.error(err.message),
   });
 
   const todosChecados = aprovados.length > 0 && aprovados.every((n) => n.sms_aso_checked);
 
+  const SimNao = ({ n, campo, label }: { n: NominationNominee; campo: "sms_bloqueio_saude" | "sms_aso_em_dia"; label: string }) => {
+    const v = (n as any)[campo] as boolean | null;
+    return (
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <div className="flex gap-1">
+          {[true, false].map((opt) => (
+            <Button key={String(opt)} size="sm" type="button" disabled={!canAct}
+              variant={v === opt ? "default" : "outline"} className="h-6 px-2 text-xs"
+              onClick={() => setCampo.mutate({ nominee: n, campo, val: opt })}>
+              {opt ? "Sim" : "Não"}
+            </Button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Validação SMS (ASO)</p>
-      <div className="space-y-1 rounded-md border p-2">
+      <div className="space-y-2">
         {aprovados.map((n) => (
-          <label key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer">
-            <span>{n.colaborador_nome}</span>
-            <Checkbox checked={n.sms_aso_checked} disabled={!canAct} onCheckedChange={(v) => toggleCheck.mutate({ nominee: n, val: !!v })} />
-          </label>
+          <div key={n.id} className="space-y-1 rounded-md border p-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{n.colaborador_nome}</span>
+              {n.sms_aso_checked ? <Badge variant="secondary">Respondido</Badge> : <Badge variant="secondary">Pendente</Badge>}
+            </div>
+            <SimNao n={n} campo="sms_bloqueio_saude" label="Bloqueio de saúde?" />
+            <SimNao n={n} campo="sms_aso_em_dia" label="ASO em dia?" />
+          </div>
         ))}
       </div>
       {canAct && (
@@ -664,6 +694,15 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+  });
+
+  const setDoc = useMutation({
+    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
+      const { error } = await (supabase as any).from("nomination_nominees").update({ rh_documentacao_ok: val }).eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onError: (err: Error) => notify.error(err.message),
   });
 
   const flagDivergence = useMutation({
@@ -726,8 +765,22 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
                 </div>
               ) : !n.rh_validated && canAct ? (
                 <div className="mt-1.5 space-y-1.5">
-                  <Button size="sm" className="h-6 text-xs" loading={validate.isPending} onClick={() => validate.mutate(n)}>
-                    Validar RH
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-muted-foreground">Documentação OK para embarque?</span>
+                    <div className="flex gap-1">
+                      {[true, false].map((opt) => (
+                        <Button key={String(opt)} size="sm" type="button" className="h-6 px-2 text-xs"
+                          variant={(n as any).rh_documentacao_ok === opt ? "default" : "outline"}
+                          onClick={() => setDoc.mutate({ nominee: n, val: opt })}>
+                          {opt ? "Sim" : "Não"}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <Button size="sm" className="h-6 text-xs" loading={validate.isPending}
+                    disabled={(n as any).rh_documentacao_ok == null}
+                    onClick={() => validate.mutate(n)}>
+                    Validar embarque
                   </Button>
                   <div className="flex gap-1.5">
                     <Input

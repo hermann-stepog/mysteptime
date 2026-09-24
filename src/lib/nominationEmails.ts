@@ -99,30 +99,70 @@ async function pmEmail(nomination: Nomination): Promise<string | null> {
   return null;
 }
 
+// Destinatários fixos combinados com a usuária: Paulo Nunes recebe TODAS as etapas de TODAS as
+// solicitações; Douglas (Operações) é responsável direto por "Equipe Formada".
+const SEMPRE_RECEBE = ["paulo.nunes@step-og.com"];
+const EXTRA_POR_ETAPA: Partial<Record<NominationStatus, string[]>> = {
+  equipe_formada: ["douglas.jacinto@step-og.com"],
+};
+
+const simNao = (v: boolean | null | undefined) => (v == null ? "não informado" : v ? "Sim" : "Não");
+
+// Respostas de SMS (bloqueio de saúde / ASO em dia) e RH (documentação OK / embarque validado)
+// por nomeado — entram no corpo do alerta sempre que já tiverem sido preenchidas.
+async function stageAnswers(nomination: Nomination): Promise<string[]> {
+  try {
+    const { data } = await supabaseAny
+      .from("nomination_nominees")
+      .select("colaborador_nome, sms_bloqueio_saude, sms_aso_em_dia, rh_documentacao_ok, rh_validated, aptidao_divergence, aptidao_divergence_text")
+      .eq("nomination_id", nomination.id)
+      .eq("is_active", true);
+    const linhas: string[] = [];
+    for (const n of data ?? []) {
+      const partes: string[] = [];
+      if (n.sms_bloqueio_saude != null || n.sms_aso_em_dia != null) {
+        partes.push(`SMS: bloqueio de saúde ${simNao(n.sms_bloqueio_saude)}, ASO em dia ${simNao(n.sms_aso_em_dia)}`);
+      }
+      if (n.rh_documentacao_ok != null || n.rh_validated) {
+        partes.push(`RH: documentação OK ${simNao(n.rh_documentacao_ok)}, embarque ${n.rh_validated ? "validado" : "não validado"}`);
+      }
+      if (n.aptidao_divergence) partes.push(`Divergência de aptidão: ${n.aptidao_divergence_text ?? ""}`);
+      if (partes.length > 0) linhas.push(`${n.colaborador_nome} — ${partes.join(" | ")}`);
+    }
+    return linhas;
+  } catch {
+    return [];
+  }
+}
+
 // Chamado a cada avanço de etapa — nunca lança: falha de e-mail vira aviso, não trava nem
 // desfaz a troca de etapa (mesma postura de tolerância a falha de recordDrakeSyncRun).
+// Regra: responsável da etapa + solicitante (PM) + Paulo Nunes + Logística de Pessoal.
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus): Promise<void> {
   try {
     const stageRole = STAGE_ROLE[stage];
-    const [to, cc, pm] = await Promise.all([
+    const [roleTo, cc, pm, respostas] = await Promise.all([
       stageRole ? emailsForRole(stageRole) : Promise.resolve([]),
       operatorEmails(),
       pmEmail(nomination),
+      stageAnswers(nomination),
     ]);
-    const ccAll = Array.from(new Set([...cc, ...(pm ? [pm] : [])]));
-    const toFinal = to.length > 0 ? to : ccAll; // sem dono de etapa dedicado: manda só pra logística/PM
+    const to = [...roleTo, ...(EXTRA_POR_ETAPA[stage] ?? [])];
+    const ccAll = Array.from(new Set([...cc, ...(pm ? [pm] : []), ...SEMPRE_RECEBE]));
+    const toFinal = to.length > 0 ? to : (pm ? [pm] : ccAll);
     if (toFinal.length === 0) return;
 
+    const periodo = nomination.period_start && nomination.period_end
+      ? `${fmtBr(nomination.period_start)} a ${fmtBr(nomination.period_end)}`
+      : "—";
     await sendAlert({
       to: toFinal[0],
-      cc: Array.from(new Set([...toFinal.slice(1), ...ccAll])),
+      cc: Array.from(new Set([...toFinal.slice(1), ...ccAll])).filter((e) => e !== toFinal[0]),
       tituloAlerta: `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
       colaboradorNome: await nomineeNames(nomination),
       nomination,
-      detalhesLabel: "Período",
-      detalhes: nomination.period_start && nomination.period_end
-        ? `${fmtBr(nomination.period_start)} a ${fmtBr(nomination.period_end)}`
-        : "—",
+      detalhesLabel: respostas.length > 0 ? "Período e validações" : "Período",
+      detalhes: [`Período: ${periodo}`, ...respostas].join(" • "),
       rodapeTexto: "Este é um alerta automático do My Step Time referente ao andamento de uma nomeação.",
     });
   } catch (err) {
