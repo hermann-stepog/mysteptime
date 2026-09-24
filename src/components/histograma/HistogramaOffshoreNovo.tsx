@@ -2735,19 +2735,38 @@ function DashboardTab({ colaboradores, periodos }: {
     [planejamentoEmbarque],
   );
 
+  // BSP por nome, vindo do Planejamento de Embarque — usado só como reserva de "Sem BSP" no
+  // registro diário abaixo, pra quando o período do Drake não tem nem `bsp` nem
+  // `centro_de_custo` preenchido (ver bspDoPeriodo). Cruzamento por nome normalizado, mesmo
+  // padrão já usado em "Na Base" (colaboradoresNaBaseDoPlanejamento).
+  const bspPorNomePlanejamento = useMemo(() => {
+    const m = new Map<string, string>();
+    planejamentoEmbarque.forEach((r) => {
+      const bsp = r.bsp?.trim();
+      if (bsp) m.set(normalizeNomeHistograma(r.nome), bsp);
+    });
+    return m;
+  }, [planejamentoEmbarque]);
+
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
   // cálculo de computeDayStatus pra cada gráfico separadamente. ──
   const dailyRecords = useMemo(() => {
-    const recs: { date: string; bucket: OldBucket; unidade: string | null; bsp: string | null }[] = [];
+    const recs: { date: string; bucket: OldBucket; unidade: string | null; bsp: string | null; nome: string; bspDoPlanejamento: boolean }[] = [];
     datesMesAtual.forEach((d) => {
       activeColaboradoresMesAtual.forEach((c) => {
         const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
-        recs.push({ date: d, bucket: pobBucket(result), unidade: result.periodo?.unidade_operacional ?? null, bsp: result.periodo ? bspDoPeriodo(result.periodo) : null });
+        const bspDrake = result.periodo ? bspDoPeriodo(result.periodo) : null;
+        const bspDrakeLimpo = bspDrake?.trim() || null;
+        const bspPlanejamento = bspDrakeLimpo ? null : bspPorNomePlanejamento.get(normalizeNomeHistograma(c.nome)) ?? null;
+        recs.push({
+          date: d, bucket: pobBucket(result), unidade: result.periodo?.unidade_operacional ?? null,
+          bsp: bspDrakeLimpo || bspPlanejamento, nome: c.nome, bspDoPlanejamento: !!bspPlanejamento,
+        });
       });
     });
     return recs;
-  }, [datesMesAtual, activeColaboradoresMesAtual, periodosByColaborador]);
+  }, [datesMesAtual, activeColaboradoresMesAtual, periodosByColaborador, bspPorNomePlanejamento]);
 
   // ── Ocupação (donuts) — três rosquinhas lado a lado, cada uma só uma visualização dos MESMOS
   // números já mostrados nos cartões acima, sem recalcular nada por conta própria (pra nunca
@@ -2816,16 +2835,23 @@ function DashboardTab({ colaboradores, periodos }: {
   // Linhas da tabela "POB por Unidade × Dia" — volta a vir do Drake (dailyRecords), a pedido
   // dela: o Planejamento de Embarque é sobrescrito o tempo todo e não guarda histórico
   // confiável dia a dia, então essa tabela volta a usar o período já lançado/confirmado no
-  // Drake.
+  // Drake. "Sem BSP" acontece quando o período do Drake não tem nem `bsp` (correção manual) nem
+  // `centro_de_custo` preenchido (ver bspDoPeriodo) — nesse caso, dailyRecords já tenta
+  // completar com o BSP do Planejamento de Embarque (cruzado por nome) antes de desistir e
+  // marcar como "Sem BSP" de verdade. Guarda os nomes de quem cai em cada célula (sinalizando
+  // quem veio do Planejamento) pra dar pra investigar direto no hover, sem ir atrás linha por
+  // linha no Drake.
   const unidadeBspRows = useMemo(() => {
-    const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number> }>();
+    const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number>; nomesByDate: Map<string, string[]> }>();
     dailyRecords.forEach((r) => {
       if (r.bucket !== "E" || !r.unidade) return;
       const bsp = r.bsp?.trim() || "Sem BSP";
       const key = `${r.unidade}::${bsp}`;
-      if (!m.has(key)) m.set(key, { unidade: r.unidade, bsp, countByDate: new Map() });
+      if (!m.has(key)) m.set(key, { unidade: r.unidade, bsp, countByDate: new Map(), nomesByDate: new Map() });
       const row = m.get(key)!;
       row.countByDate.set(r.date, (row.countByDate.get(r.date) ?? 0) + 1);
+      if (!row.nomesByDate.has(r.date)) row.nomesByDate.set(r.date, []);
+      row.nomesByDate.get(r.date)!.push(r.bspDoPlanejamento ? `${r.nome} (via Planejamento)` : r.nome);
     });
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
   }, [dailyRecords]);
@@ -3282,11 +3308,13 @@ function DashboardTab({ colaboradores, periodos }: {
                           <td className="sticky left-0 z-10 bg-background border border-border px-2 py-1 pl-5 text-muted-foreground truncate">{row.bsp}</td>
                           {datesMesAtual.map((d) => {
                             const count = row.countByDate.get(d) ?? 0;
+                            const nomes = row.nomesByDate.get(d) ?? [];
                             return (
                               <td
                                 key={d}
                                 className="border border-border p-0 text-center overflow-hidden"
                                 style={count > 0 ? { backgroundColor: "#22c55e33", color: "#166534", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
+                                title={nomes.length > 0 ? nomes.join(", ") : undefined}
                               >
                                 {count > 0 ? count : ""}
                               </td>
