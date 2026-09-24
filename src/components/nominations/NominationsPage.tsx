@@ -696,6 +696,15 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
   });
 
+  const setDoc = useMutation({
+    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
+      const { error } = await (supabase as any).from("nomination_nominees").update({ rh_documentacao_ok: val }).eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onError: (err: Error) => notify.error(err.message),
+  });
+
   const flagDivergence = useMutation({
     mutationFn: async (nominee: NominationNominee) => {
       const text = divergenceDraft[nominee.id]?.trim();
