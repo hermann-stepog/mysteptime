@@ -2815,7 +2815,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         });
 
         const caminho: NominationStatus[] = [
-          "nomeados", ...(isWelder ? (["validacao_qualidade"] as NominationStatus[]) : []),
+          ...(isWelder ? (["validacao_qualidade"] as NominationStatus[]) : []), "nomeados",
           "aprovacao_pm", "validacao_sms_aso", "validacao_rh", "briefing_sms", "equipe_formada",
         ];
         for (const stage of caminho) {
