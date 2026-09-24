@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import { matchesNameSearch } from "@/lib/utils";
 // passagens_aereas ainda não está nos tipos gerados (mesmo padrão de hospedagem.tsx/
@@ -25,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { NomeUsuarioField, NomeUsuarioMultiField, BspMultiField, MotivoField, useRateioComplementar, usePessoasAdicionais, useUnidadesAdicionais, UnidadeMultiField, FormaPagamentoField } from "@/components/LogisticaFormFields";
 import {
   Plane, Plus, Pencil, Trash2, BedDouble, ListChecks, AlertTriangle,
-  Globe2, Check, Upload, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
+  Globe2, Check, Upload, Download, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
   PlaneTakeoff, PlaneLanding,
 } from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
@@ -879,6 +880,7 @@ function buildPassagemRows(l: LinhaCustoBruta): ParsedPassagemRow[] {
 
 function ImportCustosPassagensDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLog("passagens_aereas");
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<ParsedPassagemRow[] | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -916,6 +918,7 @@ function ImportCustosPassagensDialog({ open, onOpenChange }: { open: boolean; on
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
       notify.success(`${validas.length} passagem(ns) importada(s).`);
+      registrarLog(`Importou ${validas.length} passagem(ns) da planilha de custos`);
       setPreview(null); setProgress(null); setAbaUsada(null); onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -1120,6 +1123,37 @@ export function PassagensAereasPage() {
     });
   };
 
+  // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
+  // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
+  const exportarRelatorio = () => {
+    const rows = filtradas.map((p) => ({
+      Unidade: p.unidade,
+      BSP: p.bsp,
+      "Nome do usuário": p.nome_usuario,
+      "Companhia aérea": p.companhia_aerea ?? "—",
+      Origem: p.origem ?? "—",
+      Destino: p.destino ?? "—",
+      Ida: fmt(p.data_ida),
+      Volta: p.data_volta ? fmt(p.data_volta) : "—",
+      Tipo: p.tipo,
+      Valor: p.valor,
+      Status: p.status,
+      Motivo: p.motivo ?? "—",
+      "Forma de pagamento": p.forma_pagamento ?? "—",
+      NF: p.nf ?? "—",
+      Cobrado: p.cobrado ? "Sim" : "Não",
+      "Status Lançamento": p.status_lancamento ?? "—",
+      Faturado: p.faturado ? "Sim" : "Não",
+      "Usuário Faturamento": p.usuario_faturamento ?? "—",
+      "Data Faturamento": p.data_faturamento ? fmt(p.data_faturamento) : "—",
+    }));
+    if (rows.length === 0) { notify.error("Nenhuma passagem pra exportar com os filtros atuais."); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Passagens Aéreas");
+    XLSX.writeFile(wb, `passagens_aereas_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   const criarHospedagemVinculada = (p: PassagemAerea) => {
     navigate({
       to: "/admin/hospedagem",
@@ -1223,6 +1257,9 @@ export function PassagensAereasPage() {
           </div>
           <div className="ml-auto flex items-center gap-2">
             <HistoricoAlteracoesButton modulo="passagens_aereas" titulo="Passagens Aéreas" />
+            <Button variant="outline" onClick={exportarRelatorio}>
+              <Download className="mr-1.5 h-4 w-4" />Exportar relatório
+            </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
             </Button>
