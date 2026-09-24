@@ -59,7 +59,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
-import { usePlanejamentoEmbarqueQuery, isStatusProgramado, type PlanejamentoEmbarqueRow } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import { usePlanejamentoEmbarqueQuery, isStatusProgramado, isStatusEmbarcado, type PlanejamentoEmbarqueRow } from "@/components/histograma/PlanejamentoEmbarqueTab";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2134,17 +2134,17 @@ function ClientCascadeView() {
   };
 
   // Fonte passa a ser o Planejamento de Embarque (aba do Histograma Offshore), não mais o
-  // Drake direto — pedido dela. "Embarcado em teamReferenceDate" usa a mesma janela exclusiva
-  // no fim [Embarque, Desembarque) de todo o app (Início Folga = Desembarque). "Programado do
-  // dia" (pedido dela também) entra à parte: mesmo critério de status já usado em Lançamentos
-  // (isStatusProgramado) com Embarque batendo exatamente com a data de referência — sem
-  // duplicar quem já conta como embarcado.
+  // Drake direto — pedido dela. "Embarcado" agora exige Status = Embarcado (mesmo critério do
+  // card "Embarcados" no Dashboard/embarcadosDoPlanejamento em HistogramaOffshoreNovo.tsx) em
+  // vez de só olhar a janela de datas — as duas telas divergiam sempre que uma linha ficava com
+  // o Status desatualizado em relação às datas. "Programado do dia" (pedido dela também) entra
+  // à parte: mesmo critério de status já usado em Lançamentos (isStatusProgramado) com Embarque
+  // batendo exatamente com a data de referência — sem duplicar quem já conta como embarcado.
   const { data: planejamentoEmbarque = [], isLoading: isLoadingPlanejamento } = usePlanejamentoEmbarqueQuery();
   const equipeNaData = useMemo(() => {
     const unidadeValida = (row: PlanejamentoEmbarqueRow) => row.unidade?.trim() && row.unidade.trim().toUpperCase() !== "FOLGA";
     const embarcados: EquipeItem[] = planejamentoEmbarque
-      .filter((row) => unidadeValida(row) && row.embarque && row.embarque <= teamReferenceDate
-        && !(row.desembarque && teamReferenceDate >= row.desembarque))
+      .filter((row) => unidadeValida(row) && isStatusEmbarcado(row.status))
       .map((row) => ({ row, tipo: "embarcado" as const }));
     const embarcadosIds = new Set(embarcados.map((item) => item.row.id));
     const programados: EquipeItem[] = planejamentoEmbarque
@@ -3183,10 +3183,15 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
 
   // Livre num dia = fora da janela [Embarque, Desembarque) daquela pessoa (mesma regra
   // exclusiva no fim já usada em todo o app, já que Início Folga = Desembarque) — sem
-  // Embarque cadastrado, conta sempre como livre. "Disponível por função" por período
-  // (pedido dela) = quantas pessoas daquela função estão livres em AO MENOS um dia do
-  // período, mesmo critério de sobreposição já usado pra demanda acima (ativoNoPeriodo).
+  // Embarque cadastrado, conta sempre como livre. Pra HOJE especificamente, o Status manda
+  // (mesmo critério de Equipes Embarcadas/Dashboard — evita a mesma divergência de lá quando a
+  // data fica desatualizada em relação ao Status); dias passados/futuros da linha do tempo não
+  // têm um "status daquele dia" pra consultar, então continuam pela janela de datas, único dado
+  // disponível pra projeção. "Disponível por função" por período (pedido dela) = quantas
+  // pessoas daquela função estão livres em AO MENOS um dia do período, mesmo critério de
+  // sobreposição já usado pra demanda acima (ativoNoPeriodo).
   const livreNoDia = (row: PlanejamentoEmbarqueRow, dia: string) => {
+    if (dia === hoje) return !isStatusEmbarcado(row.status);
     if (!row.embarque) return true;
     const fim = row.desembarque ?? row.embarque;
     return dia < row.embarque || dia >= fim;
