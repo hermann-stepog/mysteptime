@@ -9,12 +9,16 @@ function renderAlert(v: Record<string, string>) {
   const g = (k: string) => esc(v[k] ?? "—");
   const row = (label: string, value: string, bold = false) =>
     `<tr><td style="padding:6px 0;color:#6b7280;width:130px;font-size:14px">${label}</td><td style="padding:6px 0;color:#111827;font-size:14px;${bold ? "font-weight:700" : ""}">${value}</td></tr>`;
+  const positivo = /^Equipe Formada/i.test(v.TITULO_ALERTA ?? "");
+  const cor = positivo ? "#16a34a" : "#f59e0b";
+  const icone = positivo ? "✅" : "⚠️";
+  const cabecalho = positivo ? "Equipe Formada — My Step Time" : "Alerta de Nomeação — My Step Time";
   const html = `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0"><tr><td align="center">
 <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px">
-<tr><td style="padding:20px 28px;border-bottom:3px solid #f59e0b">
-<span style="font-size:18px;vertical-align:middle">⚠️</span>
-<span style="font-size:16px;font-weight:700;color:#111827;vertical-align:middle;margin-left:6px">Alerta de Nomeação — My Step Time</span>
+<tr><td style="padding:20px 28px;border-bottom:3px solid ${cor}">
+<span style="font-size:18px;vertical-align:middle">${icone}</span>
+<span style="font-size:16px;font-weight:700;color:#111827;vertical-align:middle;margin-left:6px">${cabecalho}</span>
 </td></tr>
 <tr><td style="padding:24px 28px">
 <p style="margin:0 0 18px;font-size:15px;color:#111827">Segue um alerta referente a: <strong>${g("TITULO_ALERTA")}</strong>.</p>
