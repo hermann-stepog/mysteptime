@@ -34,6 +34,9 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       password: z.string().min(8).max(72),
       fullName: z.string().trim().min(1).max(120),
       role: appRole,
+      // Cargo/perfil da pessoa (ex.: "Diretor") — texto livre, opcional, aparece no cabeçalho
+      // junto do nome ("Nome - Perfil"). Diferente do "role" acima (controla permissão).
+      perfil: z.string().trim().max(120).optional(),
     }),
   )
   .handler(async ({ data, context }) => {
@@ -45,7 +48,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     // encaminha a chamada com o token de quem está logado (o cliente já vem com ele no header,
     // graças ao requireSupabaseAuth).
     const { data: result, error } = await context.supabase.functions.invoke("admin-user-management", {
-      body: { action: "createUser", email: data.email, password: data.password, fullName: data.fullName, role: data.role },
+      body: { action: "createUser", email: data.email, password: data.password, fullName: data.fullName, role: data.role, perfil: data.perfil || null },
     });
     if (error) throw new Error("Falha ao comunicar com o servidor de autenticação.");
     if (!result?.ok) throw new Error(result?.error ?? "Falha ao criar usuário.");

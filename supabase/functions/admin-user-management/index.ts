@@ -64,10 +64,11 @@ serve(async (req) => {
     }
 
     if (body.action === "createUser") {
-      const { email, password, fullName, role } = body;
+      const { email, password, fullName, role, perfil } = body;
       if (
         typeof email !== "string" || typeof password !== "string" ||
-        typeof fullName !== "string" || typeof role !== "string"
+        typeof fullName !== "string" || typeof role !== "string" ||
+        (perfil !== undefined && perfil !== null && typeof perfil !== "string")
       ) {
         return fail("Dados inválidos.");
       }
@@ -82,8 +83,9 @@ serve(async (req) => {
       if (roleUpdateErr) return fail(roleUpdateErr.message);
 
       // Mesmo motivo do resetPassword acima: a senha definida aqui é provisória, tem que ser
-      // trocada no primeiro acesso.
-      await admin.from("profiles").update({ must_change_password: true }).eq("id", newUserId);
+      // trocada no primeiro acesso. Cargo/perfil (ex.: "Diretor") é opcional, aparece no
+      // cabeçalho junto do nome.
+      await admin.from("profiles").update({ must_change_password: true, perfil: perfil || null }).eq("id", newUserId);
 
       return ok({ userId: newUserId });
     }

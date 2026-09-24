@@ -155,7 +155,7 @@ function AdminLayout() {
 
           <button
             onClick={async () => { await signOut(); navigate({ to: "/auth" }); }}
-            title={`Sair (${profile?.full_name || profile?.email || ""})`}
+            title={`Sair (${[profile?.full_name || profile?.email, profile?.perfil].filter(Boolean).join(" - ")})`}
             className="mt-1 shrink-0 text-white/50 hover:text-red-300 transition-colors"
           >
             <LogOut className="h-5 w-5" />
