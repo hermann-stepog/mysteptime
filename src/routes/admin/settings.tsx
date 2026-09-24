@@ -21,7 +21,6 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { adminCreateUser, adminResetPassword, adminDeleteUser } from "@/lib/api/adminUserManagement.functions";
 import { useAuth } from "@/hooks/useAuth";
-import { EmailSettingsCard } from "@/components/EmailSettingsCard";
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "pending", label: "Pendente" },
@@ -42,7 +41,6 @@ function SettingsPage() {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div><h1 className="text-2xl font-semibold">Configurações</h1><p className="text-sm text-muted-foreground">Cadastros mestres do sistema.</p></div>
-      <EmailSettingsCard />
       <Users />
     </div>
   );
