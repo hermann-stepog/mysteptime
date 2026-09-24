@@ -138,7 +138,7 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
 // Chamado a cada avanço de etapa — nunca lança: falha de e-mail vira aviso, não trava nem
 // desfaz a troca de etapa (mesma postura de tolerância a falha de recordDrakeSyncRun).
 // Regra: responsável da etapa + solicitante (PM) + Paulo Nunes + Logística de Pessoal.
-export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus): Promise<void> {
+export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus, observacao?: string): Promise<void> {
   try {
     const stageRole = STAGE_ROLE[stage];
     const [roleTo, cc, pm, respostas] = await Promise.all([
@@ -162,7 +162,7 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
       colaboradorNome: await nomineeNames(nomination),
       nomination,
       detalhesLabel: respostas.length > 0 ? "Período e validações" : "Período",
-      detalhes: [`Período: ${periodo}`, ...respostas].join(" • "),
+      detalhes: [...(observacao ? [observacao] : []), `Período: ${periodo}`, ...respostas].join(" • "),
       rodapeTexto: "Este é um alerta automático do My Step Time referente ao andamento de uma nomeação.",
     });
   } catch (err) {

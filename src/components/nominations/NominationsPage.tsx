@@ -812,27 +812,36 @@ function BriefingSection({ nomination }: { nomination: Nomination }) {
   const { profile } = useAuth();
   const canAct = useCanActOnStage(nomination.current_status);
   const advance = useAdvanceStage();
+  const [avisando, setAvisando] = useState(false);
+  const naoRealizado = async () => {
+    setAvisando(true);
+    try {
+      await notifyStageAdvance(nomination, "briefing_sms", "Briefing com a equipe ainda NÃO realizado (informado pelo SMS).");
+      notify.success("Aviso de briefing pendente enviado.");
+    } finally {
+      setAvisando(false);
+    }
+  };
   return (
     <div className="space-y-2">
-      <label className="flex items-center justify-between gap-2 rounded-md bg-teal-50 border border-teal-200 px-3 py-2 text-sm text-teal-900 cursor-pointer">
-        <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0" /> Briefing realizado</span>
-        <Checkbox
-          checked={nomination.briefing_sms_realizado}
-          disabled={!canAct}
-          onCheckedChange={(v) => {
-            if (!v) return;
-            advance.mutate({
-              nomination, target: "equipe_formada",
-              extraPatch: {
-                briefing_sms_realizado: true,
-                briefing_sms_realizado_at: new Date().toISOString(),
-                briefing_sms_realizado_by: profile?.full_name ?? profile?.email ?? null,
-                outcome: "concluida",
-              },
-            });
-          }}
-        />
-      </label>
+      <p className="text-sm font-medium">O briefing com esta equipe já foi feito?</p>
+      <div className="flex gap-2">
+        <Button size="sm" disabled={!canAct || nomination.briefing_sms_realizado} loading={advance.isPending}
+          onClick={() => advance.mutate({
+            nomination, target: "equipe_formada",
+            extraPatch: {
+              briefing_sms_realizado: true,
+              briefing_sms_realizado_at: new Date().toISOString(),
+              briefing_sms_realizado_by: profile?.full_name ?? profile?.email ?? null,
+              outcome: "concluida",
+            },
+          })}>
+          <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Sim, briefing realizado
+        </Button>
+        <Button size="sm" variant="outline" disabled={!canAct || nomination.briefing_sms_realizado} loading={avisando} onClick={naoRealizado}>
+          Não, ainda não
+        </Button>
+      </div>
     </div>
   );
 }
