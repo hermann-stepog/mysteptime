@@ -9,13 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { notify } from "@/lib/notify";
 import { Plus, Trash2, Pencil, KeyRound, UserPlus, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
-import { adminCreateUser, adminResetPassword } from "@/lib/api/adminUserManagement.functions";
+import { adminCreateUser, adminResetPassword, adminDeleteUser } from "@/lib/api/adminUserManagement.functions";
+import { useAuth } from "@/hooks/useAuth";
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "pending", label: "Pendente" },
@@ -312,10 +317,15 @@ function NewUserForm() {
       if (!email.trim()) throw new Error("Informe o e-mail.");
       if (password.length < 8) throw new Error("A senha precisa ter pelo menos 8 caracteres.");
       if (password !== confirmPassword) throw new Error("As senhas não conferem.");
-      await adminCreateUser({ data: { email: email.trim(), password, fullName: fullName.trim(), role: role as any, perfil: perfil.trim() || undefined } });
+      return adminCreateUser({
+        data: {
+          email: email.trim(), password, fullName: fullName.trim(), role: role as any,
+          perfil: perfil.trim() || undefined, loginUrl: window.location.origin,
+        },
+      });
     },
-    onSuccess: () => {
-      notify.success("Usuário criado.");
+    onSuccess: (result) => {
+      notify.success(result?.emailSent ? "Usuário criado. E-mail de boas-vindas enviado." : "Usuário criado. Não foi possível enviar o e-mail de boas-vindas.");
       qc.invalidateQueries({ queryKey: ["users-with-roles"] });
       setEmail(""); setPassword(""); setConfirmPassword(""); setFullName(""); setPerfil(""); setRole("pending");
     },
@@ -436,7 +446,16 @@ function PerfilCell({ userId, perfil }: { userId: string; perfil: string | null 
 
 function Users() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [resetTarget, setResetTarget] = useState<{ id: string; label: string } | null>(null);
+  const deleteUser = useMutation({
+    mutationFn: async (userId: string) => adminDeleteUser({ data: { userId } }),
+    onSuccess: () => {
+      notify.success("Usuário excluído.");
+      qc.invalidateQueries({ queryKey: ["users-with-roles"] });
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao excluir usuário."),
+  });
   const { data, isLoading } = useQuery({
     queryKey: ["users-with-roles"],
     queryFn: async () => {
@@ -502,12 +521,37 @@ function Users() {
                   </Select>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setResetTarget({ id: u.id, label: u.full_name ?? u.email })}
-                  >
-                    <KeyRound className="mr-1.5 h-3.5 w-3.5" />Redefinir senha
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="ghost" size="sm"
+                      onClick={() => setResetTarget({ id: u.id, label: u.full_name ?? u.email })}
+                    >
+                      <KeyRound className="mr-1.5 h-3.5 w-3.5" />Redefinir senha
+                    </Button>
+                    {u.id !== user?.id && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Excluir {u.full_name ?? u.email}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Essa ação não pode ser desfeita. Se esse usuário tiver registros vinculados (embarques, timesheets, folhas de pagamento etc.), a exclusão vai falhar.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteUser.mutate(u.id)}>
+                              Excluir
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

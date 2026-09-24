@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { sendEmail } from "@/lib/email.server";
 
 const appRole = z.enum([
   "pending",
@@ -37,6 +38,9 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       // Cargo/perfil da pessoa (ex.: "Diretor") — texto livre, opcional, aparece no cabeçalho
       // junto do nome ("Nome - Perfil"). Diferente do "role" acima (controla permissão).
       perfil: z.string().trim().max(120).optional(),
+      // Origem de onde o formulário foi enviado (window.location.origin, no cliente) — só pra
+      // montar o link de acesso no e-mail de boas-vindas, sem hardcodar domínio no servidor.
+      loginUrl: z.string().url().optional(),
     }),
   )
   .handler(async ({ data, context }) => {
@@ -53,7 +57,47 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     if (error) throw new Error("Falha ao comunicar com o servidor de autenticação.");
     if (!result?.ok) throw new Error(result?.error ?? "Falha ao criar usuário.");
 
-    return { userId: result.userId as string };
+    // Aviso por e-mail é best-effort — o usuário já foi criado com sucesso, então uma falha de
+    // SMTP aqui (mesma tolerância de notifyStageAdvance/notifyPassagemStageAdvance) não pode
+    // desfazer nem travar o cadastro, só avisa a operadora que o e-mail não saiu.
+    let emailSent = false;
+    try {
+      const loginUrl = `${data.loginUrl ?? ""}/auth`;
+      await sendEmail({
+        to: data.email,
+        subject: "Bem-vindo(a) ao My Step Time",
+        text: [
+          `Olá, ${data.fullName}!`,
+          "",
+          "Uma conta foi criada para você no My Step Time.",
+          "",
+          `Acesse: ${loginUrl}`,
+          `E-mail de login: ${data.email}`,
+          "",
+          "Use a senha provisória informada pela Logística de Pessoal — no primeiro acesso você será solicitado(a) a definir uma nova senha.",
+        ].join("\n"),
+      });
+      emailSent = true;
+    } catch (err) {
+      console.warn("Falha ao enviar e-mail de boas-vindas ao novo usuário (aviso, não bloqueia o cadastro):", err);
+    }
+
+    return { userId: result.userId as string, emailSent };
+  });
+
+export const adminDeleteUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(z.object({ userId: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    await assertOperator(context.supabase, context.userId);
+
+    const { data: result, error } = await context.supabase.functions.invoke("admin-user-management", {
+      body: { action: "deleteUser", userId: data.userId },
+    });
+    if (error) throw new Error("Falha ao comunicar com o servidor de autenticação.");
+    if (!result?.ok) throw new Error(result?.error ?? "Falha ao excluir usuário.");
+
+    return { ok: true };
   });
 
 export const adminResetPassword = createServerFn({ method: "POST" })

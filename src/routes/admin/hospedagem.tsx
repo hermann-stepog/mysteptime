@@ -475,6 +475,7 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
   open: boolean; onOpenChange: (o: boolean) => void; hoteis: HotelFornecedor[];
 }) {
   const qc = useQueryClient();
+  const registrarLog = useRegistrarLog("hospedagem");
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<ParsedHospedagemRow[] | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -526,6 +527,7 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
       qc.invalidateQueries({ queryKey: ["hoteis-fornecedores"] });
       notify.success(`${validas.length} hospedagem(ns) importada(s).`);
+      registrarLog(`Importou ${validas.length} hospedagem(ns) da planilha de custos`);
       setPreview(null); setProgress(null); onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),

@@ -90,6 +90,41 @@ serve(async (req) => {
       return ok({ userId: newUserId });
     }
 
+    if (body.action === "deleteUser") {
+      const { userId } = body;
+      if (typeof userId !== "string") return fail("Dados inválidos.");
+      if (userId === userData.user.id) return fail("Você não pode excluir seu próprio usuário.");
+
+      // profiles.id -> auth.users(id) é ON DELETE CASCADE, e várias tabelas operacionais
+      // antigas (embarkations/transport_requests/hotel_bookings/documents/rdo_entries/
+      // timesheets/payroll_summaries/approval_requests) referenciam profiles(id) como
+      // collaborator_id, também em cascata — excluir o usuário sem checar apagaria esse
+      // histórico junto, sem avisar. Preferimos recusar a exclusão a perder dado calado.
+      const tabelasComCascata: { tabela: string; label: string }[] = [
+        { tabela: "embarkations", label: "Embarques" },
+        { tabela: "transport_requests", label: "Solicitações de transporte" },
+        { tabela: "hotel_bookings", label: "Hospedagens" },
+        { tabela: "documents", label: "Documentos" },
+        { tabela: "rdo_entries", label: "RDOs" },
+        { tabela: "timesheets", label: "Timesheets" },
+        { tabela: "payroll_summaries", label: "Folhas de pagamento" },
+        { tabela: "approval_requests", label: "Aprovações" },
+      ];
+      const checagens = await Promise.all(
+        tabelasComCascata.map(({ tabela }) => admin.from(tabela).select("id", { count: "exact", head: true }).eq("collaborator_id", userId)),
+      );
+      const bloqueios = checagens
+        .map((r, i) => (r.count && r.count > 0 ? tabelasComCascata[i].label : null))
+        .filter((l): l is string => !!l);
+      if (bloqueios.length > 0) {
+        return fail(`Não é possível excluir: esse usuário tem registros vinculados em ${bloqueios.join(", ")}.`);
+      }
+
+      const { error } = await admin.auth.admin.deleteUser(userId);
+      if (error) return fail(error.message);
+      return ok();
+    }
+
     return fail("Ação desconhecida.");
   } catch (e) {
     return fail(e instanceof Error ? e.message : String(e));
