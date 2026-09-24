@@ -51,8 +51,9 @@ function AppLayout() {
       <header className="sticky top-0 z-10 flex items-center justify-between bg-[#0f2744]/90 backdrop-blur-md border-b border-white/10 px-4 py-3 text-sidebar-foreground">
         <div className="flex items-center gap-2">
           <BrandLogo className="h-7 w-auto" />
-          <div>
+          <div className="leading-tight">
             <div className="text-xs text-sidebar-foreground/70 truncate max-w-[180px]">{profile?.full_name ?? profile?.email}</div>
+            {profile?.perfil && <div className="text-[10px] text-sidebar-foreground/50 truncate max-w-[180px]">{profile.perfil}</div>}
           </div>
         </div>
         <div className="flex items-center gap-1">

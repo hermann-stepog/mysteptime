@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { notify } from "@/lib/notify";
@@ -37,20 +36,7 @@ function SettingsPage() {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div><h1 className="text-2xl font-semibold">Configurações</h1><p className="text-sm text-muted-foreground">Cadastros mestres do sistema.</p></div>
-      <Tabs defaultValue="approvers">
-        <TabsList>
-          <TabsTrigger value="approvers">Aprovadores</TabsTrigger>
-          <TabsTrigger value="vendors">Fornecedores</TabsTrigger>
-          <TabsTrigger value="clients">Clientes</TabsTrigger>
-          <TabsTrigger value="projects">Projetos</TabsTrigger>
-          <TabsTrigger value="users">Usuários</TabsTrigger>
-        </TabsList>
-        <TabsContent value="approvers"><Approvers /></TabsContent>
-        <TabsContent value="vendors"><Vendors /></TabsContent>
-        <TabsContent value="clients"><Clients /></TabsContent>
-        <TabsContent value="projects"><Projects /></TabsContent>
-        <TabsContent value="users"><Users /></TabsContent>
-      </Tabs>
+      <Users />
     </div>
   );
 }
@@ -317,6 +303,7 @@ function NewUserForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState("");
+  const [perfil, setPerfil] = useState("");
   const [role, setRole] = useState("pending");
 
   const create = useMutation({
@@ -325,12 +312,12 @@ function NewUserForm() {
       if (!email.trim()) throw new Error("Informe o e-mail.");
       if (password.length < 8) throw new Error("A senha precisa ter pelo menos 8 caracteres.");
       if (password !== confirmPassword) throw new Error("As senhas não conferem.");
-      await adminCreateUser({ data: { email: email.trim(), password, fullName: fullName.trim(), role: role as any } });
+      await adminCreateUser({ data: { email: email.trim(), password, fullName: fullName.trim(), role: role as any, perfil: perfil.trim() || undefined } });
     },
     onSuccess: () => {
       notify.success("Usuário criado.");
       qc.invalidateQueries({ queryKey: ["users-with-roles"] });
-      setEmail(""); setPassword(""); setConfirmPassword(""); setFullName(""); setRole("pending");
+      setEmail(""); setPassword(""); setConfirmPassword(""); setFullName(""); setPerfil(""); setRole("pending");
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao criar usuário."),
   });
@@ -341,6 +328,10 @@ function NewUserForm() {
       <div>
         <Label>Nome</Label>
         <Input placeholder="Nome completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+      </div>
+      <div>
+        <Label>Perfil (opcional)</Label>
+        <Input placeholder="Ex.: Diretor" value={perfil} onChange={(e) => setPerfil(e.target.value)} />
       </div>
       <div>
         <Label>E-mail</Label>
@@ -422,10 +413,12 @@ function Users() {
     queryKey: ["users-with-roles"],
     queryFn: async () => {
       const [{ data: profiles }, { data: roles }] = await Promise.all([
-        supabase.from("profiles").select("id, full_name, email"),
+        // perfil ainda não está nos tipos gerados (coluna nova); cast local, mesmo padrão já
+        // usado em must_change_password.
+        (supabase as any).from("profiles").select("id, full_name, email, perfil"),
         supabase.from("user_roles").select("user_id, role, id"),
       ]);
-      return (profiles ?? []).map((p) => ({ ...p, role: roles?.find((r) => r.user_id === p.id)?.role ?? "pending", roleId: roles?.find((r) => r.user_id === p.id)?.id }));
+      return (profiles ?? []).map((p: any) => ({ ...p, role: roles?.find((r) => r.user_id === p.id)?.role ?? "pending", roleId: roles?.find((r) => r.user_id === p.id)?.id }));
     },
   });
   const setRole = async (userId: string, role: string, existingId?: string) => {
@@ -451,8 +444,8 @@ function Users() {
         <Card className="p-5 space-y-4">
           <Skeleton className="h-5 w-40" />
           <Table>
-            <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
-            <TableSkeleton rows={6} cols={4} />
+            <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Perfil</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+            <TableSkeleton rows={6} cols={5} />
           </Table>
         </Card>
       </div>
@@ -465,11 +458,11 @@ function Users() {
       <Card className="p-5">
         <h3 className="font-semibold">Usuários &amp; papéis</h3>
         <Table className="mt-4">
-          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Perfil</TableHead><TableHead>E-mail</TableHead><TableHead>Papel</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
           <TableBody>
             {(data ?? []).map((u: any) => (
               <TableRow key={u.id}>
-                <TableCell>{u.full_name ?? "—"}</TableCell><TableCell>{u.email}</TableCell>
+                <TableCell>{u.full_name ?? "—"}</TableCell><TableCell>{u.perfil ?? "—"}</TableCell><TableCell>{u.email}</TableCell>
                 <TableCell>
                   <Select value={u.role} onValueChange={(v) => setRole(u.id, v, u.roleId)}>
                     <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>

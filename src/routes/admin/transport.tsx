@@ -46,8 +46,11 @@ import { StringMultiCombobox } from "@/components/histograma/HistogramaOffshoreN
 // listas — ver unidadesPlanejamento/bspOptionsPlanejamento).
 const UNIDADES_TRANSPORTE_EXTRAS = ["Espírito Santo"];
 const BSP_TRANSPORTE_EXTRAS: Record<string, string[]> = {
-  "Espírito Santo": ["Produção", "SMS", "TI", "RH", "Executiva", "25-394-08"],
+  "Espírito Santo": ["25-394-08"],
 };
+// Essas BSPs não têm unidade vinculada (pedido dela) — aparecem na lista independente da
+// Unidade marcada, ou até sem nenhuma marcada.
+const BSP_TRANSPORTE_EXTRAS_GLOBAIS = ["Executiva", "Produção", "RH", "SMS", "TI"];
 
 
 type TripStatus = "em_andamento" | "realizado" | "faturado" | "cancelado";
@@ -540,18 +543,44 @@ function LocationSelect({ label, value, onChange, options }: { label: string; va
 // escolhida), nunca mais texto livre — obrigatório exceto quando o Cliente da mesma linha é
 // "Viagem". Mantém o valor legado como opção extra se ele não estiver mais na lista atual, pra
 // não sumir silenciosamente um BSP que já estava salvo numa viagem antiga.
+// "Outro (digitar)..." no final da lista — caso o BSP que precisa ainda não esteja cadastrado
+// no Planejamento de Embarque nem nas fixas (BSP_TRANSPORTE_EXTRAS*), pedido dela. Mesmo padrão
+// popover-com-toggle já usado em SelectPlanejamentoCell, só que aqui o campo fica sempre visível
+// (sem popover) — cada instância remonta do zero ao trocar de viagem (TripDialog tem key por
+// viagem), então o modo manual não vaza de uma viagem pra outra.
 function BspSelect({ label, value, onChange, options, opcional }: {
   label: string; value: string; onChange: (v: string) => void; options: string[]; opcional: boolean;
 }) {
+  const [manual, setManual] = useState(() => !!value && !options.includes(value));
+
+  if (manual) {
+    return (
+      <div>
+        <Label>{label}{opcional ? " (opcional)" : ""}</Label>
+        <div className="flex gap-2">
+          <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="Digite o BSP" className="flex-1" autoFocus />
+          <Button type="button" variant="outline" size="sm" onClick={() => { setManual(false); onChange(""); }}>Lista</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <Label>{label}{opcional ? " (opcional)" : ""}</Label>
-      <Select value={value || "__none__"} onValueChange={(v) => onChange(v === "__none__" ? "" : v)}>
+      <Select
+        value={value || "__none__"}
+        onValueChange={(v) => {
+          if (v === "__custom__") { setManual(true); onChange(""); }
+          else onChange(v === "__none__" ? "" : v);
+        }}
+      >
         <SelectTrigger><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
         <SelectContent>
           <SelectItem value="__none__">—</SelectItem>
           {options.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
           {value && !options.includes(value) && <SelectItem value={value}>{value}</SelectItem>}
+          <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
         </SelectContent>
       </Select>
     </div>
@@ -661,7 +690,7 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   // antes, quando o campo era de uma unidade só).
   const bspOptions = useMemo(() => {
     const unidadesParaBsp = f.unidades.length > 0 ? f.unidades : [""];
-    const bsps = new Set<string>();
+    const bsps = new Set<string>(BSP_TRANSPORTE_EXTRAS_GLOBAIS);
     unidadesParaBsp.forEach((u) => {
       bspOptionsPlanejamento(planejamentoEmbarque, u).forEach((b) => bsps.add(b));
       (BSP_TRANSPORTE_EXTRAS[u] ?? []).forEach((b) => bsps.add(b));

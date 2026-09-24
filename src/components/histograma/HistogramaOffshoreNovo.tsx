@@ -2806,79 +2806,29 @@ function DashboardTab({ colaboradores, periodos }: {
     { label: "Utilização", value: pctOcupacaoCards, suffix: "%", icon: TrendingUp },
   ];
 
-  // Linhas da tabela "POB por Unidade × Dia" — a pedido dela, passa a vir do Planejamento de
-  // Embarque em vez do Drake (dailyRecords continua existindo, intocado, pros outros gráficos
-  // "por mês" que ainda usam o Drake). Usa a Unidade/BSP e a janela Embarque→Desembarque já
-  // salvas em cada linha do Planejamento (calculada sozinha via Duração ou digitada na mão —
-  // não importa a origem, o valor já está gravado) pra contar quem está a bordo em cada dia do
-  // período selecionado, mantendo a mesma Unidade que o Planejamento traz (inclusive unidades
-  // que ainda não existem no cadastro do Drake), sem depender de status/texto livre.
   // Dias que já têm foto tirada (ver Histórico, na própria aba de Planejamento de Embarque) —
-  // pra esses dias a tabela usa exatamente o que foi fotografado, não o dado ao vivo de hoje.
+  // usado só pelo gráfico "POB x Unidade" logo abaixo.
   const diasComFotoPlanejamento = useMemo(
     () => new Set(planejamentoSnapshots.map((s) => s.snapshot_date)),
     [planejamentoSnapshots],
   );
 
-  // Agrupa as fotos por dia → "unidade::bsp" → quantidade, com as mesmas regras de sempre
-  // (unidade não-operacional fora, Qualitech vira Safe Zephyrus, só quem estava com Status
-  // "Embarcado" naquele dia conta).
-  const contagemPorDiaSnapshot = useMemo(() => {
-    const porDia = new Map<string, Map<string, { unidade: string; bsp: string; count: number }>>();
-    planejamentoSnapshots.forEach((s) => {
-      if (!isStatusEmbarcado(s.status) || !s.unidade) return;
-      const unidadeTexto = s.unidade.trim().toUpperCase();
-      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
-      const bspTexto = s.bsp?.trim() || "";
-      if (unidadeTexto === "QUALITECH" && !bspTexto) return;
-      const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : s.unidade;
-      const bsp = bspTexto || "Sem BSP";
-      if (!porDia.has(s.snapshot_date)) porDia.set(s.snapshot_date, new Map());
-      const doDia = porDia.get(s.snapshot_date)!;
-      const key = `${unidadeExibida}::${bsp}`;
-      const atual = doDia.get(key) ?? { unidade: unidadeExibida, bsp, count: 0 };
-      atual.count++;
-      doDia.set(key, atual);
-    });
-    return porDia;
-  }, [planejamentoSnapshots]);
-
-  // Linha do tempo da tabela "POB por Unidade × Dia" — a listagem ao vivo de Planejamento de
-  // Embarque é editada o tempo todo (a mesma linha é sobrescrita, sem guardar o valor antigo),
-  // então pra um dia que já passou e já tem foto, usa a foto daquele dia (o retrato real de
-  // quem estava embarcado ali) em vez de recalcular com os dados de hoje — é isso que faz o
-  // dia em que fulano esteve embarcado "ontem" continuar gravado aqui, mesmo que a linha dele
-  // já tenha mudado hoje. Só cai pro cálculo ao vivo (janela Embarque→Desembarque + Status)
-  // nos dias sem foto ainda: hoje (antes da foto do dia rodar) e dias futuros, que são só uma
-  // projeção do planejamento atual.
+  // Linhas da tabela "POB por Unidade × Dia" — volta a vir do Drake (dailyRecords), a pedido
+  // dela: o Planejamento de Embarque é sobrescrito o tempo todo e não guarda histórico
+  // confiável dia a dia, então essa tabela volta a usar o período já lançado/confirmado no
+  // Drake.
   const unidadeBspRows = useMemo(() => {
     const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number> }>();
-    const addCount = (key: string, unidade: string, bsp: string, date: string, count: number) => {
-      if (!m.has(key)) m.set(key, { unidade, bsp, countByDate: new Map() });
-      m.get(key)!.countByDate.set(date, count);
-    };
-    datesMesAtual.forEach((d) => {
-      if (diasComFotoPlanejamento.has(d)) {
-        contagemPorDiaSnapshot.get(d)?.forEach((v, key) => addCount(key, v.unidade, v.bsp, d, v.count));
-        return;
-      }
-      planejamentoEmbarque.forEach((row) => {
-        if (!row.unidade || !row.embarque || !row.desembarque) return;
-        if (d < row.embarque || d >= row.desembarque) return;
-        if (d >= today && !isStatusEmbarcado(row.status)) return;
-        const unidadeTexto = row.unidade.trim().toUpperCase();
-        if (ehUnidadeNaoOperacional(unidadeTexto)) return;
-        const bspTexto = row.bsp?.trim() || "";
-        if (unidadeTexto === "QUALITECH" && !bspTexto) return;
-        const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
-        const bsp = bspTexto || "Sem BSP";
-        const key = `${unidadeExibida}::${bsp}`;
-        const atual = m.get(key)?.countByDate.get(d) ?? 0;
-        addCount(key, unidadeExibida, bsp, d, atual + 1);
-      });
+    dailyRecords.forEach((r) => {
+      if (r.bucket !== "E" || !r.unidade) return;
+      const bsp = r.bsp?.trim() || "Sem BSP";
+      const key = `${r.unidade}::${bsp}`;
+      if (!m.has(key)) m.set(key, { unidade: r.unidade, bsp, countByDate: new Map() });
+      const row = m.get(key)!;
+      row.countByDate.set(r.date, (row.countByDate.get(r.date) ?? 0) + 1);
     });
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
-  }, [planejamentoEmbarque, datesMesAtual, today, diasComFotoPlanejamento, contagemPorDiaSnapshot]);
+  }, [dailyRecords]);
 
   // "POB x Unidade" — a pedido dela, passa a vir do Planejamento de Embarque (mesma janela
   // Embarque→Desembarque exclusiva do fim, mesma exclusão de "FOLGA" como unidade, já usadas em
@@ -3111,7 +3061,7 @@ function DashboardTab({ colaboradores, periodos }: {
       {/* ── Ocupação ── */}
       <Card className="p-4">
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-semibold">Taxa de Ocupação</h3>
+          <h3 className="text-sm font-semibold">Taxa de Ocupação Offshore</h3>
           <Popover>
             <PopoverTrigger asChild>
               <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="O que é considerado na Taxa de Ocupação">

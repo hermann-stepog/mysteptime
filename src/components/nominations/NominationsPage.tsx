@@ -1625,11 +1625,6 @@ function KanbanBoard({
 // deixa de ser contado como disponível (era o bug relatado: afastado aparecia como disponível).
 type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 
-// Status considerados "de folga" na simulação (folga de embarque, folga indenizada e
-// desembarque em dia não útil, que já é folga) — só entram como disponíveis quando a
-// usuária liga o interruptor "Incluir quem está de folga".
-const FOLGA_SIM_STATUS = new Set<string>(["F", "FI", "DDN"]);
-
 // A disponibilidade da simulação é decidida pelo Status da aba Planejamento de Embarque
 // (fonte de verdade pedida pela usuária). O status por dia do Drake continua sendo exibido na
 // grade, mas não define mais sozinho se a pessoa pode ou não ser selecionada.
@@ -1647,26 +1642,6 @@ function bucketFromPlanejamentoStatus(statusRaw: string | null): { bucket: SimBu
   return { bucket: "disponivel", emFolga: s.startsWith("FOLGA") };
 }
 
-
-// Histórico real de função por embarque (importado do relatório Access — ver migração
-// colaborador_funcoes_historico) — só alimenta o droplist/filtro de função aqui, não altera
-// nem substitui timesheet_embarques.funcao_embarque (que continua alimentando o BM).
-interface FuncaoHistoricoRow {
-  colaborador_id: string;
-  funcao: string;
-  data_inicio: string;
-}
-
-interface SimColaborador {
-  id: string;
-  nome: string;
-  funcao: string | null;
-  funcao_operacao: string | null;
-}
-
-function defaultSimEnd(start: string): string {
-  return addDays(start, 6);
-}
 
 // A função pedida na solicitação (ex.: "SUPERVISOR") quase nunca é idêntica à função cadastral
 // do colaborador (ex.: "SUPERVISOR DE TUBULAÇÃO OFFSHORE", "SUPERVISOR N I") nem à função com
@@ -1694,9 +1669,6 @@ function SimulacaoTab({
   focusGroupIds: string[] | null;
   onExitFocus: () => void;
 }) {
-  const hoje = todayStr();
-  const [periodoDe, setPeriodoDe] = useState(hoje);
-  const [periodoAte, setPeriodoAte] = useState(() => defaultSimEnd(hoje));
   const [filterFuncao, setFilterFuncao] = useState("all");
   const [searchNome, setSearchNome] = useState("");
   // Cascata "Disponíveis por função" — tudo começa aberto (mesmo padrão da aba Equipes
@@ -1751,10 +1723,6 @@ function SimulacaoTab({
     const primeira = focusGroup[0];
     setActiveFocusId(primeira.id);
     setFilterFuncao(primeira.funcao);
-    if (primeira.period_start && primeira.period_end) {
-      setPeriodoDe(primeira.period_start);
-      setPeriodoAte(primeira.period_end);
-    }
   }, [focusGroup, focusGroupKey]);
 
   const selecionarFuncaoAtiva = (n: Nomination) => {
@@ -1818,148 +1786,53 @@ function SimulacaoTab({
     if (val !== n.quantidade) updateQuantidade.mutate({ id: n.id, quantidade: val });
   };
 
-  // Fonte de verdade da disponibilidade na simulação (pedido da usuária).
+  // A lista de candidatos passa a vir inteira do Planejamento de Embarque (pedido dela) — quem
+  // aparece lá é quem pode ser adicionado, com a própria função/status de lá, independente do
+  // cadastro Drake. O Drake só entra pra resolver o colaborador_id de cada nome (nomination_
+  // nominees.colaborador_id é uma FK obrigatória pra hist_novo_colaboradores — sem esse
+  // vínculo não tem como gravar o nomeado no banco); quem não tem correspondência no Drake
+  // ainda aparece na lista, só não pode ser adicionado ainda (ver "Adicionar" desabilitado).
   const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
-  const planejamentoPorNome = useMemo(() => {
-    const m = new Map<string, string | null>();
-    planejamentoSim.forEach((r) => {
-      const k = normNomePlanejamento(r.nome ?? "");
-      if (k && !m.has(k)) m.set(k, r.status ?? null);
-    });
-    return m;
-  }, [planejamentoSim]);
-
-  // A seleção de candidatos em Nomeações parte do cadastro ativo completo. Ter histórico de
-  // embarque ajuda a calcular a disponibilidade, mas não determina se a pessoa pode aparecer.
-  const { data: colaboradores = [] } = useQuery<SimColaborador[]>({
-    queryKey: ["sim-colaboradores", "ativos"],
+  const { data: colaboradoresDrake = [] } = useQuery<{ id: string; nome: string }[]>({
+    queryKey: ["sim-colaboradores-drake-ids"],
     queryFn: () =>
-      selectAllPages<SimColaborador>((from, to) =>
-        supabase
-          .from("hist_novo_colaboradores")
-          .select("id, nome, funcao, funcao_operacao")
-          .eq("ativo", true)
-          .order("nome")
-          .order("id")
-          .range(from, to),
+      selectAllPages<{ id: string; nome: string }>((from, to) =>
+        supabase.from("hist_novo_colaboradores").select("id, nome").order("nome").order("id").range(from, to),
       ),
   });
-
-  // Períodos autoritativos da operação (relatórios Drake de Embarque/Disponibilidade e
-  // programações). BASE é deliberadamente excluído: esse tipo vem de uma planilha externa de
-  // acesso à base e não pode alterar a disponibilidade exibida nesta simulação do Drake.
-  // Não dá pra filtrar só pelo período exibido: o cálculo de Desembarque olha o dia seguinte
-  // ao fim de um embarque, que pode cair fora da janela filtrada.
-  const { data: periodosTodos = [] } = useQuery<HistNovoPeriodo[]>({
-    queryKey: ["sim-periodos-drake-sem-base"],
-    queryFn: () =>
-      selectAllPages<HistNovoPeriodo>((from, to) =>
-        supabase
-          .from("hist_novo_periodos")
-          .select("*")
-          .neq("tipo", "BASE")
-          .gte("data_fim", DRAKE_DATA_CUTOFF)
-          .order("data_inicio")
-          .range(from, to),
-      ),
-  });
-
-  // Histórico de função do ano vigente (todo o ano, não só o período filtrado) — alimenta o
-  // droplist de função por colaborador e as opções do filtro de Função no topo. Vem do Access
-  // (mais completo que timesheet_embarques.funcao_embarque, que foi achatado por um backfill
-  // anterior pra um valor único por colaborador).
-  const { data: funcoesHistorico = [] } = useQuery<FuncaoHistoricoRow[]>({
-    queryKey: ["sim-funcoes-historico-ano-vigente"],
-    queryFn: () => {
-      const ano = new Date().getFullYear();
-      return selectAllPages<FuncaoHistoricoRow>((from, to) =>
-        supabase
-          .from("colaborador_funcoes_historico")
-          .select("colaborador_id, funcao, data_inicio")
-          .gte("data_inicio", `${ano}-01-01`)
-          .lte("data_inicio", `${ano}-12-31`)
-          .order("data_inicio", { ascending: false })
-          .range(from, to),
-      );
-    },
-  });
-
-  const periodosPorColaborador = useMemo(() => {
-    const m = new Map<string, HistNovoPeriodo[]>();
-    periodosTodos.forEach((p) => {
-      // Defesa adicional para dados que possam permanecer em cache durante uma atualização.
-      if (p.tipo === "BASE") return;
-      if (!m.has(p.colaborador_id)) m.set(p.colaborador_id, []);
-      m.get(p.colaborador_id)!.push(p);
-    });
-    return m;
-  }, [periodosTodos]);
-
-  // Já vem ordenado por data_inicio desc (mais recente primeiro) pela query.
-  const funcoesAnoPorColaborador = useMemo(() => {
-    const m = new Map<string, string[]>();
-    funcoesHistorico.forEach((e) => {
-      if (!e.funcao) return;
-      if (!m.has(e.colaborador_id)) m.set(e.colaborador_id, []);
-      const arr = m.get(e.colaborador_id)!;
-      if (!arr.includes(e.funcao)) arr.push(e.funcao);
-    });
-    return m;
-  }, [funcoesHistorico]);
-
-  // Precisa ser a MESMA prioridade usada em linhasBase (c.funcao || c.funcao_operacao ||
-  // funcoesAno[0]) — antes vinha só de funcoesHistorico, então uma função podia aparecer na
-  // lista sem nunca bater com ninguém (bug relatado: filtrar "Supervisor" não achava
-  // ninguém, porque o cadastral de quem tem essa função no histórico é outro valor).
-  const funcaoOptions = useMemo(() => {
-    const s = new Set<string>();
-    colaboradores.forEach((c) => {
-      const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
-      const funcao = c.funcao || c.funcao_operacao || funcoesAno[0] || "—";
-      if (funcao !== "—") s.add(funcao);
-    });
-    // A função da solicitação (modo recrutamento) pode não existir como função cadastral —
-    // ainda assim precisa aparecer selecionada no filtro.
-    if (filterFuncao !== "all") s.add(filterFuncao);
-    return Array.from(s).sort();
-  }, [colaboradores, funcoesAnoPorColaborador, filterFuncao]);
-
-
-  const dates = useMemo(
-    () => (periodoDe && periodoAte && periodoDe <= periodoAte ? generateDateRange(periodoDe, periodoAte) : []),
-    [periodoDe, periodoAte],
+  const colaboradorIdPorNome = useMemo(
+    () => new Map(colaboradoresDrake.map((c) => [normNomePlanejamento(c.nome), c.id])),
+    [colaboradoresDrake],
   );
 
-  const linhasBase = useMemo(() => {
-    return colaboradores
-      .map((c) => {
-        const periodos = periodosPorColaborador.get(c.id) ?? [];
-        const funcoesAno = funcoesAnoPorColaborador.get(c.id) ?? [];
-        // Função fixa (cadastral) agrupa por fora, na árvore — as funções que ele já embarcou
-        // (funcoesAno, histórico real por embarque) aparecem por dentro, junto do nome.
-        const funcao = c.funcao || c.funcao_operacao || funcoesAno[0] || "—";
-        const statusPorDia = dates.map((d) => computeDayStatus(periodos, d));
-        const codigos = statusPorDia.map((r) => r.status);
-        const temDesembarque = codigos.includes("DES");
-        const temEmbarcado = codigos.some((s) => s === "E" || s === "DB");
-        // Quem está de folga entra sempre na lista de disponíveis (sinalizado com "Em folga"),
-        // junto de quem está em Standby — pedido da usuária.
-        const emFolgaDrake = codigos.some((s) => FOLGA_SIM_STATUS.has(s));
-        const todosDisponivel = codigos.every((s) => s === "STB" || FOLGA_SIM_STATUS.has(s));
-        const bucketDrake: SimBucket = temDesembarque ? "desembarca" : temEmbarcado ? "embarcado" : todosDisponivel ? "disponivel" : "outro";
-        // Planejamento de Embarque manda; Drake só cobre quem não está na planilha.
-        const chavePlan = normNomePlanejamento(c.nome);
-        const naPlanilha = planejamentoPorNome.has(chavePlan);
-        const doPlanejamento = bucketFromPlanejamentoStatus(planejamentoPorNome.get(chavePlan) ?? null);
-        const bucket: SimBucket = naPlanilha ? "disponivel" : (doPlanejamento?.bucket ?? bucketDrake);
+  const funcaoOptions = useMemo(() => {
+    const s = new Set<string>();
+    planejamentoSim.forEach((r) => { if (r.funcao?.trim()) s.add(r.funcao.trim()); });
+    // A função da solicitação (modo recrutamento) pode não existir na planilha ainda — ainda
+    // assim precisa aparecer selecionada no filtro.
+    if (filterFuncao !== "all") s.add(filterFuncao);
+    return Array.from(s).sort();
+  }, [planejamentoSim, filterFuncao]);
 
-        const emFolga = doPlanejamento ? doPlanejamento.emFolga : emFolgaDrake;
-        return { colaborador: c, funcao, funcoesAno, statusPorDia, bucket, emFolga };
+  const linhasBase = useMemo(() => {
+    return planejamentoSim
+      .map((row) => {
+        const colaboradorId = colaboradorIdPorNome.get(normNomePlanejamento(row.nome)) ?? null;
+        const funcao = row.funcao?.trim() || "—";
+        const doPlanejamento = bucketFromPlanejamentoStatus(row.status);
+        return {
+          colaboradorId,
+          nome: row.nome,
+          status: row.status?.trim() || "—",
+          funcao,
+          bucket: doPlanejamento?.bucket ?? ("outro" as SimBucket),
+          emFolga: doPlanejamento?.emFolga ?? false,
+        };
       })
-      .filter((l) => funcaoMatchesFilter(l.funcao, l.funcoesAno, filterFuncao))
-      .filter((l) => matchesNameSearch(l.colaborador.nome, searchNome))
-      .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome));
-  }, [colaboradores, periodosPorColaborador, funcoesAnoPorColaborador, dates, filterFuncao, searchNome, planejamentoPorNome]);
+      .filter((l) => funcaoMatchesFilter(l.funcao, [], filterFuncao))
+      .filter((l) => matchesNameSearch(l.nome, searchNome))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [planejamentoSim, colaboradorIdPorNome, filterFuncao, searchNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
   // TODOS os status (não só quem passou no filtro de Status acima). "Disponível" aqui já exclui
@@ -1973,33 +1846,27 @@ function SimulacaoTab({
       if (l.bucket === "disponivel") g.disponiveis.push(l);
     });
     return Array.from(m.entries())
-      .map(([funcao, v]) => ({ funcao, total: v.total, disponiveis: v.disponiveis.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome)) }))
+      .map(([funcao, v]) => ({ funcao, total: v.total, disponiveis: v.disponiveis.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")) }))
       .sort((a, b) => b.disponiveis.length - a.disponiveis.length || a.funcao.localeCompare(b.funcao));
   }, [linhasBase]);
 
-  // Quantos por cada status, numa data de referência única (hoje, se estiver dentro do
-  // período filtrado; senão o primeiro dia do período) — cruza com TODOS (linhasBase), mesmo
-  // critério dos cartões por função acima, pra não zerar com o filtro de Status ativo.
-  const statusReferenceDate = dates.length === 0 ? hoje : dates.includes(hoje) ? hoje : dates[0];
+  // Quantos por cada Status (texto livre, exatamente como vem do Planejamento de Embarque) —
+  // cruza com TODOS (linhasBase), mesmo critério dos cartões por função acima, pra não zerar
+  // com o filtro de Status ativo.
   const statusGroups = useMemo(() => {
-    const idx = dates.indexOf(statusReferenceDate);
-    if (idx < 0) return [];
-    const m = new Map<ComputedStatus, typeof linhasBase>();
+    const m = new Map<string, typeof linhasBase>();
     linhasBase.forEach((l) => {
-      const s = l.statusPorDia[idx]?.status;
-      if (!s) return;
-      if (!m.has(s)) m.set(s, []);
-      m.get(s)!.push(l);
+      if (!m.has(l.status)) m.set(l.status, []);
+      m.get(l.status)!.push(l);
     });
-    const ordem: ComputedStatus[] = ["STB", "E", "DES", "DB", "FI", "F", "FE", "AT", "TE", "HTL", "DDN", "P"];
-    return ordem
-      .filter((s) => (m.get(s)?.length ?? 0) > 0)
-      .map((s) => ({ status: s, pessoas: (m.get(s) ?? []).sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome)) }));
-  }, [linhasBase, dates, statusReferenceDate]);
-  // "Por status" começa recolhido (ao contrário da cascata de função) — Standby sozinho já
-  // passa de 80 pessoas, não faz sentido abrir tudo de cara.
-  const [expandedStatuses, setExpandedStatuses] = useState<Set<ComputedStatus>>(new Set());
-  const toggleStatusExpanded = (status: ComputedStatus) => {
+    return Array.from(m.entries())
+      .map(([status, pessoas]) => ({ status, pessoas: pessoas.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")) }))
+      .sort((a, b) => b.pessoas.length - a.pessoas.length || a.status.localeCompare(b.status));
+  }, [linhasBase]);
+  // "Por status" começa recolhido (ao contrário da cascata de função) — status mais comum
+  // sozinho já pode passar de 80 pessoas, não faz sentido abrir tudo de cara.
+  const [expandedStatuses, setExpandedStatuses] = useState<Set<string>>(new Set());
+  const toggleStatusExpanded = (status: string) => {
     setExpandedStatuses((current) => {
       const next = new Set(current);
       if (next.has(status)) next.delete(status); else next.add(status);
@@ -2059,14 +1926,6 @@ function SimulacaoTab({
         </div>
       )}
       <div className="flex flex-wrap items-end gap-2">
-        <div className="space-y-0.5">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
-          <Input type="date" className="h-8 w-40 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
-        </div>
-        <div className="space-y-0.5">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
-          <Input type="date" className="h-8 w-40 text-xs" value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
-        </div>
         <div className="space-y-0.5 w-56">
           <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
           <Input
@@ -2090,7 +1949,7 @@ function SimulacaoTab({
 
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Por status {statusReferenceDate === hoje ? "(hoje)" : `(em ${fmtDate(statusReferenceDate)})`}
+          Por status (Planejamento de Embarque)
         </p>
         <div className="flex flex-wrap gap-2">
           {statusGroups.map(({ status, pessoas }) => {
@@ -2101,21 +1960,17 @@ function SimulacaoTab({
                   type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left"
                   aria-expanded={aberto} onClick={() => toggleStatusExpanded(status)}
                 >
-                  <span
-                    className="flex h-5 min-w-5 items-center justify-center rounded-sm px-1 text-[10px] font-bold"
-                    style={{ backgroundColor: STATUS_COLOR[status], color: getContrastText(STATUS_COLOR[status]) }}
-                  >
-                    {displayAbbr(status)}
+                  <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                    {status}
                   </span>
-                  <span className="text-muted-foreground">{STATUS_LABEL[status]}</span>
                   <span className="font-semibold">{pessoas.length}</span>
                   {aberto ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                 </button>
                 {aberto && (
                   <div className="grid grid-cols-1 gap-x-4 gap-y-2 divide-y border-t px-2.5 py-2 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
                     {pessoas.map((l) => (
-                      <div key={l.colaborador.id} className="pt-2 first:pt-0 sm:pt-0">
-                        <p className="font-medium text-foreground">{l.colaborador.nome}</p>
+                      <div key={l.nome} className="pt-2 first:pt-0 sm:pt-0">
+                        <p className="font-medium text-foreground">{l.nome}</p>
                         <p className="text-muted-foreground">{l.funcao}</p>
                       </div>
                     ))}
@@ -2164,31 +2019,36 @@ function SimulacaoTab({
                   f.disponiveis.length > 0 ? (
                     <div className="divide-y">
                       {f.disponiveis.map((l) => (
-                        <div key={l.colaborador.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
+                        <div key={l.nome} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
                           <div className="min-w-0">
                             <p className="flex items-center gap-1.5 truncate font-medium">
-                              {l.colaborador.nome}
+                              {l.nome}
                               {l.emFolga && <Badge variant="outline" className="shrink-0 text-[10px] font-normal">Em folga</Badge>}
                             </p>
-                            {l.funcoesAno.length > 0 && (
-                              <p className="text-xs text-muted-foreground">Já embarcou como: {l.funcoesAno.join(", ")}</p>
-                            )}
+                            <p className="text-xs text-muted-foreground">{l.status}</p>
                           </div>
                           {activeFocus && (
-                            focusNomineeIds.has(l.colaborador.id) ? (
+                            !l.colaboradorId ? (
+                              <span
+                                className="shrink-0 text-[11px] text-muted-foreground"
+                                title="Esse nome não tem correspondência no cadastro do Drake — não é possível nomear ainda."
+                              >
+                                Sem cadastro no Drake
+                              </span>
+                            ) : focusNomineeIds.has(l.colaboradorId) ? (
                               <Button
                                 size="sm" variant="ghost" title="Clique para desfazer"
                                 className="h-7 shrink-0 gap-1 px-2 text-xs text-green-700 hover:bg-red-50 hover:text-red-700"
-                                loading={undoAddNominee.isPending && undoAddNominee.variables === l.colaborador.id}
-                                onClick={() => undoAddNominee.mutate(l.colaborador.id)}
+                                loading={undoAddNominee.isPending && undoAddNominee.variables === l.colaboradorId}
+                                onClick={() => undoAddNominee.mutate(l.colaboradorId!)}
                               >
                                 <Check className="h-3 w-3" /> Adicionado
                               </Button>
                             ) : (
                               <Button
                                 size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs"
-                                loading={addNominee.isPending && addNominee.variables?.id === l.colaborador.id}
-                                onClick={() => addNominee.mutate({ id: l.colaborador.id, nome: l.colaborador.nome })}
+                                loading={addNominee.isPending && addNominee.variables?.id === l.colaboradorId}
+                                onClick={() => addNominee.mutate({ id: l.colaboradorId!, nome: l.nome })}
                               >
                                 <UserPlus className="mr-1 h-3 w-3" /> Adicionar
                               </Button>

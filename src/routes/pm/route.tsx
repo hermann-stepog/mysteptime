@@ -44,8 +44,9 @@ function PmLayout() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-white/60 hidden sm:block">
-              {profile?.full_name ?? profile?.email}
+            <span className="hidden sm:flex sm:flex-col sm:items-end leading-tight">
+              <span className="text-xs text-white/80">{profile?.full_name ?? profile?.email}</span>
+              {profile?.perfil && <span className="text-[10px] text-white/50">{profile.perfil}</span>}
             </span>
             <ChangePasswordButton className="text-white/50 hover:bg-white/10 hover:text-white/85" />
             <Button
