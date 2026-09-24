@@ -12,6 +12,7 @@ const STORAGE_KEY = "step-view-as-role";
 
 export const VIEW_AS_ROLES: { value: AppRole; label: string }[] = [
   { value: "pm", label: "Solicitante" },
+  { value: "solicitante_master", label: "Solicitante Master" },
   { value: "visitante", label: "Visitante" },
   { value: "aprovacao_tecnica", label: "Nomeações — Aprovação Técnica" },
   { value: "qualidade", label: "Nomeações — Qualidade" },
