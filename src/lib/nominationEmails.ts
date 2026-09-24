@@ -4,6 +4,27 @@ import { STATUS_LABELS, STAGE_ROLE, type Nomination, type NominationStatus } fro
 
 const supabaseAny: any = supabase;
 
+// "2026-09-27" → "27/09/2026" (string pura, sem fuso — evita virar o dia anterior).
+function fmtBr(d: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
+}
+
+// Nomes dos colaboradores nomeados (ativos); sem nomeados ainda → "A definir".
+async function nomineeNames(nomination: Nomination): Promise<string> {
+  try {
+    const { data } = await supabaseAny
+      .from("nomination_nominees")
+      .select("colaborador_nome")
+      .eq("nomination_id", nomination.id)
+      .eq("is_active", true);
+    const nomes = (data ?? []).map((r: any) => r.colaborador_nome).filter(Boolean);
+    return nomes.length > 0 ? nomes.join(", ") : "A definir";
+  } catch {
+    return "A definir";
+  }
+}
+
 // Template único e reaproveitável no Resend (ver src/components/nominations/
 // QualificationEligibilityTab.tsx pro HTML original) — todos os alertas de nomeação usam o
 // mesmo template, só variando TITULO_ALERTA/DETALHES_LABEL/PENDENCIAS/RODAPE_TEXTO por tipo de
@@ -96,11 +117,11 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
       to: toFinal[0],
       cc: Array.from(new Set([...toFinal.slice(1), ...ccAll])),
       tituloAlerta: `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
-      colaboradorNome: nomination.pm_name ?? "—",
+      colaboradorNome: await nomineeNames(nomination),
       nomination,
       detalhesLabel: "Período",
       detalhes: nomination.period_start && nomination.period_end
-        ? `${nomination.period_start} a ${nomination.period_end}`
+        ? `${fmtBr(nomination.period_start)} a ${fmtBr(nomination.period_end)}`
         : "—",
       rodapeTexto: "Este é um alerta automático do My Step Time referente ao andamento de uma nomeação.",
     });
@@ -151,7 +172,7 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
       to: toFinal[0],
       cc: Array.from(new Set([...toFinal.slice(1), ...cc])),
       tituloAlerta: "Solicitação cancelada",
-      colaboradorNome: nomination.pm_name ?? "—",
+      colaboradorNome: await nomineeNames(nomination),
       nomination,
       detalhesLabel: "Motivo",
       detalhes: reason ?? "Não informado",
@@ -173,7 +194,7 @@ export async function notifyQualityRejection(nomination: Nomination, reason: str
       to: toFinal[0],
       cc: Array.from(new Set([...toFinal.slice(1), ...cc])),
       tituloAlerta: "Qualidade reprovou",
-      colaboradorNome: nomination.pm_name ?? "—",
+      colaboradorNome: await nomineeNames(nomination),
       nomination,
       detalhesLabel: "Motivo",
       detalhes: [reason, nomination.weld_type ? `Tipo de solda: ${nomination.weld_type}` : null]

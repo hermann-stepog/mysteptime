@@ -63,20 +63,27 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     let emailSent = false;
     try {
       const loginUrl = `${data.loginUrl ?? ""}/auth`;
-      await sendEmail({
-        to: data.email,
-        subject: "Bem-vindo(a) ao My Step Time",
-        text: [
-          `Olá, ${data.fullName}!`,
-          "",
-          "Uma conta foi criada para você no My Step Time.",
-          "",
-          `Acesse: ${loginUrl}`,
-          `E-mail de login: ${data.email}`,
-          "",
-          "Use a senha provisória informada pela Logística de Pessoal — no primeiro acesso você será solicitado(a) a definir uma nova senha.",
-        ].join("\n"),
-      });
+      const lines = [
+        `Olá, ${data.fullName}!`,
+        "",
+        "Uma conta foi criada para você no My Step Time.",
+        "",
+        `Acesse: ${loginUrl}`,
+        `E-mail de login: ${data.email}`,
+        `Senha provisória: ${data.password}`,
+        "",
+        "Por segurança, troque a senha no primeiro acesso.",
+      ];
+      const subject = "Bem-vindo(a) ao My Step Time";
+      const { loadResendConfig, sendResendHtml } = await import("@/lib/emailSettings.server");
+      const cfg = await loadResendConfig(context.supabase);
+      if (cfg) {
+        const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+        const html = lines.map((l) => (l ? `<p>${esc(l)}</p>` : "")).join("");
+        await sendResendHtml(cfg, data.email, subject, html, lines.join("\n"));
+      } else {
+        await sendEmail({ to: data.email, subject, text: lines.join("\n") });
+      }
       emailSent = true;
     } catch (err) {
       console.warn("Falha ao enviar e-mail de boas-vindas ao novo usuário (aviso, não bloqueia o cadastro):", err);
