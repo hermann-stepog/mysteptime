@@ -500,13 +500,15 @@ function useLocationOptionsQuery() {
 }
 
 // Lista de Origem/Destino ordenada pelas mais preenchidas (sem repetir) — mesma pool pros dois
-// campos, já que o mesmo lugar pode ser origem numa viagem e destino em outra. Mesmo padrão de
-// "Outro (digitar)..." do ClientSelect acima, tamanho padrão de Select (sem combobox de busca).
+// campos, já que o mesmo lugar pode ser origem numa viagem e destino em outra. Combobox com
+// busca (digitar as primeiras letras já filtra), pedido dela — mesmo padrão popover+Command já
+// usado em NfFiltroCombobox/ColaboradorFiltroCombobox, com "Outro (digitar)..." preservado.
 function LocationSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   // Compara já normalizado — uma viagem antiga salva como "MACAÉ" (maiúscula) deve casar com a
   // opção "Macaé" da lista, não cair em "digitar manualmente" só por causa da caixa.
   const isKnown = (v: string) => options.includes(toDisplayCase(v));
   const [manual, setManual] = useState(() => !!value && !isKnown(value));
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     setManual(!!value && !isKnown(value));
@@ -528,20 +530,37 @@ function LocationSelect({ label, value, onChange, options }: { label: string; va
           </Button>
         </div>
       ) : (
-        <Select
-          value={value || "__none__"}
-          onValueChange={(v) => {
-            if (v === "__custom__") { setManual(true); onChange(""); }
-            else onChange(v === "__none__" ? "" : v);
-          }}
-        >
-          <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">—</SelectItem>
-            {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-            <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
-          </SelectContent>
-        </Select>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+              <span className="truncate">{value || "—"}</span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+            <Command filter={(v, search) => (matchesNameSearch(v, search) ? 1 : 0)}>
+              <CommandInput placeholder="Buscar local..." />
+              <CommandList>
+                <CommandEmpty>Nenhum encontrado.</CommandEmpty>
+                <CommandGroup>
+                  <CommandItem value="—" onSelect={() => { onChange(""); setOpen(false); }}>
+                    <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                    —
+                  </CommandItem>
+                  {options.map((o) => (
+                    <CommandItem key={o} value={o} onSelect={() => { onChange(o); setOpen(false); }}>
+                      <Check className={cn("mr-2 h-4 w-4", value === o ? "opacity-100" : "opacity-0")} />
+                      {o}
+                    </CommandItem>
+                  ))}
+                  <CommandItem value="Outro (digitar)..." onSelect={() => { setManual(true); onChange(""); setOpen(false); }}>
+                    Outro (digitar)...
+                  </CommandItem>
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       )}
     </div>
   );
