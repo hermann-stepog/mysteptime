@@ -1771,12 +1771,15 @@ export type Database = {
           pm_decided_at: string | null
           pm_decided_by: string | null
           pm_decision: string
+          rh_documentacao_ok: boolean | null
           rh_validated: boolean
           rh_validated_at: string | null
           rh_validated_by: string | null
           sms_aso_checked: boolean
           sms_aso_checked_at: string | null
           sms_aso_checked_by: string | null
+          sms_aso_em_dia: boolean | null
+          sms_bloqueio_saude: boolean | null
           technical_selected_at: string | null
           technical_selected_by: string | null
         }
@@ -1796,12 +1799,15 @@ export type Database = {
           pm_decided_at?: string | null
           pm_decided_by?: string | null
           pm_decision?: string
+          rh_documentacao_ok?: boolean | null
           rh_validated?: boolean
           rh_validated_at?: string | null
           rh_validated_by?: string | null
           sms_aso_checked?: boolean
           sms_aso_checked_at?: string | null
           sms_aso_checked_by?: string | null
+          sms_aso_em_dia?: boolean | null
+          sms_bloqueio_saude?: boolean | null
           technical_selected_at?: string | null
           technical_selected_by?: string | null
         }
@@ -1821,12 +1827,15 @@ export type Database = {
           pm_decided_at?: string | null
           pm_decided_by?: string | null
           pm_decision?: string
+          rh_documentacao_ok?: boolean | null
           rh_validated?: boolean
           rh_validated_at?: string | null
           rh_validated_by?: string | null
           sms_aso_checked?: boolean
           sms_aso_checked_at?: string | null
           sms_aso_checked_by?: string | null
+          sms_aso_em_dia?: boolean | null
+          sms_bloqueio_saude?: boolean | null
           technical_selected_at?: string | null
           technical_selected_by?: string | null
         }
