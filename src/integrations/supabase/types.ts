@@ -46,6 +46,51 @@ export type Database = {
           },
         ]
       }
+      app_email_settings: {
+        Row: {
+          api_key_last4: string | null
+          enabled: boolean
+          id: number
+          resend_api_key_encrypted: string | null
+          sender_email: string | null
+          sender_name: string | null
+          updated_at: string
+          updated_by: string | null
+          validated_at: string | null
+          validation_message: string | null
+          validation_status: string | null
+          verified_domain: string | null
+        }
+        Insert: {
+          api_key_last4?: string | null
+          enabled?: boolean
+          id?: number
+          resend_api_key_encrypted?: string | null
+          sender_email?: string | null
+          sender_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          validated_at?: string | null
+          validation_message?: string | null
+          validation_status?: string | null
+          verified_domain?: string | null
+        }
+        Update: {
+          api_key_last4?: string | null
+          enabled?: boolean
+          id?: number
+          resend_api_key_encrypted?: string | null
+          sender_email?: string | null
+          sender_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          validated_at?: string | null
+          validation_message?: string | null
+          validation_status?: string | null
+          verified_domain?: string | null
+        }
+        Relationships: []
+      }
       approval_requests: {
         Row: {
           approver_id: string
@@ -3508,6 +3553,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_email_send_config: {
+        Args: never
+        Returns: {
+          enabled: boolean
+          resend_api_key_encrypted: string
+          sender_email: string
+          sender_name: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
