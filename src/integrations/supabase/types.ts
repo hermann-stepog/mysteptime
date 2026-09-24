@@ -2437,6 +2437,7 @@ export type Database = {
           id: string
           matricula: string | null
           must_change_password: boolean
+          perfil: string | null
           phone: string | null
           updated_at: string
         }
@@ -2448,6 +2449,7 @@ export type Database = {
           id: string
           matricula?: string | null
           must_change_password?: boolean
+          perfil?: string | null
           phone?: string | null
           updated_at?: string
         }
@@ -2459,6 +2461,7 @@ export type Database = {
           id?: string
           matricula?: string | null
           must_change_password?: boolean
+          perfil?: string | null
           phone?: string | null
           updated_at?: string
         }
