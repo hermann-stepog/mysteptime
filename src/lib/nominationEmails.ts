@@ -116,7 +116,7 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
   try {
     const { data } = await supabaseAny
       .from("nomination_nominees")
-      .select("colaborador_nome, sms_bloqueio_saude, sms_aso_em_dia, rh_documentacao_ok, rh_validated, aptidao_divergence, aptidao_divergence_text")
+      .select("colaborador_nome, quality_apto_solda, sms_bloqueio_saude, sms_aso_em_dia, rh_documentacao_ok, rh_validated, aptidao_divergence, aptidao_divergence_text")
       .eq("nomination_id", nomination.id)
       .eq("is_active", true);
     const linhas: string[] = [];
@@ -125,6 +125,7 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
       if (n.sms_bloqueio_saude != null || n.sms_aso_em_dia != null) {
         partes.push(`SMS: bloqueio de saúde ${simNao(n.sms_bloqueio_saude)}, ASO em dia ${simNao(n.sms_aso_em_dia)}`);
       }
+      if (n.quality_apto_solda != null) partes.push(`Qualidade: ${n.quality_apto_solda ? "apto" : "NÃO apto"} para o tipo de solda`);
       if (n.rh_documentacao_ok != null || n.rh_validated) {
         partes.push(`RH: documentação OK ${simNao(n.rh_documentacao_ok)}, embarque ${n.rh_validated ? "validado" : "não validado"}`);
       }
