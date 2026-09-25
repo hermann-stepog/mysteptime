@@ -1754,6 +1754,21 @@ export type Database = {
           },
         ]
       }
+      nomination_funcao_catalog: {
+        Row: {
+          created_at: string
+          funcao: string
+        }
+        Insert: {
+          created_at?: string
+          funcao: string
+        }
+        Update: {
+          created_at?: string
+          funcao?: string
+        }
+        Relationships: []
+      }
       nomination_nominees: {
         Row: {
           aptidao_checked: boolean
@@ -3603,6 +3618,7 @@ export type Database = {
         | "qualidade"
         | "rh"
         | "sms"
+        | "solicitante_master"
       approval_status: "pending" | "approved" | "rejected"
       billing_type: "com_cobranca" | "sem_cobranca"
       cost_type:
@@ -3775,6 +3791,7 @@ export const Constants = {
         "qualidade",
         "rh",
         "sms",
+        "solicitante_master",
       ],
       approval_status: ["pending", "approved", "rejected"],
       billing_type: ["com_cobranca", "sem_cobranca"],
