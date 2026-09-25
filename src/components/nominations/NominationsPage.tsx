@@ -40,7 +40,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Plus, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
-  Trash2, AlertTriangle, ArrowRight, Stethoscope, X, UserPlus, Check, MoreVertical,
+  Trash2, AlertTriangle, ArrowRight, ArrowLeft, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
   Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale,
 } from "lucide-react";
@@ -479,6 +479,15 @@ function ValidacaoQualidadeSection({ nomination }: { nomination: Nomination }) {
       {canAct && nomination.quality_status === "aprovado" && (
         <Button size="sm" onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })} loading={advance.isPending}>
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação PM
+        </Button>
+      )}
+      {canAct && nomination.quality_status === "reprovado" && (
+        <Button
+          size="sm" variant="outline"
+          onClick={() => advance.mutate({ nomination, target: "simulacao", note: "Qualidade reprovou — retrocedido para nova indicação" })}
+          loading={advance.isPending}
+        >
+          <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Retroceder para Nomeação (Simulação)
         </Button>
       )}
     </div>
