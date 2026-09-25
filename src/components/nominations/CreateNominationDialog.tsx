@@ -9,8 +9,9 @@ import { type Nomination, isSoldador } from "@/lib/nominations";
 import { notifyStageAdvance } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
-import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
-import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
+import { ehUnidadeNaoOperacional } from "@/lib/histogramaNovo";
+import { toDisplayCase } from "@/lib/format";
+import { usePlanejamentoEmbarqueQuery } from "@/components/histograma/PlanejamentoEmbarqueTab";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,62 +67,55 @@ export async function uploadScopeDocument(file: File): Promise<{ path: string; n
   return { path, name: file.name };
 }
 
-// Dados de referência do formulário (funções conhecidas, unidades/BSPs vindos do Drake) — um
-// só lugar pra não duplicar as mesmas consultas entre quem usa este diálogo.
+// Dados de referência do formulário — um só lugar pra não duplicar as mesmas consultas entre
+// quem usa este diálogo (Solicitante e Logística).
 export function useNominationFormData() {
-  const { data: funcoesHistorico = [] } = useQuery<{ funcao: string }[]>({
-    queryKey: ["create-nomination-funcoes-historico"],
+  // Função: catálogo acumulado (pedido dela) — a lista vem do Planejamento de Embarque, mas
+  // nunca "esquece" uma função que já apareceu por lá, mesmo que ela suma do Planejamento
+  // depois. Um gatilho no banco grava cada função nova vista em planejamento_embarque neste
+  // catálogo pra sempre (ver migração nomination_funcao_catalog); o formulário lê daqui, não
+  // direto de planejamento_embarque.
+  const { data: funcaoCatalogo = [] } = useQuery<{ funcao: string }[]>({
+    queryKey: ["nomination-funcao-catalogo"],
     queryFn: () =>
       selectAllPages((from, to) =>
-        supabase.from("colaborador_funcoes_historico").select("funcao").order("data_inicio", { ascending: false }).range(from, to),
+        supabase.from("nomination_funcao_catalog").select("funcao").order("funcao").range(from, to),
       ),
   });
-  const { data: colaboradores = [] } = useQuery<{ funcao: string | null; funcao_operacao: string | null }[]>({
-    queryKey: ["create-nomination-colaboradores-funcoes"],
-    queryFn: async () => (await supabase.from("hist_novo_colaboradores").select("funcao, funcao_operacao")).data ?? [],
-  });
-  const funcaoOptions = useMemo(() => {
-    const s = new Set<string>();
-    funcoesHistorico.forEach((f) => f.funcao && s.add(f.funcao));
-    colaboradores.forEach((c) => { if (c.funcao_operacao) s.add(c.funcao_operacao); if (c.funcao) s.add(c.funcao); });
-    return Array.from(s).sort();
-  }, [funcoesHistorico, colaboradores]);
+  const funcaoOptions = useMemo(
+    () => funcaoCatalogo.map((f) => f.funcao).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [funcaoCatalogo],
+  );
 
-  const { data: periodos = [] } = useQuery<HistNovoPeriodo[]>({
-    queryKey: ["create-nomination-periodos"],
-    queryFn: () =>
-      selectAllPages<HistNovoPeriodo>((from, to) =>
-        supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("data_inicio").range(from, to),
-      ),
-  });
-  const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
-
-  // O Drake grava a mesma unidade com grafias diferentes ao longo do tempo (ex.: "BRAVO" num
-  // período, "Bravo" ou "bravo" noutro) — agrupa por chave maiúscula pra não duplicar a mesma
-  // unidade na lista, e guarda as grafias reais de cada grupo pra filtrar o BSP corretamente
-  // (bspOptionsForUnidade precisa das grafias como estão gravadas, não da versão exibida).
+  // Unidade/BSP também passam a vir do Planejamento de Embarque (pedido dela), em vez do Drake.
+  // O campo Unidade de lá é texto livre e vem sujo — grafias repetidas da mesma unidade,
+  // apelidos antigos ("Qualitech" = Safe Zephyrus) e status digitados no lugar de unidade
+  // ("Folga", "Disponível" etc.) — aplica o mesmo padrão de unificação já usado nos gráficos de
+  // POB (ehUnidadeNaoOperacional exclui os status; toDisplayCase agrupa grafias diferentes da
+  // mesma unidade numa só entrada) antes de virar lista.
+  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
   const unidadeGroups = useMemo(() => {
-    const m = new Map<string, Set<string>>();
-    const add = (raw: string) => {
-      const trimmed = raw.trim();
-      if (!trimmed) return;
-      const key = trimmed.toUpperCase();
-      if (!m.has(key)) m.set(key, new Set());
-      m.get(key)!.add(trimmed);
-    };
-    UNIDADES_OPERACIONAIS_FIXAS.forEach(add);
-    periodos.forEach((p) => { if (p.unidade_operacional) add(p.unidade_operacional); });
+    const m = new Map<string, { display: string; bsps: Set<string> }>();
+    planejamentoEmbarque.forEach((row) => {
+      const raw = row.unidade?.trim();
+      if (!raw) return;
+      const upper = raw.toUpperCase();
+      if (ehUnidadeNaoOperacional(upper)) return;
+      const display = upper === "QUALITECH" ? "Safe Zephyrus" : toDisplayCase(raw);
+      const key = display.toUpperCase();
+      if (!m.has(key)) m.set(key, { display, bsps: new Set() });
+      const bsp = row.bsp?.trim();
+      if (bsp) m.get(key)!.bsps.add(bsp);
+    });
     return m;
-  }, [periodos]);
+  }, [planejamentoEmbarque]);
 
-  // Exibição normalizada: só a primeira letra maiúscula — nunca altera o que está gravado no
-  // banco, só como aparece na lista/valor selecionado.
   const unidadeOptions = useMemo(
-    () => Array.from(unidadeGroups.keys()).map((k) => k.charAt(0) + k.slice(1).toLowerCase()).sort(),
+    () => Array.from(unidadeGroups.values()).map((g) => g.display).sort((a, b) => a.localeCompare(b, "pt-BR")),
     [unidadeGroups],
   );
 
-  return { funcaoOptions, periodosE, unidadeGroups, unidadeOptions };
+  return { funcaoOptions, unidadeGroups, unidadeOptions };
 }
 
 export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
@@ -143,12 +137,15 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
   const addLinha = () => setLinhas((atual) => [...atual, novaLinhaFuncao()]);
   const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
 
-  const { funcaoOptions, periodosE, unidadeGroups, unidadeOptions } = useNominationFormData();
+  const { funcaoOptions, unidadeGroups, unidadeOptions } = useNominationFormData();
   const bspOptions = useMemo(() => {
-    if (!unidade) return bspOptionsForUnidade(periodosE, "all");
-    const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
-    return bspOptionsForUnidade(periodosE, variantes);
-  }, [periodosE, unidade, unidadeGroups]);
+    if (!unidade) {
+      const todos = new Set<string>();
+      unidadeGroups.forEach((g) => g.bsps.forEach((b) => todos.add(b)));
+      return Array.from(todos).sort();
+    }
+    return Array.from(unidadeGroups.get(unidade.toUpperCase())?.bsps ?? []).sort();
+  }, [unidade, unidadeGroups]);
 
   const create = useMutation({
     mutationFn: async () => {
