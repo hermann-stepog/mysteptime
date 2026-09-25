@@ -80,14 +80,18 @@ function AdminLayout() {
     if (!user) navigate({ to: "/auth" });
     else if (!role || role === "pending") navigate({ to: "/pending" });
     else if (!isAllowedRole) navigate({ to: "/app" });
-  }, [user, role, loading, isAllowedRole, navigate]);
+    // Qualidade só tem acesso a Nomeações.
+    else if (role === "qualidade" && !pathname.startsWith("/admin/nominations")) navigate({ to: "/admin/nominations" });
+  }, [user, role, loading, isAllowedRole, navigate, pathname]);
 
   if (loading || !user || !isAllowedRole) {
     return <AppLoader />;
   }
 
   const navRole = viewAsRole ?? role;
-  const visibleNav = navRole === "visitante"
+  const visibleNav = navRole === "qualidade"
+    ? nav.filter((n) => n.to === "/admin/nominations")
+    : navRole === "visitante"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
     : navRole === "pm"
       ? nav.filter((n) => PM_PATHS.includes(n.to))
