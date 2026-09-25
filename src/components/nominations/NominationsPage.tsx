@@ -391,7 +391,8 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
   const QUALITY_STATUS_LABEL: Record<QualityStatus, string> = { pendente: "Pendente", aprovado: "Aprovada", reprovado: "Reprovada" };
   // Igual ao SMS: a Qualidade analisa o documento e responde, por colaborador, se ele está apto
   // para o tipo de solda da solicitação. Só dá pra aprovar depois de responder todos.
-  const avaliados = nominees.filter((n) => n.is_active && n.technical_selected_at);
+  // Qualidade vem antes da Aprovação Técnica: avalia todos os candidatos ativos da simulação.
+  const avaliados = nominees.filter((n) => n.is_active);
   const todosRespondidos = avaliados.length > 0 && avaliados.every((n) => (n as any).quality_apto_solda != null);
   const setApto = useMutation({
     mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
