@@ -14,8 +14,6 @@ import {
 import { notifyStageAdvance } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
-import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
-import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -380,12 +378,15 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
   const [notes, setNotes]           = useState(nom.notes ?? "");
   const [scopeFile, setScopeFile]   = useState<File | null>(null);
 
-  const { funcaoOptions, periodosE, unidadeGroups, unidadeOptions } = useNominationFormData();
+  const { funcaoOptions, unidadeGroups, unidadeOptions } = useNominationFormData();
   const bspOptions = useMemo(() => {
-    if (!unidade) return bspOptionsForUnidade(periodosE, "all");
-    const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
-    return bspOptionsForUnidade(periodosE, variantes);
-  }, [periodosE, unidade, unidadeGroups]);
+    if (!unidade) {
+      const todos = new Set<string>();
+      unidadeGroups.forEach((g) => g.bsps.forEach((b) => todos.add(b)));
+      return Array.from(todos).sort();
+    }
+    return Array.from(unidadeGroups.get(unidade.toUpperCase())?.bsps ?? []).sort();
+  }, [unidade, unidadeGroups]);
 
   const isWelder = isSoldador(funcao);
 
@@ -898,12 +899,15 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
   const addLinha = () => setLinhas((atual) => [...atual, { id: null, funcao: "", quantidade: "1", scopeFile: null, existingScopePath: null, existingScopeName: null }]);
   const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
 
-  const { funcaoOptions, periodosE, unidadeGroups, unidadeOptions } = useNominationFormData();
+  const { funcaoOptions, unidadeGroups, unidadeOptions } = useNominationFormData();
   const bspOptions = useMemo(() => {
-    if (!unidade) return bspOptionsForUnidade(periodosE, "all");
-    const variantes = Array.from(unidadeGroups.get(unidade.toUpperCase()) ?? [unidade]);
-    return bspOptionsForUnidade(periodosE, variantes);
-  }, [periodosE, unidade, unidadeGroups]);
+    if (!unidade) {
+      const todos = new Set<string>();
+      unidadeGroups.forEach((g) => g.bsps.forEach((b) => todos.add(b)));
+      return Array.from(todos).sort();
+    }
+    return Array.from(unidadeGroups.get(unidade.toUpperCase())?.bsps ?? []).sort();
+  }, [unidade, unidadeGroups]);
 
   const save = useMutation({
     mutationFn: async () => {

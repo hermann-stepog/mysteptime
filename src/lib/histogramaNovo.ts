@@ -262,6 +262,20 @@ export function bspDoPeriodo(p: HistNovoPeriodo): string | null {
   return p.bsp || p.centro_de_custo;
 }
 
+// Valores de Status que às vezes aparecem digitados no campo Unidade do Planejamento de
+// Embarque (quem preencheu não tinha uma embarcação real pra pôr ali) — não são unidades
+// operacionais de verdade. `unidadeUpper` já deve vir em maiúsculas/trim (ver chamadas). Além
+// dos valores exatos, "INDISPONÍVEL" e "FÉRIAS" também aparecem com sufixo variável (ex.:
+// "INDISPONIVEL - SMS", "FÉRIAS 08/09 ATÉ"), por isso entram como prefixo em vez de valor
+// fechado. Compartilhado entre os gráficos de POB (HistogramaOffshoreNovo.tsx) e o formulário
+// de Nova Solicitação de Nomeação (CreateNominationDialog.tsx).
+const UNIDADES_NAO_OPERACIONAIS = new Set(["FOLGA", "BASE", "BASE - HENRIQUE", "DISPONIVEL", "DISPONÍVEL", "CASA"]);
+const PREFIXOS_UNIDADE_NAO_OPERACIONAL = ["INDISPONIVEL", "INDISPONÍVEL", "FERIAS", "FÉRIAS"];
+export function ehUnidadeNaoOperacional(unidadeUpper: string): boolean {
+  if (UNIDADES_NAO_OPERACIONAIS.has(unidadeUpper)) return true;
+  return PREFIXOS_UNIDADE_NAO_OPERACIONAL.some((p) => unidadeUpper.startsWith(p));
+}
+
 // Apelidos conhecidos de unidade operacional que na prática são o mesmo lugar, só grafados
 // diferente conforme a origem do dado (o lançamento manual costuma usar um nome curto/
 // informal; o Drake usa o nome oficial completo) — normalizado sempre pro nome oficial do
