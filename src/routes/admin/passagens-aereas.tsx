@@ -985,16 +985,18 @@ function ImportCustosPassagensDialog({ open, onOpenChange }: { open: boolean; on
 
 // ─── Página ─────────────────────────────────────────────────────────────────
 // Exportada pra ser reaproveitada como aba dentro da Área de RH/SMS (ver
-// src/routes/rh-sms/index.tsx) — mesmo componente, já se ajusta sozinho pro role (ver
-// somenteRelatorioInternacional abaixo), sem duplicar nada.
-export function PassagensAereasPage() {
+// src/routes/rh-sms/index.tsx) — mesmo componente, sem duplicar nada.
+export function PassagensAereasPage({ onlyInternational = false }: { onlyInternational?: boolean } = {}) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { role } = useAuth();
   // RH/SMS só acompanham o Relatório de Viagens Internacionais — RLS (rh_sms_view_international)
   // já limita o que `passagens` traz pra eles a registros internacionais; aqui só decide o que
-  // aparece na tela, pra não mostrar botões de ação que dariam erro de permissão no clique.
-  const somenteRelatorioInternacional = role === "rh" || role === "sms";
+  // aparece na tela, pra não mostrar a aba "Solicitações" (com botões de ação que dariam erro de
+  // permissão no clique). `onlyInternational` (passado explicitamente por quem chama, ver
+  // rh-sms/index.tsx) manda sempre que estiver presente — não depende de reler `role` de novo
+  // aqui dentro, mesmo padrão de `onlyKanban` em NominationsPage.
+  const somenteRelatorioInternacional = onlyInternational || role === "rh" || role === "sms";
   const { data: passagens = [], isLoading: l1 } = usePassagensQuery();
   const { data: periodos = [], isLoading: l2 } = usePeriodosEQuery();
   const { data: colaboradores = [], isLoading: l3 } = useColaboradoresQuery();
