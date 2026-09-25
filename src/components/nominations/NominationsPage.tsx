@@ -306,19 +306,40 @@ function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nominat
 
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium">Selecionar nomeados — {nomination.funcao}</p>
+      <p className="text-sm font-medium">Aprovação técnica — {nomination.funcao}</p>
+      {nomination.scope_document_path ? (
+        <button
+          type="button" className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+          onClick={() => baixarEscopoDocumento(nomination.scope_document_path!, nomination.scope_document_name ?? "escopo-do-servico")}
+        >
+          <FileText className="h-3.5 w-3.5" /> {nomination.scope_document_name ?? "Baixar documento anexado"}
+        </button>
+      ) : (
+        <p className="text-xs text-muted-foreground">Nenhum documento anexado pelo solicitante.</p>
+      )}
+      <p className="text-xs font-medium">
+        Aprovado para o serviço a bordo{nomination.weld_type ? ` (${nomination.weld_type}${nomination.weld_material ? ` — ${nomination.weld_material}` : ""})` : ""}?
+      </p>
       <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
         {ativos.length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">Nenhum candidato no efetivo desta solicitação ainda.</p>}
-        {ativos.map((n) => (
-          <label key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer">
-            <span>{n.colaborador_nome}</span>
-            <Checkbox
-              checked={!!n.technical_selected_at}
-              disabled={!canAct}
-              onCheckedChange={(v) => toggleSelect.mutate({ nominee: n, selected: !!v })}
-            />
-          </label>
-        ))}
+        {ativos.map((n) => {
+          const aprovado = !!n.technical_selected_at;
+          return (
+            <div key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm">
+              <span>{n.colaborador_nome}</span>
+              <div className="flex gap-1">
+                <Button size="sm" variant={aprovado ? "default" : "outline"} className="h-7 px-2 text-xs" disabled={!canAct}
+                  onClick={() => toggleSelect.mutate({ nominee: n, selected: true })}>
+                  <Check className="mr-1 h-3 w-3" /> Aprovado
+                </Button>
+                <Button size="sm" variant={!aprovado ? "destructive" : "outline"} className="h-7 px-2 text-xs" disabled={!canAct}
+                  onClick={() => toggleSelect.mutate({ nominee: n, selected: false })}>
+                  <X className="mr-1 h-3 w-3" /> Não aprovado
+                </Button>
+              </div>
+            </div>
+          );
+        })}
       </div>
       {canAct && nomination.current_status === "aprovacao_tecnica" && (
         <Button size="sm" onClick={confirmar} loading={advance.isPending}>

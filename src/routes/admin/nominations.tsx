@@ -11,5 +11,5 @@ export const Route = createFileRoute("/admin/nominations")({
 // Qualidade enxerga só o kanban (sem abas extras nem "Nova Solicitação").
 function AdminNominations() {
   const { role } = useAuth();
-  return <NominationsPage onlyKanban={role === "qualidade"} />;
+  return <NominationsPage onlyKanban={role === "qualidade" || role === "aprovacao_tecnica"} />;
 }

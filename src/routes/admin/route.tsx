@@ -81,7 +81,7 @@ function AdminLayout() {
     else if (!role || role === "pending") navigate({ to: "/pending" });
     else if (!isAllowedRole) navigate({ to: "/app" });
     // Qualidade só tem acesso a Nomeações.
-    else if (role === "qualidade" && !pathname.startsWith("/admin/nominations")) navigate({ to: "/admin/nominations" });
+    else if ((role === "qualidade" || role === "aprovacao_tecnica") && !pathname.startsWith("/admin/nominations")) navigate({ to: "/admin/nominations" });
   }, [user, role, loading, isAllowedRole, navigate, pathname]);
 
   if (loading || !user || !isAllowedRole) {
@@ -89,7 +89,7 @@ function AdminLayout() {
   }
 
   const navRole = viewAsRole ?? role;
-  const visibleNav = navRole === "qualidade"
+  const visibleNav = navRole === "qualidade" || navRole === "aprovacao_tecnica"
     ? nav.filter((n) => n.to === "/admin/nominations")
     : navRole === "visitante"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
