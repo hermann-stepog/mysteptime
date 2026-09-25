@@ -1786,6 +1786,10 @@ export type Database = {
           pm_decided_at: string | null
           pm_decided_by: string | null
           pm_decision: string
+          quality_apto_solda: boolean | null
+          quality_apto_solda_obs: string | null
+          quality_checked_at: string | null
+          quality_checked_by: string | null
           rh_documentacao_ok: boolean | null
           rh_validated: boolean
           rh_validated_at: string | null
@@ -1814,6 +1818,10 @@ export type Database = {
           pm_decided_at?: string | null
           pm_decided_by?: string | null
           pm_decision?: string
+          quality_apto_solda?: boolean | null
+          quality_apto_solda_obs?: string | null
+          quality_checked_at?: string | null
+          quality_checked_by?: string | null
           rh_documentacao_ok?: boolean | null
           rh_validated?: boolean
           rh_validated_at?: string | null
@@ -1842,6 +1850,10 @@ export type Database = {
           pm_decided_at?: string | null
           pm_decided_by?: string | null
           pm_decision?: string
+          quality_apto_solda?: boolean | null
+          quality_apto_solda_obs?: string | null
+          quality_checked_at?: string | null
+          quality_checked_by?: string | null
           rh_documentacao_ok?: boolean | null
           rh_validated?: boolean
           rh_validated_at?: string | null

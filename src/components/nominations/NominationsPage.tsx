@@ -360,7 +360,7 @@ function NomeadosSection({ nomination, nominees }: { nomination: Nomination; nom
 // Só chega aqui quando a solicitação exige (soldador) — NomeadosSection já pula direto pra
 // Aprovação PM quando não exige. A Qualidade decide olhando o escopo do serviço anexado pelo
 // solicitante, não um tipo de solda/material escolhido em lista.
-function ValidacaoQualidadeSection({ nomination }: { nomination: Nomination }) {
+function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
@@ -368,6 +368,22 @@ function ValidacaoQualidadeSection({ nomination }: { nomination: Nomination }) {
   const [showReject, setShowReject] = useState(false);
   const [reasonDraft, setReasonDraft] = useState("");
   const QUALITY_STATUS_LABEL: Record<QualityStatus, string> = { pendente: "Pendente", aprovado: "Aprovada", reprovado: "Reprovada" };
+  // Igual ao SMS: a Qualidade analisa o documento e responde, por colaborador, se ele está apto
+  // para o tipo de solda da solicitação. Só dá pra aprovar depois de responder todos.
+  const avaliados = nominees.filter((n) => n.is_active && n.technical_selected_at);
+  const todosRespondidos = avaliados.length > 0 && avaliados.every((n) => (n as any).quality_apto_solda != null);
+  const setApto = useMutation({
+    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
+      const { error } = await (supabase as any).from("nomination_nominees").update({
+        quality_apto_solda: val,
+        quality_checked_at: new Date().toISOString(),
+        quality_checked_by: profile?.full_name ?? profile?.email ?? null,
+      }).eq("id", nominee.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onError: (err: Error) => notify.error(err.message),
+  });
 
   const setQualityStatus = useMutation({
     mutationFn: async ({ status, reason }: { status: QualityStatus; reason?: string }) => {
@@ -412,6 +428,7 @@ function ValidacaoQualidadeSection({ nomination }: { nomination: Nomination }) {
               <Button
                 type="button" size="sm" className="h-7 w-7 p-0"
                 variant={nomination.quality_status === "aprovado" ? "default" : "outline"}
+                disabled={!todosRespondidos}
                 loading={setQualityStatus.isPending && setQualityStatus.variables?.status === "aprovado"}
                 onClick={() => { setShowReject(false); setQualityStatus.mutate({ status: "aprovado" }); }}
               >
@@ -449,6 +466,32 @@ function ValidacaoQualidadeSection({ nomination }: { nomination: Nomination }) {
         ) : (
           <p className="text-xs text-purple-900/70">Nenhum escopo do serviço anexado pelo solicitante.</p>
         )}
+        <div className="space-y-1.5 pt-1">
+          <p className="text-xs font-medium text-purple-900">
+            Apto para o tipo de solda{nomination.weld_type ? ` (${nomination.weld_type}${nomination.weld_material ? ` — ${nomination.weld_material}` : ""})` : ""}?
+          </p>
+          {avaliados.length === 0 && <p className="text-xs text-purple-900/70">Nenhum colaborador nomeado.</p>}
+          {avaliados.map((n) => {
+            const v = (n as any).quality_apto_solda as boolean | null;
+            return (
+              <div key={n.id} className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs">
+                <span className="font-medium">{n.colaborador_nome}</span>
+                <div className="flex gap-1">
+                  {[true, false].map((opt) => (
+                    <Button key={String(opt)} size="sm" type="button" disabled={!canAct}
+                      variant={v === opt ? (opt ? "default" : "destructive") : "outline"} className="h-6 px-2 text-xs"
+                      onClick={() => setApto.mutate({ nominee: n, val: opt })}>
+                      {opt ? "Apto" : "Não apto"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {canAct && !todosRespondidos && avaliados.length > 0 && (
+            <p className="text-xs text-purple-900/70">Responda todos os colaboradores para aprovar.</p>
+          )}
+        </div>
         {nomination.quality_status === "reprovado" && nomination.quality_rejection_reason && (
           <p className="text-xs text-red-800">Motivo: {nomination.quality_rejection_reason}</p>
         )}
@@ -1310,7 +1353,7 @@ function ManageDialog({
             )}
             {nomination.current_status === "aprovacao_tecnica" && <AprovacaoTecnicaSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "nomeados" && <NomeadosSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "validacao_qualidade" && <ValidacaoQualidadeSection nomination={nomination} />}
+            {nomination.current_status === "validacao_qualidade" && <ValidacaoQualidadeSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "aprovacao_pm" && <AprovacaoPmSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "validacao_sms_aso" && <ValidacaoSmsAsoSection nomination={nomination} nominees={nominees} />}
             {nomination.current_status === "validacao_rh" && <ValidacaoRhSection nomination={nomination} nominees={nominees} />}
