@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   type Nomination, type NominationNominee, type NominationStatusHistory, type PmDecision,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES,
-  fmtDate, fmtDatetime, isSoldador, canMoveToColumn, requestTitle,
+  fmtDate, fmtDatetime, isSoldador, canMoveToColumn, requestTitle, computeRevertClearing,
 } from "@/lib/nominations";
 import { notifyStageAdvance } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -104,29 +104,41 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
 
   const confirmar = useMutation({
     mutationFn: async () => {
+      // Reprovação parcial (só alguns dos nomeados) não trava o avanço — a solicitação segue
+      // com quem foi aprovado. O reprovado precisa sair de "ativo" aqui, senão continua
+      // arrastado pelas etapas seguintes (SMS/RH validariam alguém que já foi reprovado). Só a
+      // reprovação de TODOS os nomeados ativos trava de verdade (ver gate em canMoveToColumn) e
+      // aí o botão "Retroceder para Nomeação (Simulação)" abaixo assume.
       await Promise.all(
         ativos.map(async (n) => {
           const decision = decisionFor(n);
-          if (decision === n.pm_decision) return;
+          const deveFicarAtivo = decision !== "reprovado";
+          if (decision === n.pm_decision && deveFicarAtivo === n.is_active) return;
           const { error } = await supabase.from("nomination_nominees").update({
             pm_decision: decision,
             pm_decided_at: new Date().toISOString(),
             pm_decided_by: profile?.full_name ?? profile?.email ?? null,
+            is_active: deveFicarAtivo,
           }).eq("id", n.id);
           if (error) throw error;
         }),
       );
+      // "Aprovação PM" vai direto pra "Briefing" (Validação SMS/RH já ficam bem mais cedo no
+      // fluxo, logo depois de Simulação) — mesmo alvo que o equivalente da Logística já usa em
+      // AprovacaoPmSection (NominationsPage.tsx). Isso aqui mandava pra "validacao_sms_aso" por
+      // engano, sobra de antes dessa reordenação (canMoveToColumn nem chegava a barrar, porque
+      // aquele alvo fica ANTES de aprovacao_pm na ordem nova — virava sempre { ok: true }).
       const merged = ativos.map((n) => ({ ...n, pm_decision: decisionFor(n) }));
-      const gate = canMoveToColumn(nomination, "validacao_sms_aso", merged);
+      const gate = canMoveToColumn(nomination, "briefing_sms", merged);
       if (!gate.ok) throw new Error(gate.reason ?? "Não é possível avançar ainda.");
 
-      const { error } = await supabase.from("nominations").update({ current_status: "validacao_sms_aso" }).eq("id", nomination.id);
+      const { error } = await supabase.from("nominations").update({ current_status: "briefing_sms" }).eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id, status: "validacao_sms_aso",
+        nomination_id: nomination.id, status: "briefing_sms",
         changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante", notes: "Decisões de Aprovação PM confirmadas",
       });
-      await notifyStageAdvance({ ...nomination, current_status: "validacao_sms_aso" }, "validacao_sms_aso");
+      await notifyStageAdvance({ ...nomination, current_status: "briefing_sms" }, "briefing_sms");
     },
     onSuccess: () => {
       notify.success("Decisões enviadas.");
@@ -136,6 +148,38 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao confirmar decisões."),
   });
+
+  // Ninguém aprovado (todos reprovados) — o gate de canMoveToColumn nunca deixa avançar nesse
+  // caso, então em vez de ficar travado sem saída, oferece mandar de volta pra Nomeação
+  // (Simulação) pra indicar outro(s) candidato(s). Mesma limpeza de computeRevertClearing usada
+  // no retrocesso do quadro do operador (apaga os nomeados atuais — Simulação não tem campo
+  // próprio, o "marcado" dela é a própria existência deles).
+  const retroceder = useMutation({
+    mutationFn: async () => {
+      const clearing = computeRevertClearing(nomination.current_status, "simulacao");
+      // Precisa apagar os nomeados ANTES de trocar o current_status: a policy de DELETE do
+      // Solicitante em nomination_nominees só libera enquanto a solicitação ainda está em
+      // 'aprovacao_pm' (ver pm_nominees_delete_on_revert).
+      if (clearing?.deleteNominees) {
+        const { error: delErr } = await supabase.from("nomination_nominees").delete().eq("nomination_id", nomination.id);
+        if (delErr) throw delErr;
+      }
+      const { error } = await supabase.from("nominations").update({ current_status: "simulacao", ...clearing?.nominationPatch }).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id, status: "simulacao",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante", notes: "PM reprovou todos os nomeados — retrocedido para nova indicação",
+      });
+      notifyStageAdvance({ ...nomination, current_status: "simulacao" }, "simulacao").catch(() => {});
+    },
+    onSuccess: () => {
+      notify.success("Retrocedido para Nomeação (Simulação).");
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      onDone();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao retroceder."),
+  });
+  const todosReprovados = ativos.length > 0 && ativos.every((n) => decisionFor(n) === "reprovado");
 
   if (ativos.length === 0) {
     return <p className="text-xs text-muted-foreground">Nenhum nomeado nesta solicitação ainda.</p>;
@@ -168,13 +212,23 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
           );
         })}
       </div>
-      <Button
-        size="sm" disabled={!todosDecididos} loading={confirmar.isPending}
-        onClick={() => confirmar.mutate()}
-      >
-        Confirmar decisões
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm" disabled={!todosDecididos || todosReprovados} loading={confirmar.isPending}
+          onClick={() => confirmar.mutate()}
+        >
+          Confirmar decisões
+        </Button>
+        {todosReprovados && (
+          <Button size="sm" variant="outline" loading={retroceder.isPending} onClick={() => retroceder.mutate()}>
+            Retroceder para Nomeação (Simulação)
+          </Button>
+        )}
+      </div>
       {!todosDecididos && <p className="text-xs text-muted-foreground">Decida todos os nomeados (✓ ou ✗) para poder confirmar.</p>}
+      {todosReprovados && (
+        <p className="text-xs text-muted-foreground">Todos os nomeados foram reprovados — retroceda para indicar outro(s) candidato(s) na Simulação.</p>
+      )}
     </div>
   );
 }
