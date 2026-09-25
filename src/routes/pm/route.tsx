@@ -35,18 +35,19 @@ function PmLayout() {
       className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100/60"
     >
       <header className="sticky top-0 z-10 border-b bg-[#0f2744]/90 backdrop-blur-md border-white/10">
-        <div className="flex items-center justify-between px-3 py-3 sm:px-4 lg:px-6">
-          <div className="flex items-center gap-3">
-            <BrandLogo className="h-8 w-auto" />
-            <div className="hidden sm:block">
-              <p className="text-[11px] font-semibold text-white/90">My Step Time</p>
-              <p className="text-[10px] text-white/50">Área do Solicitante</p>
+        <div className="flex items-center justify-between px-3 py-4 sm:px-4 lg:px-6">
+          <div className="flex items-center gap-4">
+            <BrandLogo className="h-11 w-auto" />
+            <div className="hidden items-center gap-2 sm:flex">
+              <p className="text-base font-semibold text-white/90">My Step Time</p>
+              <span className="text-white/30">|</span>
+              <p className="text-sm text-white/70">Área do Solicitante</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden sm:flex sm:flex-col sm:items-end leading-tight">
-              <span className="text-xs text-white/80">{profile?.full_name ?? profile?.email}</span>
-              {profile?.perfil && <span className="text-[10px] text-white/50">{profile.perfil}</span>}
+              <span className="text-sm text-white/80">{profile?.full_name ?? profile?.email}</span>
+              {profile?.perfil && <span className="text-xs text-white/50">{profile.perfil}</span>}
             </span>
             <ChangePasswordButton className="text-white/50 hover:bg-white/10 hover:text-white/85" />
             <Button

@@ -111,9 +111,9 @@ function AdminLayout() {
           nada muda visualmente. Quando não cabem, o próprio nav quebra em várias linhas
           (em vez de rolar por baixo do pano, que é o que gerava a barra de rolagem
           horizontal) — sem largura fixa em nenhum elemento, então nada ultrapassa a viewport. */}
-      <header className="sticky top-0 z-10 w-full max-w-full bg-[#0f2744]/90 backdrop-blur-md border-b border-white/10 px-3 py-2 sm:px-4 lg:px-6">
-        <div className="flex w-full max-w-full flex-wrap items-start gap-x-4 gap-y-2">
-          <BrandLogo className="mt-0.5 h-7 w-auto shrink-0 sm:h-8 lg:h-9" />
+      <header className="sticky top-0 z-10 w-full max-w-full bg-[#0f2744]/90 backdrop-blur-md border-b border-white/10 px-3 py-3 sm:px-4 lg:px-6">
+        <div className="flex w-full max-w-full flex-wrap items-center gap-x-4 gap-y-2">
+          <BrandLogo className="h-9 w-auto shrink-0 sm:h-10 lg:h-11" />
 
           <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
             {visibleNav.map((n) => {
@@ -123,7 +123,7 @@ function AdminLayout() {
                   key={n.to}
                   to={n.to}
                   className={cn(
-                    "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
+                    "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors sm:px-3 sm:text-base",
                     active ? "text-white" : "text-white/55 hover:bg-white/8 hover:text-white/85",
                   )}
                 >
@@ -147,18 +147,18 @@ function AdminLayout() {
             <button
               onClick={() => setViewAsRole(null)}
               title="Voltar ao seu acesso normal"
-              className="mt-1 flex shrink-0 items-center gap-1 rounded-md border border-amber-300/40 bg-amber-400/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
+              className="flex shrink-0 items-center gap-1 rounded-md border border-amber-300/40 bg-amber-400/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
             >
               Vendo como: {viewAsLabel}<X className="h-3.5 w-3.5" />
             </button>
           )}
 
-          <ChangePasswordButton className="mt-1 h-auto w-auto shrink-0 p-0 text-white/50 hover:bg-transparent hover:text-white/85" />
+          <ChangePasswordButton className="h-auto w-auto shrink-0 p-0 text-white/50 hover:bg-transparent hover:text-white/85" />
 
           <button
             onClick={async () => { await signOut(); navigate({ to: "/auth" }); }}
             title={`Sair (${[profile?.full_name || profile?.email, profile?.perfil].filter(Boolean).join(" - ")})`}
-            className="mt-1 shrink-0 text-white/50 hover:text-red-300 transition-colors"
+            className="shrink-0 text-white/50 hover:text-red-300 transition-colors"
           >
             <LogOut className="h-5 w-5" />
           </button>
