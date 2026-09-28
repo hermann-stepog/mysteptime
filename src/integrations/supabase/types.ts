@@ -2380,6 +2380,10 @@ export type Database = {
           observacoes: string | null
           programado_1: string | null
           programado_2: string | null
+          rh_bloqueado: boolean
+          rh_bloqueio_justificativa: string | null
+          rh_bloqueio_marcado_em: string | null
+          rh_bloqueio_marcado_por: string | null
           status: string | null
           unidade: string | null
           updated_at: string
@@ -2403,6 +2407,10 @@ export type Database = {
           observacoes?: string | null
           programado_1?: string | null
           programado_2?: string | null
+          rh_bloqueado?: boolean
+          rh_bloqueio_justificativa?: string | null
+          rh_bloqueio_marcado_em?: string | null
+          rh_bloqueio_marcado_por?: string | null
           status?: string | null
           unidade?: string | null
           updated_at?: string
@@ -2426,6 +2434,10 @@ export type Database = {
           observacoes?: string | null
           programado_1?: string | null
           programado_2?: string | null
+          rh_bloqueado?: boolean
+          rh_bloqueio_justificativa?: string | null
+          rh_bloqueio_marcado_em?: string | null
+          rh_bloqueio_marcado_por?: string | null
           status?: string | null
           unidade?: string | null
           updated_at?: string
@@ -3618,6 +3630,15 @@ export type Database = {
         Returns: Json
       }
       mysteptime_histogram_weeks: { Args: { p_cutoff: string }; Returns: Json }
+      rh_set_bloqueio_planejamento: {
+        Args: {
+          p_bloqueado: boolean
+          p_id: string
+          p_justificativa: string
+          p_marcado_por: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role:
@@ -3631,6 +3652,7 @@ export type Database = {
         | "rh"
         | "sms"
         | "solicitante_master"
+        | "diretoria"
       approval_status: "pending" | "approved" | "rejected"
       billing_type: "com_cobranca" | "sem_cobranca"
       cost_type:
@@ -3804,6 +3826,7 @@ export const Constants = {
         "rh",
         "sms",
         "solicitante_master",
+        "diretoria",
       ],
       approval_status: ["pending", "approved", "rejected"],
       billing_type: ["com_cobranca", "sem_cobranca"],
