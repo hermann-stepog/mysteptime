@@ -83,9 +83,6 @@ async function emailsForRole(role: string): Promise<string[]> {
   return (profiles ?? []).map((p) => p.email).filter((e): e is string => !!e);
 }
 
-async function operatorEmails(): Promise<string[]> {
-  return emailsForRole("logistics_operator");
-}
 
 async function pmEmail(nomination: Nomination): Promise<string | null> {
   if (nomination.pm_user_id) {
@@ -119,7 +116,7 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
   try {
     const { data } = await supabaseAny
       .from("nomination_nominees")
-      .select("colaborador_nome, sms_bloqueio_saude, sms_aso_em_dia, rh_documentacao_ok, rh_validated, aptidao_divergence, aptidao_divergence_text")
+      .select("colaborador_nome, quality_apto_solda, sms_bloqueio_saude, sms_aso_em_dia, rh_documentacao_ok, rh_validated, aptidao_divergence, aptidao_divergence_text")
       .eq("nomination_id", nomination.id)
       .eq("is_active", true);
     const linhas: string[] = [];
@@ -128,6 +125,7 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
       if (n.sms_bloqueio_saude != null || n.sms_aso_em_dia != null) {
         partes.push(`SMS: bloqueio de saúde ${simNao(n.sms_bloqueio_saude)}, ASO em dia ${simNao(n.sms_aso_em_dia)}`);
       }
+      if (n.quality_apto_solda != null) partes.push(`Qualidade: ${n.quality_apto_solda ? "apto" : "NÃO apto"} para o tipo de solda`);
       if (n.rh_documentacao_ok != null || n.rh_validated) {
         partes.push(`RH: documentação OK ${simNao(n.rh_documentacao_ok)}, embarque ${n.rh_validated ? "validado" : "não validado"}`);
       }
@@ -146,14 +144,13 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus, observacao?: string): Promise<void> {
   try {
     const stageRole = STAGE_ROLE[stage];
-    const [roleTo, cc, pm, respostas] = await Promise.all([
+    const [roleTo, pm, respostas] = await Promise.all([
       stageRole ? emailsForRole(stageRole) : Promise.resolve([]),
-      operatorEmails(),
       pmEmail(nomination),
       stageAnswers(nomination),
     ]);
     const to = [...roleTo, ...(EXTRA_POR_ETAPA[stage] ?? [])];
-    const ccAll = Array.from(new Set([...cc, ...(pm ? [pm] : []), ...SEMPRE_RECEBE]));
+    const ccAll = Array.from(new Set([...(pm ? [pm] : []), ...SEMPRE_RECEBE]));
     const toFinal = to.length > 0 ? to : (pm ? [pm] : ccAll);
     if (toFinal.length === 0) return;
 
@@ -183,7 +180,8 @@ export async function notifyAptitudeDivergence(
   resolved: boolean,
 ): Promise<void> {
   try {
-    const [to, cc] = await Promise.all([emailsForRole("rh"), operatorEmails()]);
+    const [to, pm] = await Promise.all([emailsForRole("rh"), pmEmail(nomination)]);
+    const cc = [...(pm ? [pm] : []), ...SEMPRE_RECEBE];
     const toFinal = to.length > 0 ? to : cc;
     if (toFinal.length === 0) return;
     await sendAlert({
@@ -210,7 +208,8 @@ export async function notifyAptitudeDivergence(
 // sucesso. Vai pro PM (é a solicitação dele) + cópia Logística.
 export async function notifyCancellation(nomination: Nomination, reason: string | null): Promise<void> {
   try {
-    const [cc, pm] = await Promise.all([operatorEmails(), pmEmail(nomination)]);
+    const pm = await pmEmail(nomination);
+    const cc = SEMPRE_RECEBE;
     const toFinal = pm ? [pm] : cc;
     if (toFinal.length === 0) return;
     await sendAlert({
@@ -232,7 +231,8 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
 // PM (precisa agir/decidir o próximo passo) + cópia Logística, igual notifyCancellation.
 export async function notifyQualityRejection(nomination: Nomination, reason: string | null): Promise<void> {
   try {
-    const [cc, pm] = await Promise.all([operatorEmails(), pmEmail(nomination)]);
+    const pm = await pmEmail(nomination);
+    const cc = SEMPRE_RECEBE;
     const toFinal = pm ? [pm] : cc;
     if (toFinal.length === 0) return;
     await sendAlert({
