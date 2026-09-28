@@ -28,7 +28,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { MultiSortableHead, useMultiTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
-import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus, History, ChevronRight } from "lucide-react";
+import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus, History, ChevronRight, Flag } from "lucide-react";
 
 // ─── Planejamento de Embarque ───────────────────────────────────────────────────────────────
 // Deixou de ser uma visão derivada de hist_novo_periodos/hist_novo_colaboradores (dados do
@@ -58,6 +58,13 @@ export interface PlanejamentoEmbarqueRow {
   observacoes: string | null;
   updated_at: string;
   updated_by: string | null;
+  // Bloqueio marcado pelo RH na aba "Efetivo Offshore" (ambiente do RH) — só eles gravam isso,
+  // ver rh_set_bloqueio_planejamento no banco. Aparece aqui só como indicador (flag piscando +
+  // justificativa no hover), nunca editável direto nesta tela.
+  rh_bloqueado: boolean;
+  rh_bloqueio_justificativa: string | null;
+  rh_bloqueio_marcado_em: string | null;
+  rh_bloqueio_marcado_por: string | null;
 }
 
 // Status deixou de ser calculado por datas (Embarcado/Férias/Folga/etc.) — a pedido dela, agora
@@ -878,35 +885,6 @@ export function PlanejamentoEmbarqueTab() {
     onError: (e: any) => notify.error(e.message),
   });
 
-  // Assim que a tela carrega, quem está "Embarcado" e já chegou (ou passou) da data de
-  // Desembarque muda sozinho pra "Folga" — mesma regra Início Folga = Desembarque já usada em
-  // todo o app. O campo continua editável normalmente depois (ela pode trocar na mão quando
-  // quiser), isso só evita deixar "Embarcado" parado indefinidamente sem ninguém mexer. O Set
-  // evita mandar o update de novo pro mesmo registro enquanto o primeiro ainda está em voo.
-  const autoFolgaEmAndamento = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const hoje = todayStr();
-    const pendentes = registros.filter((r) =>
-      isStatusEmbarcado(r.status) && r.desembarque && r.desembarque <= hoje && !autoFolgaEmAndamento.current.has(r.id),
-    );
-    if (pendentes.length === 0) return;
-    pendentes.forEach((r) => autoFolgaEmAndamento.current.add(r.id));
-    (async () => {
-      let ok = 0;
-      for (const r of pendentes) {
-        const { error } = await supabase.from("planejamento_embarque").update({ status: "FOLGA" }).eq("id", r.id);
-        if (!error) {
-          ok++;
-          registrarLog(`${descricaoEdicaoCampo(r.nome, "Status", r.status, "FOLGA")} (automático — desembarque em ${fmtDateHeadcount(r.desembarque!)})`);
-        }
-      }
-      if (ok > 0) {
-        qc.invalidateQueries({ queryKey: ["planejamento-embarque"] });
-        notify.success(`${ok} colaborador${ok > 1 ? "es" : ""} passou pra Folga automaticamente (desembarque de hoje)`);
-      }
-    })();
-  }, [registros, qc, registrarLog]);
-
   const excluirRegistro = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("planejamento_embarque").delete().eq("id", id);
@@ -1217,7 +1195,16 @@ export function PlanejamentoEmbarqueTab() {
             {linhas.map((r) => (
               <TableRow key={r.id}>
                 <TableCell>{r.matricula ?? "—"}</TableCell>
-                <TableCell className="font-medium">{r.nome}</TableCell>
+                <TableCell className="font-medium">
+                  <span className="flex items-center gap-1.5">
+                    {r.rh_bloqueado && (
+                      <span title={`Bloqueado pelo RH${r.rh_bloqueio_justificativa ? `: ${r.rh_bloqueio_justificativa}` : ""}`}>
+                        <Flag className="h-3.5 w-3.5 shrink-0 animate-pulse text-red-600" />
+                      </span>
+                    )}
+                    {r.nome}
+                  </span>
+                </TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.unidade} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { unidade: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Unidade", r.unidade, v || null) })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.bsp} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { bsp: v || null }, descricao: descricaoEdicaoCampo(r.nome, "BSP", r.bsp, v || null) })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Função", r.funcao, v || null) })} /></TableCell>

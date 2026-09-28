@@ -73,7 +73,7 @@ function AdminLayout() {
   const { viewAsRole, setViewAsRole } = useViewAs();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
+  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "diretoria" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;
@@ -87,7 +87,7 @@ function AdminLayout() {
   }
 
   const navRole = viewAsRole ?? role;
-  const visibleNav = navRole === "visitante"
+  const visibleNav = navRole === "visitante" || navRole === "diretoria"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
     : navRole === "pm"
       ? nav.filter((n) => PM_PATHS.includes(n.to))
