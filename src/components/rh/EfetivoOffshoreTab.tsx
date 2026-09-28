@@ -190,7 +190,7 @@ function LinhaEfetivo({ registro }: { registro: PlanejamentoEmbarqueRow }) {
             loading={setBloqueio.isPending && setBloqueio.variables?.bloqueado === true}
             onClick={() => setBloqueio.mutate({ bloqueado: true, justificativa: justificativaDraft })}
           >
-            <ShieldAlert className="mr-1 h-3.5 w-3.5" />Bloqueado
+            <ShieldAlert className="mr-1 h-3.5 w-3.5" />Bloqueio RH
           </Button>
         </div>
       </TableCell>
