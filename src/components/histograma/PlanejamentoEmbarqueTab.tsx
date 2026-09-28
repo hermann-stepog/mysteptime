@@ -59,12 +59,14 @@ export interface PlanejamentoEmbarqueRow {
   updated_at: string;
   updated_by: string | null;
   // Bloqueio marcado pelo RH na aba "Efetivo Offshore" (ambiente do RH) — só eles gravam isso,
-  // ver rh_set_bloqueio_planejamento no banco. Aparece aqui só como indicador (flag piscando +
-  // justificativa no hover), nunca editável direto nesta tela.
+  // ver rh_set_bloqueio_planejamento no banco. Além do indicador (flag piscando + justificativa
+  // no hover), a própria coluna Status vira "Bloqueio RH" enquanto durar — rh_bloqueio_status_
+  // anterior guarda o Status de antes, restaurado sozinho quando o RH desbloqueia.
   rh_bloqueado: boolean;
   rh_bloqueio_justificativa: string | null;
   rh_bloqueio_marcado_em: string | null;
   rh_bloqueio_marcado_por: string | null;
+  rh_bloqueio_status_anterior: string | null;
 }
 
 // Status deixou de ser calculado por datas (Embarcado/Férias/Folga/etc.) — a pedido dela, agora
@@ -109,6 +111,13 @@ export function isStatusBloqueioTemporario(status: string | null | undefined): b
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
   return s.startsWith("BASE -") || s === "BLOQUEIO TEMPORARIO";
+}
+
+// "Bloqueio RH" — gravado direto no Status pela própria aba "Efetivo Offshore" (ambiente do RH,
+// ver rh_set_bloqueio_planejamento no banco) quando o RH marca alguém como bloqueado. Diferente
+// de "Bloqueio Temporário" acima (retenção física numa base) — este é administrativo (RH).
+export function isStatusBloqueioRH(status: string | null | undefined): boolean {
+  return (status ?? "").trim().toUpperCase() === "BLOQUEIO RH";
 }
 
 // Unidades e BSPs pra listas suspensas fora do Planejamento de Embarque (ex.: Transporte) —
@@ -1198,8 +1207,19 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell className="font-medium">
                   <span className="flex items-center gap-1.5">
                     {r.rh_bloqueado && (
-                      <span title={`Bloqueado pelo RH${r.rh_bloqueio_justificativa ? `: ${r.rh_bloqueio_justificativa}` : ""}`}>
-                        <Flag className="h-3.5 w-3.5 shrink-0 animate-pulse text-red-600" />
+                      <span
+                        title={`Bloqueado pelo RH${r.rh_bloqueio_justificativa ? `: ${r.rh_bloqueio_justificativa}` : ""}`}
+                        className="inline-flex shrink-0 animate-pulse items-center gap-1 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm"
+                      >
+                        <Flag className="h-3 w-3" />RH
+                      </span>
+                    )}
+                    {isStatusBloqueioTemporario(r.status) && (
+                      <span
+                        title="Bloqueio Temporário"
+                        className="inline-flex shrink-0 animate-pulse items-center gap-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm"
+                      >
+                        <Flag className="h-3 w-3" />TEMP
                       </span>
                     )}
                     {r.nome}

@@ -36,7 +36,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
-  Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight, Lock,
+  Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight, Lock, ShieldAlert,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
@@ -56,7 +56,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS, resolverFuncaoEmbarque } from "@/lib/times
 import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
 import {
   PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, usePlanejamentoEmbarqueSnapshotsQuery,
-  isStatusNaBase, isStatusProgramado, isStatusEmbarcado, isStatusFolga, isStatusDisponivel, isStatusBloqueioTemporario,
+  isStatusNaBase, isStatusProgramado, isStatusEmbarcado, isStatusFolga, isStatusDisponivel, isStatusBloqueioTemporario, isStatusBloqueioRH,
 } from "@/components/histograma/PlanejamentoEmbarqueTab";
 import { KpiValue } from "@/components/KpiValue";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
@@ -2720,6 +2720,12 @@ function DashboardTab({ colaboradores, periodos }: {
     () => planejamentoEmbarque.filter((r) => isStatusBloqueioTemporario(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
     [planejamentoEmbarque],
   );
+  // "Bloqueio RH" — gravado direto no Status pela aba Efetivo Offshore (ambiente do RH) quando
+  // marcam alguém como bloqueado; conta aqui sozinho, igual qualquer outro status (pedido dela).
+  const bloqueioRHDoPlanejamento = useMemo(
+    () => planejamentoEmbarque.filter((r) => isStatusBloqueioRH(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    [planejamentoEmbarque],
+  );
 
   // BSP por nome, vindo do Planejamento de Embarque — usado só como reserva de "Sem BSP" no
   // registro diário abaixo, pra quando o período do Drake não tem nem `bsp` nem
@@ -2784,10 +2790,11 @@ function DashboardTab({ colaboradores, periodos }: {
     return [
       { name: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, nomes: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
       { name: "Bloqueio Temporário", value: bloqueioTemporarioDoPlanejamento.length, nomes: bloqueioTemporarioDoPlanejamento.map((r) => r.nome) },
+      { name: "Bloqueio RH", value: bloqueioRHDoPlanejamento.length, nomes: bloqueioRHDoPlanejamento.map((r) => r.nome) },
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_RED_PALETTE[i % OCUPACAO_RED_PALETTE.length] }));
-  }, [colaboradoresNaBaseDoPlanejamento, bloqueioTemporarioDoPlanejamento]);
+  }, [colaboradoresNaBaseDoPlanejamento, bloqueioTemporarioDoPlanejamento, bloqueioRHDoPlanejamento]);
 
   // Cada donut calcula sua própria % sobre o Headcount Total do cartão (Planejamento de
   // Embarque) — não são mais complementares entre si (100 - ocupação), já que agora são 3
@@ -2806,6 +2813,7 @@ function DashboardTab({ colaboradores, periodos }: {
     { label: "Folga de Embarque", value: folgaDoPlanejamento.length, icon: BedDouble, hoverNames: folgaDoPlanejamento.map((r) => r.nome) },
     { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
     { label: "Bloqueio Temporário", value: bloqueioTemporarioDoPlanejamento.length, icon: Lock, hoverNames: bloqueioTemporarioDoPlanejamento.map((r) => r.nome) },
+    { label: "Bloqueio RH", value: bloqueioRHDoPlanejamento.length, icon: ShieldAlert, hoverNames: bloqueioRHDoPlanejamento.map((r) => r.nome) },
     { label: "Aguardando Escala", value: disponivelDoPlanejamento.length, icon: CheckCircle2, hoverNames: disponivelDoPlanejamento.map((r) => r.nome) },
     { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
     { label: "Utilização", value: pctOcupacaoCards, suffix: "%", icon: TrendingUp },
@@ -3130,8 +3138,8 @@ function DashboardTab({ colaboradores, periodos }: {
                 Férias e Atestado — sem vaga reservada em nenhuma unidade no momento.
               </p>
               <p>
-                <span className="font-semibold" style={{ color: "#7f1d1d" }}>Na Base / Bloqueio Temporário</span> (fatia vermelha): dentro
-                do Headcount Total, mas numa categoria à parte — não entram nem em "Ocupado" nem em "Fora da ocupação".
+                <span className="font-semibold" style={{ color: "#7f1d1d" }}>Na Base / Bloqueio Temporário / Bloqueio RH</span> (fatia
+                vermelha): dentro do Headcount Total, mas numa categoria à parte — não entram nem em "Ocupado" nem em "Fora da ocupação".
               </p>
             </PopoverContent>
           </Popover>
