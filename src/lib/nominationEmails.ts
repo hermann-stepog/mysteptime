@@ -71,10 +71,9 @@ async function sendAlert(
 }
 
 // Resolve quem recebe o e-mail de uma etapa: `to` = usuários com o papel dono daquela etapa
-// (aprovacao_tecnica/rh/sms — Aprovação PM não tem papel próprio, vai só pro PM; Solicitação/
-// Recebido/Simulação/Nomeados/Equipe Formada não têm um papel de etapa dedicado, só a
-// Logística acompanha). `cc` = todos os operadores (Logística de Pessoal, sempre em cópia) +
-// o e-mail do PM sempre que a transição é um avanço da própria solicitação dele.
+// (aprovacao_tecnica/qualidade/rh/sms/solicitante_master — Aprovação PM/Nomeados/Equipe Formada
+// não têm papel próprio, ninguém recebe "to" nessas, só o PM em cópia). `cc` = o e-mail do PM,
+// sempre (é a solicitação dele).
 async function emailsForRole(role: string): Promise<string[]> {
   const { data: roles } = await supabaseAny.from("user_roles").select("user_id").eq("role", role);
   const ids = (roles ?? []).map((r: any) => r.user_id);
@@ -96,17 +95,13 @@ async function pmEmail(nomination: Nomination): Promise<string | null> {
   return null;
 }
 
-// Destinatários fixos combinados com a usuária: Paulo Nunes (Líder de Planejamento) recebe
-// TODAS as etapas de TODAS as solicitações. Ele também é o responsável direto pelo cartão
-// "Nomeação (Simulação)" — isso não precisa de entrada fixa aqui: ele tem o papel próprio
-// "solicitante_master" (ver STAGE_ROLE em lib/nominations.ts), então emailsForRole já resolve o
-// e-mail dele automaticamente pra esse "to", igual acontece com aprovacao_tecnica/qualidade/
-// rh/sms. Douglas (Operações) é responsável direto por "Equipe Formada", que não tem papel
-// próprio, por isso continua fixo aqui.
-const SEMPRE_RECEBE = ["paulo.nunes@step-og.com"];
-const EXTRA_POR_ETAPA: Partial<Record<NominationStatus, string[]>> = {
-  equipe_formada: ["douglas.jacinto@step-og.com"],
-};
+// Paulo Nunes (Líder de Planejamento, papel "solicitante_master") só recebe alerta em 3
+// situações, pedido dela: quando ele mesmo precisa agir (Simulação — já resolvido sozinho pelo
+// STAGE_ROLE dele, não precisa de entrada fixa aqui), quando algo fica pendente (divergência/
+// pendência de aptidão) ou quando algo é reprovado (Qualidade reprova). Fora essas 3, ele não
+// entra em cópia de mais nada — Douglas (Operações) também não recebe mais nada fixo (saiu de
+// "Equipe Formada", pedido dela).
+const PAULO_EMAIL = "paulo.nunes@step-og.com";
 
 const simNao = (v: boolean | null | undefined) => (v == null ? "não informado" : v ? "Sim" : "Não");
 
@@ -140,26 +135,31 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
 
 // Chamado a cada avanço de etapa — nunca lança: falha de e-mail vira aviso, não trava nem
 // desfaz a troca de etapa (mesma postura de tolerância a falha de recordDrakeSyncRun).
-// Regra: responsável da etapa + solicitante (PM) + Paulo Nunes + Logística de Pessoal.
+// Regra (pedido dela): cada papel só recebe "to" quando a etapa é a que ele mesmo precisa agir
+// — Logística de Pessoal só na criação da solicitação ("solicitacao"), RH/SMS/Qualidade/
+// Solicitante Master só na própria etapa (STAGE_ROLE). O PM (solicitante da nomeação) continua
+// em cópia em toda etapa, é a solicitação dele. Nenhum papel entra "de brinde" em etapas que não
+// são a dele.
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus, observacao?: string): Promise<void> {
   try {
     const stageRole = STAGE_ROLE[stage];
-    const [roleTo, pm, respostas] = await Promise.all([
+    const [roleTo, operatorsTo, pm, respostas] = await Promise.all([
       stageRole ? emailsForRole(stageRole) : Promise.resolve([]),
+      stage === "solicitacao" ? emailsForRole("logistics_operator") : Promise.resolve([]),
       pmEmail(nomination),
       stageAnswers(nomination),
     ]);
-    const to = [...roleTo, ...(EXTRA_POR_ETAPA[stage] ?? [])];
-    const ccAll = Array.from(new Set([...(pm ? [pm] : []), ...SEMPRE_RECEBE]));
-    const toFinal = to.length > 0 ? to : (pm ? [pm] : ccAll);
+    const to = [...roleTo, ...operatorsTo];
+    const toFinal = to.length > 0 ? to : (pm ? [pm] : []);
     if (toFinal.length === 0) return;
 
+    const cc = pm ? [pm] : [];
     const periodo = nomination.period_start && nomination.period_end
       ? `${fmtBr(nomination.period_start)} a ${fmtBr(nomination.period_end)}`
       : "—";
     await sendAlert({
       to: toFinal[0],
-      cc: Array.from(new Set([...toFinal.slice(1), ...ccAll])).filter((e) => e !== toFinal[0]),
+      cc: Array.from(new Set([...toFinal.slice(1), ...cc])).filter((e) => e !== toFinal[0]),
       tituloAlerta: `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
       colaboradorNome: await nomineeNames(nomination),
       nomination,
@@ -173,6 +173,7 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
 }
 
 // Diverge de notifyStageAdvance: sempre pro RH (não pro PM — é um bloqueio, não um avanço).
+// Paulo Nunes entra em cópia — é uma pendência, uma das 3 situações que ele acompanha.
 export async function notifyAptitudeDivergence(
   nomination: Nomination,
   colaboradorNome: string,
@@ -181,7 +182,7 @@ export async function notifyAptitudeDivergence(
 ): Promise<void> {
   try {
     const [to, pm] = await Promise.all([emailsForRole("rh"), pmEmail(nomination)]);
-    const cc = [...(pm ? [pm] : []), ...SEMPRE_RECEBE];
+    const cc = [...(pm ? [pm] : []), PAULO_EMAIL];
     const toFinal = to.length > 0 ? to : cc;
     if (toFinal.length === 0) return;
     await sendAlert({
@@ -205,16 +206,16 @@ export async function notifyAptitudeDivergence(
 
 // Diverge de notifyStageAdvance: assunto/corpo deixam claro que foi CANCELADA (não uma etapa
 // concluída) — sem isso a mensagem genérica de "Equipe Formada" passava a falsa impressão de
-// sucesso. Vai pro PM (é a solicitação dele) + cópia Logística.
+// sucesso. Vai só pro PM (é a solicitação dele) — não é nenhuma das 3 situações de Paulo Nunes,
+// nem a criação que Logística acompanha.
 export async function notifyCancellation(nomination: Nomination, reason: string | null): Promise<void> {
   try {
     const pm = await pmEmail(nomination);
-    const cc = SEMPRE_RECEBE;
-    const toFinal = pm ? [pm] : cc;
+    const toFinal = pm ? [pm] : [];
     if (toFinal.length === 0) return;
     await sendAlert({
       to: toFinal[0],
-      cc: Array.from(new Set([...toFinal.slice(1), ...cc])),
+      cc: [],
       tituloAlerta: "Solicitação cancelada",
       colaboradorNome: await nomineeNames(nomination),
       nomination,
@@ -228,11 +229,12 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
 }
 
 // Diverge de notifyStageAdvance: é um bloqueio (a Qualidade reprovou), não um avanço — vai pro
-// PM (precisa agir/decidir o próximo passo) + cópia Logística, igual notifyCancellation.
+// PM (precisa agir/decidir o próximo passo) + cópia Paulo Nunes (é uma reprovação, uma das 3
+// situações que ele acompanha).
 export async function notifyQualityRejection(nomination: Nomination, reason: string | null): Promise<void> {
   try {
     const pm = await pmEmail(nomination);
-    const cc = SEMPRE_RECEBE;
+    const cc = [PAULO_EMAIL];
     const toFinal = pm ? [pm] : cc;
     if (toFinal.length === 0) return;
     await sendAlert({
@@ -262,7 +264,9 @@ export async function notifyAptitudePendency(
   pendencias: string[],
 ): Promise<void> {
   try {
-    const [cc, pm] = await Promise.all([emailsForRole("rh"), pmEmail(nomination)]);
+    const [rh, pm] = await Promise.all([emailsForRole("rh"), pmEmail(nomination)]);
+    // É uma pendência — Paulo Nunes entra em cópia, uma das 3 situações que ele acompanha.
+    const cc = [...rh, PAULO_EMAIL];
     const toFinal = pm ? [pm] : cc;
     if (toFinal.length === 0) return;
     await sendAlert({

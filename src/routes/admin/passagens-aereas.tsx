@@ -48,7 +48,6 @@ import {
   STATUS_FLUXO_RESPONSAVEL, STATUS_FLUXO_PROXIMA_ACAO,
   type PassagemAerea, type PassagemOpcao, type PassagemStatusHistory, type StatusFluxo,
 } from "@/lib/passagensAereas";
-import { notifyPassagemStageAdvance } from "@/lib/passagemEmails";
 import { useAuth } from "@/hooks/useAuth";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { AeroportoSelect } from "@/components/AeroportoSelect";
@@ -453,7 +452,6 @@ function GerenciarFluxoDialog({ passagem, open, onOpenChange }: {
         passagem_id: passagem.id, status: novoStatus, changed_by_name: displayName, notes: notes || null,
       });
       if (he) throw he;
-      await notifyPassagemStageAdvance({ ...passagem, ...extra, status_fluxo: novoStatus } as PassagemAerea, novoStatus, notes);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });

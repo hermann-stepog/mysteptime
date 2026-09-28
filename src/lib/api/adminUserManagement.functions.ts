@@ -60,8 +60,8 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     if (!result?.ok) throw new Error(result?.error ?? "Falha ao criar usuário.");
 
     // Aviso por e-mail é best-effort — o usuário já foi criado com sucesso, então uma falha de
-    // SMTP aqui (mesma tolerância de notifyStageAdvance/notifyPassagemStageAdvance) não pode
-    // desfazer nem travar o cadastro, só avisa a operadora que o e-mail não saiu.
+    // SMTP aqui (mesma tolerância de notifyStageAdvance) não pode desfazer nem travar o
+    // cadastro, só avisa a operadora que o e-mail não saiu.
     let emailSent = false;
     try {
       const loginUrl = `${data.loginUrl ?? ""}/auth`;
