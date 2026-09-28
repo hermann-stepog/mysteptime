@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type AppRole =
   | "pending" | "collaborator" | "logistics_operator" | "pm" | "visitante"
-  | "aprovacao_tecnica" | "qualidade" | "rh" | "sms" | "adm_master" | "solicitante_master";
+  | "aprovacao_tecnica" | "qualidade" | "rh" | "sms" | "adm_master" | "solicitante_master"
+  | "diretoria";
 
 interface AuthCtx {
   user: User | null;

@@ -23,18 +23,23 @@ import { adminCreateUser, adminResetPassword, adminDeleteUser } from "@/lib/api/
 import { useAuth } from "@/hooks/useAuth";
 import { EmailDiagnosisCard } from "@/components/EmailDiagnosisCard";
 
+// Papéis organizados por setor (pedido dela) — cada setor mapeia pra um papel técnico que já
+// existe no sistema (permissões inalteradas, só o nome mudou). "Diretoria" é o único setor sem
+// correspondência anterior: ganhou um papel próprio, com o mesmo alcance do antigo "Visitante"
+// (ver migração diretoria_role/diretoria_rls). "Pendente" e "Colaborador" não são setores — são
+// estados que o sistema precisa independente de departamento (usuário recém-criado sem papel
+// definido, e o ambiente do trabalhador offshore em /app), por isso continuam na lista.
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "pending", label: "Pendente" },
   { value: "collaborator", label: "Colaborador" },
-  { value: "logistics_operator", label: "Operador Logístico" },
-  { value: "adm_master", label: "Admin Master (Nomeações)" },
-  { value: "pm", label: "Solicitante" },
-  { value: "solicitante_master", label: "Solicitante Master" },
-  { value: "visitante", label: "Visitante" },
-  { value: "aprovacao_tecnica", label: "Nomeações — Aprovação Técnica" },
-  { value: "qualidade", label: "Nomeações — Qualidade" },
-  { value: "rh", label: "Nomeações — RH" },
-  { value: "sms", label: "Nomeações — SMS" },
+  { value: "logistics_operator", label: "Logística de Pessoal" },
+  { value: "rh", label: "RH" },
+  { value: "sms", label: "SMS" },
+  { value: "pm", label: "Projetos" },
+  { value: "solicitante_master", label: "Projetos ADM" },
+  { value: "qualidade", label: "Qualidade" },
+  { value: "aprovacao_tecnica", label: "Produção" },
+  { value: "diretoria", label: "Diretoria" },
 ];
 
 export const Route = createFileRoute("/admin/settings")({ head: () => pageTitle("Configurações"), component: SettingsPage });
