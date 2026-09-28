@@ -36,7 +36,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import {
   Plus, Pencil, Trash2, Check, ChevronsUpDown, Users, Search, X,
   Ship, CalendarDays, CheckCircle2, AlertCircle, TrendingUp, Inbox, ArrowUp, ArrowDown,
-  Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight, Lock, ShieldAlert,
+  Download, BedDouble, Info, Building2, ChevronLeft, ChevronRight, Lock,
 } from "lucide-react";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
@@ -57,6 +57,7 @@ import { DrakeUpdateCard } from "@/components/histograma/DrakeUpdateCard";
 import {
   PlanejamentoEmbarqueTab, usePlanejamentoEmbarqueQuery, usePlanejamentoEmbarqueSnapshotsQuery,
   isStatusNaBase, isStatusProgramado, isStatusEmbarcado, isStatusFolga, isStatusDisponivel, isStatusBloqueioTemporario, isStatusBloqueioRH,
+  type PlanejamentoEmbarqueSnapshotRow,
 } from "@/components/histograma/PlanejamentoEmbarqueTab";
 import { KpiValue } from "@/components/KpiValue";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
@@ -2391,6 +2392,97 @@ function renderDonutNamesTooltip(props: unknown) {
   );
 }
 
+// Efeito "auto relevo" (pedido dela, ver print de referência) — Recharts é 2D de verdade, então
+// simula profundidade com um gradiente claro→escuro por cor (highlight em cima, sombra embaixo)
+// mais um drop-shadow no gráfico inteiro, em vez de um preenchimento chapado.
+function shadeHex(hex: string, percent: number): string {
+  const num = parseInt(hex.replace("#", ""), 16);
+  const amt = Math.round(2.55 * percent);
+  const clamp = (v: number) => Math.max(0, Math.min(255, v));
+  const r = clamp((num >> 16) + amt);
+  const g = clamp(((num >> 8) & 0x00ff) + amt);
+  const b = clamp((num & 0x0000ff) + amt);
+  return `#${(0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1)}`;
+}
+const embossGradientId = (color: string) => `emboss-${color.replace("#", "")}`;
+function EmbossGradients({ colors }: { colors: string[] }) {
+  return (
+    <defs>
+      {Array.from(new Set(colors)).map((c) => (
+        <linearGradient key={c} id={embossGradientId(c)} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={shadeHex(c, 38)} />
+          <stop offset="55%" stopColor={c} />
+          <stop offset="100%" stopColor={shadeHex(c, -28)} />
+        </linearGradient>
+      ))}
+    </defs>
+  );
+}
+
+// Gráfico de barras em pé, ao lado de cada rosquinha de "Taxa de Ocupação Offshore" (pedido
+// dela) — mesmos números/cores de cada status, com efeito "auto relevo" e valor sempre visível
+// em cima da barra (LabelList). Hover mostra os nomes, igual a rosquinha ao lado.
+function MiniStatusBarChart({ data }: { data: DonutStatusDatum[] }) {
+  if (data.length === 0) return null;
+  return (
+    <ChartContainer config={donutChartConfig} className="h-[180px] w-[150px] shrink-0 [&_.recharts-wrapper]:drop-shadow-md">
+      <BarChart data={data} margin={{ top: 22, right: 6, left: 6, bottom: 0 }}>
+        <XAxis dataKey="name" hide />
+        <YAxis hide domain={[0, (max: number) => Math.ceil(max * 1.2)]} />
+        <ChartTooltip content={renderDonutNamesTooltip} />
+        <Bar dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={30}>
+          {data.map((entry, i) => (<Cell key={i} fill={`url(#${embossGradientId(entry.color)})`} />))}
+          <LabelList dataKey="value" position="top" className="fill-foreground text-xs font-bold" />
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+// Descrição de cada status embaixo do gráfico de barras (pedido dela) — mesma bolinha de cor
+// usada no gráfico, com o nome e o total; passar o mouse mostra os nomes, igual rosquinha/barra.
+function StatusLegendRow({ data }: { data: DonutStatusDatum[] }) {
+  if (data.length === 0) return null;
+  return (
+    <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
+      {data.map((d) => (
+        <HoverCard key={d.name} openDelay={120} closeDelay={80}>
+          <HoverCardTrigger asChild>
+            <div className="flex cursor-default items-center gap-1.5 text-[11px]">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+              <span className="text-muted-foreground">{d.name}</span>
+              <span className="font-semibold">({d.value})</span>
+            </div>
+          </HoverCardTrigger>
+          <HoverCardContent className="w-64 p-2.5" side="top" align="center">
+            <p className="text-xs font-semibold">{d.name} ({d.value})</p>
+            <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
+              {d.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
+            </ul>
+          </HoverCardContent>
+        </HoverCard>
+      ))}
+    </div>
+  );
+}
+
+// Tooltip do gráfico "Taxa de Ocupação por mês" — só mês + % (sem lista de nomes, ao contrário
+// das rosquinhas/MiniStatusBarChart, já que aqui cada barra é a média do mês inteiro).
+function renderMonthlyPctTooltip(props: unknown) {
+  const { active, payload } = props as {
+    active?: boolean;
+    payload?: { payload: { name: string; value: number; populacaoMedia: number; ocupadosMedia: number } }[];
+  };
+  if (!active || !payload?.length) return null;
+  const dado = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/95 p-2 text-xs shadow-lg backdrop-blur-sm">
+      <p><span className="font-semibold">{dado.name}</span>: {dado.value}%</p>
+      <p className="text-muted-foreground">~{dado.ocupadosMedia} de ~{dado.populacaoMedia} pessoas/dia</p>
+    </div>
+  );
+}
+
 // Só nos gráficos do Dashboard: o 1º dia de Folga logo após o fim de um embarque (status
 // "DES") já conta e aparece como "Folga" comum, sem virar categoria própria — a grade do
 // Histograma e a lista de Lançamentos continuam mostrando esse dia separado como
@@ -2413,6 +2505,34 @@ function computeStatusParaDashboard(periodos: HistNovoPeriodo[], date: string): 
 // independente de qual seja o status/tipo desse período.
 function ehUnidadeBase(unidade: string | null | undefined): boolean {
   return (unidade ?? "").trim().toUpperCase() === "BASE";
+}
+
+// Bloqueio RH "de verdade" é a coluna rh_bloqueado (só quem passa pelo botão da aba Efetivo
+// Offshore mexe nela, via rh_set_bloqueio_planejamento) — o texto do Status pode ser sobrescrito
+// depois por uma edição direta da célula (ex.: alguém troca o Status por engano sem desbloquear
+// primeiro), então checar só isStatusBloqueioRH(status) pode perder gente que continua bloqueada
+// de verdade. Conta como bloqueado se qualquer um dos dois disser que sim.
+function ehBloqueioRH(r: { status: string | null; rh_bloqueado: boolean }): boolean {
+  return r.rh_bloqueado || isStatusBloqueioRH(r.status);
+}
+
+// Arredondar 3 % de forma independente (Math.round em cada uma) pode não somar 100 mesmo quando
+// as contagens originais somam certinho — sobra de arredondamento. "Maior resto" (Hare-Niemeyer)
+// distribui essa sobra pra quem tem a parte fracionária mais alta, garantindo que a soma dê
+// exatamente 100 sempre que os valores somarem o total (pedido dela: as 3 rosquinhas têm que
+// fechar 100%).
+function distribuirPercentuais100(valores: number[]): number[] {
+  const total = valores.reduce((s, v) => s + v, 0);
+  if (total <= 0) return valores.map(() => 0);
+  const brutos = valores.map((v) => (v / total) * 100);
+  const piso = brutos.map(Math.floor);
+  let sobra = 100 - piso.reduce((s, v) => s + v, 0);
+  const ordemPorResto = brutos
+    .map((v, i) => ({ i, resto: v - Math.floor(v) }))
+    .sort((a, b) => b.resto - a.resto);
+  const resultado = [...piso];
+  for (let k = 0; k < sobra && ordemPorResto.length > 0; k++) resultado[ordemPorResto[k % ordemPorResto.length].i]++;
+  return resultado;
 }
 
 function DashboardTab({ colaboradores, periodos }: {
@@ -2443,19 +2563,6 @@ function DashboardTab({ colaboradores, periodos }: {
   // janela Embarque→Desembarque) nos dias que ainda não têm foto — hoje mesmo (se ainda não
   // rodou) e dias futuros, que são só uma projeção do planejamento atual.
   const { data: planejamentoSnapshots = [] } = usePlanejamentoEmbarqueSnapshotsQuery();
-  const colaboradoresNaBaseDoPlanejamento = useMemo(
-    () => planejamentoEmbarque
-      .filter((r) => isStatusNaBase(r.status))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  // Cruzamento por nome do Planejamento de Embarque com o cadastro do Drake — mesmo critério já
-  // usado no cruzamento de Lançamentos (LancamentosTab, normalizeNomeHistograma). Usado logo
-  // abaixo pros cartões "Embarcados" e "Programados".
-  const colaboradorIdPorNomePlanejamento = useMemo(
-    () => new Map(colaboradores.map((c) => [normalizeNomeHistograma(c.nome), c.id])),
-    [colaboradores],
-  );
 
   // Função de embarque (não a cadastral) por colaborador na data de referência do retrato
   // (pobReferenceDate, mais abaixo) — ver resolverFuncaoEmbarque.
@@ -2512,15 +2619,18 @@ function DashboardTab({ colaboradores, periodos }: {
     });
     return m;
   }, [nominationsEquipeFormada, nomineesEquipeFormada]);
-  // O filtro nasce sempre fixado em hoje (De=Até=hoje) — assim os cartões, a rosquinha e
-  // tudo mais partem sempre do mesmo dia de referência, sem divergir entre "foto de hoje" e
-  // "total do período". Continua editável pra ela investigar um dia específico do passado
-  // (ou alargar De/Até se quiser ver um intervalo maior nos gráficos que aceitam isso, como
-  // POB por Unidade × Dia). Quem conta como colaborador "ativo" nos KPIs/"Status por
-  // Unidade" ainda é definido a partir do MÊS que contém esse dia (ver activeColaboradores),
-  // não só o dia exato.
-  const [dataInicio, setDataInicio] = useState(today);
-  const [dataFim, setDataFim] = useState(today);
+  // O filtro nasce fixado no mês atual inteiro (pedido dela — antes nascia só em hoje/hoje) —
+  // "hoje" continua sendo a data de referência dos cartões/rosquinha enquanto estiver dentro do
+  // intervalo (ver pobReferenceDate), então nada muda pra quem não mexe no filtro. Continua
+  // editável pra ela investigar um dia específico ou outro mês. Quem conta como colaborador
+  // "ativo" nos KPIs/"Status por Unidade" já era definido a partir do MÊS que contém o
+  // intervalo (ver activeColaboradores) — com o filtro nascendo no mês inteiro, os dois batem
+  // exatamente desde o início.
+  const inicioMesDashboardDefault = `${today.slice(0, 7)}-01`;
+  const [anoMesDashboard, mesMesDashboard] = today.slice(0, 7).split("-").map(Number);
+  const fimMesDashboardDefault = `${today.slice(0, 7)}-${String(new Date(anoMesDashboard, mesMesDashboard, 0).getDate()).padStart(2, "0")}`;
+  const [dataInicio, setDataInicio] = useState(inicioMesDashboardDefault);
+  const [dataFim, setDataFim] = useState(fimMesDashboardDefault);
   // Filtros extras pra investigar particularidades: um colaborador específico e/ou uma
   // unidade específica — afetam todos os cartões e gráficos abaixo.
   const [filterColaborador, setFilterColaborador] = useState<string[]>([]);
@@ -2554,24 +2664,6 @@ function DashboardTab({ colaboradores, periodos }: {
     return true;
   }), [colaboradoresComMultiploEmbarque, periodosByColaborador, filterColaborador, filterUnidade, filterBsp]);
 
-  // "Ativo" sempre olha o MÊS INTEIRO de dataInicio/dataFim, não o intervalo exato escolhido
-  // no filtro — se ela estreitar De/Até pra um único dia (ex.: só hoje), um colaborador que
-  // tenha um "buraco" de 1 dia sem nenhum período lançado (ex.: entre o desembarque e a
-  // próxima disponibilidade chegar do Drake) não pode sumir do Headcount Total só por causa
-  // desse buraco pontual — ele continua contando enquanto tiver algo lançado em algum lugar
-  // do mês. Pra um filtro do mês inteiro (o padrão), isso não muda nada; só importa quando
-  // ela estreita o filtro pra investigar um dia específico.
-  const activeColaboradores = useMemo(() => {
-    if (!dataInicio || !dataFim) return colaboradoresFiltrados;
-    const inicioJanela = `${dataInicio.slice(0, 7)}-01`;
-    const [anoFim, mesFim] = dataFim.split("-").map(Number);
-    const fimJanela = `${dataFim.slice(0, 7)}-${String(new Date(anoFim, mesFim, 0).getDate()).padStart(2, "0")}`;
-    return colaboradoresFiltrados.filter((c) => {
-      const ps = periodosByColaborador.get(c.id) ?? [];
-      return ps.some((p) => p.data_fim >= inicioJanela && p.data_inicio <= fimJanela);
-    });
-  }, [colaboradoresFiltrados, periodosByColaborador, dataInicio, dataFim]);
-
   const dates = useMemo(
     () => (dataInicio && dataFim && dataInicio <= dataFim ? generateDateRange(dataInicio, dataFim) : []),
     [dataInicio, dataFim],
@@ -2580,11 +2672,11 @@ function DashboardTab({ colaboradores, periodos }: {
   // "POB por Unidade × Dia" e "Mão de Obra por Semana" só fazem sentido com vários dias —
   // ficam desacopladas do filtro De/Até de cima (que agora nasce em hoje/hoje pros
   // cartões/rosquinha baterem entre si) e têm seu PRÓPRIO filtro De/Até, discreto, mostrado
-  // só em cima delas — nasce sempre no mês atual, mas continua editável se ela quiser ver
-  // outro mês, sem afetar os gráficos "por dia" de cima.
+  // só em cima delas — nasce sempre no mês atual inteiro (pedido dela), mas continua editável
+  // se ela quiser ver outro período, sem afetar os gráficos "por dia" de cima.
   const inicioMesAtualDefault = `${today.slice(0, 7)}-01`;
-  const [anoMesAtual, mesMesAtual] = today.slice(0, 7).split("-").map(Number);
-  const fimMesAtualDefault = `${today.slice(0, 7)}-${String(new Date(anoMesAtual, mesMesAtual, 0).getDate()).padStart(2, "0")}`;
+  const [anoMesAtualDefault, mesMesAtualDefault] = today.slice(0, 7).split("-").map(Number);
+  const fimMesAtualDefault = `${today.slice(0, 7)}-${String(new Date(anoMesAtualDefault, mesMesAtualDefault, 0).getDate()).padStart(2, "0")}`;
   const [inicioMesAtual, setInicioMesAtual] = useState(inicioMesAtualDefault);
   const [fimMesAtual, setFimMesAtual] = useState(fimMesAtualDefault);
   const datesMesAtual = useMemo(
@@ -2595,6 +2687,95 @@ function DashboardTab({ colaboradores, periodos }: {
     const ps = periodosByColaborador.get(c.id) ?? [];
     return ps.some((p) => p.data_fim >= inicioMesAtual && p.data_inicio <= fimMesAtual);
   }), [colaboradoresFiltrados, periodosByColaborador, inicioMesAtual, fimMesAtual]);
+
+  // "Taxa de Ocupação por mês" (pedido dela) — estático, de Jan/2026 até hoje, sem depender de
+  // NENHUM filtro de data do resto do Dashboard. Jan-Ago/2026 vem do Drake (periodosByColaborador
+  // tem histórico real desse período, igual sempre teve). A partir de Set/2026 — quando o
+  // Planejamento de Embarque virou a fonte viva do dia a dia — usa a MESMA regra de "ocupado" do
+  // cartão/rosquinha de cima (Embarcado/Programado/Folga): lê a foto daquele dia
+  // (planejamento_embarque_snapshots, tirada automaticamente 1x por dia — ver
+  // useCapturarSnapshotDiarioPlanejamento) quando já existir, ou a lista viva de hoje quando o
+  // dia ainda não tem foto (ex.: antes da 1ª abertura da aba num dia, ou dias anteriores ao
+  // início da captura) — mesmo padrão híbrido já usado em "POB por Unidade × Dia". Os meses daqui
+  // pra frente vão se completando sozinhos conforme as fotos diárias forem se acumulando.
+  const ocupacaoMensalData = useMemo(() => {
+    const inicio = "2026-01-01";
+    const corteMesPlanejamento = "2026-09";
+    if (today < inicio) return [];
+    const MES_LABEL = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const porMes = new Map<string, string[]>();
+    generateDateRange(inicio, today).forEach((d) => {
+      const chave = d.slice(0, 7);
+      if (!porMes.has(chave)) porMes.set(chave, []);
+      porMes.get(chave)!.push(d);
+    });
+
+    const snapshotsPorDia = new Map<string, PlanejamentoEmbarqueSnapshotRow[]>();
+    planejamentoSnapshots.forEach((s) => {
+      if (!snapshotsPorDia.has(s.snapshot_date)) snapshotsPorDia.set(s.snapshot_date, []);
+      snapshotsPorDia.get(s.snapshot_date)!.push(s);
+    });
+    const ocupadoPlanejamentoStatus = (status: string | null) =>
+      isStatusEmbarcado(status) || isStatusProgramado(status) || isStatusFolga(status);
+    const totalHojeVivo = planejamentoEmbarque.length;
+    const ocupadosHojeVivo = planejamentoEmbarque.filter((r) => ocupadoPlanejamentoStatus(r.status)).length;
+    const pctHojeVivo = totalHojeVivo > 0 ? (ocupadosHojeVivo / totalHojeVivo) * 100 : 0;
+
+    return Array.from(porMes.entries()).map(([chave, diasDoMes]) => {
+      const [ano, mesNum] = chave.split("-").map(Number);
+      let somaPct = 0;
+      // População/ocupados médios do mês — só pra explicar o número no hover (ex.: "12 de ~15
+      // pessoas"), não afeta o cálculo do %.
+      let somaPopulacao = 0, somaOcupados = 0;
+      if (chave < corteMesPlanejamento) {
+        // Jan-Ago/2026 — Drake, dia a dia, dividido pela população real daquele mês (quem tinha
+        // período lançado naquele mês específico).
+        const inicioMes = `${chave}-01`;
+        const fimMes = `${chave}-${String(new Date(ano, mesNum, 0).getDate()).padStart(2, "0")}`;
+        const populacao = colaboradoresComMultiploEmbarque.filter((c) => {
+          const ps = periodosByColaborador.get(c.id) ?? [];
+          return ps.some((p) => p.data_fim >= inicioMes && p.data_inicio <= fimMes);
+        });
+        diasDoMes.forEach((dia) => {
+          if (populacao.length === 0) return;
+          let ocupados = 0, totalDia = 0;
+          populacao.forEach((c) => {
+            const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], dia);
+            const bucket = toOldBucket(result.status);
+            // Trabalho Externo desconsiderado do gráfico (pedido dela) — nem entra no total do dia.
+            if (bucket === "TE") return;
+            totalDia++;
+            // Mesmo critério de "Ocupação" das outras 3 rosquinhas (Embarcado + Programado +
+            // Folga de Embarque + Hotel) — Na Base virou "Bloqueados". Desembarque ("D") conta
+            // junto com Folga de Embarque (pedido dela: dia de desembarque já é folga, fica
+            // dentro da ocupação, nunca "fora").
+            if (bucket === "E" || bucket === "P" || bucket === "FO" || bucket === "D" || result.status === "HTL") ocupados++;
+          });
+          if (totalDia === 0) return;
+          somaPct += (ocupados / totalDia) * 100;
+          somaPopulacao += totalDia; somaOcupados += ocupados;
+        });
+      } else {
+        // Set/2026 em diante — Planejamento de Embarque (foto do dia, ou a lista viva de hoje
+        // pros dias que ainda não têm foto).
+        diasDoMes.forEach((dia) => {
+          const fotos = snapshotsPorDia.get(dia);
+          if (fotos && fotos.length > 0) {
+            const ocupados = fotos.filter((f) => ocupadoPlanejamentoStatus(f.status)).length;
+            somaPct += (ocupados / fotos.length) * 100;
+            somaPopulacao += fotos.length; somaOcupados += ocupados;
+          } else {
+            somaPct += pctHojeVivo;
+            somaPopulacao += totalHojeVivo; somaOcupados += ocupadosHojeVivo;
+          }
+        });
+      }
+      const pct = diasDoMes.length > 0 ? Math.round(somaPct / diasDoMes.length) : 0;
+      const populacaoMedia = diasDoMes.length > 0 ? Math.round(somaPopulacao / diasDoMes.length) : 0;
+      const ocupadosMedia = diasDoMes.length > 0 ? Math.round(somaOcupados / diasDoMes.length) : 0;
+      return { name: `${MES_LABEL[mesNum - 1]}/${String(ano).slice(2)}`, value: pct, populacaoMedia, ocupadosMedia };
+    });
+  }, [colaboradoresComMultiploEmbarque, periodosByColaborador, today, planejamentoSnapshots, planejamentoEmbarque]);
 
   const unidades = useMemo(
     () => Array.from(new Set([
@@ -2614,118 +2795,154 @@ function DashboardTab({ colaboradores, periodos }: {
     return dataFim || today;
   }, [dataInicio, dataFim, today]);
 
-  // "Embarcados" e "Programados" também passam a cruzar com o Planejamento de Embarque (Status
-  // EMBARCADO/PROGRAMADO) — a pedido dela, além do que já vem do Drake/Nomeações. Só conta
-  // enquanto pobReferenceDate cai dentro da janela Embarque→Desembarque cadastrada na própria
-  // linha do Planejamento (mesma ideia do cruzamento em Lançamentos); some sozinho fora da
-  // janela. Quando bate, esse status sobrepõe o real do Drake pra esse colaborador nesse dia —
-  // mesma prioridade que "Na Base" já tem sobre o resto.
-  const statusViaPlanejamentoPorColaborador = useMemo(() => {
-    const m = new Map<string, "E" | "P">();
-    planejamentoEmbarque.forEach((row) => {
-      if (!row.embarque) return;
-      const override: "E" | "P" | null = isStatusEmbarcado(row.status) ? "E" : isStatusProgramado(row.status) ? "P" : null;
-      if (!override) return;
-      const fim = row.desembarque ?? row.embarque;
-      if (pobReferenceDate < row.embarque || pobReferenceDate > fim) return;
-      const colaboradorId = colaboradorIdPorNomePlanejamento.get(normalizeNomeHistograma(row.nome));
-      if (colaboradorId) m.set(colaboradorId, override);
-    });
-    return m;
-  }, [planejamentoEmbarque, colaboradorIdPorNomePlanejamento, pobReferenceDate]);
+  // ── Headcount Total/Embarcados/Programados/etc (cartões + as 3 rosquinhas) — segue o filtro
+  // De/Até de cima em vez de sempre olhar pra hoje (pedido dela). Quando o filtro cobre vários
+  // dias, cada categoria vira a MÉDIA por dia do período (pedido dela: "tem que bater" com a
+  // média mostrada em "Taxa de Ocupação por mês" quando o período filtrado é um mês inteiro);
+  // pra um único dia, a média é simplesmente o valor daquele dia (comportamento de sempre). Cada
+  // dia usa o Drake de verdade quando cai em Jan-Ago/2026 (antes do Planejamento de Embarque
+  // existir como fonte viva — mesma régua de "Taxa de Ocupação por mês"), ou a foto do dia
+  // (planejamento_embarque_snapshots)/lista viva de hoje de Set/2026 em diante. Todo mundo cai em
+  // EXATAMENTE um balde por dia (Embarcados/Programados/Folga/Disponível/Na Base/Bloqueio
+  // Temporário/Bloqueio RH/Outros) — garante que as 3 rosquinhas sempre somem 100% do Headcount
+  // (pedido dela). "Bloqueio RH" soma também no card "Não Disponíveis" (pedido dela), mas não
+  // vira fatia na rosquinha amarela (só na vermelha de "Bloqueados").
+  const CORTE_PLANEJAMENTO = "2026-09-01";
+  const statusReferenceDate = useMemo(() => {
+    const diasFiltro = dates.length > 0 ? dates : [pobReferenceDate];
+    const soma = {
+      total: 0, embarcados: 0, programados: 0, folga: 0, disponivel: 0, naBase: 0,
+      bloqueioTemporario: 0, bloqueioRH: 0,
+    };
+    const nomes = {
+      embarcados: new Set<string>(), programados: new Set<string>(), folga: new Set<string>(),
+      disponivel: new Set<string>(), naBase: new Set<string>(), bloqueioTemporario: new Set<string>(),
+      bloqueioRH: new Set<string>(),
+    };
+    // Férias/Atestado/Afastamento continuam com fatia própria (rótulo direto, sem "Nome —
+    // Status") — só quem realmente não tem nada definido (Indisponível, Terceirizado, Casa, ou
+    // qualquer outro texto livre) vira o balde genérico "Outros" mais abaixo (pedido dela).
+    const especiaisSomaPorLabel = new Map<string, number>();
+    const especiaisNomesPorLabel = new Map<string, Set<string>>();
+    const addEspecial = (label: string, nome: string) => {
+      especiaisSomaPorLabel.set(label, (especiaisSomaPorLabel.get(label) ?? 0) + 1);
+      if (!especiaisNomesPorLabel.has(label)) especiaisNomesPorLabel.set(label, new Set());
+      especiaisNomesPorLabel.get(label)!.add(nome);
+    };
+    const outrosSomaPorLabel = new Map<string, number>();
+    const outrosNomesPorLabel = new Map<string, Set<string>>();
+    const addOutros = (label: string, nome: string) => {
+      outrosSomaPorLabel.set(label, (outrosSomaPorLabel.get(label) ?? 0) + 1);
+      if (!outrosNomesPorLabel.has(label)) outrosNomesPorLabel.set(label, new Set());
+      outrosNomesPorLabel.get(label)!.add(nome);
+    };
+    const normalizaStatus = (s: string | null | undefined) =>
+      (s ?? "").trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
-  // ── KPIs (foto de "pobReferenceDate", só entre os colaboradores ativos no período filtrado) ──
-  // "Embarcados" (o cartão) fica restrito a quem está mesmo fisicamente a bordo (E/DB, e
-  // Folga Indenizada — que já cai no balde "E" — ver toOldBucket), igual aos gráficos de
-  // POB. "Folga" e "Programados" mantêm seus próprios cartões (baldes "FO" e "P"). Já a Taxa
-  // de Ocupação (%) usa uma conta à parte, mais ampla, de quem tem a vaga ocupada no ciclo de
-  // rotação: Embarcados + Folga (folga de embarque é o intervalo de descanso do próprio
-  // ciclo, a vaga continua "ocupada" mesmo sem o colaborador estar a bordo naquele dia) +
-  // Trabalho Externo (vaga ocupada fora da embarcação, mas ainda dentro do ciclo) +
-  // Programado (mobilização já lançada, a vaga já está reservada pra esse colaborador mesmo
-  // antes do Drake confirmar o embarque).
-  const kpis = useMemo(() => {
-    let embarcados = 0, disponiveis = 0, naoDisp = 0, folga = 0, ocupados = 0;
-    const programadosIds = new Set<string>();
-    // Nomes por balde — só usados pra alimentar as rosquinhas com os mesmos números dos
-    // cartões (ver ocupacaoData/naoOcupacaoData), sem mudar nenhuma das contagens acima.
-    const folgaNomes: string[] = [], disponiveisNomes: string[] = [], naoDispNomes: string[] = [];
-    // Quebra de "Não Disponíveis" pelo status real do dia (Férias, Atestado, etc.) — pedido
-    // dela pra rosquinha mostrar destrinchado em vez de um balde único.
-    const naoDispPorStatus = new Map<string, { label: string; nomes: string[] }>();
-    activeColaboradores.forEach((c) => {
-      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], pobReferenceDate);
-      // Planejamento de Embarque (Status Embarcado/Programado) sobrepõe o balde real do Drake
-      // pra esse colaborador nesse dia, quando bate — ver statusViaPlanejamentoPorColaborador.
-      const bucket = statusViaPlanejamentoPorColaborador.get(c.id) ?? toOldBucket(result.status);
-      if (bucket === "E") embarcados++;
-      else if (bucket === "FO") { folga++; folgaNomes.push(c.nome); }
-      else if (bucket === "P") programadosIds.add(c.id);
-      else if (bucket === "B") { disponiveis++; disponiveisNomes.push(c.nome); }
-      else if (bucket === "FE" || bucket === "IND") {
-        naoDisp++; naoDispNomes.push(c.nome);
-        const chave = String(result.status);
-        const label = STATUS_LABEL[result.status] ?? chave;
-        const entry = naoDispPorStatus.get(chave) ?? { label, nomes: [] };
-        entry.nomes.push(c.nome);
-        naoDispPorStatus.set(chave, entry);
+    diasFiltro.forEach((dia) => {
+      if (dia < CORTE_PLANEJAMENTO) {
+        colaboradoresComMultiploEmbarque.forEach((c) => {
+          const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], dia);
+          if (!result.periodo) return;
+          const bucket = toOldBucket(result.status);
+          // Trabalho Externo desconsiderado do gráfico (pedido dela) — nem entra no Headcount do
+          // dia, nem em nenhum balde.
+          if (bucket === "TE") return;
+          soma.total++;
+          if (bucket === "E") { soma.embarcados++; nomes.embarcados.add(c.nome); }
+          // Hotel conta junto com Programados (pedido dela), que já cai dentro da Ocupação.
+          else if (bucket === "P" || result.status === "HTL") { soma.programados++; nomes.programados.add(c.nome); }
+          // Desembarque ("D") conta como Folga de Embarque (pedido dela: dia de desembarque já é
+          // folga, fica dentro da Ocupação, nunca "fora"/"Outros").
+          else if (bucket === "FO" || bucket === "D") { soma.folga++; nomes.folga.add(c.nome); }
+          else if (bucket === "B") { soma.disponivel++; nomes.disponivel.add(c.nome); }
+          else if (bucket === "BASE") { soma.naBase++; nomes.naBase.add(c.nome); }
+          // Férias ("FE") e Atestado/Afastamento ("IND") continuam com fatia própria, igual
+          // sempre foi — não são "Outros".
+          else if (bucket === "FE" || bucket === "IND") addEspecial(STATUS_LABEL[result.status] ?? String(result.status), c.nome);
+          else addOutros(STATUS_LABEL[result.status] ?? String(result.status), c.nome);
+        });
+      } else {
+        const foto = planejamentoSnapshots.filter((s) => s.snapshot_date === dia);
+        const linhas: { nome: string; status: string | null; rh_bloqueado: boolean }[] = foto.length > 0
+          ? foto.map((f) => ({ nome: f.colaborador_nome, status: f.status, rh_bloqueado: false }))
+          : planejamentoEmbarque.map((r) => ({ nome: r.nome, status: r.status, rh_bloqueado: r.rh_bloqueado }));
+        soma.total += linhas.length;
+        linhas.forEach((l) => {
+          const statusNormalizado = normalizaStatus(l.status);
+          if (isStatusEmbarcado(l.status)) { soma.embarcados++; nomes.embarcados.add(l.nome); }
+          else if (isStatusProgramado(l.status)) { soma.programados++; nomes.programados.add(l.nome); }
+          else if (isStatusFolga(l.status)) { soma.folga++; nomes.folga.add(l.nome); }
+          else if (isStatusDisponivel(l.status)) { soma.disponivel++; nomes.disponivel.add(l.nome); }
+          else if (isStatusNaBase(l.status)) { soma.naBase++; nomes.naBase.add(l.nome); }
+          else if (isStatusBloqueioTemporario(l.status)) { soma.bloqueioTemporario++; nomes.bloqueioTemporario.add(l.nome); }
+          else if (ehBloqueioRH(l)) { soma.bloqueioRH++; nomes.bloqueioRH.add(l.nome); }
+          // Se alguém digitar "Férias"/"Atestado"/"Afastamento" direto na célula do Planejamento
+          // (mesmo dentro de um texto maior, tipo "Atestado médico"), continua com fatia própria
+          // — mesmo critério do Drake acima. "includes" em vez de igualdade exata pra não perder
+          // variações de texto livre.
+          else if (statusNormalizado.includes("FERIAS")) addEspecial("Férias", l.nome);
+          else if (statusNormalizado.includes("ATESTADO")) addEspecial("Atestado", l.nome);
+          else if (statusNormalizado.includes("AFASTAMENTO")) addEspecial("Afastamento", l.nome);
+          else addOutros(l.status?.trim() || "Sem status", l.nome);
+        });
       }
-      // Continua olhando a Unidade do período do Drake (não o Planejamento de Embarque, que
-      // não tem histórico por dia) — quem está "Na Base" conta como ocupado mesmo quando o
-      // status bruto do dia não seria (ex.: Standby), senão a % de Utilização ficava sem essas
-      // pessoas. Repare que isso já não é mais o mesmo critério do cartão "Na Base" acima
-      // (esse virou Planejamento de Embarque, sem data — ver colaboradoresNaBaseDoPlanejamento).
-      if (isOcupadoBucket(bucket) || ehUnidadeBase(result.periodo?.unidade_operacional)) ocupados++;
     });
-    // Soma quem chegou em Equipe Formada nas Nomeações com embarque programado justo pra
-    // pobReferenceDate — cobre inclusive quem ainda não tem nenhum período no Histograma (por
-    // isso não fica restrito a activeColaboradores). Quem já tem período "P" já entrou no Set
-    // acima pelo mesmo colaborador_id, então não duplica.
-    dataProgramadaViaNomeacaoPorColaborador.forEach((dataEmbarque, colaboradorId) => {
-      if (dataEmbarque === pobReferenceDate) programadosIds.add(colaboradorId);
-    });
-    const total = activeColaboradores.length;
-    const utilizacao = total > 0 ? Math.round((ocupados / total) * 100) : 0;
-    const naoDispDetalhado = Array.from(naoDispPorStatus.values())
-      .map((e) => ({ name: e.label, value: e.nomes.length, nomes: e.nomes }))
-      .sort((a, b) => b.value - a.value);
-    return { total, embarcados, programados: programadosIds.size, disponiveis, naoDisp, folga, utilizacao, folgaNomes, disponiveisNomes, naoDispNomes, naoDispDetalhado };
-  }, [activeColaboradores, periodosByColaborador, pobReferenceDate, dataProgramadaViaNomeacaoPorColaborador, statusViaPlanejamentoPorColaborador]);
 
-  // Headcount Total/Embarcados/Programados (cartões) passam a vir do Planejamento de Embarque
-  // — a pedido dela, sem mexer no resto (Utilização, rosquinhas, POB etc. continuam com a
-  // conta antiga do Drake/Nomeações via kpis.* acima, intocada). Mesmo critério já usado em
-  // "Na Base" (colaboradoresNaBaseDoPlanejamento, logo abaixo).
-  const embarcadosDoPlanejamento = useMemo(
-    () => planejamentoEmbarque.filter((r) => isStatusEmbarcado(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  const programadosDoPlanejamento = useMemo(
-    () => planejamentoEmbarque.filter((r) => isStatusProgramado(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  // "Folga de Embarque" e "Aguardando Escala" também passam a vir do Planejamento de Embarque
-  // (antes vinham de uma conta à parte, do Drake — kpis.folga/kpis.disponiveis, agora só usados
-  // como reserva de outros cálculos que não mudaram). "Bloqueio Temporário" é novo, ver
-  // isStatusBloqueioTemporario.
-  const folgaDoPlanejamento = useMemo(
-    () => planejamentoEmbarque.filter((r) => isStatusFolga(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  const disponivelDoPlanejamento = useMemo(
-    () => planejamentoEmbarque.filter((r) => isStatusDisponivel(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  const bloqueioTemporarioDoPlanejamento = useMemo(
-    () => planejamentoEmbarque.filter((r) => isStatusBloqueioTemporario(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
-  // "Bloqueio RH" — gravado direto no Status pela aba Efetivo Offshore (ambiente do RH) quando
-  // marcam alguém como bloqueado; conta aqui sozinho, igual qualquer outro status (pedido dela).
-  const bloqueioRHDoPlanejamento = useMemo(
-    () => planejamentoEmbarque.filter((r) => isStatusBloqueioRH(r.status)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-    [planejamentoEmbarque],
-  );
+    const n = diasFiltro.length || 1;
+    const media = (v: number) => Math.round(v / n);
+    // Pra categorias raras (ex.: só 1 pessoa de Férias por 2 dias num período de 30), a média
+    // arredondada pode dar 0 e a fatia some da rosquinha mesmo tendo acontecido de verdade —
+    // por isso aqui o mínimo é 1 sempre que teve alguma ocorrência real (pedido dela: elas têm
+    // que aparecer).
+    const mediaComPiso1 = (v: number) => (v > 0 ? Math.max(1, Math.round(v / n)) : 0);
+    const porNome = (s: Set<string>) => Array.from(s).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    const especiaisDetalhado = Array.from(especiaisSomaPorLabel.entries())
+      .map(([label, somaLabel]) => ({ name: label, value: mediaComPiso1(somaLabel), nomes: porNome(especiaisNomesPorLabel.get(label) ?? new Set()) }))
+      .filter((d) => d.value > 0)
+      .sort((a, b) => b.value - a.value);
+    // "Outros" vira UMA fatia só (pedido dela) — não uma por status (Indisponível, Terceirizado,
+    // Casa etc. entram todos juntos); passar o mouse mostra a lista com "Nome — Status" de cada
+    // um, igual era antes.
+    let somaOutrosTotal = 0;
+    const outrosNomesComStatus: string[] = [];
+    Array.from(outrosSomaPorLabel.entries())
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([label, somaLabel]) => {
+        somaOutrosTotal += somaLabel;
+        (outrosNomesPorLabel.get(label) ?? new Set()).forEach((nome) => outrosNomesComStatus.push(`${nome} — ${label}`));
+      });
+    const outros = { name: "Outros", value: mediaComPiso1(somaOutrosTotal), nomes: outrosNomesComStatus };
+    let somaEspeciaisTotal = 0;
+    const naoDispComStatus: string[] = [...outrosNomesComStatus];
+    especiaisNomesPorLabel.forEach((s, label) => {
+      somaEspeciaisTotal += especiaisSomaPorLabel.get(label) ?? 0;
+      s.forEach((nome) => naoDispComStatus.push(`${nome} — ${label}`));
+    });
+    nomes.bloqueioRH.forEach((nome) => naoDispComStatus.push(`${nome} — Bloqueio RH`));
+
+    return {
+      embarcados: porNome(nomes.embarcados), embarcadosMedia: media(soma.embarcados),
+      programados: porNome(nomes.programados), programadosMedia: media(soma.programados),
+      folga: porNome(nomes.folga), folgaMedia: media(soma.folga),
+      disponivel: porNome(nomes.disponivel), disponivelMedia: media(soma.disponivel),
+      naBase: porNome(nomes.naBase), naBaseMedia: media(soma.naBase),
+      bloqueioTemporario: porNome(nomes.bloqueioTemporario), bloqueioTemporarioMedia: media(soma.bloqueioTemporario),
+      bloqueioRH: porNome(nomes.bloqueioRH), bloqueioRHMedia: media(soma.bloqueioRH),
+      especiaisDetalhado,
+      outros,
+      naoDisponiveisMedia: media(somaEspeciaisTotal + somaOutrosTotal + soma.bloqueioRH),
+      naoDispComStatus,
+    };
+  }, [dates, pobReferenceDate, colaboradoresComMultiploEmbarque, periodosByColaborador, planejamentoSnapshots, planejamentoEmbarque]);
+
+  const embarcadosDoPlanejamento = statusReferenceDate.embarcados;
+  const programadosDoPlanejamento = statusReferenceDate.programados;
+  const folgaDoPlanejamento = statusReferenceDate.folga;
+  const disponivelDoPlanejamento = statusReferenceDate.disponivel;
+  const colaboradoresNaBaseDoPlanejamento = statusReferenceDate.naBase;
+  const bloqueioTemporarioDoPlanejamento = statusReferenceDate.bloqueioTemporario;
+  const bloqueioRHDoPlanejamento = statusReferenceDate.bloqueioRH;
 
   // BSP por nome, vindo do Planejamento de Embarque — usado só como reserva de "Sem BSP" no
   // registro diário abaixo, pra quando o período do Drake não tem nem `bsp` nem
@@ -2768,54 +2985,66 @@ function DashboardTab({ colaboradores, periodos }: {
   // que ficaram de fora do "Ocupado" — em 2 tons de vermelho, num terceiro donut à parte.
   const ocupacaoData = useMemo(() => {
     return [
-      { name: "Embarcados", value: embarcadosDoPlanejamento.length, nomes: embarcadosDoPlanejamento.map((r) => r.nome) },
-      { name: "Programados", value: programadosDoPlanejamento.length, nomes: programadosDoPlanejamento.map((r) => r.nome) },
-      { name: "Folga de Embarque", value: folgaDoPlanejamento.length, nomes: folgaDoPlanejamento.map((r) => r.nome) },
+      { name: "Embarcados", value: statusReferenceDate.embarcadosMedia, nomes: embarcadosDoPlanejamento },
+      { name: "Programados", value: statusReferenceDate.programadosMedia, nomes: programadosDoPlanejamento },
+      { name: "Folga de Embarque", value: statusReferenceDate.folgaMedia, nomes: folgaDoPlanejamento },
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_BLUE_PALETTE[i % OCUPACAO_BLUE_PALETTE.length] }));
-  }, [embarcadosDoPlanejamento, programadosDoPlanejamento, folgaDoPlanejamento]);
+  }, [statusReferenceDate, embarcadosDoPlanejamento, programadosDoPlanejamento, folgaDoPlanejamento]);
 
   const naoOcupacaoData = useMemo(() => {
     return [
-      { name: "Aguardando Escala", value: disponivelDoPlanejamento.length, nomes: disponivelDoPlanejamento.map((r) => r.nome) },
-      // "Não Disponíveis" destrinchado por status real (Férias, Atestado, etc.)
-      ...kpis.naoDispDetalhado,
+      { name: "Aguardando Escala", value: statusReferenceDate.disponivelMedia, nomes: disponivelDoPlanejamento },
+      // Férias/Atestado/Afastamento continuam com fatia própria (pedido dela).
+      ...statusReferenceDate.especiaisDetalhado,
+      // Qualquer Status sem nada definido (Indisponível, Terceirizado, Casa, texto livre digitado
+      // direto no Planejamento, etc.) — uma fatia só "Outros" (pedido dela), com o Status real de
+      // cada um no hover — garante que as 3 rosquinhas sempre somem 100% do Headcount.
+      statusReferenceDate.outros,
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_WARM_PALETTE[i % OCUPACAO_WARM_PALETTE.length] }));
-  }, [disponivelDoPlanejamento, kpis]);
+  }, [statusReferenceDate, disponivelDoPlanejamento]);
 
   const baseData = useMemo(() => {
     return [
-      { name: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, nomes: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
-      { name: "Bloqueio Temporário", value: bloqueioTemporarioDoPlanejamento.length, nomes: bloqueioTemporarioDoPlanejamento.map((r) => r.nome) },
-      { name: "Bloqueio RH", value: bloqueioRHDoPlanejamento.length, nomes: bloqueioRHDoPlanejamento.map((r) => r.nome) },
+      { name: "Na Base", value: statusReferenceDate.naBaseMedia, nomes: colaboradoresNaBaseDoPlanejamento },
+      { name: "Bloqueio Temporário", value: statusReferenceDate.bloqueioTemporarioMedia, nomes: bloqueioTemporarioDoPlanejamento },
+      { name: "Bloqueio RH", value: statusReferenceDate.bloqueioRHMedia, nomes: bloqueioRHDoPlanejamento },
     ]
       .filter((d) => d.value > 0)
       .map((d, i) => ({ ...d, color: OCUPACAO_RED_PALETTE[i % OCUPACAO_RED_PALETTE.length] }));
-  }, [colaboradoresNaBaseDoPlanejamento, bloqueioTemporarioDoPlanejamento, bloqueioRHDoPlanejamento]);
+  }, [statusReferenceDate, colaboradoresNaBaseDoPlanejamento, bloqueioTemporarioDoPlanejamento, bloqueioRHDoPlanejamento]);
 
-  // Cada donut calcula sua própria % sobre o Headcount Total do cartão (Planejamento de
-  // Embarque) — não são mais complementares entre si (100 - ocupação), já que agora são 3
-  // categorias, não 2. A % de "Ocupado" também alimenta o cartão "Utilização" abaixo.
+  // Cada donut calcula sua própria % sobre o Headcount Total do período filtrado (ver
+  // statusReferenceDate acima) — as 3 juntas sempre fecham 100% por construção: todo mundo cai em
+  // exatamente um balde por dia (ver statusReferenceDate), e o Headcount Total do card vira a
+  // soma dos 3 (em vez de uma média arredondada à parte, que podia não bater com a soma dos
+  // baldes já arredondados). A % de cada donut usa "maior resto" pra nunca sobrar/faltar 1% por
+  // arredondamento independente (ver distribuirPercentuais100). A % de "Ocupado" também alimenta
+  // o cartão "Utilização" abaixo.
   const ocupadoCards = ocupacaoData.reduce((sum, d) => sum + d.value, 0);
-  const pctOcupacaoCards = planejamentoEmbarque.length > 0 ? Math.round((ocupadoCards / planejamentoEmbarque.length) * 100) : 0;
   const foraOcupacaoCards = naoOcupacaoData.reduce((sum, d) => sum + d.value, 0);
-  const pctForaOcupacaoCards = planejamentoEmbarque.length > 0 ? Math.round((foraOcupacaoCards / planejamentoEmbarque.length) * 100) : 0;
   const baseCards = baseData.reduce((sum, d) => sum + d.value, 0);
-  const pctBaseCards = planejamentoEmbarque.length > 0 ? Math.round((baseCards / planejamentoEmbarque.length) * 100) : 0;
+  const headcountTotalReferenceDate = ocupadoCards + foraOcupacaoCards + baseCards;
+  const [pctOcupacaoCards, pctForaOcupacaoCards, pctBaseCards] = distribuirPercentuais100([ocupadoCards, foraOcupacaoCards, baseCards]);
 
   const kpiCards = [
-    { label: "Headcount Total", value: planejamentoEmbarque.length, icon: Users },
-    { label: "Embarcados", value: embarcadosDoPlanejamento.length, icon: Ship, hoverNames: embarcadosDoPlanejamento.map((r) => r.nome) },
-    { label: "Programados", value: programadosDoPlanejamento.length, icon: CalendarDays, hoverNames: programadosDoPlanejamento.map((r) => r.nome) },
-    { label: "Folga de Embarque", value: folgaDoPlanejamento.length, icon: BedDouble, hoverNames: folgaDoPlanejamento.map((r) => r.nome) },
-    { label: "Na Base", value: colaboradoresNaBaseDoPlanejamento.length, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento.map((r) => r.nome) },
-    { label: "Bloqueio Temporário", value: bloqueioTemporarioDoPlanejamento.length, icon: Lock, hoverNames: bloqueioTemporarioDoPlanejamento.map((r) => r.nome) },
-    { label: "Bloqueio RH", value: bloqueioRHDoPlanejamento.length, icon: ShieldAlert, hoverNames: bloqueioRHDoPlanejamento.map((r) => r.nome) },
-    { label: "Aguardando Escala", value: disponivelDoPlanejamento.length, icon: CheckCircle2, hoverNames: disponivelDoPlanejamento.map((r) => r.nome) },
-    { label: "Não Disponíveis", value: kpis.naoDisp, icon: AlertCircle },
+    { label: "Headcount Total", value: headcountTotalReferenceDate, icon: Users },
+    { label: "Embarcados", value: statusReferenceDate.embarcadosMedia, icon: Ship, hoverNames: embarcadosDoPlanejamento },
+    { label: "Programados", value: statusReferenceDate.programadosMedia, icon: CalendarDays, hoverNames: programadosDoPlanejamento },
+    { label: "Folga de Embarque", value: statusReferenceDate.folgaMedia, icon: BedDouble, hoverNames: folgaDoPlanejamento },
+    { label: "Na Base", value: statusReferenceDate.naBaseMedia, icon: Building2, hoverNames: colaboradoresNaBaseDoPlanejamento },
+    {
+      label: "Bloqueados", value: statusReferenceDate.bloqueioTemporarioMedia + statusReferenceDate.bloqueioRHMedia, icon: Lock,
+      hoverNames: [
+        ...bloqueioRHDoPlanejamento.map((nome) => `${nome} — Bloqueio RH`),
+        ...bloqueioTemporarioDoPlanejamento.map((nome) => `${nome} — Bloqueio Temporário`),
+      ],
+    },
+    { label: "Aguardando Escala", value: statusReferenceDate.disponivelMedia, icon: CheckCircle2, hoverNames: disponivelDoPlanejamento },
+    { label: "Não Disponíveis", value: statusReferenceDate.naoDisponiveisMedia, icon: AlertCircle, hoverNames: statusReferenceDate.naoDispComStatus },
     { label: "Utilização", value: pctOcupacaoCards, suffix: "%", icon: TrendingUp },
   ];
 
@@ -2849,45 +3078,34 @@ function DashboardTab({ colaboradores, periodos }: {
     return porDia;
   }, [planejamentoSnapshots]);
 
-  // Linhas da tabela "POB por Unidade × Dia" — volta a vir do Planejamento de Embarque (a pedido
-  // dela: é de lá que sai "quantas pessoas estão embarcadas por dia em cada unidade e suas
-  // BSPs"). Pra um dia que já tem foto tirada (ver Histórico do Planejamento), usa exatamente o
-  // que foi fotografado naquele dia (retrato real, não o dado ao vivo de hoje, que é sobrescrito
-  // o tempo todo); só cai pro cálculo ao vivo (janela Embarque→Desembarque + Status) nos dias
-  // sem foto ainda — hoje antes da foto do dia rodar, e dias futuros, que são só projeção.
+  // Linhas da tabela "POB por Unidade × Dia" — volta a vir do Drake (a pedido dela), usando o
+  // mesmo "dailyRecords" já calculado pra "Mão de Obra por Semana" (computeStatusParaDashboard
+  // por colaborador/dia, que já conta o dia de Desembarque como Folga — nunca como Embarcado, ver
+  // computeStatusParaDashboard). Só entra quem está no balde "E" (Embarcado de verdade) naquele
+  // dia; Unidade/BSP vêm do período do Drake (com reserva do Planejamento de Embarque quando o
+  // Drake não tem BSP — ver bspPorNomePlanejamento/dailyRecords).
   const unidadeBspRows = useMemo(() => {
     const m = new Map<string, { unidade: string; bsp: string; countByDate: Map<string, number>; nomesByDate: Map<string, string[]> }>();
-    const addCount = (key: string, unidade: string, bsp: string, date: string, nomes: string[]) => {
+    const addNome = (key: string, unidade: string, bsp: string, date: string, nome: string) => {
       if (!m.has(key)) m.set(key, { unidade, bsp, countByDate: new Map(), nomesByDate: new Map() });
       const row = m.get(key)!;
-      row.countByDate.set(date, nomes.length);
+      const nomes = row.nomesByDate.get(date) ?? [];
+      nomes.push(nome);
       row.nomesByDate.set(date, nomes);
+      row.countByDate.set(date, nomes.length);
     };
-    datesMesAtual.forEach((d) => {
-      if (diasComFotoPlanejamento.has(d)) {
-        contagemPorDiaSnapshot.get(d)?.forEach((v, key) => addCount(key, v.unidade, v.bsp, d, v.nomes));
-        return;
-      }
-      const porChave = new Map<string, { unidade: string; bsp: string; nomes: string[] }>();
-      planejamentoEmbarque.forEach((row) => {
-        if (!row.unidade || !row.embarque || !row.desembarque) return;
-        if (d < row.embarque || d >= row.desembarque) return;
-        if (d >= today && !isStatusEmbarcado(row.status)) return;
-        const unidadeTexto = row.unidade.trim().toUpperCase();
-        if (ehUnidadeNaoOperacional(unidadeTexto)) return;
-        const bspTexto = row.bsp?.trim() || "";
-        if (unidadeTexto === "QUALITECH" && !bspTexto) return;
-        const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
-        const bsp = bspTexto || "Sem BSP";
-        const key = `${unidadeExibida}::${bsp}`;
-        const atual = porChave.get(key) ?? { unidade: unidadeExibida, bsp, nomes: [] };
-        atual.nomes.push(row.nome);
-        porChave.set(key, atual);
-      });
-      porChave.forEach((v, key) => addCount(key, v.unidade, v.bsp, d, v.nomes));
+    dailyRecords.forEach((r) => {
+      if (r.bucket !== "E" || !r.unidade) return;
+      const unidadeTexto = r.unidade.trim().toUpperCase();
+      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+      const bspTexto = r.bsp?.trim() || "";
+      if (unidadeTexto === "QUALITECH" && !bspTexto) return;
+      const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : r.unidade;
+      const bsp = bspTexto || "Sem BSP";
+      addNome(`${unidadeExibida}::${bsp}`, unidadeExibida, bsp, r.date, r.nome);
     });
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
-  }, [planejamentoEmbarque, datesMesAtual, today, diasComFotoPlanejamento, contagemPorDiaSnapshot]);
+  }, [dailyRecords]);
 
   // "POB x Unidade" — a pedido dela, passa a vir do Planejamento de Embarque (mesma janela
   // Embarque→Desembarque exclusiva do fim, mesma exclusão de "FOLGA" como unidade, já usadas em
@@ -3119,6 +3337,12 @@ function DashboardTab({ colaboradores, periodos }: {
 
       {/* ── Ocupação ── */}
       <Card className="p-4">
+        {/* Recharts descarta filhos que não reconhece dentro de PieChart/BarChart — por isso os
+            gradientes do "auto relevo" não podem morar dentro deles; ficam aqui uma única vez,
+            num <svg> escondido, e cada Cell só referencia o id por fill="url(#...)". */}
+        <svg width="0" height="0" className="absolute" aria-hidden="true">
+          <EmbossGradients colors={[...ocupacaoData, ...naoOcupacaoData, ...baseData].map((d) => d.color).concat(DASH_COLORS.navy)} />
+        </svg>
         <div className="flex items-center gap-1.5">
           <h3 className="text-sm font-semibold">Taxa de Ocupação Offshore</h3>
           <Popover>
@@ -3147,126 +3371,97 @@ function DashboardTab({ colaboradores, periodos }: {
         <p className="text-xs text-muted-foreground mb-3">
           {pobReferenceDate === today ? "Status de hoje" : `Status em ${fmtDiaCurto(pobReferenceDate)}`}, por colaborador ativo no período filtrado
         </p>
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="relative h-[180px] w-[180px] shrink-0">
-              <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px]">
-                <PieChart>
-                  <Pie data={ocupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
-                    {ocupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
-                  </Pie>
-                  <ChartTooltip content={renderDonutNamesTooltip} />
-                </PieChart>
-              </ChartContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span
-                  className="text-2xl font-bold"
-                  style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-                >
-                  {pctOcupacaoCards}%
-                </span>
-                <span className="text-[10px] text-muted-foreground">ocupação</span>
+        <div className="grid gap-6 lg:grid-cols-4">
+          <div className="flex flex-col items-center gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ocupação</h4>
+            <div className="flex flex-wrap items-center justify-center gap-4">
+              <div className="relative h-[180px] w-[180px] shrink-0">
+                <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px] [&_.recharts-wrapper]:drop-shadow-md">
+                  <PieChart>
+                    <Pie data={ocupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
+                      {ocupacaoData.map((entry, i) => (<Cell key={i} fill={`url(#${embossGradientId(entry.color)})`} stroke="var(--background)" strokeWidth={2} />))}
+                    </Pie>
+                    <ChartTooltip content={renderDonutNamesTooltip} />
+                  </PieChart>
+                </ChartContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span
+                    className="text-2xl font-bold"
+                    style={{ backgroundImage: `linear-gradient(135deg, ${DASH_COLORS.navy}, #4a7bb5)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+                  >
+                    {pctOcupacaoCards}%
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">ocupação</span>
+                </div>
               </div>
+              <MiniStatusBarChart data={ocupacaoData} />
             </div>
-            <div className="flex-1 min-w-[160px] space-y-2">
-              {ocupacaoData.map((d) => (
-                <HoverCard key={d.name} openDelay={120} closeDelay={80}>
-                  <HoverCardTrigger asChild>
-                    <div className="flex cursor-default items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50">
-                      <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                      <span className="text-muted-foreground">{d.name}</span>
-                      <span className="ml-auto font-semibold">{d.value}</span>
-                    </div>
-                  </HoverCardTrigger>
-                  <HoverCardContent className="w-64 p-2.5" side="top" align="start">
-                    <p className="text-xs font-semibold">{d.name} ({d.value})</p>
-                    <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
-                      {d.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
-                    </ul>
-                  </HoverCardContent>
-                </HoverCard>
-              ))}
-            </div>
+            <StatusLegendRow data={ocupacaoData} />
           </div>
-          <div className="flex flex-wrap items-center gap-4 lg:border-l lg:pl-6">
-            <div className="relative h-[180px] w-[180px] shrink-0">
-              <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px]">
-                <PieChart>
-                  <Pie data={naoOcupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
-                    {naoOcupacaoData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
-                  </Pie>
-                  <ChartTooltip content={renderDonutNamesTooltip} />
-                </PieChart>
-              </ChartContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span
-                  className="text-2xl font-bold"
-                  style={{ backgroundImage: "linear-gradient(135deg, #9a3412, #f59e0b)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-                >
-                  {pctForaOcupacaoCards}%
-                </span>
-                <span className="text-[10px] text-muted-foreground">fora da ocupação</span>
+          <div className="flex flex-col items-center gap-2 lg:border-l lg:pl-6">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fora da Ocupação</h4>
+            <div className="flex flex-wrap items-center justify-center gap-4">
+              <div className="relative h-[180px] w-[180px] shrink-0">
+                <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px] [&_.recharts-wrapper]:drop-shadow-md">
+                  <PieChart>
+                    <Pie data={naoOcupacaoData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
+                      {naoOcupacaoData.map((entry, i) => (<Cell key={i} fill={`url(#${embossGradientId(entry.color)})`} stroke="var(--background)" strokeWidth={2} />))}
+                    </Pie>
+                    <ChartTooltip content={renderDonutNamesTooltip} />
+                  </PieChart>
+                </ChartContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span
+                    className="text-2xl font-bold"
+                    style={{ backgroundImage: "linear-gradient(135deg, #9a3412, #f59e0b)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+                  >
+                    {pctForaOcupacaoCards}%
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">fora da ocupação</span>
+                </div>
               </div>
+              <MiniStatusBarChart data={naoOcupacaoData} />
             </div>
-            <div className="flex-1 min-w-[160px] space-y-2">
-              {naoOcupacaoData.map((d) => (
-                <HoverCard key={d.name} openDelay={120} closeDelay={80}>
-                  <HoverCardTrigger asChild>
-                    <div className="flex cursor-default items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50">
-                      <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                      <span className="text-muted-foreground">{d.name}</span>
-                      <span className="ml-auto font-semibold">{d.value}</span>
-                    </div>
-                  </HoverCardTrigger>
-                  <HoverCardContent className="w-64 p-2.5" side="top" align="start">
-                    <p className="text-xs font-semibold">{d.name} ({d.value})</p>
-                    <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
-                      {d.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
-                    </ul>
-                  </HoverCardContent>
-                </HoverCard>
-              ))}
-            </div>
+            <StatusLegendRow data={naoOcupacaoData} />
           </div>
-          <div className="flex flex-wrap items-center gap-4 lg:border-l lg:pl-6">
-            <div className="relative h-[180px] w-[180px] shrink-0">
-              <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px]">
-                <PieChart>
-                  <Pie data={baseData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
-                    {baseData.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="var(--background)" strokeWidth={2} />))}
-                  </Pie>
-                  <ChartTooltip content={renderDonutNamesTooltip} />
-                </PieChart>
-              </ChartContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span
-                  className="text-2xl font-bold"
-                  style={{ backgroundImage: "linear-gradient(135deg, #7f1d1d, #ef4444)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
-                >
-                  {pctBaseCards}%
-                </span>
-                <span className="text-[10px] text-muted-foreground">na base / bloqueio</span>
+          <div className="flex flex-col items-center gap-2 lg:border-l lg:pl-6">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bloqueados</h4>
+            <div className="flex flex-wrap items-center justify-center gap-4">
+              <div className="relative h-[180px] w-[180px] shrink-0">
+                <ChartContainer config={donutChartConfig} className="aspect-square h-[180px] w-[180px] [&_.recharts-wrapper]:drop-shadow-md">
+                  <PieChart>
+                    <Pie data={baseData} cx={90} cy={90} innerRadius={58} outerRadius={82} dataKey="value" startAngle={90} endAngle={-270} paddingAngle={2} cornerRadius={4}>
+                      {baseData.map((entry, i) => (<Cell key={i} fill={`url(#${embossGradientId(entry.color)})`} stroke="var(--background)" strokeWidth={2} />))}
+                    </Pie>
+                    <ChartTooltip content={renderDonutNamesTooltip} />
+                  </PieChart>
+                </ChartContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span
+                    className="text-2xl font-bold"
+                    style={{ backgroundImage: "linear-gradient(135deg, #7f1d1d, #ef4444)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+                  >
+                    {pctBaseCards}%
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">na base / bloqueio</span>
+                </div>
               </div>
+              <MiniStatusBarChart data={baseData} />
             </div>
-            <div className="flex-1 min-w-[160px] space-y-2">
-              {baseData.map((d) => (
-                <HoverCard key={d.name} openDelay={120} closeDelay={80}>
-                  <HoverCardTrigger asChild>
-                    <div className="flex cursor-default items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50">
-                      <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                      <span className="text-muted-foreground">{d.name}</span>
-                      <span className="ml-auto font-semibold">{d.value}</span>
-                    </div>
-                  </HoverCardTrigger>
-                  <HoverCardContent className="w-64 p-2.5" side="top" align="start">
-                    <p className="text-xs font-semibold">{d.name} ({d.value})</p>
-                    <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
-                      {d.nomes.map((nome, index) => <li key={`${nome}-${index}`}>{nome}</li>)}
-                    </ul>
-                  </HoverCardContent>
-                </HoverCard>
-              ))}
-            </div>
+            <StatusLegendRow data={baseData} />
+          </div>
+          <div className="flex flex-col items-center gap-2 lg:border-l lg:pl-6">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Taxa de Ocupação por mês</h4>
+            <ChartContainer config={donutChartConfig} className="h-[200px] w-full max-w-[260px] [&_.recharts-wrapper]:drop-shadow-md">
+              <BarChart data={ocupacaoMensalData} margin={{ top: 20, right: 4, left: 4, bottom: 2 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 600 }} interval={0} angle={-35} textAnchor="end" height={36} />
+                <YAxis hide domain={[0, 100]} />
+                <ChartTooltip content={renderMonthlyPctTooltip} />
+                <Bar dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={22} fill={`url(#${embossGradientId(DASH_COLORS.navy)})`}>
+                  <LabelList dataKey="value" position="top" formatter={(v: number) => `${v}%`} className="fill-foreground text-xs font-bold" />
+                </Bar>
+              </BarChart>
+            </ChartContainer>
           </div>
         </div>
       </Card>

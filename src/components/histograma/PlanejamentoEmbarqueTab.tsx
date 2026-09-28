@@ -113,11 +113,21 @@ export function isStatusBloqueioTemporario(status: string | null | undefined): b
   return s.startsWith("BASE -") || s === "BLOQUEIO TEMPORARIO";
 }
 
-// "Bloqueio RH" — gravado direto no Status pela própria aba "Efetivo Offshore" (ambiente do RH,
-// ver rh_set_bloqueio_planejamento no banco) quando o RH marca alguém como bloqueado. Diferente
-// de "Bloqueio Temporário" acima (retenção física numa base) — este é administrativo (RH).
+// "Bloqueio RH" — pode vir da aba "Efetivo Offshore" (ver rh_set_bloqueio_planejamento, sempre
+// grava exatamente "Bloqueio RH") ou digitado direto na célula de Status do Planejamento de
+// Embarque (texto livre) — por isso reconhece as duas palavras em qualquer ordem/pontuação
+// ("Bloqueio RH", "RH - Bloqueio", "BLOQUEIO_RH" etc.), não só o valor exato. Diferente de
+// "Bloqueio Temporário" acima (retenção física numa base) — este é administrativo (RH).
 export function isStatusBloqueioRH(status: string | null | undefined): boolean {
-  return (status ?? "").trim().toUpperCase() === "BLOQUEIO RH";
+  const s = (status ?? "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+  // Palavras separadas (não "includes" direto) pra não confundir com nome de gente que tenha
+  // "RH" grudado no meio (ex.: "Rhuan") — só conta quando "RH" aparece como palavra isolada.
+  const palavras = s.split(/[^A-Z0-9]+/).filter(Boolean);
+  return palavras.includes("BLOQUEIO") && palavras.includes("RH");
 }
 
 // Unidades e BSPs pra listas suspensas fora do Planejamento de Embarque (ex.: Transporte) —

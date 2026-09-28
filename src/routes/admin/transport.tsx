@@ -2276,6 +2276,10 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
   );
 }
 
+// Valor sentinela do filtro de NF pra "ainda não tem NF preenchida" (pedido dela) — não pode ser
+// "" porque esse já é o valor de "Todas".
+const NF_FILTRO_SEM_NF = "__sem_nf__";
+
 // Busca com autocomplete pro filtro de NF do Quadro Detalhado — mesmo padrão do
 // ColaboradorFiltroCombobox acima, só que as opções vêm dos próprios dados carregados (NF é
 // texto livre, sem cadastro fixo, então a lista é tudo que já foi preenchido até agora).
@@ -2286,7 +2290,7 @@ function NfFiltroCombobox({ value, onChange, options }: { value: string; onChang
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" role="combobox" className="w-40 justify-between font-normal">
-          <span className="truncate">{value || "Todas"}</span>
+          <span className="truncate">{value === NF_FILTRO_SEM_NF ? "Sem NF" : value || "Todas"}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -2299,6 +2303,10 @@ function NfFiltroCombobox({ value, onChange, options }: { value: string; onChang
               <CommandItem value="Todas" onSelect={() => { onChange(""); setOpen(false); }}>
                 <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
                 Todas
+              </CommandItem>
+              <CommandItem value="Sem NF" onSelect={() => { onChange(NF_FILTRO_SEM_NF); setOpen(false); }}>
+                <Check className={cn("mr-2 h-4 w-4", value === NF_FILTRO_SEM_NF ? "opacity-100" : "opacity-0")} />
+                Sem NF
               </CommandItem>
               {options.map((nf) => (
                 <CommandItem key={nf} value={nf} onSelect={() => { onChange(nf); setOpen(false); }}>
@@ -2357,7 +2365,8 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
-      if (nf && t.nf?.trim() !== nf) return false;
+      if (nf === NF_FILTRO_SEM_NF) { if (t.nf?.trim()) return false; }
+      else if (nf && t.nf?.trim() !== nf) return false;
       return true;
     });
 
