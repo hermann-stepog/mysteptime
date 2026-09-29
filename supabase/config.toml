@@ -5,3 +5,7 @@ project_id = "lzahnaekoiervgqxmouv"
 # header x-cron-secret (ver CRON_SECRET nos secrets da função) em vez disso.
 [functions.check-turma-alerts]
 verify_jwt = false
+
+# Mesmo esquema (pg_cron via pg_net) — ver migration 20260929000000_schedule_planejamento_snapshot.sql.
+[functions.capture-planejamento-snapshot]
+verify_jwt = false
