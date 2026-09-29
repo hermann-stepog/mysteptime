@@ -938,6 +938,15 @@ export function pobBucket(result: DayStatusResult): OldBucket {
 // não tem vaga reservada em nenhuma unidade: Standby, Férias e Atestado.
 export const isOcupadoBucket = (b: OldBucket) => b === "E" || b === "FO" || b === "TE" || b === "P" || b === "BASE" || b === "D";
 
+// Regra específica do "Índice de Ocupação no Ano" (painel individual da aba Histograma —
+// pedido explícito da usuária, 2026-09-29): diferente de isOcupadoBucket acima (usado no
+// POB/Dashboard), aqui só conta como ocupação Embarcado, Folga (que já inclui Desembarque em
+// Dia Não Útil, reclassificado como Folga logo abaixo), Hotel, Desembarque, Folga Indenizada,
+// Embarque Cancelado e Folga Indenizada Férias. Férias e Standby (e qualquer outro status fora
+// dessa lista) NÃO contam. Validado com o exemplo da usuária (Alan Detti: 74+81+1+2+4+2+3=167
+// dias ÷ 365 = 45,8%).
+const STATUS_OCUPACAO_INDICE = new Set<ComputedStatus>(["E", "F", "HTL", "DES", "FI", "CANC", "FIF"]);
+
 export interface HistoricoOcupacaoColaborador {
   colaboradorId: string;
   periodo: { inicio: string; fim: string };
@@ -953,9 +962,11 @@ export interface HistoricoOcupacaoColaborador {
 
 // Painel individual da aba Histograma (visão "Colaborador") — investiga UM colaborador em
 // detalhe: dias por categoria, quantas vezes embarcou no período, e quanto tempo em média
-// fica parado entre um embarque e outro. Reaproveita computeDayStatus/toOldBucket/
-// isOcupadoBucket (mesma regra de prioridade e de "ocupado" usada no Dashboard) em vez de
-// reimplementar a resolução de status — evita duplicar a lógica com um motor divergente.
+// fica parado entre um embarque e outro. Reaproveita computeDayStatus/toOldBucket (mesma
+// resolução de status usada no Dashboard) em vez de reimplementar do zero — evita duplicar a
+// lógica com um motor divergente. O Índice de Ocupação usa sua própria regra
+// (STATUS_OCUPACAO_INDICE acima), diferente de isOcupadoBucket; "Embarques no Ano"/"Média
+// entre Embarques" continuam baseados em toOldBucket (bucket === "E"), sem nenhuma mudança.
 export function calcularHistoricoOcupacaoColaborador(
   colaboradorId: string,
   periodos: HistNovoPeriodo[],
@@ -975,8 +986,8 @@ export function calcularHistoricoOcupacaoColaborador(
     // então o dia é contado na categoria Folga — a grade continua mostrando a sigla DDN.
     const categoria: ComputedStatus = status === "DDN" ? "F" : status;
     diasPorCategoria[categoria] = (diasPorCategoria[categoria] ?? 0) + 1;
+    if (STATUS_OCUPACAO_INDICE.has(categoria)) diasOcupado++;
     const bucket = toOldBucket(status);
-    if (isOcupadoBucket(bucket)) diasOcupado++;
 
     // Um novo embarque começa quando o balde vira "E" (cobre Embarcado/Dobra/Folga
     // Indenizada como o mesmo embarque em curso) vindo de um dia que não era "E".
