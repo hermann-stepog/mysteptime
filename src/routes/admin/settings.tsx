@@ -39,6 +39,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "qualidade", label: "Qualidade" },
   { value: "aprovacao_tecnica", label: "Produção" },
   { value: "diretoria", label: "Diretoria" },
+  { value: "medicao", label: "Medição" },
 ];
 
 export const Route = createFileRoute("/admin/settings")({ head: () => pageTitle("Configurações"), component: SettingsPage });

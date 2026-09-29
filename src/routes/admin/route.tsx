@@ -25,7 +25,6 @@ const nav: NavItem[] = [
   { to: "/admin/costs",          label: "Custos" },
   { to: "/admin/rates",          label: "Rates" },
   { to: "/admin/bm",             label: "Boletim de Medição" },
-  { to: "/admin/approvals",      label: "Aprovações" },
   { to: "/admin/reports",        label: "Relatórios" },
   { to: "/admin/settings",       label: "Configurações" },
 ];
@@ -38,6 +37,9 @@ const NAO_OPERADOR_PATHS = ["/admin/histograma-novo", "/admin/nominations"];
 
 // Visitante ainda tem Transporte e Timesheet Offshore além disso (acesso histórico dele).
 const VISITANTE_PATHS = ["/admin/transport", "/admin/timesheet-offshore", ...NAO_OPERADOR_PATHS];
+
+// Medição: só os 4 módulos que ela usa de verdade (pedido dela) — nada de Nomeações/Histograma.
+const MEDICAO_PATHS = ["/admin/bm", "/admin/passagens-aereas", "/admin/transport", "/admin/rates"];
 
 const PM_PATHS = NAO_OPERADOR_PATHS;
 
@@ -73,7 +75,7 @@ function AdminLayout() {
   const { viewAsRole, setViewAsRole } = useViewAs();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "diretoria" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
+  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "diretoria" || role === "medicao" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;
@@ -93,6 +95,8 @@ function AdminLayout() {
     ? nav.filter((n) => n.to === "/admin/nominations")
     : navRole === "visitante" || navRole === "diretoria"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
+    : navRole === "medicao"
+    ? nav.filter((n) => MEDICAO_PATHS.includes(n.to))
     : navRole === "pm"
       ? nav.filter((n) => PM_PATHS.includes(n.to))
       : navRole === "adm_master"
