@@ -251,7 +251,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, initialTab }: 
         {innerTab !== "dashboard" && innerTab !== "planejamento" && (
           <Tabs value={origem} onValueChange={(v) => setOrigem(v as "geral" | "offshore")}>
             <TabsList>
-              <TabsTrigger value="offshore">Offshore ({colaboradoresOffshore.length})</TabsTrigger>
+              <TabsTrigger value="offshore">Offshore</TabsTrigger>
               <TabsTrigger value="geral">Geral</TabsTrigger>
             </TabsList>
           </Tabs>
