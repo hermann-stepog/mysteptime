@@ -20,6 +20,7 @@ function PmLayout() {
     if (!user) navigate({ to: "/auth" });
     else if (!role || role === "pending") navigate({ to: "/pending" });
     else if (role === "visitante" || role === "diretoria") navigate({ to: "/admin/transport" });
+    else if (role === "medicao") navigate({ to: "/admin/bm" });
     else if (role !== "pm") navigate({ to: "/admin/histograma-novo" });
   }, [user, role, loading, navigate]);
 

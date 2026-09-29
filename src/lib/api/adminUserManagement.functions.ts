@@ -15,6 +15,7 @@ const appRole = z.enum([
   "sms",
   "solicitante_master",
   "diretoria",
+  "medicao",
 ]);
 
 async function assertOperator(supabase: any, userId: string) {

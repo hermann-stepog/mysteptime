@@ -34,6 +34,7 @@ function AppLayout() {
     else if (role === "visitante" || role === "diretoria") navigate({ to: "/admin/transport" });
     else if (role === "pm") navigate({ to: "/pm" });
     else if (role === "rh" || role === "sms") navigate({ to: "/rh-sms" });
+    else if (role === "medicao") navigate({ to: "/admin/bm" });
     else if (role !== "collaborator") navigate({ to: "/admin/histograma-novo" });
   }, [user, role, loading, navigate]);
 
