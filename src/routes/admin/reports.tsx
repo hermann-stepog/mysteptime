@@ -10,7 +10,7 @@ import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardLis
 import { pageTitle } from "@/lib/pageTitle";
 import { generateRelatorioTransporte } from "./transport";
 import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH, generateRelatorioTimesheetsLancados } from "./timesheet-offshore";
-import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo } from "@/components/histograma/HistogramaOffshoreNovo";
+import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo, generateRelatorioPobUnidadeDia } from "@/components/histograma/HistogramaOffshoreNovo";
 import { generateRelatorioCustos } from "./costs";
 
 export const Route = createFileRoute("/admin/reports")({ head: () => pageTitle("Relatórios"), component: ReportsPage });
@@ -39,6 +39,7 @@ interface ReportCard {
 const REPORT_CARDS: ReportCard[] = [
   { id: "transporte", label: "Transporte", description: "Viagens no período em Excel", icon: Truck, run: (i, f) => generateRelatorioTransporte(i, f) },
   { id: "embarques", label: "Embarques", description: "Embarques do Histograma Offshore no período", icon: Ship, run: (i, f) => generateRelatorioEmbarques(i, f) },
+  { id: "pob-unidade-dia", label: "POB por Unidade × Dia", description: "Embarcados por dia, unidade e BSP — sempre o mês atual", icon: BarChart3, run: () => generateRelatorioPobUnidadeDia() },
   { id: "headcount", label: "Headcount", description: "KPIs por período (um ou vários), com consolidado no final", icon: BarChart3, run: (i, f) => generateRelatorioHeadcount(i, f) },
   { id: "disponibilidade", label: "Disponibilidade", description: "Quem está disponível hoje, segundo o Histograma Offshore", icon: UserCheck, run: (i, f) => generateRelatorioDisponibilidade(i, f) },
   { id: "rh", label: "Relatório Folha Offshore RH", description: "Adicionais do período selecionado", icon: Users, run: (i, f) => generateRelatorioRH(i, f) },

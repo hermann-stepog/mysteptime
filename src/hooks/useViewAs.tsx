@@ -17,7 +17,7 @@ export const VIEW_AS_ROLES: { value: AppRole; label: string }[] = [
   { value: "diretoria", label: "Diretoria" },
   { value: "aprovacao_tecnica", label: "Nomeações — Aprovação Técnica" },
   { value: "qualidade", label: "Nomeações — Qualidade" },
-  { value: "rh", label: "Nomeações — RH" },
+  { value: "rh", label: "Nomeações — DP" },
   { value: "sms", label: "Nomeações — SMS" },
 ];
 

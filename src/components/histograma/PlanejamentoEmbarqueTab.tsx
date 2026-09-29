@@ -130,6 +130,11 @@ export function isStatusBloqueioRH(status: string | null | undefined): boolean {
   return palavras.includes("BLOQUEIO") && palavras.includes("RH");
 }
 
+// Status "conhecidos" que sempre aparecem na lista suspensa da célula/filtro de Status, mesmo
+// que nenhuma linha esteja usando ainda (ela pediu "Trabalho Externo" explicitamente) — o resto
+// da lista continua vindo dos valores já digitados nos registros (ver statusExistentes).
+export const STATUS_CONHECIDOS = ["Trabalho Externo"];
+
 // Unidades e BSPs pra listas suspensas fora do Planejamento de Embarque (ex.: Transporte) —
 // pedido dela: essas listas devem vir da planilha de Planejamento de Embarque, não mais de
 // texto livre nem do Drake. "FOLGA" é um valor de preenchimento (sem embarcação real), nunca
@@ -439,7 +444,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
   // consulta já em cache, sem custo extra.
   const { data: registrosTodos = [] } = usePlanejamentoEmbarqueQuery();
   const statusExistentes = useMemo(
-    () => Array.from(new Set(registrosTodos.map((r) => r.status).filter((v): v is string => !!v))).sort(),
+    () => Array.from(new Set([...STATUS_CONHECIDOS, ...registrosTodos.map((r) => r.status).filter((v): v is string => !!v)])).sort(),
     [registrosTodos],
   );
   const [statusManual, setStatusManual] = useState(() => !!row?.status && !statusExistentes.includes(row.status));
@@ -970,7 +975,10 @@ export function PlanejamentoEmbarqueTab() {
   const unidadesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.unidade).filter((v): v is string => !!v))).sort(), [registros]);
   const bspExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.bsp).filter((v): v is string => !!v))).sort(), [registros]);
   const funcoesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.funcao).filter((v): v is string => !!v))).sort(), [registros]);
-  const statusExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.status).filter((v): v is string => !!v))).sort(), [registros]);
+  const statusExistentes = useMemo(
+    () => Array.from(new Set([...STATUS_CONHECIDOS, ...registros.map((r) => r.status).filter((v): v is string => !!v)])).sort(),
+    [registros],
+  );
 
   // Base sem o filtro de Status: é a partir dela que os cartões contam cada status, senão
   // ao clicar num cartão todos os outros zerariam.
