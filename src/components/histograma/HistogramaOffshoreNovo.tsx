@@ -689,7 +689,9 @@ export async function generateRelatorioPobUnidadeDia(): Promise<void> {
   const inicioMes = `${hoje.slice(0, 7)}-01`;
   const [ano, mes] = hoje.slice(0, 7).split("-").map(Number);
   const fimMes = `${hoje.slice(0, 7)}-${String(new Date(ano, mes, 0).getDate()).padStart(2, "0")}`;
-  const dias = generateDateRange(inicioMes, fimMes);
+  // Só até ontem — hoje ainda não terminou, então os dados de hoje ainda não estão
+  // consolidados (pedido dela: manter tudo atualizado em tempo real, sem dia incompleto).
+  const dias = generateDateRange(inicioMes, fimMes).filter((d) => d < hoje);
 
   const [{ colaboradores, periodosByColaborador }, planejamentoRows] = await Promise.all([
     fetchColaboradoresEPeriodos(),
@@ -2771,6 +2773,10 @@ function DashboardTab({ colaboradores, periodos }: {
     () => (inicioMesAtual && fimMesAtual && inicioMesAtual <= fimMesAtual ? generateDateRange(inicioMesAtual, fimMesAtual) : []),
     [inicioMesAtual, fimMesAtual],
   );
+  // "POB por Unidade × Dia" só até ontem — hoje ainda não terminou, então os dados de hoje
+  // ainda não estão consolidados (pedido dela). Só afeta essa tabela: "Mão de Obra por
+  // Semana" continua usando datesMesAtual inteiro, sem mudar nada nela.
+  const datesPobUnidadeDia = useMemo(() => datesMesAtual.filter((d) => d < today), [datesMesAtual, today]);
   const activeColaboradoresMesAtual = useMemo(() => colaboradoresFiltrados.filter((c) => {
     const ps = periodosByColaborador.get(c.id) ?? [];
     return ps.some((p) => p.data_fim >= inicioMesAtual && p.data_inicio <= fimMesAtual);
@@ -3612,7 +3618,7 @@ function DashboardTab({ colaboradores, periodos }: {
       <Card className="p-4">
         <h3 className="text-sm font-semibold">POB por Unidade × Dia</h3>
         <p className="text-xs text-muted-foreground mb-3">Embarcados por dia, por unidade e por BSP, no período selecionado acima</p>
-        {datesMesAtual.length === 0 ? (
+        {datesPobUnidadeDia.length === 0 ? (
           <EmptyState icon={CalendarDays} title="Selecione um período válido" />
         ) : unidadeBspRows.length === 0 ? (
           <EmptyState icon={Ship} title="Nenhuma unidade com embarcado no período selecionado" />
@@ -3630,16 +3636,16 @@ function DashboardTab({ colaboradores, periodos }: {
             <table className="w-full table-fixed border-collapse text-xs">
               <colgroup>
                 <col className="w-[150px]" />
-                {datesMesAtual.map((d) => <col key={d} />)}
+                {datesPobUnidadeDia.map((d) => <col key={d} />)}
               </colgroup>
               <thead className="sticky top-0 z-10">
                 <tr>
                   <th className="border border-border bg-muted px-2 py-1.5 text-left font-medium">Unidade / BSP</th>
-                  {datesMesAtual.map((d) => (
+                  {datesPobUnidadeDia.map((d) => (
                     <th
                       key={d}
                       className="border border-border px-0.5 py-1 text-center font-normal overflow-hidden"
-                      style={d === today ? { backgroundColor: DASH_COLORS.cyan, color: "white" } : { backgroundColor: "var(--muted)" }}
+                      style={{ backgroundColor: "var(--muted)" }}
                     >
                       {d.slice(8, 10)}
                     </th>
@@ -3657,7 +3663,7 @@ function DashboardTab({ colaboradores, periodos }: {
                         {isFirstDaUnidade && (
                           <tr>
                             <td
-                              colSpan={1 + datesMesAtual.length}
+                              colSpan={1 + datesPobUnidadeDia.length}
                               className="border border-border bg-muted/70 px-2 py-1 font-semibold"
                             >
                               <div className="max-w-[142px] truncate" title={row.unidade}>{row.unidade}</div>
@@ -3678,7 +3684,7 @@ function DashboardTab({ colaboradores, periodos }: {
                           >
                             {row.bsp}
                           </td>
-                          {datesMesAtual.map((d) => {
+                          {datesPobUnidadeDia.map((d) => {
                             const count = row.countByDate.get(d) ?? 0;
                             const nomes = row.nomesByDate.get(d) ?? [];
                             return (
@@ -3701,7 +3707,7 @@ function DashboardTab({ colaboradores, periodos }: {
                     precisar somar a coluna manualmente. */}
                 <tr className="border-t-2 border-t-border">
                   <td className="border border-border bg-muted px-2 py-1 font-semibold">Total</td>
-                  {datesMesAtual.map((d) => {
+                  {datesPobUnidadeDia.map((d) => {
                     const total = unidadeBspRows.reduce((sum, row) => sum + (row.countByDate.get(d) ?? 0), 0);
                     return (
                       <td key={d} className="border border-border bg-muted px-0.5 py-1 text-center font-bold">
