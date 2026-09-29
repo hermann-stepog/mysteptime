@@ -94,6 +94,14 @@ function normalizeNomeHistograma(s: string): string {
   return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase().replace(/\s+/g, " ").trim();
 }
 
+// Matrícula às vezes vem com zero à esquerda diferente entre Drake e Planejamento de Embarque
+// (ex.: "001201" vs "1201") — normaliza removendo zeros à esquerda antes de comparar, pra não
+// perder gente por uma diferença só de formatação.
+function normalizeMatricula(m: string | null | undefined): string | null {
+  const t = (m ?? "").trim();
+  return t ? t.replace(/^0+(?=\d)/, "") : null;
+}
+
 // A mesma combinação colaborador/dia alimenta diversos cartões, gráficos e células. A regra
 // continua centralizada e intocada em histogramaNovo.ts; aqui apenas reaproveitamos o resultado
 // enquanto o mesmo array de períodos estiver em memória.
@@ -113,23 +121,6 @@ function computeDayStatus(periodos: HistNovoPeriodo[], date: string): DayStatusR
 
 const HIST_COLABORADOR_SELECT = "id, ativo, matricula, nome, empresa, funcao, funcao_operacao";
 const HIST_PERIODO_SELECT = "id, colaborador_id, unidade_operacional, centro_de_custo, bsp, tipo, data_inicio, data_fim, dias, origem, created_at";
-
-// Nomes (normalizados) de quem está marcado como Offshore na aba "Offshore" do módulo de
-// Colaboradores — usado pra dividir Histograma Offshore em "Geral" (tudo, direto do Drake,
-// como sempre foi) e "Offshore" (só quem está cadastrado lá). Cast local porque is_offshore
-// ainda não está nos tipos gerados (mesmo padrão já usado em collaborators.tsx).
-function useOffshoreNomesQuery(enabled: boolean) {
-  return useQuery({
-    queryKey: ["collaborators-offshore-nomes"],
-    enabled,
-    queryFn: async () => {
-      const rows = await selectAllPages<{ full_name: string }>((from, to) =>
-        (supabase.from("collaborators") as any).select("full_name").eq("is_offshore", true).order("id").range(from, to),
-      );
-      return new Set(rows.map((r) => normalizeNomeHistograma(r.full_name)));
-    },
-  });
-}
 
 function useColaboradoresQuery() {
   return useQuery({
@@ -226,19 +217,27 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, initialTab }: 
   // carro/passagem de quem embarca ou desembarca — mesma exclusividade de Lançamentos.
   const canSeePlanejamento = isOperator;
 
-  // "Offshore" = só quem está marcado como Offshore na aba Offshore de Colaboradores (ver
-  // useOffshoreNomesQuery) — fica fixo como padrão e sempre em primeiro no seletor (pedido
-  // dela). "Geral" = todo mundo, direto do Drake, exatamente como sempre foi, ainda disponível
+  // "Offshore" = só quem está cadastrado na aba Planejamento de Embarque, casando por matrícula
+  // com o Drake (pedido dela, 2026-09-29 — antes era baseado em quem estava marcado como
+  // Offshore no cadastro de Colaboradores) — fica fixo como padrão e sempre em primeiro no
+  // seletor. "Geral" = todo mundo, direto do Drake, exatamente como sempre foi, ainda disponível
   // como segunda opção. Esse seletor não aparece nem afeta a aba Dashboard (ela continua
   // sempre com todo mundo) — só entra no Histograma. Lançamentos (edição de verdade) continua
-  // sempre com a lista completa, pra nunca travar o lançamento de quem ainda não está marcado
-  // como Offshore.
+  // sempre com a lista completa, pra nunca travar o lançamento de quem ainda não está no
+  // Planejamento de Embarque.
   const [origem, setOrigem] = useState<"geral" | "offshore">("offshore");
   const [innerTab, setInnerTab] = useState(initialTab ?? "dashboard");
-  const { data: offshoreNomes = new Set<string>() } = useOffshoreNomesQuery(innerTab === "histograma");
+  const { data: planejamentoEmbarqueOffshore = [] } = usePlanejamentoEmbarqueQuery();
+  const matriculasPlanejamento = useMemo(
+    () => new Set(planejamentoEmbarqueOffshore.map((r) => normalizeMatricula(r.matricula)).filter((m): m is string => m !== null)),
+    [planejamentoEmbarqueOffshore],
+  );
   const colaboradoresOffshore = useMemo(
-    () => colaboradores.filter((c) => offshoreNomes.has(normalizeNomeHistograma(c.nome))),
-    [colaboradores, offshoreNomes],
+    () => colaboradores.filter((c) => {
+      const norm = normalizeMatricula(c.matricula);
+      return norm !== null && matriculasPlanejamento.has(norm);
+    }),
+    [colaboradores, matriculasPlanejamento],
   );
   const colaboradoresView = origem === "offshore" ? colaboradoresOffshore : colaboradores;
 
