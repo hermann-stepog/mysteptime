@@ -24,23 +24,21 @@ export const Route = createFileRoute("/rh-sms/")({
 // Embarque, do lado da Logística).
 function RhSmsHome() {
   const { role } = useAuth();
-  const [tab, setTab] = useState("nomeacoes");
+  // Efetivo Offshore é a primeira aba (pedido dela), depois Dashboard e Histograma.
+  const [tab, setTab] = useState("efetivo");
 
   if (role === "sms") return <NominationsPage onlyKanban />;
 
   return (
     <Tabs value={tab} onValueChange={setTab}>
       <TabsList>
+        <TabsTrigger value="efetivo">Efetivo Offshore</TabsTrigger>
+        <TabsTrigger value="histograma">Dashboard e Histograma</TabsTrigger>
         <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
         <TabsTrigger value="viagens">Viagens Internacionais</TabsTrigger>
-        <TabsTrigger value="histograma">Dashboard e Histograma</TabsTrigger>
-        <TabsTrigger value="efetivo">Efetivo Offshore</TabsTrigger>
       </TabsList>
-      <TabsContent value="nomeacoes" className="pt-4">
-        <NominationsPage onlyKanban />
-      </TabsContent>
-      <TabsContent value="viagens" className="pt-4">
-        <PassagensAereasPage onlyInternational />
+      <TabsContent value="efetivo" className="pt-4">
+        <EfetivoOffshoreTab />
       </TabsContent>
       <TabsContent value="histograma" className="pt-4">
         {/* Mesmo componente do operador — ele já restringe Lançamentos/Planejamento de
@@ -48,8 +46,11 @@ function RhSmsHome() {
             Histograma (as duas sub-abas internas dele), sem precisar de nenhuma prop especial. */}
         <HistogramaOffshoreNovo />
       </TabsContent>
-      <TabsContent value="efetivo" className="pt-4">
-        <EfetivoOffshoreTab />
+      <TabsContent value="nomeacoes" className="pt-4">
+        <NominationsPage onlyKanban />
+      </TabsContent>
+      <TabsContent value="viagens" className="pt-4">
+        <PassagensAereasPage onlyInternational />
       </TabsContent>
     </Tabs>
   );

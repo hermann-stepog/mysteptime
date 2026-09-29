@@ -73,7 +73,7 @@ export function EfetivoOffshoreTab() {
         <Table>
           <TableHeader>
             <TableRow>
-              {Array.from({ length: 8 }).map((_, i) => <TableHead key={i}><Skeleton className="h-4 w-16" /></TableHead>)}
+              {Array.from({ length: 9 }).map((_, i) => <TableHead key={i}><Skeleton className="h-4 w-16" /></TableHead>)}
             </TableRow>
           </TableHeader>
         </Table>
@@ -117,6 +117,7 @@ export function EfetivoOffshoreTab() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Matrícula</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Unidade</TableHead>
                 <TableHead>BSP</TableHead>
@@ -165,6 +166,7 @@ function LinhaEfetivo({ registro }: { registro: PlanejamentoEmbarqueRow }) {
 
   return (
     <TableRow>
+      <TableCell>{registro.matricula ?? "—"}</TableCell>
       <TableCell className="font-medium">{registro.nome}</TableCell>
       <TableCell>{registro.unidade ?? "—"}</TableCell>
       <TableCell>{registro.bsp ?? "—"}</TableCell>
