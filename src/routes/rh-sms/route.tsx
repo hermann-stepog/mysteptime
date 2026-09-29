@@ -12,7 +12,7 @@ import { ChangePasswordButton } from "@/components/ChangePassword";
 export const Route = createFileRoute("/rh-sms")({ component: RhSmsLayout });
 
 const SUBTITLE: Record<string, string> = {
-  rh: "Validação RH",
+  rh: "Validação DP",
   sms: "Validação SMS",
 };
 

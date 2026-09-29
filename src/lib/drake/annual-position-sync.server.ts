@@ -23,6 +23,7 @@ import { filterWorkersAlreadyInHistogram } from "./annual-position-eligibility";
 import {
   buildEmbarkationReportIndex,
   resolveEmbarkationReportRow,
+  resolveNearestEmbarkationReportRowForUnit,
   sanitizeDrakeBsp,
 } from "./annual-position-embarkation";
 
@@ -129,7 +130,12 @@ export async function synchronizeCurrentDrakeAnnualPositions(
     positions: filterAnnualPositionsByWindow(positions, cutoffDate, addIsoDay(endDate, 1))
       .map((position) => {
       const detailsUnit = optionalString(position.Details?.Uop);
-      const isEmbarkationDay = ["E", "D"].includes(position.OccurrenceAcronym.trim().toUpperCase());
+      const acronym = position.OccurrenceAcronym.trim().toUpperCase();
+      const isEmbarkationDay = ["E", "D"].includes(acronym);
+      // Folga Indenizada ("FI") não tem linha própria no relatório de embarque nem BSP na Ficha
+      // Anual, mas o colaborador embarcou de verdade nesses dias (pedido dela) — busca a BSP do
+      // embarque mais próximo na MESMA unidade, sem exigir sobreposição exata de data (só usada
+      // aqui; E/D continuam com resolveEmbarkationReportRow de sempre, sem nenhuma mudança).
       const reportRow = isEmbarkationDay
         ? resolveEmbarkationReportRow(
             embarkationIndex,
@@ -137,7 +143,14 @@ export async function synchronizeCurrentDrakeAnnualPositions(
             position.Date,
             detailsUnit,
           )
-        : null;
+        : acronym === "FI"
+          ? resolveNearestEmbarkationReportRowForUnit(
+              embarkationIndex,
+              buildWorkerKey(worker.companyName, worker.registration),
+              position.Date,
+              detailsUnit,
+            )
+          : null;
       return {
         date: position.Date,
         occurrenceAcronym: position.OccurrenceAcronym,

@@ -678,6 +678,94 @@ export async function generateRelatorioDisponibilidade(dataInicio?: string, data
   XLSX.writeFile(wb, `disponibilidade_${hoje}.xlsx`);
 }
 
+// Exportação do "POB por Unidade × Dia" — usada pelo módulo de Relatórios (card homônimo).
+// Sempre o mês atual (pedido dela: fixo, não segue o filtro De/Até do resto da página de
+// Relatórios) — mesma regra de "Embarcado" e resolução de BSP já usadas no Dashboard do
+// Histograma Offshore (todo período sem BSP própria usa a do embarque mais próximo do mesmo
+// colaborador — ela confirmou que sempre existe um; só cai pro Planejamento de Embarque quando
+// ele também está com Status "Embarcado").
+export async function generateRelatorioPobUnidadeDia(): Promise<void> {
+  const hoje = todayStr();
+  const inicioMes = `${hoje.slice(0, 7)}-01`;
+  const [ano, mes] = hoje.slice(0, 7).split("-").map(Number);
+  const fimMes = `${hoje.slice(0, 7)}-${String(new Date(ano, mes, 0).getDate()).padStart(2, "0")}`;
+  const dias = generateDateRange(inicioMes, fimMes);
+
+  const [{ colaboradores, periodosByColaborador }, planejamentoRows] = await Promise.all([
+    fetchColaboradoresEPeriodos(),
+    selectAllPages<{ nome: string; bsp: string | null; status: string | null }>((from, to) =>
+      supabase.from("planejamento_embarque").select("nome, bsp, status").range(from, to),
+    ),
+  ]);
+
+  const bspPorNomePlanejamento = new Map<string, string>();
+  planejamentoRows.forEach((r) => {
+    if (!isStatusEmbarcado(r.status)) return;
+    const bsp = r.bsp?.trim();
+    if (bsp) bspPorNomePlanejamento.set(normalizeNomeHistograma(r.nome), bsp);
+  });
+
+  const periodosOrdenadosPorColaborador = new Map<string, HistNovoPeriodo[]>();
+  periodosByColaborador.forEach((periodos, id) => periodosOrdenadosPorColaborador.set(id, [...periodos].sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))));
+
+  function bspDoEmbarqueMaisProximo(colaboradorId: string, periodoAtual: HistNovoPeriodo): string | null {
+    const mesmaUnidade = (periodosOrdenadosPorColaborador.get(colaboradorId) ?? [])
+      .filter((p) => p.unidade_operacional === periodoAtual.unidade_operacional)
+      .map((p) => ({ p, bsp: bspDoPeriodo(p)?.trim() }))
+      .filter((x): x is { p: HistNovoPeriodo; bsp: string } => !!x.bsp);
+    if (mesmaUnidade.length === 0) return null;
+    const refTime = new Date(periodoAtual.data_inicio).getTime();
+    const distancia = (p: HistNovoPeriodo) => Math.min(
+      Math.abs(new Date(p.data_inicio).getTime() - refTime),
+      Math.abs(new Date(p.data_fim).getTime() - refTime),
+    );
+    return mesmaUnidade.reduce((melhor, atual) => (distancia(atual.p) < distancia(melhor.p) ? atual : melhor)).bsp;
+  }
+
+  const ativosNoMes = colaboradores.filter((c) => {
+    const ps = periodosByColaborador.get(c.id) ?? [];
+    return ps.some((p) => p.data_fim >= inicioMes && p.data_inicio <= fimMes);
+  });
+
+  const porUnidadeBsp = new Map<string, { unidade: string; bsp: string; porDia: Map<string, number> }>();
+  dias.forEach((d) => {
+    ativosNoMes.forEach((c) => {
+      const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
+      if (pobBucket(result) !== "E" || !result.periodo?.unidade_operacional) return;
+      const unidadeTexto = result.periodo.unidade_operacional.trim().toUpperCase();
+      if (ehUnidadeNaoOperacional(unidadeTexto)) return;
+      const bspDrakeLimpo = bspDoPeriodo(result.periodo)?.trim() || null;
+      const bspEventoLigado = !bspDrakeLimpo ? bspDoEmbarqueMaisProximo(c.id, result.periodo) : null;
+      const bspPlanejamento = (bspDrakeLimpo || bspEventoLigado) ? null : bspPorNomePlanejamento.get(normalizeNomeHistograma(c.nome)) ?? null;
+      const bspTexto = (bspDrakeLimpo || bspEventoLigado || bspPlanejamento)?.trim() || "";
+      if (unidadeTexto === "QUALITECH" && !bspTexto) return;
+      const unidadeExibida = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : result.periodo.unidade_operacional;
+      const bsp = bspTexto || "Sem BSP";
+      const key = `${unidadeExibida}::${bsp}`;
+      if (!porUnidadeBsp.has(key)) porUnidadeBsp.set(key, { unidade: unidadeExibida, bsp, porDia: new Map() });
+      const row = porUnidadeBsp.get(key)!;
+      row.porDia.set(d, (row.porDia.get(d) ?? 0) + 1);
+    });
+  });
+
+  const linhas = Array.from(porUnidadeBsp.values()).sort((a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp));
+  const rows: Record<string, string | number>[] = linhas.map((row) => {
+    const linha: Record<string, string | number> = { Unidade: row.unidade, BSP: row.bsp };
+    dias.forEach((d) => { linha[d.slice(8, 10)] = row.porDia.get(d) ?? 0; });
+    return linha;
+  });
+  const totalRow: Record<string, string | number> = { Unidade: "", BSP: "Total" };
+  dias.forEach((d) => {
+    totalRow[d.slice(8, 10)] = linhas.reduce((sum, row) => sum + (row.porDia.get(d) ?? 0), 0);
+  });
+  rows.push(totalRow);
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "POB por Unidade x Dia");
+  XLSX.writeFile(wb, `pob_unidade_dia_${hoje}.xlsx`);
+}
+
 export const fmtDateHeadcount = (d: string) => d.split("-").reverse().join("/");
 
 interface HeadcountSnapshot {
@@ -2741,6 +2829,10 @@ function DashboardTab({ colaboradores, periodos }: {
           let ocupados = 0, totalDia = 0;
           populacao.forEach((c) => {
             const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], dia);
+            // Sem nenhum período cobrindo esse dia específico (mesmo tendo período em outro dia
+            // do mês) — não conta, igual as rosquinhas de cima já fazem, senão o total desse
+            // gráfico ficava maior que o delas e a % não batia entre os dois.
+            if (!result.periodo) return;
             const bucket = toOldBucket(result.status);
             // Trabalho Externo desconsiderado do gráfico (pedido dela) — nem entra no total do dia.
             if (bucket === "TE") return;
@@ -2951,11 +3043,42 @@ function DashboardTab({ colaboradores, periodos }: {
   const bspPorNomePlanejamento = useMemo(() => {
     const m = new Map<string, string>();
     planejamentoEmbarque.forEach((r) => {
+      // Só conta quando o Status de lá diz que a pessoa está mesmo Embarcada agora (não
+      // "Programado" — pedido dela: um embarque futuro pode ter uma BSP diferente da que vale
+      // hoje, então não serve de reserva pra um dia que já passou/está passando no Drake).
+      if (!isStatusEmbarcado(r.status)) return;
       const bsp = r.bsp?.trim();
       if (bsp) m.set(normalizeNomeHistograma(r.nome), bsp);
     });
     return m;
   }, [planejamentoEmbarque]);
+
+  // Períodos por colaborador, ordenados por data — usado só pra achar o embarque mais próximo
+  // (ver bspDoEmbarqueMaisProximo abaixo).
+  const periodosOrdenadosPorColaborador = useMemo(() => {
+    const m = new Map<string, HistNovoPeriodo[]>();
+    periodosByColaborador.forEach((periodos, id) => m.set(id, [...periodos].sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))));
+    return m;
+  }, [periodosByColaborador]);
+
+  // Períodos sem BSP própria (Folga Indenizada, Standby, etc.) contam como Embarcado pra POB
+  // quando aplicável, mas não carregam bsp/centro_de_custo — ela confirmou que sempre existe um
+  // período de embarque de verdade com BSP em algum momento pra essa pessoa, na MESMA unidade —
+  // usa o mais próximo dessa data; se não achar nenhum na mesma unidade, fica "Sem BSP" mesmo
+  // (não inventa BSP de outra unidade).
+  function bspDoEmbarqueMaisProximo(colaboradorId: string, periodoAtual: HistNovoPeriodo): string | null {
+    const mesmaUnidade = (periodosOrdenadosPorColaborador.get(colaboradorId) ?? [])
+      .filter((p) => p.unidade_operacional === periodoAtual.unidade_operacional)
+      .map((p) => ({ p, bsp: bspDoPeriodo(p)?.trim() }))
+      .filter((x): x is { p: HistNovoPeriodo; bsp: string } => !!x.bsp);
+    if (mesmaUnidade.length === 0) return null;
+    const refTime = new Date(periodoAtual.data_inicio).getTime();
+    const distancia = (p: HistNovoPeriodo) => Math.min(
+      Math.abs(new Date(p.data_inicio).getTime() - refTime),
+      Math.abs(new Date(p.data_fim).getTime() - refTime),
+    );
+    return mesmaUnidade.reduce((melhor, atual) => (distancia(atual.p) < distancia(melhor.p) ? atual : melhor)).bsp;
+  }
 
   // ── Registro diário compartilhado (colaborador × dia → balde/unidade), calculado uma
   // única vez e reaproveitado pelos gráficos de POB, semana e mês, pra não repetir o
@@ -2967,15 +3090,18 @@ function DashboardTab({ colaboradores, periodos }: {
         const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
         const bspDrake = result.periodo ? bspDoPeriodo(result.periodo) : null;
         const bspDrakeLimpo = bspDrake?.trim() || null;
-        const bspPlanejamento = bspDrakeLimpo ? null : bspPorNomePlanejamento.get(normalizeNomeHistograma(c.nome)) ?? null;
+        const unidade = result.periodo?.unidade_operacional ?? null;
+        const bspEventoLigado = !bspDrakeLimpo && result.periodo ? bspDoEmbarqueMaisProximo(c.id, result.periodo) : null;
+        const bspPlanejamento = (bspDrakeLimpo || bspEventoLigado) ? null : bspPorNomePlanejamento.get(normalizeNomeHistograma(c.nome)) ?? null;
+        const bspFinal = bspDrakeLimpo || bspEventoLigado || bspPlanejamento;
         recs.push({
-          date: d, bucket: pobBucket(result), unidade: result.periodo?.unidade_operacional ?? null,
-          bsp: bspDrakeLimpo || bspPlanejamento, nome: c.nome, bspDoPlanejamento: !!bspPlanejamento,
+          date: d, bucket: pobBucket(result), unidade,
+          bsp: bspFinal, nome: c.nome, bspDoPlanejamento: !!bspPlanejamento,
         });
       });
     });
     return recs;
-  }, [datesMesAtual, activeColaboradoresMesAtual, periodosByColaborador, bspPorNomePlanejamento]);
+  }, [datesMesAtual, activeColaboradoresMesAtual, periodosByColaborador, bspPorNomePlanejamento, periodosOrdenadosPorColaborador]);
 
   // ── Ocupação (donuts) — três rosquinhas lado a lado, cada uma só uma visualização dos MESMOS
   // números já mostrados nos cartões acima, sem recalcular nada por conta própria (pra nunca
@@ -3491,18 +3617,24 @@ function DashboardTab({ colaboradores, periodos }: {
         ) : unidadeBspRows.length === 0 ? (
           <EmptyState icon={Ship} title="Nenhuma unidade com embarcado no período selecionado" />
         ) : (
-          <div className="rounded border border-border">
+          <div className="relative rounded border border-border">
+            {/* Linha vertical separando "Unidade/BSP" do dia 01 desenhada por cima da tabela
+                (position absolute, do topo ao fim), em vez de border em cada célula — border
+                normal por célula, com border-collapse, ficava inconsistente entre os tipos de
+                linha (cabeçalho/grupo de unidade/BSP/Total), dando a impressão de linha
+                cortada/quebrada (pedido dela: tem que ser inteira, sem cortes). */}
+            <div className="pointer-events-none absolute inset-y-0 z-20 w-0 border-r border-r-border" style={{ left: 150 }} />
             {/* table-fixed + sem min-w: as colunas de dia dividem o espaço disponível em partes
                 iguais, então a tabela nunca precisa de scroll horizontal, independente de quantos
                 dias tiver no período. */}
             <table className="w-full table-fixed border-collapse text-xs">
               <colgroup>
-                <col className="w-[140px]" />
+                <col className="w-[150px]" />
                 {datesMesAtual.map((d) => <col key={d} />)}
               </colgroup>
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="sticky left-0 z-20 bg-muted border border-border px-2 py-1.5 text-left font-medium">Unidade / BSP</th>
+                  <th className="border border-border bg-muted px-2 py-1.5 text-left font-medium">Unidade / BSP</th>
                   {datesMesAtual.map((d) => (
                     <th
                       key={d}
@@ -3526,14 +3658,26 @@ function DashboardTab({ colaboradores, periodos }: {
                           <tr>
                             <td
                               colSpan={1 + datesMesAtual.length}
-                              className="sticky left-0 z-10 border border-border bg-muted/70 px-2 py-1 font-semibold"
+                              className="border border-border bg-muted/70 px-2 py-1 font-semibold"
                             >
-                              {row.unidade}
+                              <div className="max-w-[142px] truncate" title={row.unidade}>{row.unidade}</div>
                             </td>
                           </tr>
                         )}
                         <tr className="hover:bg-muted/40">
-                          <td className="sticky left-0 z-10 bg-background border border-border px-2 py-1 pl-5 text-muted-foreground truncate">{row.bsp}</td>
+                          <td
+                            className={cn(
+                              "bg-background border border-border px-2 py-1 pl-5 truncate",
+                              row.bsp === "Sem BSP" ? "text-amber-600 font-medium" : "text-muted-foreground",
+                            )}
+                            title={
+                              row.bsp === "Sem BSP"
+                                ? `Sem BSP no Drake nem no Planejamento de Embarque: ${Array.from(new Set(Array.from(row.nomesByDate.values()).flat())).sort((a, b) => a.localeCompare(b, "pt-BR")).join(", ")}`
+                                : undefined
+                            }
+                          >
+                            {row.bsp}
+                          </td>
                           {datesMesAtual.map((d) => {
                             const count = row.countByDate.get(d) ?? 0;
                             const nomes = row.nomesByDate.get(d) ?? [];
@@ -3553,6 +3697,19 @@ function DashboardTab({ colaboradores, periodos }: {
                     );
                   });
                 })()}
+                {/* Total geral do dia (soma de todas as unidades/BSP) — pedido dela, pra não
+                    precisar somar a coluna manualmente. */}
+                <tr className="border-t-2 border-t-border">
+                  <td className="border border-border bg-muted px-2 py-1 font-semibold">Total</td>
+                  {datesMesAtual.map((d) => {
+                    const total = unidadeBspRows.reduce((sum, row) => sum + (row.countByDate.get(d) ?? 0), 0);
+                    return (
+                      <td key={d} className="border border-border bg-muted px-0.5 py-1 text-center font-bold">
+                        {total > 0 ? total : ""}
+                      </td>
+                    );
+                  })}
+                </tr>
               </tbody>
             </table>
           </div>

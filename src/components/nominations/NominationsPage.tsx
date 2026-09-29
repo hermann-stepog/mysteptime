@@ -741,7 +741,7 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
       </div>
       {canAct && (
         <Button size="sm" disabled={!todosChecados} onClick={() => advance.mutate({ nomination, target: "validacao_rh" })} loading={advance.isPending}>
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Validação RH
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Validação DP
         </Button>
       )}
     </div>
@@ -812,7 +812,7 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <p className="text-sm font-medium">Validação RH</p>
+        <p className="text-sm font-medium">Validação DP</p>
         <div className="space-y-2">
           {aprovados.map((n) => (
             <div key={n.id} className="rounded-md border p-2 text-sm">
@@ -1302,7 +1302,7 @@ function ManageDialog({
                   <div className="space-y-2 rounded-md border p-3">
                     <Label className="text-xs">Avançar direto para qual etapa?</Label>
                     <p className="text-xs text-muted-foreground">
-                      Pula a validação/seleção da etapa atual (Qualidade, Solicitante, RH, SMS etc.) — use quando a
+                      Pula a validação/seleção da etapa atual (Qualidade, Solicitante, DP, SMS etc.) — use quando a
                       Logística já confirmou tudo por fora do sistema.
                     </p>
                     <Select value={forceAdvanceTarget} onValueChange={(v) => setForceAdvanceTarget(v as NominationStatus)}>

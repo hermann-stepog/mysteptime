@@ -160,7 +160,7 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
   { id: "recebido_logistica",  label: "Recebido pela Logística",  bg: "#EFEDE3", text: "#4A4636" },
   { id: "simulacao",           label: "Nomeação (Simulação)",     bg: "#E6F1FB", text: "#0C447C" },
   { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
-  { id: "validacao_rh",        label: "Validação RH",             bg: "#E8F5E9", text: "#1B5E20" },
+  { id: "validacao_rh",        label: "Validação DP",             bg: "#E8F5E9", text: "#1B5E20" },
   { id: "aprovacao_tecnica",   label: "Aprovação Técnica",        bg: "#EEEDFE", text: "#3C3489" },
   { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
   { id: "nomeados",            label: "Nomeados",                 bg: "#F3E8FD", text: "#5B2A8C" },
@@ -177,7 +177,7 @@ const COLUMN_ORDER: NominationStatus[] = KANBAN_COLUMNS.map((c) => c.id);
 export const STATUS_LABELS: Record<NominationStatus, string> = {
   ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, c.label])) as Record<NominationStatus, string>),
   aptidao: "Aptidão",
-  aptidao_rh: "Aptidão (RH)",
+  aptidao_rh: "Aptidão (DP)",
 };
 
 export const STATUS_BADGE: Record<NominationStatus, { bg: string; text: string }> = {
