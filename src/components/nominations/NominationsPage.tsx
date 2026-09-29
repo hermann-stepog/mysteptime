@@ -741,7 +741,7 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
       </div>
       {canAct && (
         <Button size="sm" disabled={!todosChecados} onClick={() => advance.mutate({ nomination, target: "validacao_rh" })} loading={advance.isPending}>
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Validação DP
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Administração de Pessoal - DP
         </Button>
       )}
     </div>
@@ -812,7 +812,7 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <p className="text-sm font-medium">Validação DP</p>
+        <p className="text-sm font-medium">Administração de Pessoal - DP</p>
         <div className="space-y-2">
           {aprovados.map((n) => (
             <div key={n.id} className="rounded-md border p-2 text-sm">
