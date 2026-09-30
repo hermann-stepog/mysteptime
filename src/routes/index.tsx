@@ -10,7 +10,7 @@ function Index() {
   if (loading) return <AppLoader />;
   if (!user) return <Navigate to="/auth" />;
   if (!role || role === "pending") return <Navigate to="/pending" />;
-  if (role === "logistics_operator") return <Navigate to="/admin/histograma-novo" />;
+  if (role === "logistics_operator" || role === "administrador") return <Navigate to="/admin/histograma-novo" />;
   if (role === "adm_master") return <Navigate to="/admin/nominations" />;
   if (role === "visitante") return <Navigate to="/admin/transport" />;
   return <Navigate to="/app" />;

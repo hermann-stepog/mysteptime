@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
+﻿import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -1142,252 +1142,6 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
   );
 }
 
-// ─── Aba Quadro Detalhado ────────────────────────────────────────────────────
-// Mesmo formato do Quadro Detalhado do módulo de Transporte (DetailView em transport.tsx):
-// filtros + tabela ordenável + linha de Total no rodapé — pedido dela, 2026-09-29. Mostra tudo
-// que já foi lançado (sem período padrão restringindo, diferente de Lançamentos, que nasce só
-// no mês atual) — o objetivo aqui é o quadro geral, não o dia a dia de lançar/editar.
-type QuadroDetalhadoSortColumn = HospedagensSortColumn;
-
-function QuadroDetalhadoTab({ hoteis, hospedagens, periodosE, colaboradores, unidadeOptions }: {
-  hoteis: HotelFornecedor[]; hospedagens: Hospedagem[]; periodosE: HistNovoPeriodo[];
-  colaboradores: { id: string; nome: string }[]; unidadeOptions: string[];
-}) {
-  const qc = useQueryClient();
-  const registrarLog = useRegistrarLog("hospedagem");
-  const [periodoDe, setPeriodoDe] = useState("");
-  const [periodoAte, setPeriodoAte] = useState("");
-  const [filterUnidade, setFilterUnidade] = useState("all");
-  const [filterBsp, setFilterBsp] = useState("all");
-  const [filterHotel, setFilterHotel] = useState("all");
-  const [filterMotivo, setFilterMotivo] = useState("all");
-  const [filterNome, setFilterNome] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Hospedagem | null>(null);
-  const { sortColumn, sortDirection, toggleSort } = useTableSort<QuadroDetalhadoSortColumn>();
-
-  const hotelById = useMemo(() => new Map(hoteis.map((h) => [h.id, h])), [hoteis]);
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
-  const motivosVistos = useMemo(
-    () => Array.from(new Set(hospedagens.map((h) => h.motivo).filter((m): m is string => !!m))).sort(),
-    [hospedagens],
-  );
-
-  const excluir = useMutation({
-    mutationFn: async (h: Hospedagem) => {
-      const { error } = await supabase.from("hospedagens").delete().eq("id", h.id);
-      if (error) throw error;
-      return h;
-    },
-    onSuccess: (h) => {
-      qc.invalidateQueries({ queryKey: ["hospedagens"] });
-      notify.success("Hospedagem excluída");
-      registrarLog(`Excluiu hospedagem de ${h.nome_usuario} (${h.unidade}/${h.bsp}, ${fmt(h.check_in)} a ${fmt(h.check_out)})`);
-    },
-    onError: (e: any) => notify.error(e.message),
-  });
-
-  const filtered = useMemo(() => hospedagens.filter((h) =>
-    (!periodoDe || h.check_out >= periodoDe) &&
-    (!periodoAte || h.check_in <= periodoAte) &&
-    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase())) &&
-    (filterBsp === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
-    (filterHotel === "all" || h.hotel_id === filterHotel) &&
-    (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
-    (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
-  ).sort((a, b) => {
-    if (!sortColumn) return a.bsp.localeCompare(b.bsp) || a.check_in.localeCompare(b.check_in);
-    const dir = sortDirection === "asc" ? 1 : -1;
-    switch (sortColumn) {
-      case "unidade": return dir * a.unidade.localeCompare(b.unidade);
-      case "bsp": return dir * a.bsp.localeCompare(b.bsp);
-      case "nome_usuario": return dir * a.nome_usuario.localeCompare(b.nome_usuario);
-      case "hotel": return dir * (hotelById.get(a.hotel_id)?.nome ?? "").localeCompare(hotelById.get(b.hotel_id)?.nome ?? "");
-      case "check_in": return dir * a.check_in.localeCompare(b.check_in);
-      case "check_out": return dir * a.check_out.localeCompare(b.check_out);
-      case "diarias": return dir * (a.diarias - b.diarias);
-      case "valor_diaria": return dir * (a.valor_diaria - b.valor_diaria);
-      case "valor_total": return dir * (a.valor_total - b.valor_total);
-      case "motivo": return dir * (a.motivo ?? "").localeCompare(b.motivo ?? "");
-      default: return 0;
-    }
-  }), [hospedagens, periodoDe, periodoAte, filterUnidade, filterBsp, filterHotel, filterMotivo, filterNome, sortColumn, sortDirection, hotelById]);
-
-  // Soma o custo de tudo que está filtrado na tela agora — igual ao Quadro Detalhado de
-  // Transporte, recalcula sozinho a cada mudança de filtro.
-  const totalCusto = useMemo(() => filtered.reduce((sum, h) => sum + h.valor_total, 0), [filtered]);
-
-  const exportarFiltrado = () => {
-    const rows = filtered.map((h) => {
-      const hotel = hotelById.get(h.hotel_id);
-      return {
-        Unidade: h.unidade, BSP: h.bsp, "Nome do usuário": h.nome_usuario,
-        Hotel: hotel?.nome ?? "—", Localização: hotel ? localizacaoHotel(hotel) : "—",
-        "Check-in": fmt(h.check_in), "Check-out": fmt(h.check_out), Diárias: h.diarias,
-        "Valor diária": h.valor_diaria, "Valor total": h.valor_total,
-        Motivo: h.motivo ?? "—", NF: h.nf ?? "—",
-      };
-    });
-    if (rows.length === 0) { notify.error("Nenhuma hospedagem pra exportar com os filtros atuais."); return; }
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Hospedagem");
-    const periodo = periodoDe || periodoAte ? `_${periodoDe || "inicio"}_a_${periodoAte || "hoje"}` : "";
-    XLSX.writeFile(wb, `hospedagem_detalhado${periodo}_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <div><Label className="text-xs">De</Label><Input type="date" className="w-40" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} /></div>
-        <div><Label className="text-xs">Até</Label><Input type="date" className="w-40" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} /></div>
-        <div>
-          <Label className="text-xs">Unidade</Label>
-          <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label className="text-xs">BSP</Label>
-          <Select value={filterBsp} onValueChange={setFilterBsp}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label className="text-xs">Hotel</Label>
-          <Select value={filterHotel} onValueChange={setFilterHotel}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {hoteis.map((h) => <SelectItem key={h.id} value={h.id}>{h.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label className="text-xs">Motivo</Label>
-          <Select value={filterMotivo} onValueChange={setFilterMotivo}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {motivosVistos.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label className="text-xs">Nome do usuário</Label>
-          <Input className="w-52" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <HistoricoAlteracoesButton modulo="hospedagem" titulo="Hospedagem" />
-          <Button type="button" variant="outline" size="sm" onClick={exportarFiltrado}>
-            <Download className="mr-1.5 h-3.5 w-3.5" />Exportar planilha
-          </Button>
-        </div>
-      </div>
-      <Card className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Nome do usuário" column="nome_usuario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Hotel" column="hotel" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Check-in" column="check_in" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Check-out" column="check_out" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Diárias" column="diarias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-              <SortableHead label="Valor diária" column="valor_diaria" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-              <SortableHead label="Valor total" column="valor_total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-              <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <TableHead>NF</TableHead>
-              <TableHead className="w-20" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length === 0 ? (
-              <EmptyStateRow colSpan={12} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
-            ) : filtered.map((h) => {
-              const hotel = hotelById.get(h.hotel_id);
-              const rateios = rateiosDaHospedagem(h);
-              return (
-                <TableRow key={h.id}>
-                  <TableCell>{Array.from(new Set(rateios.map((rateio) => rateio.unidade))).join(" · ")}</TableCell>
-                  <TableCell>{rateios.map((rateio) => rateio.bsp).join(" · ")}</TableCell>
-                  <TableCell>{h.nome_usuario}</TableCell>
-                  <TableCell>{hotel ? `${hotel.nome} — ${localizacaoHotel(hotel)}` : "—"}</TableCell>
-                  <TableCell>{fmt(h.check_in)}</TableCell>
-                  <TableCell>{fmt(h.check_out)}</TableCell>
-                  <TableCell className="text-right">{h.diarias}</TableCell>
-                  <TableCell className="text-right">{fmtMoney(h.valor_diaria)}</TableCell>
-                  <TableCell className="text-right font-medium">{fmtMoney(h.valor_total)}</TableCell>
-                  <TableCell>{h.motivo ?? "—"}</TableCell>
-                  <TableCell>{h.nf ?? "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditing(h); setDialogOpen(true); }}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Excluir hospedagem?</AlertDialogTitle>
-                            <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(h)}>
-                              Excluir
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-          {filtered.length > 0 && (
-            <TableFooter>
-              <TableRow>
-                <TableCell className="font-medium">Total ({filtered.length} {filtered.length === 1 ? "hospedagem" : "hospedagens"})</TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell className="text-right font-semibold">{fmtMoney(totalCusto)}</TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-              </TableRow>
-            </TableFooter>
-          )}
-        </Table>
-      </Card>
-
-      <HospedagemDialog
-        open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} prefill={null}
-        hoteis={hoteis} periodosE={periodosE} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
-      />
-    </div>
-  );
-}
-
 // ─── Aba Hotéis (CRUD) ──────────────────────────────────────────────────────
 type HoteisSortColumn = "nome" | "cidade" | "estado";
 
@@ -1617,7 +1371,6 @@ function HospedagemPage() {
         <TabsList>
           <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
           <TabsTrigger value="consolidado">Consolidado</TabsTrigger>
-          <TabsTrigger value="detalhado">Quadro Detalhado</TabsTrigger>
           <TabsTrigger value="hoteis">Hotéis</TabsTrigger>
         </TabsList>
         <TabsContent value="lancamentos" className="mt-4">
@@ -1628,11 +1381,6 @@ function HospedagemPage() {
         </TabsContent>
         <TabsContent value="consolidado" className="mt-4">
           <ConsolidadoTab hoteis={hoteis} hospedagens={hospedagens} periodosE={periodosE} unidadeOptions={unidadeOptions} />
-        </TabsContent>
-        <TabsContent value="detalhado" className="mt-4">
-          <QuadroDetalhadoTab
-            hoteis={hoteis} hospedagens={hospedagens} periodosE={periodosE} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
-          />
         </TabsContent>
         <TabsContent value="hoteis" className="mt-4">
           <HoteisTab hoteis={hoteis} />

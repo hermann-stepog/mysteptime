@@ -74,7 +74,7 @@ function messageFromErrorPayload(event: DrakeProgressEvent): string {
 export function DrakeUpdateCard() {
   const { role } = useAuth();
   const qc = useQueryClient();
-  const canUpdate = role === "logistics_operator";
+  const canUpdate = role === "logistics_operator" || role === "administrador";
 
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);

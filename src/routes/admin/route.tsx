@@ -75,7 +75,7 @@ function AdminLayout() {
   const { viewAsRole, setViewAsRole } = useViewAs();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isAllowedRole = role === "logistics_operator" || role === "adm_master" || role === "visitante" || role === "diretoria" || role === "medicao" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
+  const isAllowedRole = role === "logistics_operator" || role === "administrador" || role === "adm_master" || role === "visitante" || role === "diretoria" || role === "medicao" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;

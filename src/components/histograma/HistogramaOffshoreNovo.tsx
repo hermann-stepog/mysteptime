@@ -207,7 +207,7 @@ function HistogramaOffshoreNovoContent({ colaboradores, periodos, initialTab }: 
   colaboradores: HistNovoColaborador[]; periodos: HistNovoPeriodo[]; initialTab?: string;
 }) {
   const { role } = useAuth();
-  const isOperator = role === "logistics_operator";
+  const isOperator = role === "logistics_operator" || role === "administrador";
   // Todo mundo que chega nessa página (operador, visitante, solicitante e os papéis de etapa
   // de Nomeações) vê Dashboard + Histograma — só a aba Lançamentos (lança/edita de verdade)
   // continua exclusiva do operador de logística.

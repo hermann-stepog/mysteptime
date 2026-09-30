@@ -201,7 +201,7 @@ async function assertOperator(client: SupabaseClient, userId: string): Promise<v
     if (infra) throw new AppAuthError(infra);
     throw new Error("Não foi possível validar a permissão do usuário.");
   }
-  if (data?.role !== "logistics_operator") {
+  if (data?.role !== "logistics_operator" && data?.role !== "administrador") {
     throw new Error("Sem permissão para atualizar dados do Drake.");
   }
 }
