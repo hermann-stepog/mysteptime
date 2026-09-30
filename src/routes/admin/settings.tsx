@@ -32,6 +32,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "pending", label: "Pendente" },
   { value: "collaborator", label: "Colaborador" },
   { value: "logistics_operator", label: "Logística de Pessoal" },
+  { value: "administrador", label: "Administrador" },
   { value: "rh", label: "RH/DP" },
   { value: "sms", label: "SMS" },
   { value: "pm", label: "Projetos" },

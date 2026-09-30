@@ -45,7 +45,7 @@ function errorMessage(event: QualificationProgressEvent): string {
 export function QualificationUpdateCard() {
   const { role } = useAuth();
   const queryClient = useQueryClient();
-  const canUpdate = role === "logistics_operator";
+  const canUpdate = role === "logistics_operator" || role === "administrador";
   const [isRunning, setIsRunning] = useState(false);
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState(0);

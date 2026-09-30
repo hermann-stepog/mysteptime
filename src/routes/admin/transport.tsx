@@ -1969,8 +1969,8 @@ function SolicitacoesTab() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const { role } = useAuth();
-  // Só operador logístico aprova/programa — o visitante só acompanha o status.
-  const canManage = role === "logistics_operator";
+  // Só operador logístico (ou Administrador) aprova/programa — o visitante só acompanha o status.
+  const canManage = role === "logistics_operator" || role === "administrador";
 
   const { data: solicitations = [], isLoading } = useQuery<Solicitacao[]>({
     queryKey: ["transport-solicitations"],

@@ -96,9 +96,10 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
 }
 
 // Papéis com acesso total a qualquer etapa de Nomeações: `logistics_operator` (Logística de
-// Pessoal, fallback/admin) e `adm_master` (acesso equivalente, mas só dentro de Nomeações —
-// usado para dar autonomia de teste a alguém sem torná-lo operador logístico de verdade).
-const FULL_NOMINATIONS_ACCESS_ROLES = ["logistics_operator", "adm_master"];
+// Pessoal, fallback/admin), `administrador` (acesso total ao sistema todo, pedido dela em
+// 2026-09-30) e `adm_master` (acesso equivalente, mas só dentro de Nomeações — usado para dar
+// autonomia de teste a alguém sem torná-lo operador logístico de verdade).
+const FULL_NOMINATIONS_ACCESS_ROLES = ["logistics_operator", "administrador", "adm_master"];
 
 // Papel logado pode agir na etapa atual da solicitação? Quem está em FULL_NOMINATIONS_ACCESS_ROLES
 // sempre pode; os demais papéis só na própria etapa (ver STAGE_ROLE em lib/nominations.ts,

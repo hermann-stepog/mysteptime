@@ -17,7 +17,10 @@ export const diagnoseEmailAlert = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: roleRow } = await context.supabase
       .from("user_roles").select("role").eq("user_id", context.userId).maybeSingle();
-    if (roleRow?.role !== "logistics_operator") throw new Error("Sem permissão.");
+    // Cast pra string: "administrador" ainda não está no types.ts gerado (não é regerado
+    // automaticamente neste projeto — mesmo caso já visto com "medicao"/"diretoria").
+    const roleAtual = roleRow?.role as string | undefined;
+    if (roleAtual !== "logistics_operator" && roleAtual !== "administrador") throw new Error("Sem permissão.");
 
     const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("Serviço de IA não configurado.");

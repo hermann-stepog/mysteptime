@@ -16,6 +16,7 @@ const appRole = z.enum([
   "solicitante_master",
   "diretoria",
   "medicao",
+  "administrador",
 ]);
 
 async function assertOperator(supabase: any, userId: string) {
@@ -25,7 +26,7 @@ async function assertOperator(supabase: any, userId: string) {
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (roleRow?.role !== "logistics_operator") {
+  if (roleRow?.role !== "logistics_operator" && roleRow?.role !== "administrador") {
     throw new Error("Sem permissão para gerenciar usuários.");
   }
 }
