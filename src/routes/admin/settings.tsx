@@ -21,6 +21,7 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { adminCreateUser, adminResetPassword, adminDeleteUser } from "@/lib/api/adminUserManagement.functions";
 import { useAuth } from "@/hooks/useAuth";
+import { EmailSettingsCard } from "@/components/EmailSettingsCard";
 
 // Papéis organizados por setor (pedido dela) — cada setor mapeia pra um papel técnico que já
 // existe no sistema (permissões inalteradas, só o nome mudou). "Diretoria" é o único setor sem
@@ -50,6 +51,12 @@ function SettingsPage() {
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-6">
       <div><h1 className="text-2xl font-semibold">Configurações</h1><p className="text-sm text-muted-foreground">Cadastros mestres do sistema.</p></div>
       <Users />
+      {/* Discreto, no fim da página — pedido dela (2026-09-30): só pra testar se o envio de
+          e-mail (boas-vindas de novo usuário, avisos de Nomeações) está funcionando de verdade,
+          sem chamar atenção no topo da tela. */}
+      <div className="max-w-md pt-4 text-xs opacity-70 transition-opacity hover:opacity-100">
+        <EmailSettingsCard />
+      </div>
     </div>
   );
 }
