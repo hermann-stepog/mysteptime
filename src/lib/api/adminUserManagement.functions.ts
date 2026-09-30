@@ -27,10 +27,7 @@ async function assertOperator(supabase: any, userId: string) {
   if (error) throw new Error(error.message);
   const roles: string[] = (roleRows ?? []).map((r: { role: string }) => r.role);
   if (!roles.includes("logistics_operator") && !roles.includes("administrador")) {
-    // DIAGNÓSTICO TEMPORÁRIO (pedido dela, 2026-09-30) — mostra o que a função realmente leu,
-    // pra descobrir por que "administrador" está sendo recusado mesmo com o banco correto.
-    // Remover assim que a causa for confirmada.
-    throw new Error(`Sem permissão para gerenciar usuários. [debug: userId=${userId} roles=${JSON.stringify(roles)}]`);
+    throw new Error("Sem permissão para gerenciar usuários.");
   }
 }
 
