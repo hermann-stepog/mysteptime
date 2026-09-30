@@ -2384,6 +2384,7 @@ export type Database = {
           rh_bloqueio_justificativa: string | null
           rh_bloqueio_marcado_em: string | null
           rh_bloqueio_marcado_por: string | null
+          rh_bloqueio_status_anterior: string | null
           status: string | null
           unidade: string | null
           updated_at: string
@@ -2411,6 +2412,7 @@ export type Database = {
           rh_bloqueio_justificativa?: string | null
           rh_bloqueio_marcado_em?: string | null
           rh_bloqueio_marcado_por?: string | null
+          rh_bloqueio_status_anterior?: string | null
           status?: string | null
           unidade?: string | null
           updated_at?: string
@@ -2438,6 +2440,7 @@ export type Database = {
           rh_bloqueio_justificativa?: string | null
           rh_bloqueio_marcado_em?: string | null
           rh_bloqueio_marcado_por?: string | null
+          rh_bloqueio_status_anterior?: string | null
           status?: string | null
           unidade?: string | null
           updated_at?: string
@@ -3639,6 +3642,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      unaccent: { Args: { "": string }; Returns: string }
     }
     Enums: {
       app_role:
@@ -3653,6 +3657,8 @@ export type Database = {
         | "sms"
         | "solicitante_master"
         | "diretoria"
+        | "medicao"
+        | "administrador"
       approval_status: "pending" | "approved" | "rejected"
       billing_type: "com_cobranca" | "sem_cobranca"
       cost_type:
@@ -3827,6 +3833,8 @@ export const Constants = {
         "sms",
         "solicitante_master",
         "diretoria",
+        "medicao",
+        "administrador",
       ],
       approval_status: ["pending", "approved", "rejected"],
       billing_type: ["com_cobranca", "sem_cobranca"],
