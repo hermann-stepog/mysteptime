@@ -1127,7 +1127,7 @@ function PmHome() {
         <HistogramaOffshoreNovo />
       </TabsContent>
       <TabsContent value="nomeacoes" className="pt-4">
-        <NominationsPage />
+        <NominationsPage solicitanteArea />
       </TabsContent>
       <TabsContent value="bms" className="pt-4">
         <PmBmsTab />

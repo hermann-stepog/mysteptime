@@ -3519,7 +3519,11 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
 // Simulação, Aptidão) nem o botão de criar solicitação — a restrição de só poder mover os
 // próprios cards já existe hoje (ver STAGE_ROLE / useCanActOnStage), isso aqui só recorta a
 // tela pra mostrar exclusivamente o board.
-export function NominationsPage({ onlyKanban = false }: { onlyKanban?: boolean } = {}) {
+// `solicitanteArea` recorta a tela pro ambiente do Solicitante (pedido dela, 2026-09-30): tira
+// a aba Aptidão (Matriz de Qualificação não é assunto dele) e o botão "Nova Solicitação" daqui
+// de dentro (já existe um específico na aba "Minhas Solicitações" do /pm, não precisa duplicar)
+// — mantém Nomeações/Equipes Embarcadas/Mapa/Simulação normalmente.
+export function NominationsPage({ onlyKanban = false, solicitanteArea = false }: { onlyKanban?: boolean; solicitanteArea?: boolean } = {}) {
   const [selected, setSelected]       = useState<Nomination | null>(null);
   const [showCreate, setShowCreate]   = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("todos");
@@ -3649,9 +3653,11 @@ export function NominationsPage({ onlyKanban = false }: { onlyKanban?: boolean }
               <Grid3x3 className="mr-1.5 h-3.5 w-3.5" /> Mapa
             </TabsTrigger>
             <TabsTrigger value="simulacao">Simulação</TabsTrigger>
-            <TabsTrigger value="aptidao">
-              <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
-            </TabsTrigger>
+            {!solicitanteArea && (
+              <TabsTrigger value="aptidao">
+                <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
+              </TabsTrigger>
+            )}
           </TabsList>
         )}
 
@@ -3686,7 +3692,7 @@ export function NominationsPage({ onlyKanban = false }: { onlyKanban?: boolean }
             </select>
             <div className="ml-auto flex items-center gap-2">
               <HistoricoAlteracoesButton modulo="nomeacoes" titulo="Nomeações" />
-              {!onlyKanban && (
+              {!onlyKanban && !solicitanteArea && (
                 <Button size="sm" onClick={() => setShowCreate(true)}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova Solicitação
                 </Button>
@@ -3694,7 +3700,7 @@ export function NominationsPage({ onlyKanban = false }: { onlyKanban?: boolean }
             </div>
           </div>
 
-          {!onlyKanban && showCreate && <CreateNominationDialog onClose={() => setShowCreate(false)} />}
+          {!onlyKanban && !solicitanteArea && showCreate && <CreateNominationDialog onClose={() => setShowCreate(false)} />}
 
           {isLoading ? (
             <div className="flex justify-center py-12">
@@ -3728,7 +3734,7 @@ export function NominationsPage({ onlyKanban = false }: { onlyKanban?: boolean }
         )}
 
         {/* ── Aptidão (Matriz de Qualificação) ── */}
-        {!onlyKanban && (
+        {!onlyKanban && !solicitanteArea && (
           <TabsContent value="aptidao" className="pt-4">
             <QualificationEligibilityTab />
           </TabsContent>
