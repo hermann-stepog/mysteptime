@@ -141,7 +141,7 @@ export function statusOpcoes(valores: (string | null | undefined)[]): string[] {
   for (const v of valores) {
     if (!v) continue;
     if (v.trim() === "Trabalho Externo") continue;
-    out.add(isStatusBloqueioRh(v) ? "BLOQUEIO RH" : v);
+    out.add(isStatusBloqueioRH(v) ? "BLOQUEIO RH" : v);
   }
   return Array.from(out).sort();
 }
