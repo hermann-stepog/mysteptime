@@ -67,9 +67,9 @@ export function trackFlowEvent(
   acao: string,
   extra: { modulo?: string; tela?: string; detalhe?: string; registro?: string; duracao_ms?: number } = {},
 ) {
-  if (!user) return;
+  if (!user) return Promise.resolve();
   const tela = extra.tela ?? (typeof window !== "undefined" ? window.location.pathname : undefined);
-  supabase
+  return supabase
     .from("flow_track_events")
     .insert({
       user_id: user.id,

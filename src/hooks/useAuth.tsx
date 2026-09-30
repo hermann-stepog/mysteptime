@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     if (user) {
       const fu = { id: user.id, name: profile?.full_name ?? profile?.email ?? null, role };
-      trackFlowEvent(fu, "logout");
+      await trackFlowEvent(fu, "logout");
       await (supabase as any).from("flow_track_presence").update({ last_seen: new Date(0).toISOString(), ultima_acao: "Saída" }).eq("user_id", user.id);
     }
     await supabase.auth.signOut();

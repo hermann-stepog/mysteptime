@@ -27,6 +27,7 @@ const nav: NavItem[] = [
   { to: "/admin/bm",             label: "Boletim de Medição" },
   { to: "/admin/reports",        label: "Relatórios" },
   { to: "/admin/settings",       label: "Configurações" },
+  { to: "/admin/flow-track",     label: "Flow Track" },
 ];
 
 // Todo mundo que não é operador (Visitante, Solicitante e os 4 papéis de etapa de Nomeações)
@@ -104,6 +105,8 @@ function AdminLayout() {
         : STAGE_ROLES.includes(navRole ?? "")
           ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((navRole === "rh" || navRole === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
           : nav;
+  // Flow Track: exclusivo do perfil Administrador (real, nunca pelo "Ver como").
+  const visibleNavFinal = visibleNav.filter((n) => n.to !== "/admin/flow-track" || (role === "administrador" && !viewAsRole));
   const viewAsLabel = VIEW_AS_ROLES.find((r) => r.value === viewAsRole)?.label;
 
   return (
@@ -124,7 +127,7 @@ function AdminLayout() {
           <BrandLogo className="h-9 w-auto shrink-0 sm:h-10 lg:h-11" />
 
           <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-            {visibleNav.map((n) => {
+            {visibleNavFinal.map((n) => {
               const active = n.exact ? pathname === n.to : pathname.startsWith(n.to);
               return (
                 <Link
