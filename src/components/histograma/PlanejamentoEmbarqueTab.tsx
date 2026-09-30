@@ -887,6 +887,25 @@ export function PlanejamentoEmbarqueTab() {
   const registrarLog = useRegistrarLogPlanejamento();
   const { data: registros = [], isLoading } = usePlanejamentoEmbarqueQuery();
 
+  // Coluna "Função do Drake" (pedido dela, 2026-09-30) — só pra comparação visual com a Função
+  // digitada nesta tela; não altera nem sincroniza nada, é uma leitura à parte do cadastro do
+  // Drake, casada por matrícula. Normaliza removendo zeros à esquerda (mesmo critério já usado
+  // no filtro Offshore do Histograma) pra não perder o casamento por diferença de formatação.
+  const { data: funcaoDrakePorMatricula = new Map<string, string>() } = useQuery({
+    queryKey: ["hist-novo-colaboradores-funcao-por-matricula"],
+    queryFn: async () => {
+      const rows = await selectAllPages<{ matricula: string | null; funcao: string | null }>((from, to) =>
+        supabase.from("hist_novo_colaboradores").select("matricula, funcao").range(from, to),
+      );
+      const m = new Map<string, string>();
+      rows.forEach((r) => {
+        const norm = (r.matricula ?? "").trim().replace(/^0+(?=\d)/, "");
+        if (norm && r.funcao?.trim()) m.set(norm, r.funcao.trim());
+      });
+      return m;
+    },
+  });
+
   const [showImportar, setShowImportar] = useState(false);
   const [criando, setCriando] = useState(false);
   const [editing, setEditing] = useState<PlanejamentoEmbarqueRow | null>(null);
@@ -1204,6 +1223,7 @@ export function PlanejamentoEmbarqueTab() {
               <MultiSortableHead label="Unidade/Localização" column="unidade" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="BSP" column="bsp" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Função" column="funcao" sortRules={sortRules} onSort={toggleSort} />
+              <TableHead className="text-red-600 font-semibold">Função do Drake</TableHead>
               <MultiSortableHead label="Status" column="status" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Embarque" column="embarque" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Duração (dias)" column="duracao" sortRules={sortRules} onSort={toggleSort} />
@@ -1246,6 +1266,9 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><TextoPlanejamentoCell valor={r.unidade} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { unidade: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Unidade", r.unidade, v || null) })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.bsp} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { bsp: v || null }, descricao: descricaoEdicaoCampo(r.nome, "BSP", r.bsp, v || null) })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Função", r.funcao, v || null) })} /></TableCell>
+                <TableCell className="font-semibold text-red-600">
+                  {funcaoDrakePorMatricula.get((r.matricula ?? "").trim().replace(/^0+(?=\d)/, "")) ?? "—"}
+                </TableCell>
                 <TableCell><SelectPlanejamentoCell valor={r.status} opcoes={statusExistentes} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Status", r.status, v || null) })} /></TableCell>
                 <TableCell>
                   <DataPlanejamentoCell
@@ -1295,7 +1318,7 @@ export function PlanejamentoEmbarqueTab() {
                 </TableCell>
               </TableRow>
             ))}
-            {linhas.length === 0 && <EmptyStateRow colSpan={17} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
+            {linhas.length === 0 && <EmptyStateRow colSpan={18} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
           </TableBody>
         </Table>
       </Card>
