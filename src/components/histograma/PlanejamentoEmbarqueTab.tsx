@@ -133,7 +133,18 @@ export function isStatusBloqueioRH(status: string | null | undefined): boolean {
 // Status "conhecidos" que sempre aparecem na lista suspensa da célula/filtro de Status, mesmo
 // que nenhuma linha esteja usando ainda (ela pediu "Trabalho Externo" explicitamente) — o resto
 // da lista continua vindo dos valores já digitados nos registros (ver statusExistentes).
-export const STATUS_CONHECIDOS = ["Trabalho Externo"];
+export const STATUS_CONHECIDOS = ["BLOQUEIO RH"];
+
+// Lista da coluna Status: sem "Trabalho Externo" em minúsculo e com Bloqueio RH sempre "BLOQUEIO RH".
+export function statusOpcoes(valores: (string | null | undefined)[]): string[] {
+  const out = new Set<string>(STATUS_CONHECIDOS);
+  for (const v of valores) {
+    if (!v) continue;
+    if (v.trim() === "Trabalho Externo") continue;
+    out.add(isStatusBloqueioRH(v) ? "BLOQUEIO RH" : v);
+  }
+  return Array.from(out).sort();
+}
 
 // Unidades e BSPs pra listas suspensas fora do Planejamento de Embarque (ex.: Transporte) —
 // pedido dela: essas listas devem vir da planilha de Planejamento de Embarque, não mais de
@@ -444,7 +455,7 @@ function PlanejamentoEditDialog({ row, onClose }: { row: PlanejamentoEmbarqueRow
   // consulta já em cache, sem custo extra.
   const { data: registrosTodos = [] } = usePlanejamentoEmbarqueQuery();
   const statusExistentes = useMemo(
-    () => Array.from(new Set([...STATUS_CONHECIDOS, ...registrosTodos.map((r) => r.status).filter((v): v is string => !!v)])).sort(),
+    () => statusOpcoes(registrosTodos.map((r) => r.status)),
     [registrosTodos],
   );
   const [statusManual, setStatusManual] = useState(() => !!row?.status && !statusExistentes.includes(row.status));
@@ -1022,7 +1033,7 @@ export function PlanejamentoEmbarqueTab() {
   const bspExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.bsp).filter((v): v is string => !!v))).sort(), [registros]);
   const funcoesExistentes = useMemo(() => Array.from(new Set(registros.map((r) => r.funcao).filter((v): v is string => !!v))).sort(), [registros]);
   const statusExistentes = useMemo(
-    () => Array.from(new Set([...STATUS_CONHECIDOS, ...registros.map((r) => r.status).filter((v): v is string => !!v)])).sort(),
+    () => statusOpcoes(registros.map((r) => r.status)),
     [registros],
   );
 
