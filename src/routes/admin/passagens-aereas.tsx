@@ -984,6 +984,249 @@ function ImportCustosPassagensDialog({ open, onOpenChange }: { open: boolean; on
 // ─── Página ─────────────────────────────────────────────────────────────────
 // Exportada pra ser reaproveitada como aba dentro da Área de RH/SMS (ver
 // src/routes/rh-sms/index.tsx) — mesmo componente, sem duplicar nada.
+// ─── Aba Consolidado (cascata Cliente → Unidade → BSP) ──────────────────────
+// Extraído da aba Solicitações (pedido dela, 2026-09-30 — mesmo formato usado em Hospedagem) —
+// filtros próprios, sem disputar espaço com a tabela de solicitações/edição. onEdit reaproveita
+// o mesmo PassagemDialog/estado (dialogOpen/editing) que a página já mantém pra Solicitações,
+// pra continuar dando pra clicar numa passagem na árvore e editar, igual já era antes.
+function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
+  passagens: PassagemAerea[]; periodosE: HistNovoPeriodo[]; unidadeOptions: string[];
+  onEdit: (p: PassagemAerea) => void;
+}) {
+  const [filterUnidade, setFilterUnidade] = useState("all");
+  const [filterBsp, setFilterBsp] = useState("all");
+  const [filterMotivo, setFilterMotivo] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterNome, setFilterNome] = useState("");
+
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
+  const motivosVistos = useMemo(
+    () => Array.from(new Set(passagens.map((p) => p.motivo).filter((m): m is string => !!m))).sort(),
+    [passagens],
+  );
+
+  const filtradas = useMemo(() => passagens.filter((p) =>
+    (filterUnidade === "all" || p.unidade === filterUnidade) &&
+    (filterBsp === "all" || p.bsp === filterBsp) &&
+    (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
+    (filterStatus === "all" || p.status === filterStatus) &&
+    (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)),
+  ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome]);
+
+  // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
+  // (Custos). Passagens Aéreas não tem campo Cliente próprio, usa o mesmo vínculo Unidade→Cliente
+  // (clienteDaUnidade) já confirmado pela operação, com "Base" pra BSP real sem cliente mapeado.
+  const consolidado = useMemo(() => {
+    const porCliente = new Map<string, Map<string, Map<string, PassagemAerea[]>>>();
+    filtradas.forEach((p) => {
+      const cliente = clienteDaUnidade(p.unidade) ?? (p.bsp?.trim() ? "Base" : p.unidade);
+      if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
+      const porUnidade = porCliente.get(cliente)!;
+      if (!porUnidade.has(p.unidade)) porUnidade.set(p.unidade, new Map());
+      const porBsp = porUnidade.get(p.unidade)!;
+      if (!porBsp.has(p.bsp)) porBsp.set(p.bsp, []);
+      porBsp.get(p.bsp)!.push(p);
+    });
+    return Array.from(porCliente.entries())
+      .map(([cliente, porUnidade]) => {
+        const unidades = Array.from(porUnidade.entries())
+          .map(([unidade, porBsp]) => {
+            const bsps = Array.from(porBsp.entries())
+              .map(([bsp, itens]) => ({
+                bsp, total: itens.reduce((a, p) => a + p.valor, 0),
+                itens: [...itens].sort((a, b) => b.data_ida.localeCompare(a.data_ida)),
+              }))
+              .sort((a, b) => b.total - a.total);
+            return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
+          })
+          .sort((a, b) => b.total - a.total);
+        return { cliente, total: unidades.reduce((a, u) => a + u.total, 0), unidades };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [filtradas]);
+  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
+  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
+  const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
+  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5 w-44">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
+            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todas</SelectItem>
+                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Select value={filterBsp} onValueChange={setFilterBsp}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Motivo</Label>
+            <Select value={filterMotivo} onValueChange={setFilterMotivo}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {motivosVistos.map((m) => <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                {STATUS_PASSAGEM.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-52">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
+            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button" size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground"
+              onClick={() => {
+                const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
+                if (tudoAberto) {
+                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
+                  setCollapsedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
+                } else {
+                  setCollapsedClientes(new Set()); setCollapsedUnidades(new Set());
+                }
+              }}
+            >
+              {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
+                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+              ) : (
+                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+              )}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {consolidado.length > 0 && (
+        <Card className="overflow-hidden">
+          {consolidado.map((c) => {
+            const clienteAberto = !collapsedClientes.has(c.cliente);
+            return (
+              <div key={c.cliente} className="border-b last:border-b-0">
+                <button
+                  type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                  aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                >
+                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                    {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                    <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{c.cliente}</span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold">{fmtMoney(c.total)}</span>
+                </button>
+                {clienteAberto && c.unidades.map((u) => {
+                  const unidadeKey = `${c.cliente}::${u.unidade}`;
+                  const unidadeAberta = !collapsedUnidades.has(unidadeKey);
+                  return (
+                    <div key={unidadeKey}>
+                      <button
+                        type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
+                        aria-expanded={unidadeAberta} onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
+                      >
+                        <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
+                          {unidadeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                          <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{u.unidade}</span>
+                          {u.bsps.some((b) => b.bsp !== "Não informado") && (
+                            <span className="text-xs font-normal text-muted-foreground">({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)</span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-sm font-medium">{fmtMoney(u.total)}</span>
+                      </button>
+                      {unidadeAberta && u.bsps.map((b) => {
+                        if (b.bsp === "Não informado") {
+                          return (
+                            <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
+                              {b.itens.map((p) => (
+                                <div
+                                  key={p.id} role="button" tabIndex={0} title="Clique para editar esta passagem"
+                                  className="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs hover:bg-emerald-100/60"
+                                  onClick={() => onEdit(p)}
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate font-medium">{p.nome_usuario}</p>
+                                    <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>
+                                  </div>
+                                  <span className="shrink-0 font-semibold">{fmtMoney(p.valor)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+                        const bspKey = `${unidadeKey}::${b.bsp}`;
+                        const bspAberto = expandedBsps.has(bspKey);
+                        return (
+                          <div key={bspKey}>
+                            <button
+                              type="button" className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
+                              aria-expanded={bspAberto} onClick={() => toggleSet(setExpandedBsps, bspKey)}
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                {bspAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                                <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{b.bsp}</span>
+                                <span className="text-xs font-normal text-muted-foreground">({b.itens.length})</span>
+                              </span>
+                              <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
+                            </button>
+                            {bspAberto && (
+                              <div className="divide-y border-t bg-emerald-50/40 pl-20">
+                                {b.itens.map((p) => (
+                                  <div
+                                    key={p.id} role="button" tabIndex={0} title="Clique para editar esta passagem"
+                                    className="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs hover:bg-emerald-100/60"
+                                    onClick={() => onEdit(p)}
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate font-medium">{p.nome_usuario}</p>
+                                      <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>
+                                    </div>
+                                    <span className="shrink-0 font-semibold">{fmtMoney(p.valor)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export function PassagensAereasPage({ onlyInternational = false }: { onlyInternational?: boolean } = {}) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1081,48 +1324,6 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
     }
   }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, sortColumn, sortDirection]);
 
-  // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
-  // (Custos). Passagens Aéreas não tem campo Cliente próprio, usa o mesmo vínculo Unidade→Cliente
-  // (clienteDaUnidade) já confirmado pela operação, com "Base" pra BSP real sem cliente mapeado.
-  const consolidado = useMemo(() => {
-    const porCliente = new Map<string, Map<string, Map<string, PassagemAerea[]>>>();
-    filtradas.forEach((p) => {
-      const cliente = clienteDaUnidade(p.unidade) ?? (p.bsp?.trim() ? "Base" : p.unidade);
-      if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
-      const porUnidade = porCliente.get(cliente)!;
-      if (!porUnidade.has(p.unidade)) porUnidade.set(p.unidade, new Map());
-      const porBsp = porUnidade.get(p.unidade)!;
-      if (!porBsp.has(p.bsp)) porBsp.set(p.bsp, []);
-      porBsp.get(p.bsp)!.push(p);
-    });
-    return Array.from(porCliente.entries())
-      .map(([cliente, porUnidade]) => {
-        const unidades = Array.from(porUnidade.entries())
-          .map(([unidade, porBsp]) => {
-            const bsps = Array.from(porBsp.entries())
-              .map(([bsp, itens]) => ({
-                bsp, total: itens.reduce((a, p) => a + p.valor, 0),
-                itens: [...itens].sort((a, b) => b.data_ida.localeCompare(a.data_ida)),
-              }))
-              .sort((a, b) => b.total - a.total);
-            return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
-          })
-          .sort((a, b) => b.total - a.total);
-        return { cliente, total: unidades.reduce((a, u) => a + u.total, 0), unidades };
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [filtradas]);
-  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
-  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
-  const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
-  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
-    setter((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  };
-
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
   const exportarRelatorio = () => {
@@ -1201,11 +1402,19 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
       <Tabs defaultValue="solicitacoes">
         <TabsList>
           <TabsTrigger value="solicitacoes">Solicitações</TabsTrigger>
+          <TabsTrigger value="consolidado">Consolidado</TabsTrigger>
           <TabsTrigger value="internacionais">Relatório de Viagens</TabsTrigger>
         </TabsList>
 
         <TabsContent value="internacionais" className="mt-4">
           <RelatorioInternacionalTab passagens={passagens} />
+        </TabsContent>
+
+        <TabsContent value="consolidado" className="mt-4">
+          <ConsolidadoTab
+            passagens={passagens} periodosE={periodosE} unidadeOptions={unidadeOptions}
+            onEdit={(p) => { setEditing(p); setDialogOpen(true); }}
+          />
         </TabsContent>
 
         <TabsContent value="solicitacoes" className="mt-4 space-y-4">
@@ -1269,126 +1478,6 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
           </div>
         </div>
       </Card>
-
-      {consolidado.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex justify-end">
-            <Button
-              type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
-              onClick={() => {
-                const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
-                if (tudoAberto) {
-                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
-                  setCollapsedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
-                } else {
-                  setCollapsedClientes(new Set()); setCollapsedUnidades(new Set());
-                }
-              }}
-            >
-              {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
-                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
-              ) : (
-                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
-              )}
-            </Button>
-          </div>
-          <Card className="overflow-hidden">
-            {consolidado.map((c) => {
-              const clienteAberto = !collapsedClientes.has(c.cliente);
-              return (
-                <div key={c.cliente} className="border-b last:border-b-0">
-                  <button
-                    type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                    aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
-                  >
-                    <span className="flex min-w-0 items-center gap-2 font-semibold">
-                      {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                      <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{c.cliente}</span>
-                    </span>
-                    <span className="shrink-0 text-sm font-semibold">{fmtMoney(c.total)}</span>
-                  </button>
-                  {clienteAberto && c.unidades.map((u) => {
-                    const unidadeKey = `${c.cliente}::${u.unidade}`;
-                    const unidadeAberta = !collapsedUnidades.has(unidadeKey);
-                    return (
-                      <div key={unidadeKey}>
-                        <button
-                          type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
-                          aria-expanded={unidadeAberta} onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
-                        >
-                          <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
-                            {unidadeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                            <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{u.unidade}</span>
-                            {u.bsps.some((b) => b.bsp !== "Não informado") && (
-                              <span className="text-xs font-normal text-muted-foreground">({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)</span>
-                            )}
-                          </span>
-                          <span className="shrink-0 text-sm font-medium">{fmtMoney(u.total)}</span>
-                        </button>
-                        {unidadeAberta && u.bsps.map((b) => {
-                          if (b.bsp === "Não informado") {
-                            return (
-                              <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
-                                {b.itens.map((p) => (
-                                  <div
-                                    key={p.id} role="button" tabIndex={0} title="Clique para editar esta passagem"
-                                    className="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs hover:bg-emerald-100/60"
-                                    onClick={() => { setEditing(p); setDialogOpen(true); }}
-                                  >
-                                    <div className="min-w-0">
-                                      <p className="truncate font-medium">{p.nome_usuario}</p>
-                                      <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>
-                                    </div>
-                                    <span className="shrink-0 font-semibold">{fmtMoney(p.valor)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          }
-                          const bspKey = `${unidadeKey}::${b.bsp}`;
-                          const bspAberto = expandedBsps.has(bspKey);
-                          return (
-                            <div key={bspKey}>
-                              <button
-                                type="button" className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
-                                aria-expanded={bspAberto} onClick={() => toggleSet(setExpandedBsps, bspKey)}
-                              >
-                                <span className="flex min-w-0 items-center gap-2">
-                                  {bspAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                                  <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{b.bsp}</span>
-                                  <span className="text-xs font-normal text-muted-foreground">({b.itens.length})</span>
-                                </span>
-                                <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
-                              </button>
-                              {bspAberto && (
-                                <div className="divide-y border-t bg-emerald-50/40 pl-20">
-                                  {b.itens.map((p) => (
-                                    <div
-                                      key={p.id} role="button" tabIndex={0} title="Clique para editar esta passagem"
-                                      className="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs hover:bg-emerald-100/60"
-                                      onClick={() => { setEditing(p); setDialogOpen(true); }}
-                                    >
-                                      <div className="min-w-0">
-                                        <p className="truncate font-medium">{p.nome_usuario}</p>
-                                        <p className="text-muted-foreground">{p.origem ?? "—"} → {p.destino ?? "—"} · {fmt(p.data_ida)}{p.data_volta ? ` – ${fmt(p.data_volta)}` : ""}{p.motivo ? ` · ${p.motivo}` : ""}</p>
-                                      </div>
-                                      <span className="shrink-0 font-semibold">{fmtMoney(p.valor)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </Card>
-        </div>
-      )}
 
       <Card>
         <Table>
