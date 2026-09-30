@@ -10,6 +10,7 @@ import { RequirePasswordChange } from "@/components/ChangePassword";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppVersionWatcher } from "@/components/AppVersionWatcher";
+import { FlowTracker } from "@/components/FlowTracker";
 
 function NotFoundComponent() {
   return (
@@ -103,6 +104,7 @@ function RootComponent() {
                 <Outlet />
               </RequirePasswordChange>
               <AppVersionWatcher />
+              <FlowTracker />
               <Toaster richColors position="top-right" />
             </ViewAsProvider>
           </AuthProvider>
