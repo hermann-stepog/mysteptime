@@ -3694,6 +3694,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      flow_track_modulo_label: { Args: { t: string }; Returns: string }
       get_email_send_config: {
         Args: never
         Returns: {
