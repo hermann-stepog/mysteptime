@@ -887,52 +887,6 @@ export function PlanejamentoEmbarqueTab() {
   const registrarLog = useRegistrarLogPlanejamento();
   const { data: registros = [], isLoading } = usePlanejamentoEmbarqueQuery();
 
-  // Coluna "Função do Drake" (pedido dela, 2026-09-30) — só pra comparação visual com a Função
-  // digitada nesta tela; não altera nem sincroniza nada, é uma leitura à parte do cadastro do
-  // Drake, casada por matrícula. Normaliza removendo zeros à esquerda (mesmo critério já usado
-  // no filtro Offshore do Histograma) pra não perder o casamento por diferença de formatação.
-  //
-  // IMPORTANTE: matrícula NÃO é única em hist_novo_colaboradores — existem matrículas
-  // "placeholder" (ex.: "000002") repetidas em várias pessoas sem relação nenhuma entre si
-  // (confirmado com ela em 2026-09-30: matrícula 000002 aparece em 3 pessoas diferentes, uma
-  // delas o Airton). Por isso agrupa por matrícula num array de candidatos, em vez de um valor
-  // único, e resolve() abaixo desempata por nome antes de mostrar qualquer função — nunca chuta.
-  const { data: drakeCandidatosPorMatricula = new Map<string, { nome: string; funcao: string; ativo: boolean }[]>() } = useQuery({
-    queryKey: ["hist-novo-colaboradores-funcao-por-matricula"],
-    queryFn: async () => {
-      const rows = await selectAllPages<{ matricula: string | null; funcao: string | null; nome: string; ativo: boolean | null }>((from, to) =>
-        supabase.from("hist_novo_colaboradores").select("matricula, funcao, nome, ativo").range(from, to),
-      );
-      const m = new Map<string, { nome: string; funcao: string; ativo: boolean }[]>();
-      rows.forEach((r) => {
-        const norm = (r.matricula ?? "").trim().replace(/^0+(?=\d)/, "");
-        const funcao = r.funcao?.trim();
-        if (!norm || !funcao) return;
-        if (!m.has(norm)) m.set(norm, []);
-        m.get(norm)!.push({ nome: r.nome, funcao, ativo: !!r.ativo });
-      });
-      return m;
-    },
-  });
-
-  const normalizarNomeDrake = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase().replace(/\s+/g, " ").trim();
-
-  // Só devolve uma função quando tem certeza de qual colaborador é — matrícula sozinha pode ser
-  // ambígua (ver comentário acima). Critério, em ordem: (1) matrícula bate E nome bate → usa
-  // direto; (2) matrícula bate mas nome não bate em nenhum candidato (matrícula placeholder
-  // colidindo com gente sem relação) → não mostra nada, mostra "—", nunca a função de outra
-  // pessoa.
-  const resolverFuncaoDrake = (matricula: string | null, nomePlanejamento: string): string | null => {
-    const norm = (matricula ?? "").trim().replace(/^0+(?=\d)/, "");
-    if (!norm) return null;
-    const candidatos = drakeCandidatosPorMatricula.get(norm) ?? [];
-    if (candidatos.length === 0) return null;
-    if (candidatos.length === 1) return candidatos[0].funcao;
-    const nomeAlvo = normalizarNomeDrake(nomePlanejamento);
-    const porNome = candidatos.filter((c) => normalizarNomeDrake(c.nome) === nomeAlvo);
-    return porNome.length === 1 ? porNome[0].funcao : null;
-  };
-
   const [showImportar, setShowImportar] = useState(false);
   const [criando, setCriando] = useState(false);
   const [editing, setEditing] = useState<PlanejamentoEmbarqueRow | null>(null);
@@ -1250,7 +1204,6 @@ export function PlanejamentoEmbarqueTab() {
               <MultiSortableHead label="Unidade/Localização" column="unidade" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="BSP" column="bsp" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Função" column="funcao" sortRules={sortRules} onSort={toggleSort} />
-              <TableHead className="text-red-600 font-semibold">Função do Drake</TableHead>
               <MultiSortableHead label="Status" column="status" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Embarque" column="embarque" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Duração (dias)" column="duracao" sortRules={sortRules} onSort={toggleSort} />
@@ -1293,9 +1246,6 @@ export function PlanejamentoEmbarqueTab() {
                 <TableCell><TextoPlanejamentoCell valor={r.unidade} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { unidade: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Unidade", r.unidade, v || null) })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.bsp} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { bsp: v || null }, descricao: descricaoEdicaoCampo(r.nome, "BSP", r.bsp, v || null) })} /></TableCell>
                 <TableCell><TextoPlanejamentoCell valor={r.funcao} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { funcao: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Função", r.funcao, v || null) })} /></TableCell>
-                <TableCell className="font-semibold text-red-600">
-                  {resolverFuncaoDrake(r.matricula, r.nome) ?? "—"}
-                </TableCell>
                 <TableCell><SelectPlanejamentoCell valor={r.status} opcoes={statusExistentes} onSave={(v) => updateCampo.mutate({ id: r.id, patch: { status: v || null }, descricao: descricaoEdicaoCampo(r.nome, "Status", r.status, v || null) })} /></TableCell>
                 <TableCell>
                   <DataPlanejamentoCell
@@ -1345,7 +1295,7 @@ export function PlanejamentoEmbarqueTab() {
                 </TableCell>
               </TableRow>
             ))}
-            {linhas.length === 0 && <EmptyStateRow colSpan={18} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
+            {linhas.length === 0 && <EmptyStateRow colSpan={17} icon={Users} title="Nenhum registro encontrado" description="Importe uma planilha ou ajuste os filtros de busca." />}
           </TableBody>
         </Table>
       </Card>
