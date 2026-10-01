@@ -1384,6 +1384,96 @@ export type Database = {
           },
         ]
       }
+      flow_track_events: {
+        Row: {
+          acao: string
+          created_at: string
+          detalhe: string | null
+          dispositivo: string | null
+          duracao_ms: number | null
+          id: string
+          modulo: string | null
+          registro: string | null
+          session_id: string | null
+          tela: string | null
+          user_id: string
+          user_name: string | null
+          user_role: string | null
+        }
+        Insert: {
+          acao: string
+          created_at?: string
+          detalhe?: string | null
+          dispositivo?: string | null
+          duracao_ms?: number | null
+          id?: string
+          modulo?: string | null
+          registro?: string | null
+          session_id?: string | null
+          tela?: string | null
+          user_id?: string
+          user_name?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          acao?: string
+          created_at?: string
+          detalhe?: string | null
+          dispositivo?: string | null
+          duracao_ms?: number | null
+          id?: string
+          modulo?: string | null
+          registro?: string | null
+          session_id?: string | null
+          tela?: string | null
+          user_id?: string
+          user_name?: string | null
+          user_role?: string | null
+        }
+        Relationships: []
+      }
+      flow_track_presence: {
+        Row: {
+          dispositivo: string | null
+          last_seen: string
+          modulo: string | null
+          sessao_inicio: string
+          session_id: string | null
+          tela: string | null
+          ultima_acao: string | null
+          ultima_acao_em: string | null
+          user_id: string
+          user_name: string | null
+          user_role: string | null
+        }
+        Insert: {
+          dispositivo?: string | null
+          last_seen?: string
+          modulo?: string | null
+          sessao_inicio?: string
+          session_id?: string | null
+          tela?: string | null
+          ultima_acao?: string | null
+          ultima_acao_em?: string | null
+          user_id?: string
+          user_name?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          dispositivo?: string | null
+          last_seen?: string
+          modulo?: string | null
+          sessao_inicio?: string
+          session_id?: string | null
+          tela?: string | null
+          ultima_acao?: string | null
+          ultima_acao_em?: string | null
+          user_id?: string
+          user_name?: string | null
+          user_role?: string | null
+        }
+        Relationships: []
+      }
       hist_novo_colaboradores: {
         Row: {
           ativo: boolean
@@ -3604,6 +3694,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      flow_track_modulo_label: { Args: { t: string }; Returns: string }
       get_email_send_config: {
         Args: never
         Returns: {

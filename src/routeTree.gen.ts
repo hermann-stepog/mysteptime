@@ -38,6 +38,7 @@ import { Route as AdminNominationsRouteImport } from './routes/admin/nominations
 import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
 import { Route as AdminHospedagemRouteImport } from './routes/admin/hospedagem'
 import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
+import { Route as AdminFlowTrackRouteImport } from './routes/admin/flow-track'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
 import { Route as AdminBmRouteImport } from './routes/admin/bm'
@@ -193,6 +194,11 @@ const AdminHistogramaNovoRoute = AdminHistogramaNovoRouteImport.update({
   path: '/histograma-novo',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminFlowTrackRoute = AdminFlowTrackRouteImport.update({
+  id: '/flow-track',
+  path: '/flow-track',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminCostsRoute = AdminCostsRouteImport.update({
   id: '/costs',
   path: '/costs',
@@ -250,6 +256,7 @@ export interface FileRoutesByFullPath {
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
+  '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
@@ -286,6 +293,7 @@ export interface FileRoutesByTo {
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
+  '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
@@ -326,6 +334,7 @@ export interface FileRoutesById {
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
   '/admin/costs': typeof AdminCostsRoute
+  '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
   '/admin/hospedagem': typeof AdminHospedagemRoute
   '/admin/materials': typeof AdminMaterialsRoute
@@ -367,6 +376,7 @@ export interface FileRouteTypes {
     | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
+    | '/admin/flow-track'
     | '/admin/histograma-novo'
     | '/admin/hospedagem'
     | '/admin/materials'
@@ -403,6 +413,7 @@ export interface FileRouteTypes {
     | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
+    | '/admin/flow-track'
     | '/admin/histograma-novo'
     | '/admin/hospedagem'
     | '/admin/materials'
@@ -442,6 +453,7 @@ export interface FileRouteTypes {
     | '/admin/bm'
     | '/admin/collaborators'
     | '/admin/costs'
+    | '/admin/flow-track'
     | '/admin/histograma-novo'
     | '/admin/hospedagem'
     | '/admin/materials'
@@ -689,6 +701,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminHistogramaNovoRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/flow-track': {
+      id: '/admin/flow-track'
+      path: '/flow-track'
+      fullPath: '/admin/flow-track'
+      preLoaderRoute: typeof AdminFlowTrackRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/costs': {
       id: '/admin/costs'
       path: '/costs'
@@ -753,6 +772,7 @@ interface AdminRouteRouteChildren {
   AdminBmRoute: typeof AdminBmRoute
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
   AdminCostsRoute: typeof AdminCostsRoute
+  AdminFlowTrackRoute: typeof AdminFlowTrackRoute
   AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
   AdminHospedagemRoute: typeof AdminHospedagemRoute
   AdminMaterialsRoute: typeof AdminMaterialsRoute
@@ -773,6 +793,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminBmRoute: AdminBmRoute,
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
   AdminCostsRoute: AdminCostsRoute,
+  AdminFlowTrackRoute: AdminFlowTrackRoute,
   AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,
   AdminHospedagemRoute: AdminHospedagemRoute,
   AdminMaterialsRoute: AdminMaterialsRoute,

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { trackFlowEvent, resetFlowSession } from "@/lib/flowTrack";
 
 export type AppRole =
   | "pending" | "collaborator" | "logistics_operator" | "pm" | "visitante"
@@ -69,7 +70,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn: AuthCtx["signIn"] = async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    resetFlowSession();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error && data.user) {
+      const uid = data.user.id;
+      Promise.all([
+        supabase.from("user_roles").select("role").eq("user_id", uid).maybeSingle(),
+        supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
+      ]).then(([r, p]) => trackFlowEvent({ id: uid, name: (p.data as any)?.full_name ?? email, role: (r.data as any)?.role ?? null }, "login", { tela: "/auth", modulo: "Login" }));
+    }
     return { error: error?.message ?? null };
   };
 
@@ -86,7 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    if (user) {
+      const fu = { id: user.id, name: profile?.full_name ?? profile?.email ?? null, role };
+      await trackFlowEvent(fu, "logout");
+      await (supabase as any).from("flow_track_presence").update({ last_seen: new Date(0).toISOString(), ultima_acao: "Saída" }).eq("user_id", user.id);
+    }
     await supabase.auth.signOut();
+    resetFlowSession();
     setRole(null);
     setProfile(null);
   };
