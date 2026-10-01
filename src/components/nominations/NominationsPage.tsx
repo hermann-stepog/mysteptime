@@ -3194,10 +3194,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         </TabsContent>
 
         <TabsContent value="linha-tempo" className="pt-3">
-          {/* Nomeações completas, não as filtradas pelo período De/Até do Mapa acima — a Linha
-             do Tempo mostra o horizonte inteiro do que já está planejado, pra comparar com a
-             mão de obra disponível nos próximos meses, não só nos 2 meses padrão do Mapa. */}
-          <LinhaDoTempoNomeacoesTab nominations={nominations} />
+          <LinhaDoTempoNomeacoesTab />
         </TabsContent>
       </Tabs>
 
@@ -3251,35 +3248,253 @@ interface LinhaDemanda {
   end: string;
 }
 
-function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }) {
+// Caldeireiro, Tubista e Mecânico contam numa linha só na Linha do Tempo (pedido dela,
+// 2026-10-01) — só nessa aba (Provisão/Disponibilidade por Função), não mexe em
+// normalizeFuncaoSemNivel nem em nenhum outro painel que o reaproveita (Equipes Embarcadas etc.).
+const FAMILIA_CALDEIREIRO_TUBISTA_MECANICO = new Set(["CALDEIREIRO", "TUBISTA", "MECANICO", "MECÂNICO"]);
+function agruparFamiliaFuncaoLinhaTempo(funcaoNormalizada: string): string {
+  return FAMILIA_CALDEIREIRO_TUBISTA_MECANICO.has(funcaoNormalizada)
+    ? "CALDEIREIRO / TUBISTA / MECÂNICO"
+    : funcaoNormalizada;
+}
+
+// Demanda real trazida do planejamento manual dela ("Planejamento de Mão de Obra",
+// planejamento_mo_step_v31.html — pedido dela, 2026-10-01): cada linha é uma necessidade de
+// função num projeto/BSP, com janela de datas. Substitui a demanda antes calculada a partir das
+// Nomeações nesta aba específica (Provisão) — Disponibilidade continua vindo do Planejamento de
+// Embarque, sem mudança. "unidade" aqui é o nome do projeto, só para não duplicar linhas da
+// mesma função+projeto+período; a grade final agrupa só por Função, como já era.
+const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: string; end: string }[] = [
+  { unidade: "MSI/CDV", funcao: "IRATA N3", qtd: 1, start: "2026-07-28", end: "2026-08-01" },
+  { unidade: "MSI/CDV", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-07-28", end: "2026-08-01" },
+  { unidade: "MSI/CDV", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-07-28", end: "2026-08-01" },
+  { unidade: "MSI/CDV", funcao: "FITTER", qtd: 1, start: "2026-03-01", end: "2026-12-31" },
+  { unidade: "MSI/CDV", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-03-01", end: "2026-12-31" },
+  { unidade: "ATLANTA", funcao: "SUPERVISOR", qtd: 1, start: "2026-08-08", end: "2026-09-10" },
+  { unidade: "ATLANTA", funcao: "FITTER", qtd: 2, start: "2026-08-08", end: "2026-09-10" },
+  { unidade: "ATLANTA", funcao: "MONTADOR DE ANDAIME", qtd: 0, start: "2026-08-08", end: "2026-09-10" },
+  { unidade: "ATLANTA", funcao: "WELDER", qtd: 2, start: "2026-08-08", end: "2026-09-10" },
+  { unidade: "ATLANTA", funcao: "INSPETOR", qtd: 1, start: "2026-08-08", end: "2026-09-10" },
+  { unidade: "ATLANTA", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-08-08", end: "2026-09-10" },
+  { unidade: "PERENCO (PCH-2)", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-04-01", end: "2026-10-30" },
+  { unidade: "PERENCO (PCH-2)", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-04-01", end: "2026-10-30" },
+  { unidade: "PERENCO (PCH-2)", funcao: "IRATA N3", qtd: 1, start: "2026-04-01", end: "2026-10-30" },
+  { unidade: "FORTE", funcao: "INSPETOR", qtd: 1, start: "2026-08-15", end: "2026-12-31" },
+  { unidade: "FORTE", funcao: "WELDER", qtd: 10, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "FORTE", funcao: "SUPERVISOR", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "BRAVO", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-01", end: "2028-01-01" },
+  { unidade: "BRAVO", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-11-01", end: "2028-01-01" },
+  { unidade: "BRAVO", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-11-01", end: "2028-01-01" },
+  { unidade: "BRAVO", funcao: "IRATA N3", qtd: 1, start: "2026-11-01", end: "2028-01-01" },
+  { unidade: "ADG", funcao: "IRATA N3", qtd: 1, start: "2026-05-07", end: "2026-10-30" },
+  { unidade: "ADG", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-05-07", end: "2026-10-30" },
+  { unidade: "ADG", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-05-07", end: "2026-10-30" },
+  { unidade: "ILHA BELLA CONTRATO", funcao: "IRATA N3", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "ILHA BELLA CONTRATO", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "ILHA BELLA CONTRATO", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "ILHA BELLA CONTRATO", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "PARATY CONTRATO", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-06-01", end: "2026-12-31" },
+  { unidade: "PARATY CONTRATO", funcao: "IRATA N3", qtd: 1, start: "2026-06-01", end: "2026-12-31" },
+  { unidade: "PARATY CONTRATO", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-06-01", end: "2026-12-31" },
+  { unidade: "ADG", funcao: "SUPERVISOR", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "ADG", funcao: "DECK FOREMAN", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "ADG", funcao: "RIGGER", qtd: 3, start: "2026-07-01", end: "2026-12-31" },
+  { unidade: "SD SAQUAREMA", funcao: "SUPERVISOR", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
+  { unidade: "SD SAQUAREMA", funcao: "FITTER", qtd: 25, start: "2026-07-21", end: "2026-07-30" },
+  { unidade: "SD SAQUAREMA", funcao: "WELDER", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
+  { unidade: "SD SAQUAREMA", funcao: "IRATA N3", qtd: 1, start: "2026-07-21", end: "2026-07-30" },
+  { unidade: "SD SAQUAREMA", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
+  { unidade: "SD SAQUAREMA", funcao: "INSPETOR", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
+  { unidade: "SD SAQUAREMA", funcao: "OPERADOR DE HABITAT", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
+  { unidade: "SD SEPETIBA", funcao: "SUPERVISOR", qtd: 2, start: "2026-09-21", end: "2026-10-02" },
+  { unidade: "SD SEPETIBA", funcao: "FITTER", qtd: 20, start: "2026-09-21", end: "2026-10-02" },
+  { unidade: "SD SEPETIBA", funcao: "WELDER", qtd: 2, start: "2026-09-21", end: "2026-10-02" },
+  { unidade: "SD SEPETIBA", funcao: "IRATA N3", qtd: 3, start: "2026-09-21", end: "2026-10-02" },
+  { unidade: "SD SEPETIBA", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-09-21", end: "2026-10-02" },
+  { unidade: "SD SEPETIBA", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-09-21", end: "2026-10-02" },
+  { unidade: "SD SEPETIBA", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-09-21", end: "2026-10-02" },
+  { unidade: "SD ANA NERY", funcao: "SUPERVISOR", qtd: 2, start: "2026-07-01", end: "2026-07-10" },
+  { unidade: "SD ANA NERY", funcao: "FITTER", qtd: 8, start: "2026-07-01", end: "2026-07-10" },
+  { unidade: "SD ANA NERY", funcao: "WELDER", qtd: 4, start: "2026-07-01", end: "2026-07-10" },
+  { unidade: "SD ANA NERY", funcao: "OPERADOR DE HABITAT", qtd: 4, start: "2026-07-01", end: "2026-07-10" },
+  { unidade: "SD ANA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-07-01", end: "2026-07-10" },
+  { unidade: "POB INCREASE", funcao: "SUPERVISOR", qtd: 1, start: "2026-04-01", end: "2026-09-30" },
+  { unidade: "POB INCREASE", funcao: "FITTER", qtd: 3, start: "2026-04-01", end: "2026-09-30" },
+  { unidade: "POB INCREASE", funcao: "WELDER", qtd: 1, start: "2026-04-01", end: "2026-09-30" },
+  { unidade: "SD ADG", funcao: "SUPERVISOR", qtd: 2, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "SD ADG", funcao: "WELDER", qtd: 3, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "SD ADG", funcao: "FITTER", qtd: 22, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "SD ADG", funcao: "INSPETOR", qtd: 1, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "SD ADG", funcao: "OPERADOR DE HABITAT", qtd: 3, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "SD ADG", funcao: "IRATA N3", qtd: 1, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "SD ADG", funcao: "FITTER IRATA N1", qtd: 6, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "SD ADG", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-10-20", end: "2026-10-30" },
+  { unidade: "BW", funcao: "IRATA N3", qtd: 1, start: "2026-07-28", end: "2026-08-01" },
+  { unidade: "BW", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-07-28", end: "2026-08-01" },
+  { unidade: "ATD", funcao: "SUPERVISOR MECANICA", qtd: 1, start: "2026-05-17", end: "2026-08-30" },
+  { unidade: "ATD", funcao: "MECANICO", qtd: 2, start: "2026-05-21", end: "2026-08-30" },
+  { unidade: "ATD", funcao: "SUPERVISOR INSTRUMENTAÇÃO", qtd: 1, start: "2026-05-22", end: "2026-08-30" },
+  { unidade: "ATD", funcao: "INSTRUMENTISTA", qtd: 2, start: "2026-05-29", end: "2026-08-30" },
+  { unidade: "SD ILHA BELA", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ILHA BELA", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ILHA BELA", funcao: "IRATA N3", qtd: 2, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ILHA BELA", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ILHA BELA", funcao: "WELDER IRATA N1", qtd: 4, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ILHA BELA", funcao: "FITTER", qtd: 20, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ILHA BELA", funcao: "INSPETOR", qtd: 2, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ILHA BELA", funcao: "OPERADOR DE HABITAT", qtd: 2, start: "2026-11-15", end: "2026-11-30" },
+  { unidade: "SD ANCHIETA", funcao: "SUPERVISOR", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ANCHIETA", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ANCHIETA", funcao: "IRATA N3", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ANCHIETA", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ANCHIETA", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ANCHIETA", funcao: "FITTER", qtd: 16, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ANCHIETA", funcao: "INSPETOR", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ANCHIETA", funcao: "OPERADOR DE HABITAT", qtd: 3, start: "2026-09-18", end: "2026-10-05" },
+  { unidade: "SD ESPIRITO SANTO", funcao: "SUPERVISOR", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
+  { unidade: "SD ESPIRITO SANTO", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
+  { unidade: "SD ESPIRITO SANTO", funcao: "IRATA N3", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
+  { unidade: "SD ESPIRITO SANTO", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-09-15", end: "2026-10-05" },
+  { unidade: "SD ESPIRITO SANTO", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
+  { unidade: "SD ESPIRITO SANTO", funcao: "FITTER", qtd: 8, start: "2026-09-15", end: "2026-10-05" },
+  { unidade: "SD PARATY", funcao: "SUPERVISOR", qtd: 2, start: "2027-03-01", end: "2027-03-15" },
+  { unidade: "SD PARATY", funcao: "FITTER", qtd: 20, start: "2027-03-01", end: "2027-03-15" },
+  { unidade: "SD PARATY", funcao: "WELDER", qtd: 2, start: "2027-03-01", end: "2027-03-15" },
+  { unidade: "SD PARATY", funcao: "IRATA N3", qtd: 3, start: "2027-03-01", end: "2027-03-15" },
+  { unidade: "SD PARATY", funcao: "FITTER IRATA N1", qtd: 4, start: "2027-03-01", end: "2027-03-15" },
+  { unidade: "SD PARATY", funcao: "WELDER IRATA N1", qtd: 2, start: "2027-03-01", end: "2027-03-15" },
+  { unidade: "SD PARATY", funcao: "OPERADOR DE HABITAT", qtd: 3, start: "2027-03-01", end: "2027-03-15" },
+  { unidade: "SD MARIA QUITÉRIA", funcao: "SUPERVISOR", qtd: 2, start: "2026-11-13", end: "2026-11-30" },
+  { unidade: "SD MARIA QUITÉRIA", funcao: "FITTER", qtd: 8, start: "2026-11-13", end: "2026-11-30" },
+  { unidade: "SD MARIA QUITÉRIA", funcao: "WELDER", qtd: 4, start: "2026-11-13", end: "2026-11-30" },
+  { unidade: "SD MARIA QUITÉRIA", funcao: "OPERADOR DE HABITAT", qtd: 4, start: "2026-11-13", end: "2026-11-30" },
+  { unidade: "SD MARIA QUITÉRIA", funcao: "INSPETOR", qtd: 1, start: "2026-11-13", end: "2026-11-30" },
+  { unidade: "ANNA NERY", funcao: "SUPERVISOR", qtd: 1, start: "2026-08-18", end: "2026-08-30" },
+  { unidade: "ANNA NERY", funcao: "FITTER", qtd: 1, start: "2026-08-18", end: "2026-08-30" },
+  { unidade: "ANNA NERY", funcao: "WELDER", qtd: 1, start: "2026-08-18", end: "2026-08-30" },
+  { unidade: "ANNA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-08-18", end: "2026-08-30" },
+  { unidade: "ANNA NERY", funcao: "SUPERVISOR", qtd: 1, start: "2026-09-17", end: "2026-09-30" },
+  { unidade: "ANNA NERY", funcao: "FITTER", qtd: 1, start: "2026-09-17", end: "2026-09-30" },
+  { unidade: "ANNA NERY", funcao: "WELDER", qtd: 1, start: "2026-09-17", end: "2026-09-30" },
+  { unidade: "ANNA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-09-17", end: "2026-09-30" },
+  { unidade: "ANNA NERY", funcao: "SUPERVISOR", qtd: 1, start: "2026-10-13", end: "2026-10-25" },
+  { unidade: "ANNA NERY", funcao: "FITTER", qtd: 1, start: "2026-10-13", end: "2026-10-25" },
+  { unidade: "ANNA NERY", funcao: "WELDER", qtd: 1, start: "2026-10-13", end: "2026-10-25" },
+  { unidade: "ANNA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-10-13", end: "2026-10-25" },
+  { unidade: "ANNA NERY", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-14", end: "2026-11-23" },
+  { unidade: "ANNA NERY", funcao: "FITTER", qtd: 1, start: "2026-11-14", end: "2026-11-23" },
+  { unidade: "ANNA NERY", funcao: "WELDER", qtd: 1, start: "2026-11-14", end: "2026-11-23" },
+  { unidade: "ANNA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-11-14", end: "2026-11-23" },
+  { unidade: "ANNA NERY", funcao: "SUPERVISOR", qtd: 1, start: "2026-12-10", end: "2026-12-20" },
+  { unidade: "ANNA NERY", funcao: "FITTER", qtd: 1, start: "2026-12-10", end: "2026-12-20" },
+  { unidade: "ANNA NERY", funcao: "WELDER", qtd: 1, start: "2026-12-10", end: "2026-12-20" },
+  { unidade: "ANNA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-12-10", end: "2026-12-20" },
+  { unidade: "CDI - EQUIPAMENTOS", funcao: "SUPERVISOR", qtd: 2, start: "2026-08-12", end: "2026-08-30" },
+  { unidade: "CDI - EQUIPAMENTOS", funcao: "FITTER", qtd: 6, start: "2026-08-12", end: "2026-08-30" },
+  { unidade: "POB INCREASE (flotel)", funcao: "SUPERVISOR", qtd: 4, start: "2026-10-15", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "WELDER", qtd: 5, start: "2026-10-15", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "FITTER", qtd: 10, start: "2026-10-15", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "IRATA N3", qtd: 2, start: "2026-10-15", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-10-15", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-10-15", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "INSPETOR", qtd: 2, start: "2026-10-15", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "DELINEADOR 3D", qtd: 1, start: "2026-10-14", end: "2026-12-24" },
+  { unidade: "POB INCREASE (flotel)", funcao: "PINTORES", qtd: 2, start: "2026-10-10", end: "2026-10-20" },
+  { unidade: "PERENCO - EQUIPE 2 (PCH1)", funcao: "IRATA N3", qtd: 1, start: "2026-10-15", end: "2026-12-31" },
+  { unidade: "PERENCO - EQUIPE 2 (PCH1)", funcao: "FITTER IRATA N1", qtd: 3, start: "2026-10-15", end: "2026-12-31" },
+  { unidade: "PERENCO - EQUIPE 2 (PCH1)", funcao: "WELDER IRATA N1", qtd: 3, start: "2026-10-15", end: "2026-12-31" },
+  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-01", end: "2026-12-31" },
+  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "FITTER", qtd: 3, start: "2026-11-01", end: "2026-12-31" },
+  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "WELDER", qtd: 3, start: "2026-11-01", end: "2026-12-31" },
+  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "INSPETOR", qtd: 1, start: "2026-11-01", end: "2026-12-31" },
+  { unidade: "CVIT", funcao: "IRATA N3", qtd: 1, start: "2026-08-21", end: "2026-09-01" },
+  { unidade: "CVIT", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-08-21", end: "2026-09-01" },
+  { unidade: "CVIT", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-08-21", end: "2026-09-01" },
+  { unidade: "BW MAGNA", funcao: "SUPERVISOR", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
+  { unidade: "BW MAGNA", funcao: "FITTER", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
+  { unidade: "BW MAGNA", funcao: "WELDER", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
+  { unidade: "BW MAGNA", funcao: "INSPETOR", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
+  { unidade: "BW MAGNA", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
+  { unidade: "FORTE - MOB EXTRA", funcao: "SUPERVISOR", qtd: 1, start: "2026-08-31", end: "2026-09-07" },
+  { unidade: "FORTE - MOB EXTRA", funcao: "FITTER", qtd: 7, start: "2026-08-31", end: "2026-09-07" },
+  { unidade: "FORTE - MOB EXTRA", funcao: "WELDER", qtd: 7, start: "2026-08-31", end: "2026-09-07" },
+  { unidade: "FORTE - MOB EXTRA", funcao: "INSPETOR", qtd: 1, start: "2026-08-31", end: "2026-09-07" },
+  { unidade: "PARATY - TANQUE", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
+  { unidade: "PARATY - TANQUE", funcao: "IRATA N3", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
+  { unidade: "PARATY - TANQUE", funcao: "FITTER", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
+  { unidade: "PARATY - TANQUE", funcao: "WELDER", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
+  { unidade: "PARATY - TANQUE", funcao: "INSPETOR", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
+  { unidade: "PERENCO - PPG1", funcao: "SUPERVISOR", qtd: 1, start: "2026-10-30", end: "2026-11-30" },
+  { unidade: "PERENCO - PPG1", funcao: "MONTADOR ANDAIME", qtd: 2, start: "2026-10-30", end: "2026-11-15" },
+  { unidade: "PERENCO - PPG1", funcao: "FITTER", qtd: 3, start: "2026-10-30", end: "2026-11-30" },
+  { unidade: "PERENCO - PPG1", funcao: "WELDER", qtd: 1, start: "2026-10-30", end: "2026-11-30" },
+  { unidade: "PERENCO - PPG1", funcao: "INSPETOR", qtd: 1, start: "2026-10-30", end: "2026-11-30" },
+  { unidade: "PERENCO - PPG1", funcao: "SUPERVISOR ELÉTRICA", qtd: 1, start: "2026-11-10", end: "2026-12-10" },
+  { unidade: "PERENCO - PPG1", funcao: "ELETRICISTA", qtd: 1, start: "2026-11-10", end: "2026-12-10" },
+  { unidade: "P-55 ATLAS COPCO", funcao: "SUPERVISOR", qtd: 1, start: "2026-10-02", end: "2026-10-16" },
+  { unidade: "P-55 ATLAS COPCO", funcao: "INSPETOR", qtd: 1, start: "2026-10-02", end: "2026-10-16" },
+  { unidade: "P-55 ATLAS COPCO", funcao: "FITTER", qtd: 6, start: "2026-10-02", end: "2026-10-16" },
+  { unidade: "P-55 ATLAS COPCO", funcao: "WELDER", qtd: 2, start: "2026-10-02", end: "2026-10-16" },
+  { unidade: "ATLANTA", funcao: "IRATA N3", qtd: 1, start: "2026-10-05", end: "2026-12-31" },
+  { unidade: "ATLANTA", funcao: "FITTER", qtd: 6, start: "2026-10-05", end: "2026-12-31" },
+  { unidade: "ATLANTA", funcao: "WELDER", qtd: 1, start: "2026-10-05", end: "2026-12-31" },
+  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-10", end: "2026-11-20" },
+  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "FITTER", qtd: 2, start: "2026-11-10", end: "2026-11-20" },
+  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "WELDER", qtd: 2, start: "2026-11-10", end: "2026-11-20" },
+  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "INSPETOR", qtd: 1, start: "2026-11-10", end: "2026-11-20" },
+  { unidade: "FABRICA", funcao: "FITTER", qtd: 14, start: "2026-09-01", end: "2026-12-31" },
+  { unidade: "FABRICA", funcao: "WELDER", qtd: 22, start: "2026-09-01", end: "2026-12-31" },
+  { unidade: "FABRICA", funcao: "FITTER", qtd: 4, start: "2026-09-01", end: "2026-12-31" },
+  { unidade: "BRASFELS", funcao: "FITTER", qtd: 28, start: "2026-09-01", end: "2026-11-01" },
+  { unidade: "BRASFELS", funcao: "WELDER", qtd: 22, start: "2026-09-01", end: "2026-11-01" },
+  { unidade: "BRASFELS", funcao: "FITTER", qtd: 8, start: "2026-09-01", end: "2026-11-01" },
+];
+
+// Tradução dos termos em inglês usados no planejamento manual (Provisão) pros termos em
+// português usados no Planejamento de Embarque (Disponibilidade) — confirmado com ela em
+// 2026-10-01: WELDER = Soldador, FITTER = Caldeireiro, IRATA N3 (standalone, sem ofício
+// amarrado) = Supervisor Escalador N3 (nível mais alto de acesso por corda = nível de
+// supervisão), e Montador de Andaime + Operador de Habitat viram uma função só, "Montador de
+// Andaimes / Habitat", igual já é tratada no Planejamento de Embarque. Sem isso, as duas
+// tabelas nunca combinavam (cada uma usava um nome diferente pra mesma função). Troca só a
+// palavra-base, preservando sufixo tipo "IRATA" já tratado por normalizeFuncaoSemNivel (ex.:
+// "FITTER IRATA" -> "CALDEIREIRO IRATA"). "PINTORES" é só diferença de plural dentro do
+// próprio arquivo em inglês, não tradução.
+const TRADUCAO_FUNCAO_PROVISAO: Record<string, string> = {
+  "WELDER": "SOLDADOR",
+  "FITTER": "CALDEIREIRO",
+  "PINTORES": "PINTOR",
+  "IRATA": "SUPERVISOR ESCALADOR",
+  "MONTADOR ANDAIME": "MONTADOR DE ANDAIMES / HABITAT",
+  "MONTADOR DE ANDAIME": "MONTADOR DE ANDAIMES / HABITAT",
+  "OPERADOR DE HABITAT": "MONTADOR DE ANDAIMES / HABITAT",
+};
+function traduzirFuncaoProvisao(funcaoNormalizada: string): string {
+  for (const [de, para] of Object.entries(TRADUCAO_FUNCAO_PROVISAO)) {
+    if (funcaoNormalizada === de) return para;
+    if (funcaoNormalizada.startsWith(de + " ")) return para + funcaoNormalizada.slice(de.length);
+  }
+  return funcaoNormalizada;
+}
+
+function LinhaDoTempoNomeacoesTab() {
   const [gran, setGran] = useState<LinhaDoTempoGranularidade>("semana");
   const hoje = todayStr();
 
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
 
-  // Só entra quem tem início e fim programados (sem isso não dá pra desenhar na linha do
-  // tempo) e não foi cancelada — uma nomeação cancelada não é mais demanda de verdade.
-  const validas = useMemo(
-    () => nominations.filter((n) => n.period_start && n.period_end && n.outcome !== "cancelada"),
-    [nominations],
-  );
-
   const linhasDemanda = useMemo<LinhaDemanda[]>(() => {
     const m = new Map<string, LinhaDemanda>();
-    validas.forEach((n) => {
-      const unidade = n.unidade?.trim() || "Sem unidade";
-      // Normaliza sem nível/IRATA (mesma convenção do painel de Disponibilidade ao lado) —
-      // senão "WELDER" e "WELDER IRATA N1" apareciam como linhas de demanda separadas que não
-      // batiam com a mesma linha "WELDER" já normalizada em Disponibilidade, impossibilitando
-      // comparar demanda x disponibilidade função a função. Junta nomeações da MESMA
-      // Unidade+função normalizada e MESMO período exato numa só linha, somando a quantidade.
-      const funcaoNormalizada = normalizeFuncaoSemNivel(n.funcao);
-      const key = `${unidade}::${funcaoNormalizada}::${n.period_start}::${n.period_end}`;
-      if (!m.has(key)) m.set(key, { unidade, funcao: funcaoNormalizada, qtd: 0, start: n.period_start!, end: n.period_end! });
-      m.get(key)!.qtd += n.quantidade;
+    PROVISAO_REAL.forEach((r) => {
+      // Junta linhas da MESMA Unidade(projeto)+função normalizada e MESMO período exato numa só
+      // linha, somando a quantidade — mesma convenção de dedupe já usada antes com Nomeações.
+      const funcaoNormalizada = agruparFamiliaFuncaoLinhaTempo(traduzirFuncaoProvisao(normalizeFuncaoSemNivel(r.funcao)));
+      const key = `${r.unidade}::${funcaoNormalizada}::${r.start}::${r.end}`;
+      if (!m.has(key)) m.set(key, { unidade: r.unidade, funcao: funcaoNormalizada, qtd: 0, start: r.start, end: r.end });
+      m.get(key)!.qtd += r.qtd;
     });
     return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade, "pt-BR") || a.funcao.localeCompare(b.funcao, "pt-BR"));
-  }, [validas]);
+  }, []);
 
   const horizonte = useMemo(() => {
     if (linhasDemanda.length === 0) return null;
@@ -3294,7 +3509,10 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
   const dias = useMemo(() => (horizonte ? generateDateRange(horizonte.inicio, horizonte.fim) : []), [horizonte]);
 
   const periodos = useMemo(() => {
-    if (gran === "dia") return dias.map((d) => ({ label: fmtDate(d).slice(0, 5), dias: [d] }));
+    // Granularidade "Dia" começa sempre em hoje (pedido dela, 2026-10-01) — dias passados não
+    // interessam pra visualizar provisão/disponibilidade dia a dia; Semana/Mês continuam
+    // mostrando o horizonte inteiro.
+    if (gran === "dia") return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDate(d).slice(0, 5), dias: [d] }));
     if (gran === "mes") {
       const m = new Map<string, string[]>();
       dias.forEach((d) => {
@@ -3337,7 +3555,7 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
     const porFuncao = new Map<string, PlanejamentoEmbarqueRow[]>();
     planejamentoEmbarque.forEach((r) => {
       if (!r.funcao?.trim()) return;
-      const f = normalizeFuncaoSemNivel(r.funcao);
+      const f = agruparFamiliaFuncaoLinhaTempo(normalizeFuncaoSemNivel(r.funcao));
       if (!porFuncao.has(f)) porFuncao.set(f, []);
       porFuncao.get(f)!.push(r);
     });
@@ -3386,7 +3604,7 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
     if (demanda <= 0) {
       return qtd > 0
         ? { backgroundColor: "#12A277", color: "white", fontWeight: 700 as const, label: String(qtd) }
-        : { backgroundColor: "#f1f5f9", label: "" };
+        : { label: "" };
     }
     const folga = qtd - demanda;
     if (folga < 0) return { backgroundColor: "#DC2626", color: "white", fontWeight: 700 as const, label: String(qtd) };
@@ -3395,6 +3613,19 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
     return { backgroundColor: "#12A277", color: "white", fontWeight: 700 as const, label: String(qtd) };
   };
 
+  // Visual emprestado do mockup de referência dela ("Planejamento de Mão de Obra", 2026-10-01):
+  // cabeçalho azul-marinho, coluna de hoje marcada por um friso lateral laranja (em vez de
+  // preenchimento sólido) e zebra discreta nas linhas. Só a aparência muda — a lógica de
+  // comparação Provisão × Disponibilidade acima continua exatamente igual.
+  const HEADER_BG = "#1C5A96";
+  const HOJE_ACCENT = "#D85A30";
+  const ZEBRA_BG = "#F3F8FD";
+  const headerCellStyle = (isHoje: boolean) => ({
+    backgroundColor: HEADER_BG, color: "#fff",
+    ...(isHoje ? { boxShadow: `inset 0 -3px 0 ${HOJE_ACCENT}` } : {}),
+  });
+  const hojeShadow = (isHoje: boolean) => (isHoje ? { boxShadow: `inset 2px 0 0 ${HOJE_ACCENT}` } : {});
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -3402,59 +3633,72 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
           {(["dia", "semana", "mes"] as const).map((g) => (
             <button
               key={g} type="button" onClick={() => setGran(g)}
-              className={cn("px-3 py-1 text-xs rounded transition capitalize", gran === g ? "bg-background shadow-sm font-medium" : "text-muted-foreground")}
+              className={cn("px-3 py-1 text-xs rounded transition capitalize font-medium", gran !== g && "text-muted-foreground")}
+              style={gran === g ? { backgroundColor: HEADER_BG, color: "#fff" } : undefined}
             >
               {g === "mes" ? "Mês" : g}
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#12A277" }} />Atende</span>
+        <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#2E75C7" }} />Provisão</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#12A277" }} />Disponível — atende</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#D97706" }} />Perto do limite</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#DC2626" }} />Não atende</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-0.5" style={{ backgroundColor: HOJE_ACCENT }} />Hoje</span>
           <span>número = pessoas</span>
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-2">
       {funcoesUnificadas.length === 0 || !horizonte ? (
         <EmptyState icon={ClipboardList} title="Nenhuma nomeação com período programado encontrada" />
       ) : (
-        <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
+        <Card className="overflow-auto p-0" style={{ maxHeight: 620 }}>
           <div className="sticky top-0 z-20 border-b bg-background p-3">
-            <h3 className="text-sm font-semibold">Provisão de POB</h3>
-            <p className="text-xs text-muted-foreground">Demanda de mão de obra planejada nas nomeações, por Função, ao longo do tempo.</p>
+            <h3 className="text-sm font-semibold">Provisão × Disponibilidade de POB</h3>
+            <p className="text-xs text-muted-foreground">Cada período mostra, lado a lado: Provisão (demanda planejada nas nomeações) e Disponibilidade (quem está livre fora da janela Embarque→Desembarque), por Função.</p>
           </div>
           <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
-            <thead className="sticky top-[49px] z-10">
+            <thead className="sticky top-[57px] z-10">
               <tr>
-                <th className="sticky left-0 z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Função</th>
-                {periodos.map((p, i) => (
-                  <th
-                    key={i}
-                    className="min-w-[46px] border border-border px-1 py-1 text-center font-normal"
-                    style={p.dias.includes(hoje) ? { backgroundColor: "#0E70CB", color: "white" } : { backgroundColor: "var(--muted)" }}
-                  >
-                    {p.label}
-                  </th>
-                ))}
+                <th className="sticky left-0 z-20 min-w-[160px] border border-border px-2 py-1.5 text-left font-semibold uppercase tracking-wide" style={headerCellStyle(false)}>Função</th>
+                {periodos.map((p, i) => {
+                  const isHoje = p.dias.includes(hoje);
+                  return (
+                    <th key={i} className="min-w-[72px] border border-border px-1 py-1 text-center font-semibold uppercase tracking-wide" style={headerCellStyle(isHoje)}>
+                      {p.label}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
-              {funcoesUnificadas.map((funcao) => {
-                const porPeriodo = demandaPorFuncaoPeriodo.get(funcao) ?? periodos.map(() => 0);
+              {funcoesUnificadas.map((funcao, idx) => {
+                const provisao = demandaPorFuncaoPeriodo.get(funcao) ?? periodos.map(() => 0);
+                const disponivel = disponivelPorFuncaoPeriodo.find((r) => r.funcao === funcao)?.porPeriodo ?? periodos.map(() => 0);
+                const zebra = idx % 2 === 1;
+                const zebraBg = zebra ? ZEBRA_BG : "#fff";
                 return (
-                  <tr key={funcao} className="hover:bg-muted/30">
-                    <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1">{funcao}</td>
-                    {porPeriodo.map((tot, i) => (
-                      <td
-                        key={i}
-                        className="border border-border p-0 text-center"
-                        style={tot > 0 ? { backgroundColor: "#0A57B0", color: "white", fontWeight: 700 } : { backgroundColor: "#f1f5f9" }}
-                      >
-                        {tot > 0 ? tot : ""}
-                      </td>
-                    ))}
+                  <tr key={funcao}>
+                    <td className="sticky left-0 z-10 border border-border px-2 py-1" style={{ backgroundColor: zebraBg }}>{funcao}</td>
+                    {periodos.map((p, i) => {
+                      const isHoje = p.dias.includes(hoje);
+                      const tot = provisao[i] ?? 0;
+                      const qtd = disponivel[i] ?? 0;
+                      const { label: dispLabel, backgroundColor: dispBg, ...dispResto } = celulaDisponibilidade(qtd, tot);
+                      return (
+                        <td key={i} className="border border-border p-0" style={hojeShadow(isHoje)}>
+                          <div className="flex items-stretch divide-x divide-border/70" style={{ backgroundColor: zebraBg }}>
+                            <div className="flex-1 py-1 text-center" style={tot > 0 ? { backgroundColor: "#2E75C7", color: "white", fontWeight: 700 } : undefined}>
+                              {tot > 0 ? tot : ""}
+                            </div>
+                            <div className="flex-1 py-1 text-center" style={{ backgroundColor: dispBg, ...dispResto }}>
+                              {dispLabel}
+                            </div>
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
@@ -3462,52 +3706,6 @@ function LinhaDoTempoNomeacoesTab({ nominations }: { nominations: Nomination[] }
           </table>
         </Card>
       )}
-
-      <Card className="overflow-auto p-0" style={{ maxHeight: 560 }}>
-        <div className="sticky top-0 z-20 border-b bg-background p-3">
-          <h3 className="text-sm font-semibold">Disponibilidade de POB</h3>
-          <p className="text-xs text-muted-foreground">Quem está livre (fora da janela Embarque→Desembarque) em cada período, mesmas colunas da Linha do Tempo.</p>
-        </div>
-        <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
-          <thead className="sticky top-[49px] z-10">
-            <tr>
-              <th className="sticky left-0 z-20 min-w-[160px] border border-border bg-muted px-2 py-1.5 text-left font-medium">Função</th>
-              {periodos.map((p, i) => (
-                <th
-                  key={i}
-                  className="min-w-[46px] border border-border px-1 py-1 text-center font-normal"
-                  style={p.dias.includes(hoje) ? { backgroundColor: "#0E70CB", color: "white" } : { backgroundColor: "var(--muted)" }}
-                >
-                  {p.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {funcoesUnificadas.map((funcao) => {
-              const porPeriodo = disponivelPorFuncaoPeriodo.find((r) => r.funcao === funcao)?.porPeriodo ?? periodos.map(() => 0);
-              return (
-              <tr key={funcao} className="hover:bg-muted/30">
-                <td className="sticky left-0 z-10 border border-border bg-background px-2 py-1">{funcao}</td>
-                {porPeriodo.map((qtd, i) => {
-                  const demanda = demandaPorFuncaoPeriodo.get(funcao)?.[i] ?? 0;
-                  const { label, ...estilo } = celulaDisponibilidade(qtd, demanda);
-                  return (
-                    <td key={i} className="border border-border p-0 text-center" style={estilo}>
-                      {label}
-                    </td>
-                  );
-                })}
-              </tr>
-              );
-            })}
-            {funcoesUnificadas.length === 0 && (
-              <tr><td colSpan={1 + periodos.length} className="px-3 py-4 text-center text-muted-foreground">Sem dados.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </Card>
-      </div>
     </div>
   );
 }
