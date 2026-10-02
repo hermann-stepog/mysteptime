@@ -3510,11 +3510,15 @@ function LinhaDoTempoNomeacoesTab() {
 
   const dias = useMemo(() => (horizonte ? generateDateRange(horizonte.inicio, horizonte.fim) : []), [horizonte]);
 
+  // Com o ano incluso (pedido dela, 2026-10-02) — a Provisão real cobre de 2026 até 2028, então
+  // "17/10" sozinho (sem ano) ficava ambíguo entre os anos no cabeçalho de Dia/Semana.
+  const fmtDiaComAno = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
+
   const periodos = useMemo(() => {
     // Granularidade "Dia" começa sempre em hoje (pedido dela, 2026-10-01) — dias passados não
     // interessam pra visualizar provisão/disponibilidade dia a dia; Semana/Mês continuam
     // mostrando o horizonte inteiro.
-    if (gran === "dia") return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDate(d).slice(0, 5), dias: [d] }));
+    if (gran === "dia") return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDiaComAno(d), dias: [d] }));
     if (gran === "mes") {
       const m = new Map<string, string[]>();
       dias.forEach((d) => {
@@ -3533,7 +3537,7 @@ function LinhaDoTempoNomeacoesTab() {
     const blocos: { label: string; dias: string[] }[] = [];
     for (let i = 0; i < diasSemana.length; i += 7) {
       const bloco = diasSemana.slice(i, i + 7);
-      blocos.push({ label: fmtDate(bloco[0]).slice(0, 5), dias: bloco });
+      blocos.push({ label: fmtDiaComAno(bloco[0]), dias: bloco });
     }
     return blocos;
   }, [dias, gran, hoje]);
@@ -3645,7 +3649,7 @@ function LinhaDoTempoNomeacoesTab() {
       .sort((a, b) => b.pico - a.pico);
   }, [funcoesUnificadas, demandaPorFuncaoDia, disponivelPorFuncaoDia]);
   const totalPessoasContratar = useMemo(() => deficitPorFuncao.reduce((s, r) => s + r.pico, 0), [deficitPorFuncao]);
-  const contratacaoChartConfig: ChartConfig = { pico: { label: "Pessoas a contratar", color: "#DC2626" } };
+  const contratacaoChartConfig: ChartConfig = { pico: { label: "Pessoas a contratar", color: "#3B5068" } };
 
   // Cor da célula de Disponibilidade: vermelho quando o disponível não cobre a provisão daquele
   // período, amarelo quando cobre só por uma margem pequena (perto de não atender) e verde
@@ -3695,7 +3699,8 @@ function LinhaDoTempoNomeacoesTab() {
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#2E75C7" }} />Provisão</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#12A277" }} />Disponível — atende</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#D97706" }} />Perto do limite</span>
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#DC2626" }} />Não atende / Falta</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#DC2626" }} />Não atende</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#000000" }} />Falta</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-0.5" style={{ backgroundColor: HOJE_ACCENT }} />Hoje</span>
           <span>número = pessoas</span>
         </div>
@@ -3747,7 +3752,7 @@ function LinhaDoTempoNomeacoesTab() {
                             <div className="flex-1 py-1 text-center" style={{ backgroundColor: dispBg, ...dispResto }}>
                               {dispLabel}
                             </div>
-                            <div className="flex-1 py-1 text-center" style={falta > 0 ? { backgroundColor: "#DC2626", color: "white", fontWeight: 700 } : undefined}>
+                            <div className="flex-1 py-1 text-center" style={falta > 0 ? { backgroundColor: "#000000", color: "white", fontWeight: 700 } : undefined}>
                               {falta > 0 ? falta : ""}
                             </div>
                           </div>
@@ -3782,11 +3787,17 @@ function LinhaDoTempoNomeacoesTab() {
           </div>
           <ChartContainer config={contratacaoChartConfig} className="aspect-auto h-[260px] w-full">
             <BarChart data={deficitPorFuncao} margin={{ top: 16, right: 8, bottom: 48, left: 0 }}>
+              <defs>
+                <linearGradient id="contratacao-gradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7C93AD" />
+                  <stop offset="100%" stopColor="#3B5068" />
+                </linearGradient>
+              </defs>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="funcao" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
               <YAxis hide />
               <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent indicator="dot" />} />
-              <Bar dataKey="pico" fill="var(--color-pico)" radius={[6, 6, 0, 0]}>
+              <Bar dataKey="pico" fill="url(#contratacao-gradient)" radius={[6, 6, 0, 0]}>
                 <LabelList dataKey="pico" position="top" style={{ fontSize: 11, fontWeight: 700 }} />
               </Bar>
             </BarChart>
