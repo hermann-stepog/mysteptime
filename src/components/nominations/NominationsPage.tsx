@@ -3688,7 +3688,7 @@ function LinhaDoTempoNomeacoesTab() {
           pra quem precisar conferir/editar a fonte original. */}
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900">
         <Info className="h-3.5 w-3.5 shrink-0" />
-        <span>Fonte da Provisão: <b>Gerência de Operações</b></span>
+        <span>Fonte da Provisão: <b>Planejamento</b></span>
         <a
           href="https://stepoilg-my.sharepoint.com/personal/douglas_jacinto_step-og_com/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fdouglas%5Fjacinto%5Fstep%2Dog%5Fcom%2FDocuments%2FArquivos%20de%20Chat%20do%20Microsoft%20Teams%2Fplanejamento%5Fmo%5Fstep%5Fv31%2Ehtml&parent=%2Fpersonal%2Fdouglas%5Fjacinto%5Fstep%2Dog%5Fcom%2FDocuments%2FArquivos%20de%20Chat%20do%20Microsoft%20Teams"
           target="_blank" rel="noopener noreferrer"
@@ -3760,13 +3760,13 @@ function LinhaDoTempoNomeacoesTab() {
                       return (
                         <td key={i} className="border border-border p-0" style={hojeShadow(isHoje)}>
                           <div className="flex items-stretch divide-x divide-border/70" style={{ backgroundColor: zebraBg }}>
-                            <div className="flex-1 py-1 text-center" style={tot > 0 ? { backgroundColor: "#2E75C7", color: "white", fontWeight: 700 } : undefined}>
+                            <div className="flex-1 py-1 text-center" title="Provisão" style={tot > 0 ? { backgroundColor: "#2E75C7", color: "white", fontWeight: 700 } : undefined}>
                               {tot > 0 ? tot : ""}
                             </div>
-                            <div className="flex-1 py-1 text-center" style={{ backgroundColor: dispBg, ...dispResto }}>
+                            <div className="flex-1 py-1 text-center" title="Disponibilidade" style={{ backgroundColor: dispBg, ...dispResto }}>
                               {dispLabel}
                             </div>
-                            <div className="flex-1 py-1 text-center" style={falta > 0 ? { backgroundColor: "#000000", color: "white", fontWeight: 700 } : undefined}>
+                            <div className="flex-1 py-1 text-center" title="Falta" style={falta > 0 ? { backgroundColor: "#000000", color: "white", fontWeight: 700 } : undefined}>
                               {falta > 0 ? falta : ""}
                             </div>
                           </div>
