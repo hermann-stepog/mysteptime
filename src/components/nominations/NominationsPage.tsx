@@ -44,7 +44,7 @@ import {
   Plus, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, ArrowLeft, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale,
+  Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale, Info, ExternalLink,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -3683,6 +3683,20 @@ function LinhaDoTempoNomeacoesTab() {
 
   return (
     <div className="space-y-3">
+      {/* Deixa explícito de onde vem a Provisão (pedido dela, 2026-10-02) — hoje é um arquivo
+          mantido pela Gerência de Operações, não um módulo do sistema; o link dá acesso direto
+          pra quem precisar conferir/editar a fonte original. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900">
+        <Info className="h-3.5 w-3.5 shrink-0" />
+        <span>Fonte da Provisão: <b>Planejamento</b></span>
+        <a
+          href="https://stepoilg-my.sharepoint.com/personal/douglas_jacinto_step-og_com/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fdouglas%5Fjacinto%5Fstep%2Dog%5Fcom%2FDocuments%2FArquivos%20de%20Chat%20do%20Microsoft%20Teams%2Fplanejamento%5Fmo%5Fstep%5Fv31%2Ehtml&parent=%2Fpersonal%2Fdouglas%5Fjacinto%5Fstep%2Dog%5Fcom%2FDocuments%2FArquivos%20de%20Chat%20do%20Microsoft%20Teams"
+          target="_blank" rel="noopener noreferrer"
+          className="ml-auto flex items-center gap-1 font-medium text-sky-700 underline hover:text-sky-900"
+        >
+          Abrir planilha de planejamento <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-md border bg-muted p-0.5">
           {(["dia", "semana", "mes"] as const).map((g) => (
@@ -3746,13 +3760,13 @@ function LinhaDoTempoNomeacoesTab() {
                       return (
                         <td key={i} className="border border-border p-0" style={hojeShadow(isHoje)}>
                           <div className="flex items-stretch divide-x divide-border/70" style={{ backgroundColor: zebraBg }}>
-                            <div className="flex-1 py-1 text-center" style={tot > 0 ? { backgroundColor: "#2E75C7", color: "white", fontWeight: 700 } : undefined}>
+                            <div className="flex-1 py-1 text-center" title="Provisão" style={tot > 0 ? { backgroundColor: "#2E75C7", color: "white", fontWeight: 700 } : undefined}>
                               {tot > 0 ? tot : ""}
                             </div>
-                            <div className="flex-1 py-1 text-center" style={{ backgroundColor: dispBg, ...dispResto }}>
+                            <div className="flex-1 py-1 text-center" title="Disponibilidade" style={{ backgroundColor: dispBg, ...dispResto }}>
                               {dispLabel}
                             </div>
-                            <div className="flex-1 py-1 text-center" style={falta > 0 ? { backgroundColor: "#000000", color: "white", fontWeight: 700 } : undefined}>
+                            <div className="flex-1 py-1 text-center" title="Falta" style={falta > 0 ? { backgroundColor: "#000000", color: "white", fontWeight: 700 } : undefined}>
                               {falta > 0 ? falta : ""}
                             </div>
                           </div>
