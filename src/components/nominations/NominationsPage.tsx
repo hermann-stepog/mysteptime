@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // Tabelas nominations/nomination_nominees/weld_type_config/weld_material_config/
 // nomination_status_history/colaborador_funcoes_historico ainda não estão nos tipos gerados;
@@ -3508,11 +3510,15 @@ function LinhaDoTempoNomeacoesTab() {
 
   const dias = useMemo(() => (horizonte ? generateDateRange(horizonte.inicio, horizonte.fim) : []), [horizonte]);
 
+  // Com o ano incluso (pedido dela, 2026-10-02) — a Provisão real cobre de 2026 até 2028, então
+  // "17/10" sozinho (sem ano) ficava ambíguo entre os anos no cabeçalho de Dia/Semana.
+  const fmtDiaComAno = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
+
   const periodos = useMemo(() => {
     // Granularidade "Dia" começa sempre em hoje (pedido dela, 2026-10-01) — dias passados não
     // interessam pra visualizar provisão/disponibilidade dia a dia; Semana/Mês continuam
     // mostrando o horizonte inteiro.
-    if (gran === "dia") return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDate(d).slice(0, 5), dias: [d] }));
+    if (gran === "dia") return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDiaComAno(d), dias: [d] }));
     if (gran === "mes") {
       const m = new Map<string, string[]>();
       dias.forEach((d) => {
@@ -3525,13 +3531,16 @@ function LinhaDoTempoNomeacoesTab() {
         dias: ds,
       }));
     }
+    // Granularidade "Semana" começa em setembro do ano atual (pedido dela, 2026-10-02) — meses
+    // anteriores da Provisão (ex.: março) não interessam na visão semanal.
+    const diasSemana = dias.filter((d) => d >= `${hoje.slice(0, 4)}-09-01`);
     const blocos: { label: string; dias: string[] }[] = [];
-    for (let i = 0; i < dias.length; i += 7) {
-      const bloco = dias.slice(i, i + 7);
-      blocos.push({ label: fmtDate(bloco[0]).slice(0, 5), dias: bloco });
+    for (let i = 0; i < diasSemana.length; i += 7) {
+      const bloco = diasSemana.slice(i, i + 7);
+      blocos.push({ label: fmtDiaComAno(bloco[0]), dias: bloco });
     }
     return blocos;
-  }, [dias, gran]);
+  }, [dias, gran, hoje]);
 
   const ativoNoPeriodo = (start: string, end: string, diasDoPeriodo: string[]) =>
     diasDoPeriodo.some((d) => d >= start && d <= end);
@@ -3596,6 +3605,52 @@ function LinhaDoTempoNomeacoesTab() {
     return ordem;
   }, [disponivelPorFuncaoPeriodo, demandaPorFuncaoPeriodo]);
 
+  // Déficit por função pro indicador "quantos contratar" (pedido dela, 2026-10-02) — sempre em
+  // granularidade de DIA, independente do toggle Dia/Semana/Mês da grade acima (pra não oscilar
+  // quando ela troca de visualização) e cobrindo TODO o horizonte, não só o período filtrado.
+  // "Pico" = maior falta (Provisão − Disponível, nunca negativo) em qualquer dia — contratar o
+  // pico já cobre todos os dias com folga menor.
+  const diasComoPeriodos = useMemo(() => dias.map((d) => ({ dias: [d] })), [dias]);
+  const demandaPorFuncaoDia = useMemo(() => {
+    const m = new Map<string, number[]>();
+    linhasDemanda.forEach((l) => {
+      if (!m.has(l.funcao)) m.set(l.funcao, diasComoPeriodos.map(() => 0));
+      const arr = m.get(l.funcao)!;
+      diasComoPeriodos.forEach((p, i) => { if (ativoNoPeriodo(l.start, l.end, p.dias)) arr[i] += l.qtd; });
+    });
+    return m;
+  }, [linhasDemanda, diasComoPeriodos]);
+  const disponivelPorFuncaoDia = useMemo(() => {
+    const porFuncao = new Map<string, PlanejamentoEmbarqueRow[]>();
+    planejamentoEmbarque.forEach((r) => {
+      if (!r.funcao?.trim()) return;
+      const f = agruparFamiliaFuncaoLinhaTempo(normalizeFuncaoSemNivel(r.funcao));
+      if (!porFuncao.has(f)) porFuncao.set(f, []);
+      porFuncao.get(f)!.push(r);
+    });
+    return new Map(Array.from(porFuncao.entries()).map(([funcao, rows]) => [
+      funcao,
+      diasComoPeriodos.map((p) => rows.filter((r) => p.dias.some((d) => livreNoDia(r, d))).length),
+    ]));
+  }, [planejamentoEmbarque, diasComoPeriodos]);
+  const deficitPorFuncao = useMemo(() => {
+    return funcoesUnificadas
+      .map((funcao) => {
+        const dem = demandaPorFuncaoDia.get(funcao) ?? [];
+        const disp = disponivelPorFuncaoDia.get(funcao) ?? [];
+        let pico = 0;
+        for (let i = 0; i < dem.length; i++) {
+          const falta = Math.max((dem[i] ?? 0) - (disp[i] ?? 0), 0);
+          if (falta > pico) pico = falta;
+        }
+        return { funcao, pico };
+      })
+      .filter((r) => r.pico > 0)
+      .sort((a, b) => b.pico - a.pico);
+  }, [funcoesUnificadas, demandaPorFuncaoDia, disponivelPorFuncaoDia]);
+  const totalPessoasContratar = useMemo(() => deficitPorFuncao.reduce((s, r) => s + r.pico, 0), [deficitPorFuncao]);
+  const contratacaoChartConfig: ChartConfig = { pico: { label: "Pessoas a contratar", color: "#3B5068" } };
+
   // Cor da célula de Disponibilidade: vermelho quando o disponível não cobre a provisão daquele
   // período, amarelo quando cobre só por uma margem pequena (perto de não atender) e verde
   // quando há folga confortável. Sem provisão pra aquela função no período, mantém o estilo
@@ -3645,6 +3700,7 @@ function LinhaDoTempoNomeacoesTab() {
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#12A277" }} />Disponível — atende</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#D97706" }} />Perto do limite</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#DC2626" }} />Não atende</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#000000" }} />Falta</span>
           <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-0.5" style={{ backgroundColor: HOJE_ACCENT }} />Hoje</span>
           <span>número = pessoas</span>
         </div>
@@ -3655,8 +3711,8 @@ function LinhaDoTempoNomeacoesTab() {
       ) : (
         <Card className="overflow-auto p-0" style={{ maxHeight: 620 }}>
           <div className="sticky top-0 z-20 border-b bg-background p-3">
-            <h3 className="text-sm font-semibold">Provisão × Disponibilidade de POB</h3>
-            <p className="text-xs text-muted-foreground">Cada período mostra, lado a lado: Provisão (demanda planejada nas nomeações) e Disponibilidade (quem está livre fora da janela Embarque→Desembarque), por Função.</p>
+            <h3 className="text-sm font-semibold">Provisão × Disponibilidade × Falta de POB</h3>
+            <p className="text-xs text-muted-foreground">Cada período mostra, lado a lado: Provisão (demanda planejada nas nomeações), Disponibilidade (quem está livre fora da janela Embarque→Desembarque) e Falta (quantas pessoas estão faltando pra cobrir a demanda), por Função.</p>
           </div>
           <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
             <thead className="sticky top-[57px] z-10">
@@ -3665,7 +3721,7 @@ function LinhaDoTempoNomeacoesTab() {
                 {periodos.map((p, i) => {
                   const isHoje = p.dias.includes(hoje);
                   return (
-                    <th key={i} className="min-w-[72px] border border-border px-1 py-1 text-center font-semibold uppercase tracking-wide" style={headerCellStyle(isHoje)}>
+                    <th key={i} className="min-w-[108px] border border-border px-1 py-1 text-center font-semibold uppercase tracking-wide" style={headerCellStyle(isHoje)}>
                       {p.label}
                     </th>
                   );
@@ -3685,6 +3741,7 @@ function LinhaDoTempoNomeacoesTab() {
                       const isHoje = p.dias.includes(hoje);
                       const tot = provisao[i] ?? 0;
                       const qtd = disponivel[i] ?? 0;
+                      const falta = Math.max(tot - qtd, 0);
                       const { label: dispLabel, backgroundColor: dispBg, ...dispResto } = celulaDisponibilidade(qtd, tot);
                       return (
                         <td key={i} className="border border-border p-0" style={hojeShadow(isHoje)}>
@@ -3695,6 +3752,9 @@ function LinhaDoTempoNomeacoesTab() {
                             <div className="flex-1 py-1 text-center" style={{ backgroundColor: dispBg, ...dispResto }}>
                               {dispLabel}
                             </div>
+                            <div className="flex-1 py-1 text-center" style={falta > 0 ? { backgroundColor: "#000000", color: "white", fontWeight: 700 } : undefined}>
+                              {falta > 0 ? falta : ""}
+                            </div>
                           </div>
                         </td>
                       );
@@ -3704,6 +3764,48 @@ function LinhaDoTempoNomeacoesTab() {
               })}
             </tbody>
           </table>
+        </Card>
+      )}
+
+      {deficitPorFuncao.length > 0 ? (
+        <Card className="space-y-4 p-4">
+          <div>
+            <h3 className="text-sm font-semibold">Necessidade de Contratação</h3>
+            <p className="text-xs text-muted-foreground">
+              Quantas pessoas faltam, por Função, no pico de demanda (Provisão − Disponibilidade) em todo o horizonte planejado — contratando esse tanto, a função fica coberta em qualquer dia, não só no período em tela acima.
+            </p>
+          </div>
+          <div className="grid max-w-md grid-cols-2 gap-3">
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Funções a contratar</p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>{deficitPorFuncao.length}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pessoas a contratar</p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>{totalPessoasContratar}</p>
+            </div>
+          </div>
+          <ChartContainer config={contratacaoChartConfig} className="aspect-auto h-[260px] w-full">
+            <BarChart data={deficitPorFuncao} margin={{ top: 16, right: 8, bottom: 48, left: 0 }}>
+              <defs>
+                <linearGradient id="contratacao-gradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7C93AD" />
+                  <stop offset="100%" stopColor="#3B5068" />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="funcao" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
+              <YAxis hide />
+              <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent indicator="dot" />} />
+              <Bar dataKey="pico" fill="url(#contratacao-gradient)" radius={[6, 6, 0, 0]}>
+                <LabelList dataKey="pico" position="top" style={{ fontSize: 11, fontWeight: 700 }} />
+              </Bar>
+            </BarChart>
+          </ChartContainer>
+        </Card>
+      ) : funcoesUnificadas.length > 0 && (
+        <Card className="p-4 text-sm text-muted-foreground">
+          Nenhuma função precisa de contratação — a disponibilidade cobre o pico da provisão em todo o horizonte planejado.
         </Card>
       )}
     </div>
