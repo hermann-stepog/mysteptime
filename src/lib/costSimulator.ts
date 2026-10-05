@@ -14,7 +14,10 @@ import type { TipoMarkup } from "@/lib/bm";
 
 export type RegimeTipo = "14x14" | "21x21" | "28x28" | "custom";
 
-export const REGIMES_ROTACAO: Record<Exclude<RegimeTipo, "custom">, { diasEmbarcado: number; diasFolga: number }> = {
+export const REGIMES_ROTACAO: Record<
+  Exclude<RegimeTipo, "custom">,
+  { diasEmbarcado: number; diasFolga: number }
+> = {
   "14x14": { diasEmbarcado: 14, diasFolga: 14 },
   "21x21": { diasEmbarcado: 21, diasFolga: 21 },
   "28x28": { diasEmbarcado: 28, diasFolga: 28 },
@@ -90,7 +93,12 @@ export interface AjustesSimulacao {
   overrides: Record<string, number | null>;
   reajustePercent: number;
   contingenciaPercent: number;
-  markup: { aplicar: boolean; tipo: TipoMarkup; percentualLucro: number; percentualImposto: number };
+  markup: {
+    aplicar: boolean;
+    tipo: TipoMarkup;
+    percentualLucro: number;
+    percentualImposto: number;
+  };
 }
 
 export interface CostStats {
@@ -133,6 +141,28 @@ export interface ResultadoSimulacao {
   serieMensal: { mes: number; custoAcumulado: number }[];
 }
 
+export function hojeISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function mesesAtras(n: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+export function ajustesPadrao(): AjustesSimulacao {
+  return {
+    periodoReferencia: { tipo: "6", inicio: mesesAtras(6), fim: hojeISO() },
+    metodoCalculo: "media",
+    filtros: {},
+    overrides: {},
+    reajustePercent: 0,
+    contingenciaPercent: 0,
+    markup: { aplicar: false, tipo: "simples", percentualLucro: 0, percentualImposto: 0 },
+  };
+}
+
 export function round2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -153,7 +183,11 @@ export function duracaoEmDias(duracao: EntradasEmbarque["duracao"]): number {
   return duracao.unidade === "meses" ? Math.round(duracao.valor * 30) : Math.round(duracao.valor);
 }
 
-export function calcularCiclos(duracaoDias: number, diasEmbarcado: number, diasFolga: number): number {
+export function calcularCiclos(
+  duracaoDias: number,
+  diasEmbarcado: number,
+  diasFolga: number,
+): number {
   const duracaoCiclo = diasEmbarcado + diasFolga;
   if (duracaoCiclo <= 0) return 0;
   return Math.ceil(duracaoDias / duracaoCiclo);
@@ -161,7 +195,12 @@ export function calcularCiclos(duracaoDias: number, diasEmbarcado: number, diasF
 
 // Cópia literal de calcularValorComMarkup em MobDesmobTab.tsx/AplicarCustoMobDesmobDialog.tsx —
 // mesmo padrão do resto do código (função de 3 linhas, duplicada em vez de extraída).
-export function calcularValorComMarkup(valorBase: number, tipo: TipoMarkup, percentualLucro: number, percentualImposto: number): number {
+export function calcularValorComMarkup(
+  valorBase: number,
+  tipo: TipoMarkup,
+  percentualLucro: number,
+  percentualImposto: number,
+): number {
   const bruto = valorBase * (1 + percentualLucro / 100);
   if (tipo === "simples") return round2(bruto);
   return round2(bruto / (1 - percentualImposto / 100));
@@ -177,7 +216,10 @@ export function rotaKey(origem: string, destino: string): string {
 
 // Monta a lista de cidades distintas (hospedagem/transporte) e rotas distintas (passagens) que
 // a simulação precisa, pra mandar pra RPC — um só payload independente do tipo de simulação.
-export function cidadesERotas(entradas: EntradasSimulacao): { cidades: string[]; rotas: { origem: string; destino: string }[] } {
+export function cidadesERotas(entradas: EntradasSimulacao): {
+  cidades: string[];
+  rotas: { origem: string; destino: string }[];
+} {
   if (entradas.tipo === "embarque") {
     const cidadeBase = entradas.cidadeEmbarque.trim();
     const origens = new Set(entradas.equipe.map((e) => e.cidadeOrigem.trim()).filter(Boolean));
@@ -199,9 +241,19 @@ export function cidadesERotas(entradas: EntradasSimulacao): { cidades: string[];
   return { cidades: Array.from(cidades), rotas: Array.from(rotas.values()) };
 }
 
-function montarCategoriasEmbarque(entradas: EntradasEmbarque, ajustes: AjustesSimulacao, stats: CostSimulatorUnitStats) {
-  const diasEmbarcado = entradas.regime.tipo === "custom" ? entradas.regime.diasEmbarcado : REGIMES_ROTACAO[entradas.regime.tipo].diasEmbarcado;
-  const diasFolga = entradas.regime.tipo === "custom" ? entradas.regime.diasFolga : REGIMES_ROTACAO[entradas.regime.tipo].diasFolga;
+function montarCategoriasEmbarque(
+  entradas: EntradasEmbarque,
+  ajustes: AjustesSimulacao,
+  stats: CostSimulatorUnitStats,
+) {
+  const diasEmbarcado =
+    entradas.regime.tipo === "custom"
+      ? entradas.regime.diasEmbarcado
+      : REGIMES_ROTACAO[entradas.regime.tipo].diasEmbarcado;
+  const diasFolga =
+    entradas.regime.tipo === "custom"
+      ? entradas.regime.diasFolga
+      : REGIMES_ROTACAO[entradas.regime.tipo].diasFolga;
   const duracaoDias = duracaoEmDias(entradas.duracao);
   const nCiclos = calcularCiclos(duracaoDias, diasEmbarcado, diasFolga);
   const totalPessoas = entradas.equipe.reduce((s, e) => s + (Number(e.qtd) || 0), 0);
@@ -216,7 +268,14 @@ function montarCategoriasEmbarque(entradas: EntradasEmbarque, ajustes: AjustesSi
     const override = ajustes.overrides["hospedagem"];
     const unitario = override ?? valorPorMetodo(statsHospedagem, ajustes.metodoCalculo);
     const qtd = diasEmbarcado * nCiclos * totalPessoas;
-    porCategoria.push({ categoria: "Hospedagem", chaveOverride: "hospedagem", unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0 });
+    porCategoria.push({
+      categoria: "Hospedagem",
+      chaveOverride: "hospedagem",
+      unitario,
+      qtd,
+      subtotal: round2(unitario * qtd),
+      percentualDoTotal: 0,
+    });
   }
 
   // ── Transporte: custo é por viagem de carro/van (o veículo leva a equipe toda), não por
@@ -227,7 +286,14 @@ function montarCategoriasEmbarque(entradas: EntradasEmbarque, ajustes: AjustesSi
     const override = ajustes.overrides["transporte"];
     const unitario = override ?? valorPorMetodo(statsTransporte, ajustes.metodoCalculo);
     const qtd = 2 * nCiclos + mobDesmobExtra;
-    porCategoria.push({ categoria: "Transporte", chaveOverride: "transporte", unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0 });
+    porCategoria.push({
+      categoria: "Transporte",
+      chaveOverride: "transporte",
+      unitario,
+      qtd,
+      subtotal: round2(unitario * qtd),
+      percentualDoTotal: 0,
+    });
   }
 
   // ── Passagens: uma linha por cidade de origem distinta na equipe (sempre por pessoa — cada
@@ -236,7 +302,10 @@ function montarCategoriasEmbarque(entradas: EntradasEmbarque, ajustes: AjustesSi
     const porCidade = new Map<string, number>();
     for (const e of entradas.equipe) {
       if (!e.cidadeOrigem.trim()) continue;
-      porCidade.set(e.cidadeOrigem.trim(), (porCidade.get(e.cidadeOrigem.trim()) || 0) + (Number(e.qtd) || 0));
+      porCidade.set(
+        e.cidadeOrigem.trim(),
+        (porCidade.get(e.cidadeOrigem.trim()) || 0) + (Number(e.qtd) || 0),
+      );
     }
     for (const [cidade, qtdPessoas] of porCidade) {
       const chave = rotaKey(cidade, cidadeBase);
@@ -245,14 +314,25 @@ function montarCategoriasEmbarque(entradas: EntradasEmbarque, ajustes: AjustesSi
       const override = ajustes.overrides[chave];
       const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
       const qtd = (2 * nCiclos + mobDesmobExtra) * qtdPessoas;
-      porCategoria.push({ categoria: `Passagens (${cidade})`, chaveOverride: chave, unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0 });
+      porCategoria.push({
+        categoria: `Passagens (${cidade})`,
+        chaveOverride: chave,
+        unitario,
+        qtd,
+        subtotal: round2(unitario * qtd),
+        percentualDoTotal: 0,
+      });
     }
   }
 
   return { porCategoria, nCiclos, totalPessoas, duracaoDias };
 }
 
-function montarCategoriasViagemExecutiva(entradas: EntradasViagemExecutiva, ajustes: AjustesSimulacao, stats: CostSimulatorUnitStats) {
+function montarCategoriasViagemExecutiva(
+  entradas: EntradasViagemExecutiva,
+  ajustes: AjustesSimulacao,
+  stats: CostSimulatorUnitStats,
+) {
   const porCategoria: CategoriaResultado[] = [];
   let totalPessoas = 0;
 
@@ -271,7 +351,10 @@ function montarCategoriasViagemExecutiva(entradas: EntradasViagemExecutiva, ajus
         porCategoria.push({
           categoria: `Passagens (${rotulo}: ${v.origem.trim()} → ${v.destino.trim()})`,
           chaveOverride: `${chave}#${i}`,
-          unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0,
+          unitario,
+          qtd,
+          subtotal: round2(unitario * qtd),
+          percentualDoTotal: 0,
         });
       }
     }
@@ -286,7 +369,10 @@ function montarCategoriasViagemExecutiva(entradas: EntradasViagemExecutiva, ajus
         porCategoria.push({
           categoria: `Hospedagem (${rotulo}: ${v.destino.trim()})`,
           chaveOverride: chave,
-          unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0,
+          unitario,
+          qtd,
+          subtotal: round2(unitario * qtd),
+          percentualDoTotal: 0,
         });
       }
     }
@@ -303,7 +389,10 @@ function montarCategoriasViagemExecutiva(entradas: EntradasViagemExecutiva, ajus
         porCategoria.push({
           categoria: `Transporte (${rotulo}: ${v.destino.trim()})`,
           chaveOverride: chave,
-          unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0,
+          unitario,
+          qtd,
+          subtotal: round2(unitario * qtd),
+          percentualDoTotal: 0,
         });
       }
     }
@@ -312,7 +401,11 @@ function montarCategoriasViagemExecutiva(entradas: EntradasViagemExecutiva, ajus
   return { porCategoria, nCiclos: entradas.viagens.length, totalPessoas, duracaoDias: 30 };
 }
 
-function montarCategoriasServicoTerra(entradas: EntradasServicoTerra, ajustes: AjustesSimulacao, stats: CostSimulatorUnitStats) {
+function montarCategoriasServicoTerra(
+  entradas: EntradasServicoTerra,
+  ajustes: AjustesSimulacao,
+  stats: CostSimulatorUnitStats,
+) {
   const porCategoria: CategoriaResultado[] = [];
   const totalPessoas = entradas.equipe.reduce((s, e) => s + (Number(e.qtd) || 0), 0);
   const duracaoDias = entradas.duracaoDias;
@@ -324,7 +417,14 @@ function montarCategoriasServicoTerra(entradas: EntradasServicoTerra, ajustes: A
       const override = ajustes.overrides["hospedagem"];
       const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
       const qtd = duracaoDias * totalPessoas;
-      porCategoria.push({ categoria: "Acomodação", chaveOverride: "hospedagem", unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0 });
+      porCategoria.push({
+        categoria: "Acomodação",
+        chaveOverride: "hospedagem",
+        unitario,
+        qtd,
+        subtotal: round2(unitario * qtd),
+        percentualDoTotal: 0,
+      });
     }
   }
 
@@ -332,7 +432,14 @@ function montarCategoriasServicoTerra(entradas: EntradasServicoTerra, ajustes: A
     const override = ajustes.overrides["alimentacao"];
     const unitario = override ?? valorPorMetodo(stats.alimentacao, ajustes.metodoCalculo);
     const qtd = duracaoDias * totalPessoas;
-    porCategoria.push({ categoria: "Alimentação", chaveOverride: "alimentacao", unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0 });
+    porCategoria.push({
+      categoria: "Alimentação",
+      chaveOverride: "alimentacao",
+      unitario,
+      qtd,
+      subtotal: round2(unitario * qtd),
+      percentualDoTotal: 0,
+    });
   }
 
   // Transporte exclusivo (van pousada↔local↔pousada): custo por viagem, não por pessoa.
@@ -342,7 +449,14 @@ function montarCategoriasServicoTerra(entradas: EntradasServicoTerra, ajustes: A
       const override = ajustes.overrides["transporte"];
       const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
       const qtd = entradas.qtdTransporteLocalPorDia * duracaoDias;
-      porCategoria.push({ categoria: "Transporte exclusivo", chaveOverride: "transporte", unitario, qtd, subtotal: round2(unitario * qtd), percentualDoTotal: 0 });
+      porCategoria.push({
+        categoria: "Transporte exclusivo",
+        chaveOverride: "transporte",
+        unitario,
+        qtd,
+        subtotal: round2(unitario * qtd),
+        percentualDoTotal: 0,
+      });
     }
   }
 
@@ -350,8 +464,12 @@ function montarCategoriasServicoTerra(entradas: EntradasServicoTerra, ajustes: A
   if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {
     const qtd = duracaoDias * totalPessoas;
     porCategoria.push({
-      categoria: "Lavanderia", chaveOverride: "lavanderia",
-      unitario: entradas.lavanderiaValorDiario, qtd, subtotal: round2(entradas.lavanderiaValorDiario * qtd), percentualDoTotal: 0,
+      categoria: "Lavanderia",
+      chaveOverride: "lavanderia",
+      unitario: entradas.lavanderiaValorDiario,
+      qtd,
+      subtotal: round2(entradas.lavanderiaValorDiario * qtd),
+      percentualDoTotal: 0,
     });
   }
 
@@ -364,17 +482,25 @@ export function montarResultado(
   stats: CostSimulatorUnitStats,
 ): ResultadoSimulacao {
   const { porCategoria, nCiclos, totalPessoas, duracaoDias } =
-    entradas.tipo === "embarque" ? montarCategoriasEmbarque(entradas, ajustes, stats)
-    : entradas.tipo === "servico_terra" ? montarCategoriasServicoTerra(entradas, ajustes, stats)
-    : montarCategoriasViagemExecutiva(entradas, ajustes, stats);
+    entradas.tipo === "embarque"
+      ? montarCategoriasEmbarque(entradas, ajustes, stats)
+      : entradas.tipo === "servico_terra"
+        ? montarCategoriasServicoTerra(entradas, ajustes, stats)
+        : montarCategoriasViagemExecutiva(entradas, ajustes, stats);
 
   const subtotal = round2(porCategoria.reduce((s, c) => s + c.subtotal, 0));
-  for (const c of porCategoria) c.percentualDoTotal = subtotal > 0 ? round2((c.subtotal / subtotal) * 100) : 0;
+  for (const c of porCategoria)
+    c.percentualDoTotal = subtotal > 0 ? round2((c.subtotal / subtotal) * 100) : 0;
 
   const comReajuste = round2(subtotal * (1 + ajustes.reajustePercent / 100));
   const comContingencia = round2(comReajuste * (1 + ajustes.contingenciaPercent / 100));
   const total = ajustes.markup.aplicar
-    ? calcularValorComMarkup(comContingencia, ajustes.markup.tipo, ajustes.markup.percentualLucro, ajustes.markup.percentualImposto)
+    ? calcularValorComMarkup(
+        comContingencia,
+        ajustes.markup.tipo,
+        ajustes.markup.percentualLucro,
+        ajustes.markup.percentualImposto,
+      )
     : comContingencia;
 
   const nMeses = Math.max(1, Math.round(duracaoDias / 30));
