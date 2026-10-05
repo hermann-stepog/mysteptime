@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Calculator } from "lucide-react";
+import { Calculator, Eraser } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { pageTitle } from "@/lib/pageTitle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -27,12 +28,23 @@ function CostSimulatorPage() {
     setAba("nova");
   }
 
+  function limpar() {
+    setCarregado(null);
+    setChaveFormulario((k) => k + 1);
+    setAba("nova");
+  }
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
-      <div className="flex items-center gap-3">
-        <BrandLogo className="h-10 w-auto" />
-        <Calculator className="h-6 w-6 text-muted-foreground" />
-        <h1 className="text-2xl font-semibold">Simulador de Custos Logísticos</h1>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <BrandLogo className="h-10 w-auto" />
+          <Calculator className="h-6 w-6 text-muted-foreground" />
+          <h1 className="text-2xl font-semibold">Simulador de Custos Logísticos</h1>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={limpar}>
+          <Eraser className="mr-1 h-4 w-4" /> Limpar
+        </Button>
       </div>
       <BannerSimulacao />
 
