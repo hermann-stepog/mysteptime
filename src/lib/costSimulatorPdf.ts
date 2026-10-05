@@ -16,11 +16,6 @@ function texto(s: string): string {
   return s.replace(/→/g, "->");
 }
 
-function formatarPeriodo(ajustes: AjustesSimulacao): string {
-  const { inicio, fim } = ajustes.periodoReferencia;
-  return `${new Date(inicio + "T00:00:00").toLocaleDateString("pt-BR")} a ${new Date(fim + "T00:00:00").toLocaleDateString("pt-BR")}`;
-}
-
 const METODO_LABEL: Record<AjustesSimulacao["metodoCalculo"], string> = {
   media: "Média",
   mediana: "Mediana",
@@ -182,7 +177,6 @@ export async function exportarSimulacaoPdf({
       ["Cliente", entradas.cliente || "—"],
       ["Unidade", entradas.unidade || "—"],
       ["BSP", entradas.bsp || "—"],
-      ["Período de referência", formatarPeriodo(ajustes)],
       ["Método de cálculo", METODO_LABEL[ajustes.metodoCalculo]],
       ...resumoEntradas(entradas),
       ...resumoAjustes(ajustes),
