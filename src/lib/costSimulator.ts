@@ -121,6 +121,7 @@ export interface CostSimulatorUnitStats {
   hospedagem?: Record<string, CostStats>;
   transporte?: Record<string, CostStats>;
   passagens?: Record<string, CostStats>;
+  transporteFuture?: Record<string, CostStats>;
   transporteTrajeto?: Record<string, CostStats>;
   alimentacao?: CostStats;
 }
@@ -457,13 +458,13 @@ function montarCategoriasServicoTerra(
 
   // Transporte exclusivo: custo por viagem (um carro leva o grupo todo), total de viagens informado.
   if (entradas.usaTransporteLocal) {
-    const stat = stats.transporte?.[local];
+    const stat = stats.transporteFuture?.[local];
     if (stat) {
       const override = ajustes.overrides["transporte"];
       const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
       const qtd = Number(entradas.qtdTransporteLocal) || 0;
       porCategoria.push({
-        categoria: "Transporte exclusivo",
+        categoria: "Transporte exclusivo (Future)",
         chaveOverride: "transporte",
         unitario,
         qtd,
