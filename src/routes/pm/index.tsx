@@ -134,7 +134,7 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
         nomination_id: nomination.id, status: "briefing_sms",
-        changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante", notes: "Decisões de Aprovação PM confirmadas",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante", notes: "Decisões de Validação PM confirmadas",
       });
       await notifyStageAdvance({ ...nomination, current_status: "briefing_sms" }, "briefing_sms");
     },
@@ -185,7 +185,7 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aprovação PM</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Validação PM</p>
       <div className="space-y-1.5">
         {ativos.map((n) => {
           const d = decisionFor(n);

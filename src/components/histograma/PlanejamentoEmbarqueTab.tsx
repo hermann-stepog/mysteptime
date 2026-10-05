@@ -28,6 +28,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { MultiSortableHead, useMultiTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
+import { PlanejamentoStatusAuditoria } from "@/components/histograma/PlanejamentoStatusAuditoria";
 import { Search, X, Download, Upload, Pencil, Trash2, Users, Plus, History, ChevronRight, Flag } from "lucide-react";
 
 // ─── Planejamento de Embarque ───────────────────────────────────────────────────────────────
@@ -895,6 +896,7 @@ type PlanejamentoSortColumn =
 
 export function PlanejamentoEmbarqueTab() {
   const qc = useQueryClient();
+  const { role } = useAuth();
   const registrarLog = useRegistrarLogPlanejamento();
   const { data: registros = [], isLoading } = usePlanejamentoEmbarqueQuery();
 
@@ -1096,6 +1098,7 @@ export function PlanejamentoEmbarqueTab() {
 
   return (
     <div className="space-y-3">
+      {role === "administrador" && <PlanejamentoStatusAuditoria registros={registros} />}
       <Card className="p-3 space-y-3">
         <div className="flex flex-wrap items-end gap-2" onKeyDown={(e) => e.key === "Enter" && aplicarFiltro()}>
           <div className="space-y-0.5 w-56">

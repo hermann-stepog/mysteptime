@@ -144,7 +144,9 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
   try {
     const stageRole = STAGE_ROLE[stage];
     const [roleTo, operatorsTo, pm, respostas] = await Promise.all([
-      stageRole ? emailsForRole(stageRole) : Promise.resolve([]),
+      stageRole
+        ? Promise.all((Array.isArray(stageRole) ? stageRole : [stageRole]).map(emailsForRole)).then((lists) => lists.flat())
+        : Promise.resolve([]),
       stage === "solicitacao" ? emailsForRole("logistics_operator") : Promise.resolve([]),
       pmEmail(nomination),
       stageAnswers(nomination),

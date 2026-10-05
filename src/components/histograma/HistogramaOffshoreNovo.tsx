@@ -2689,7 +2689,7 @@ function DashboardTab({ colaboradores, periodos }: {
   const { data: nomineesEquipeFormada = [] } = useQuery({
     queryKey: ["nomination-nominees-equipe-formada-dashboard"],
     queryFn: () =>
-      selectAllPages<{ nomination_id: string; colaborador_id: string }>((from, to) =>
+      selectAllPages<{ nomination_id: string; colaborador_id: string | null }>((from, to) =>
         (supabase as any)
           .from("nomination_nominees")
           .select("nomination_id, colaborador_id")
@@ -2699,12 +2699,15 @@ function DashboardTab({ colaboradores, periodos }: {
   });
   // colaborador_id -> data de embarque programada, só pra quem está numa nomeação Equipe
   // Formada concluída (o Map descarta automaticamente qualquer outra nomeação do nomeado).
+  // Nomeados sem vínculo com o Drake (colaborador_id null — ver migration 20261002110000)
+  // ficam de fora desse cruzamento específico, sem quebrar nada: simplesmente não aparecem com
+  // data programada aqui enquanto o vínculo não existir.
   const dataProgramadaViaNomeacaoPorColaborador = useMemo(() => {
     const periodoPorNomination = new Map(nominationsEquipeFormada.map((n) => [n.id, n.period_start]));
     const m = new Map<string, string>();
     nomineesEquipeFormada.forEach((nn) => {
       const dataEmbarque = periodoPorNomination.get(nn.nomination_id);
-      if (dataEmbarque) m.set(nn.colaborador_id, dataEmbarque);
+      if (dataEmbarque && nn.colaborador_id) m.set(nn.colaborador_id, dataEmbarque);
     });
     return m;
   }, [nominationsEquipeFormada, nomineesEquipeFormada]);

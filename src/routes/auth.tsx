@@ -30,6 +30,7 @@ function AuthPage() {
       else if (role === "rh" || role === "sms") navigate({ to: "/rh-sms" });
       else if (role === "visitante" || role === "diretoria") navigate({ to: "/admin/transport" });
       else if (role === "medicao") navigate({ to: "/admin/bm" });
+      else if (role === "orcamentos_projetos") navigate({ to: "/admin/cost-simulator" });
       else if (role === "qualidade" || role === "aprovacao_tecnica") navigate({ to: "/admin/nominations" });
       else if (role === "collaborator") navigate({ to: "/app" });
       else navigate({ to: "/admin/histograma-novo" });

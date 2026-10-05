@@ -99,7 +99,10 @@ export type PmDecision = "pendente" | "aprovado" | "reprovado";
 export interface NominationNominee {
   id: string;
   nomination_id: string;
-  colaborador_id: string;
+  // Opcional desde 2026-10-02 (ver migration 20261002110000): dá pra nomear alguém que está
+  // disponível no Planejamento de Embarque mesmo sem correspondência exata no cadastro do
+  // Drake (grafia divergente, cadastro recente etc.) — colaborador_nome sempre fica preenchido.
+  colaborador_id: string | null;
   colaborador_nome: string;
   is_active: boolean;
   technical_selected_at: string | null;
@@ -160,11 +163,11 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
   { id: "recebido_logistica",  label: "Recebido pela Logística",  bg: "#EFEDE3", text: "#4A4636" },
   { id: "simulacao",           label: "Nomeação (Simulação)",     bg: "#E6F1FB", text: "#0C447C" },
   { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
-  { id: "validacao_rh",        label: "Administração de Pessoal - DP", bg: "#E8F5E9", text: "#1B5E20" },
+  { id: "validacao_rh",        label: "Validação - DP",           bg: "#E8F5E9", text: "#1B5E20" },
   { id: "aprovacao_tecnica",   label: "Aprovação Técnica",        bg: "#EEEDFE", text: "#3C3489" },
   { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
   { id: "nomeados",            label: "Nomeados",                 bg: "#F3E8FD", text: "#5B2A8C" },
-  { id: "aprovacao_pm",        label: "Aprovação PM",             bg: "#FAEEDA", text: "#633806" },
+  { id: "aprovacao_pm",        label: "Validação PM",             bg: "#FAEEDA", text: "#633806" },
   { id: "briefing_sms",        label: "Briefing",                 bg: "#E0F7F5", text: "#0F5E59" },
   { id: "equipe_formada",      label: "Equipe Formada",           bg: "#DCFCE7", text: "#166534" },
 ];
@@ -212,13 +215,24 @@ export function canMoveToColumn(
 
   const validacaoQualidadeIdx = COLUMN_ORDER.indexOf("validacao_qualidade");
   const saiDeValidacaoQualidade = currentIdx <= validacaoQualidadeIdx && targetIdx > validacaoQualidadeIdx;
-  if (saiDeValidacaoQualidade && nom.requires_quality_validation && nom.quality_status !== "aprovado") {
-    return {
-      ok: false,
-      reason: nom.quality_status === "reprovado"
-        ? "A Qualidade reprovou esta solicitação — não é possível avançar."
-        : "Aguardando aprovação da Qualidade antes de avançar.",
-    };
+  if (saiDeValidacaoQualidade && nom.requires_quality_validation) {
+    if (nom.quality_status !== "aprovado") {
+      return {
+        ok: false,
+        reason: nom.quality_status === "reprovado"
+          ? "A Qualidade reprovou esta solicitação — não é possível avançar."
+          : "Aguardando aprovação da Qualidade antes de avançar.",
+      };
+    }
+    // Pedido dela, 2026-10-05: soldador pode seguir sem o escopo do serviço anexado, desde que
+    // as Observações digam qual o tipo de obra/serviço a ser executado a bordo — sem nenhum dos
+    // dois, a Qualidade não tem base nenhuma pra avaliar o tipo de solda.
+    if (!nom.scope_document_path && !nom.notes?.trim()) {
+      return {
+        ok: false,
+        reason: "Sem escopo do serviço anexado — descreva em Observações o tipo de obra/serviço a ser executado a bordo antes de avançar.",
+      };
+    }
   }
 
   const aprovacaoPmIdx = COLUMN_ORDER.indexOf("aprovacao_pm");
@@ -375,9 +389,11 @@ export function isSoldador(fn: string) {
 
 // Papéis com acesso restrito a uma etapa específica do fluxo — usado pra decidir o que
 // mostrar/habilitar na UI conforme o `role` logado (useAuth()). `logistics_operator`
-// continua com acesso total em qualquer etapa (não entra neste mapa).
-export const STAGE_ROLE: Partial<Record<NominationStatus, string>> = {
-  simulacao: "solicitante_master",
+// continua com acesso total em qualquer etapa (não entra neste mapa). Um valor pode ser um
+// array quando mais de um papel pode agir na mesma etapa (ex.: Simulação, pedido dela
+// 2026-10-05: além de Projetos ADM, Produção/Aprovação Técnica também pode simular).
+export const STAGE_ROLE: Partial<Record<NominationStatus, string | string[]>> = {
+  simulacao: ["solicitante_master", "aprovacao_tecnica"],
   aprovacao_tecnica: "aprovacao_tecnica",
   validacao_qualidade: "qualidade",
   validacao_sms_aso: "sms",

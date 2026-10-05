@@ -13,5 +13,6 @@ function Index() {
   if (role === "logistics_operator" || role === "administrador") return <Navigate to="/admin/histograma-novo" />;
   if (role === "adm_master") return <Navigate to="/admin/nominations" />;
   if (role === "visitante") return <Navigate to="/admin/transport" />;
+  if (role === "orcamentos_projetos") return <Navigate to="/admin/cost-simulator" />;
   return <Navigate to="/app" />;
 }

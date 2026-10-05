@@ -6,7 +6,7 @@ import { trackFlowEvent, resetFlowSession } from "@/lib/flowTrack";
 export type AppRole =
   | "pending" | "collaborator" | "logistics_operator" | "pm" | "visitante"
   | "aprovacao_tecnica" | "qualidade" | "rh" | "sms" | "adm_master" | "solicitante_master"
-  | "diretoria" | "medicao" | "administrador";
+  | "diretoria" | "medicao" | "administrador" | "orcamentos_projetos";
 
 interface AuthCtx {
   user: User | null;
