@@ -82,7 +82,6 @@ export function ResultadoPanel({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Kpi label="Total" valor={formatBRL(resultado.total)} />
           <Kpi label="Por pessoa" valor={formatBRL(resultado.porPessoa)} />
-          <Kpi label="Por mês" valor={formatBRL(resultado.porMes)} />
           <Kpi label="Pessoas" valor={String(pessoas)} />
         </div>
       </Card>

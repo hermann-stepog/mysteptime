@@ -189,7 +189,6 @@ export async function exportarSimulacaoPdf({
   const kpis = [
     ["Total", formatBRL(resultado.total)],
     ["Por pessoa", formatBRL(resultado.porPessoa)],
-    ["Por mês", formatBRL(resultado.porMes)],
     ["Pessoas", String(resultado.totalPessoas)],
   ];
   autoTable(doc, {
