@@ -160,6 +160,8 @@ const STAGE_RECIPIENT_ROLES: Partial<Record<NominationStatus, string[]>> = {
   briefing_sms: ["sms"],
 };
 const STAGES_WITH_PM: NominationStatus[] = ["validacao_sms_aso", "aprovacao_pm"];
+// Contas que nunca recebem alertas de Nomeações (pedido da usuária).
+const NUNCA_RECEBEM = ["gabriel.sales@sttep-og.com", "fernando.v.junger@gmail.com"];
 
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus, observacao?: string): Promise<void> {
   try {
@@ -173,7 +175,8 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
       incluiPm ? pmEmail(nomination) : Promise.resolve(null),
       stageAnswers(nomination),
     ]);
-    const todos = Array.from(new Set([...roleLists.flat(), ...(pm ? [pm] : [])]));
+    const todos = Array.from(new Set([...roleLists.flat(), ...(pm ? [pm] : [])]))
+      .filter((e) => !NUNCA_RECEBEM.includes(e.toLowerCase()));
     if (todos.length === 0) return;
     const toFinal = todos;
     const cc: string[] = [];
