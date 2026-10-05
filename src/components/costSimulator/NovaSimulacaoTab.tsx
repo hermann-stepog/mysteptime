@@ -115,6 +115,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   const [duracaoDiasTerra, setDuracaoDiasTerra] = useState(ter?.duracaoDias ?? 9);
   const [usaAcomodacao, setUsaAcomodacao] = useState(ter?.usaAcomodacao ?? true);
   const [usaAlimentacao, setUsaAlimentacao] = useState(ter?.usaAlimentacao ?? true);
+  const [usaTransporteLocal, setUsaTransporteLocal] = useState(ter?.usaTransporteLocal ?? true);
+  const [qtdTransporteLocal, setQtdTransporteLocal] = useState(ter?.qtdTransporteLocal ?? 4);
   const [trajetosTerra, setTrajetosTerra] = useState<TrajetoTerra[]>(
     ter?.trajetos ?? TRAJETOS_TERRA_VAZIO,
   );
@@ -150,6 +152,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
         duracaoDias: duracaoDiasTerra,
         usaAcomodacao,
         usaAlimentacao,
+        usaTransporteLocal,
+        qtdTransporteLocal,
         trajetos: trajetosTerra,
         usaLavanderia,
         lavanderiaValorDiario,
@@ -173,6 +177,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     duracaoDiasTerra,
     usaAcomodacao,
     usaAlimentacao,
+    usaTransporteLocal,
+    qtdTransporteLocal,
     trajetosTerra,
     usaLavanderia,
     lavanderiaValorDiario,
@@ -345,6 +351,10 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setUsaAcomodacao={setUsaAcomodacao}
                 usaAlimentacao={usaAlimentacao}
                 setUsaAlimentacao={setUsaAlimentacao}
+                usaTransporteLocal={usaTransporteLocal}
+                setUsaTransporteLocal={setUsaTransporteLocal}
+                qtdTransporteLocal={qtdTransporteLocal}
+                setQtdTransporteLocal={setQtdTransporteLocal}
                 trajetos={trajetosTerra}
                 locais={locaisTransporte.data ?? []}
                 setTrajetos={setTrajetosTerra}
@@ -667,6 +677,10 @@ function ServicoTerraForm({
   setUsaAcomodacao,
   usaAlimentacao,
   setUsaAlimentacao,
+  usaTransporteLocal,
+  setUsaTransporteLocal,
+  qtdTransporteLocal,
+  setQtdTransporteLocal,
   trajetos,
   setTrajetos,
   locais,
@@ -685,6 +699,10 @@ function ServicoTerraForm({
   setUsaAcomodacao: (v: boolean) => void;
   usaAlimentacao: boolean;
   setUsaAlimentacao: (v: boolean) => void;
+  usaTransporteLocal: boolean;
+  setUsaTransporteLocal: (v: boolean) => void;
+  qtdTransporteLocal: number;
+  setQtdTransporteLocal: (v: number) => void;
   trajetos: TrajetoTerra[];
   locais: string[];
   setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
@@ -763,9 +781,28 @@ function ServicoTerraForm({
         />{" "}
         Alimentação (histórico de Reembolsos)
       </label>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={usaTransporteLocal}
+            onChange={(e) => setUsaTransporteLocal(e.target.checked)}
+          />{" "}
+          Transporte exclusivo
+        </label>
+        <Input
+          type="number"
+          min={0}
+          className="w-28"
+          placeholder="Viagens (total)"
+          value={qtdTransporteLocal}
+          onChange={(e) => setQtdTransporteLocal(Number(e.target.value) || 0)}
+          disabled={!usaTransporteLocal}
+        />
+      </div>
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label>Transporte por trajeto (custo do histórico)</Label>
+          <Label>Uber por trajeto (custo do histórico)</Label>
           <Button
             type="button"
             size="sm"

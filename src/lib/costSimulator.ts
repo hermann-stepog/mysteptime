@@ -84,6 +84,8 @@ export interface EntradasServicoTerra extends EntradasComuns {
   duracaoDias: number;
   usaAcomodacao: boolean;
   usaAlimentacao: boolean;
+  usaTransporteLocal: boolean;
+  qtdTransporteLocal: number; // nº total de viagens do transporte exclusivo (ida e volta somadas)
   trajetos: TrajetoTerra[];
   usaLavanderia: boolean;
   lavanderiaValorDiario: number; // sem fonte de histórico no sistema — sempre digitado manualmente
@@ -453,8 +455,26 @@ function montarCategoriasServicoTerra(
     });
   }
 
-  // Transporte por trajeto: custo por viagem (um carro leva o grupo todo), puxado do histórico
-  // de viagens entre as duas cidades nos dois sentidos.
+  // Transporte exclusivo: custo por viagem (um carro leva o grupo todo), total de viagens informado.
+  if (entradas.usaTransporteLocal) {
+    const stat = stats.transporte?.[local];
+    if (stat) {
+      const override = ajustes.overrides["transporte"];
+      const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
+      const qtd = Number(entradas.qtdTransporteLocal) || 0;
+      porCategoria.push({
+        categoria: "Transporte exclusivo",
+        chaveOverride: "transporte",
+        unitario,
+        qtd,
+        subtotal: round2(unitario * qtd),
+        percentualDoTotal: 0,
+      });
+    }
+  }
+
+  // Uber por trajeto: custo por viagem, puxado do histórico de viagens Uber entre as duas
+  // cidades nos dois sentidos.
   (entradas.trajetos ?? []).forEach((t, i) => {
     const origem = t.origem.trim();
     const destino = t.destino.trim();
@@ -467,7 +487,7 @@ function montarCategoriasServicoTerra(
     const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
     const qtd = Number(t.qtd) || 0;
     porCategoria.push({
-      categoria: `Transporte (${origem} → ${destino})`,
+      categoria: `Uber (${origem} → ${destino})`,
       chaveOverride: chave,
       unitario,
       qtd,

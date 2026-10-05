@@ -1,5 +1,5 @@
--- Custo de transporte por trajeto no Simulador de Custos (2026-10-05): o usuário informa origem
--- e destino (ex. aeroporto ↔ pousada) e o custo sai do histórico de viagens entre as duas
+-- Custo de Uber por trajeto no Simulador de Custos (2026-10-05): o usuário informa origem e
+-- destino (ex. aeroporto ↔ pousada) e o custo sai do histórico de viagens Uber entre as duas
 -- cidades, nos dois sentidos. Mesma regra de custo por viagem da cost_simulator_unit_stats
 -- (custo + custo_2 + custo_3, sem viagens canceladas).
 CREATE OR REPLACE FUNCTION public.cost_simulator_transport_trajetos(p_filters jsonb)
@@ -35,6 +35,7 @@ BEGIN
         AND t.scheduled_at::date >= v_periodo_inicio
         AND t.scheduled_at::date <= v_periodo_fim
         AND (t.custo IS NOT NULL OR t.custo_2 IS NOT NULL OR t.custo_3 IS NOT NULL)
+        AND trim(t.car_number) ILIKE 'uber%'
         AND (
           (trim(t.origin) ILIKE trim(v_t->>'origem') AND trim(t.destination) ILIKE trim(v_t->>'destino'))
           OR (trim(t.origin) ILIKE trim(v_t->>'destino') AND trim(t.destination) ILIKE trim(v_t->>'origem'))
