@@ -87,21 +87,6 @@ export async function fetchCostStats(
   return (data ?? {}) as CostSimulatorUnitStats;
 }
 
-export interface CostFilterOptions {
-  hoteis: { id: string; nome: string; cidade: string | null }[];
-  tiposTransporte: string[];
-}
-
-export async function fetchCostFilterOptions(): Promise<CostFilterOptions> {
-  const { data, error } = await supabase.rpc("cost_simulator_filter_options");
-  if (error) throw new Error(error.message);
-  const bruto = (data ?? {}) as {
-    hoteis?: CostFilterOptions["hoteis"];
-    tipos_transporte?: string[];
-  };
-  return { hoteis: bruto.hoteis ?? [], tiposTransporte: bruto.tipos_transporte ?? [] };
-}
-
 export async function listCostSimulations(): Promise<CostSimulationRow[]> {
   const { data, error } = await supabase
     .from("cost_simulations")

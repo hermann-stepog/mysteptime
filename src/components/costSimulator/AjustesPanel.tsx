@@ -9,7 +9,6 @@ import {
   type MetodoCalculo,
 } from "@/lib/costSimulator";
 import type { TipoMarkup } from "@/lib/bm";
-import type { CostFilterOptions } from "@/lib/api/costSimulator.functions";
 
 // Os overrides manuais por categoria ficam no ResultadoPanel (editados linha a linha na tabela,
 // já que cada categoria só existe depois que a simulação roda).
@@ -23,13 +22,9 @@ const PRESETS: { tipo: "3" | "6" | "12"; label: string }[] = [
 export function AjustesPanel({
   ajustes,
   onChange,
-  opcoesFiltro,
-  erroOpcoesFiltro,
 }: {
   ajustes: AjustesSimulacao;
   onChange: (next: AjustesSimulacao) => void;
-  opcoesFiltro: CostFilterOptions | undefined;
-  erroOpcoesFiltro: string | null;
 }) {
   function setPeriodoPreset(tipo: "3" | "6" | "12") {
     onChange({
@@ -100,55 +95,6 @@ export function AjustesPanel({
             />
           </div>
         )}
-      </div>
-
-      <div className="space-y-2">
-        <Label>Filtros dos custos históricos</Label>
-        <div className="grid grid-cols-2 gap-2">
-          <select
-            className="w-full border rounded-md h-9 px-2 text-sm"
-            aria-label="Hotel (filtra hospedagem)"
-            value={ajustes.filtros.hotelIds?.[0] ?? ""}
-            onChange={(e) =>
-              onChange({
-                ...ajustes,
-                filtros: {
-                  ...ajustes.filtros,
-                  hotelIds: e.target.value ? [e.target.value] : undefined,
-                },
-              })
-            }
-            disabled={!opcoesFiltro}
-          >
-            <option value="">Todos os hotéis</option>
-            {opcoesFiltro?.hoteis.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.nome}
-                {h.cidade ? ` (${h.cidade})` : ""}
-              </option>
-            ))}
-          </select>
-          <select
-            className="w-full border rounded-md h-9 px-2 text-sm"
-            aria-label="Tipo de transporte (filtra transporte)"
-            value={ajustes.filtros.tipoTransporte ?? ""}
-            onChange={(e) =>
-              onChange({
-                ...ajustes,
-                filtros: { ...ajustes.filtros, tipoTransporte: e.target.value || undefined },
-              })
-            }
-            disabled={!opcoesFiltro}
-          >
-            <option value="">Todos os tipos</option>
-            {opcoesFiltro?.tiposTransporte.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </div>
-        {erroOpcoesFiltro && <p className="text-xs text-destructive">{erroOpcoesFiltro}</p>}
       </div>
 
       <div className="space-y-2">
