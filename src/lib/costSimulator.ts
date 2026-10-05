@@ -71,6 +71,12 @@ export interface EquipeSimples {
   qtd: number;
 }
 
+export interface TrajetoTerra {
+  origem: string;
+  destino: string;
+  qtd: number; // nº total de viagens nesse trajeto (ida e volta somadas)
+}
+
 export interface EntradasServicoTerra extends EntradasComuns {
   tipo: "servico_terra";
   local: string; // cidade/base em terra (ex. "ARM SBM Duque de Caxias")
@@ -78,8 +84,7 @@ export interface EntradasServicoTerra extends EntradasComuns {
   duracaoDias: number;
   usaAcomodacao: boolean;
   usaAlimentacao: boolean;
-  usaTransporteLocal: boolean;
-  qtdTransporteLocalPorDia: number; // nº de viagens de van por dia (padrão 2: pousada→local→pousada)
+  trajetos: TrajetoTerra[];
   usaLavanderia: boolean;
   lavanderiaValorDiario: number; // sem fonte de histórico no sistema — sempre digitado manualmente
 }
@@ -114,6 +119,7 @@ export interface CostSimulatorUnitStats {
   hospedagem?: Record<string, CostStats>;
   transporte?: Record<string, CostStats>;
   passagens?: Record<string, CostStats>;
+  transporteTrajeto?: Record<string, CostStats>;
   alimentacao?: CostStats;
 }
 
@@ -219,6 +225,7 @@ export function rotaKey(origem: string, destino: string): string {
 export function cidadesERotas(entradas: EntradasSimulacao): {
   cidades: string[];
   rotas: { origem: string; destino: string }[];
+  trajetos: { origem: string; destino: string }[];
 } {
   if (entradas.tipo === "embarque") {
     const cidadeBase = entradas.cidadeEmbarque.trim();
@@ -226,11 +233,15 @@ export function cidadesERotas(entradas: EntradasSimulacao): {
     return {
       cidades: cidadeBase ? [cidadeBase] : [],
       rotas: Array.from(origens).map((origem) => ({ origem, destino: cidadeBase })),
+      trajetos: [],
     };
   }
   if (entradas.tipo === "servico_terra") {
     const local = entradas.local.trim();
-    return { cidades: local ? [local] : [], rotas: [] };
+    const trajetos = (entradas.trajetos ?? [])
+      .filter((t) => t.origem.trim() && t.destino.trim())
+      .map((t) => ({ origem: t.origem.trim(), destino: t.destino.trim() }));
+    return { cidades: local ? [local] : [], rotas: [], trajetos };
   }
   const cidades = new Set(entradas.viagens.map((v) => v.destino.trim()).filter(Boolean));
   const rotas = new Map<string, { origem: string; destino: string }>();
@@ -238,7 +249,7 @@ export function cidadesERotas(entradas: EntradasSimulacao): {
     if (!v.origem.trim() || !v.destino.trim()) continue;
     rotas.set(rotaKey(v.origem, v.destino), { origem: v.origem.trim(), destino: v.destino.trim() });
   }
-  return { cidades: Array.from(cidades), rotas: Array.from(rotas.values()) };
+  return { cidades: Array.from(cidades), rotas: Array.from(rotas.values()), trajetos: [] };
 }
 
 function montarCategoriasEmbarque(
@@ -442,23 +453,28 @@ function montarCategoriasServicoTerra(
     });
   }
 
-  // Transporte exclusivo (van pousada↔local↔pousada): custo por viagem, não por pessoa.
-  if (entradas.usaTransporteLocal) {
-    const stat = stats.transporte?.[local];
-    if (stat) {
-      const override = ajustes.overrides["transporte"];
-      const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-      const qtd = entradas.qtdTransporteLocalPorDia * duracaoDias;
-      porCategoria.push({
-        categoria: "Transporte exclusivo",
-        chaveOverride: "transporte",
-        unitario,
-        qtd,
-        subtotal: round2(unitario * qtd),
-        percentualDoTotal: 0,
-      });
-    }
-  }
+  // Transporte por trajeto: custo por viagem (um carro leva o grupo todo), puxado do histórico
+  // de viagens entre as duas cidades nos dois sentidos.
+  (entradas.trajetos ?? []).forEach((t, i) => {
+    const origem = t.origem.trim();
+    const destino = t.destino.trim();
+    if (!origem || !destino) return;
+    const key = rotaKey(origem, destino);
+    const stat = stats.transporteTrajeto?.[key];
+    if (!stat) return;
+    const chave = `trajeto:${key}#${i}`;
+    const override = ajustes.overrides[chave];
+    const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
+    const qtd = Number(t.qtd) || 0;
+    porCategoria.push({
+      categoria: `Transporte (${origem} → ${destino})`,
+      chaveOverride: chave,
+      unitario,
+      qtd,
+      subtotal: round2(unitario * qtd),
+      percentualDoTotal: 0,
+    });
+  });
 
   // Lavanderia: sem fonte de histórico no sistema hoje — valor sempre digitado manualmente.
   if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {
