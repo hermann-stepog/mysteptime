@@ -15,7 +15,6 @@ import { Plus, Trash2 } from "lucide-react";
 import { CLIENTES } from "@/lib/clientes";
 import {
   fetchCostStats,
-  fetchCostFilterOptions,
   saveCostSimulation,
   updateCostSimulation,
   type CostSimulationRow,
@@ -221,11 +220,6 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
 
   const { profile } = useAuth();
   const queryClient = useQueryClient();
-  const opcoesFiltro = useQuery({
-    queryKey: ["cost-simulator-filter-options"],
-    queryFn: fetchCostFilterOptions,
-    staleTime: 5 * 60_000,
-  });
   const salvar = useMutation({
     mutationFn: async (modo: "novo" | "atualizar") => {
       if (!stats || !resultado) throw new Error("Calcule a simulação antes de salvar.");
@@ -398,12 +392,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
             )}
           </Card>
 
-          <AjustesPanel
-            ajustes={ajustes}
-            onChange={setAjustes}
-            opcoesFiltro={opcoesFiltro.data}
-            erroOpcoesFiltro={opcoesFiltro.error ? (opcoesFiltro.error as Error).message : null}
-          />
+          <AjustesPanel ajustes={ajustes} onChange={setAjustes} />
         </div>
 
         <div className="space-y-4">
@@ -824,7 +813,7 @@ function ServicoTerraForm({
           min={0}
           step="0.01"
           className="w-32"
-          placeholder="R$/pessoa/dia"
+          placeholder="Valor único (R$)"
           value={lavanderiaValorDiario}
           onChange={(e) => setLavanderiaValorDiario(Number(e.target.value) || 0)}
           disabled={!usaLavanderia}

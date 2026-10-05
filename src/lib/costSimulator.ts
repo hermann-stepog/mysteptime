@@ -462,13 +462,12 @@ function montarCategoriasServicoTerra(
 
   // Lavanderia: sem fonte de histórico no sistema hoje — valor sempre digitado manualmente.
   if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {
-    const qtd = duracaoDias * totalPessoas;
     porCategoria.push({
       categoria: "Lavanderia",
       chaveOverride: "lavanderia",
       unitario: entradas.lavanderiaValorDiario,
-      qtd,
-      subtotal: round2(entradas.lavanderiaValorDiario * qtd),
+      qtd: 1,
+      subtotal: round2(entradas.lavanderiaValorDiario),
       percentualDoTotal: 0,
     });
   }
