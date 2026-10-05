@@ -39,6 +39,17 @@ import {
 import { AjustesPanel } from "@/components/costSimulator/AjustesPanel";
 import { ResultadoPanel } from "@/components/costSimulator/ResultadoPanel";
 import { exportarSimulacaoPdf } from "@/lib/costSimulatorPdf";
+import { TIPO_LABEL, formatBRL } from "@/components/costSimulator/formatacao";
+
+interface ItemHistorico {
+  id: string;
+  horario: string;
+  nome: string;
+  tipo: string;
+  cliente: string | null;
+  pessoas: number;
+  total: number;
+}
 
 // Três tipos de simulação (pedido dela, 2026-10-02, depois de ver um e-mail real de pedido de
 // cotação que não era nem Embarque nem Viagem Executiva): cada um tem sua própria seção de
@@ -84,6 +95,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   const [stats, setStats] = useState<CostSimulatorUnitStats | null>(
     carregado?.snapshotCustos ?? null,
   );
+  const [historico, setHistorico] = useState<ItemHistorico[]>([]);
 
   // ── Embarque ──
   const [cidadeEmbarque, setCidadeEmbarque] = useState(emb?.cidadeEmbarque ?? "");
@@ -173,7 +185,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   const calcular = useMutation({
     mutationFn: async () => {
       const { cidades, rotas } = cidadesERotas(entradas);
-      return fetchCostStats({
+      const novoStats = await fetchCostStats({
         periodoInicio: ajustes.periodoReferencia.inicio,
         periodoFim: ajustes.periodoReferencia.fim,
         cidades,
@@ -182,8 +194,24 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
         hotelIds: ajustes.filtros.hotelIds,
         tipoTransporte: ajustes.filtros.tipoTransporte,
       });
+      return { novoStats, entradasCalculadas: entradas, ajustesCalculados: ajustes };
     },
-    onSuccess: setStats,
+    onSuccess: ({ novoStats, entradasCalculadas, ajustesCalculados }) => {
+      setStats(novoStats);
+      const res = montarResultado(entradasCalculadas, ajustesCalculados, novoStats);
+      setHistorico((h) => [
+        {
+          id: `${Date.now()}-${h.length}`,
+          horario: new Date().toLocaleTimeString("pt-BR"),
+          nome: entradasCalculadas.nomeCenario.trim() || "Sem nome",
+          tipo: TIPO_LABEL[entradasCalculadas.tipo],
+          cliente: entradasCalculadas.cliente || null,
+          pessoas: res.totalPessoas,
+          total: res.total,
+        },
+        ...h,
+      ]);
+    },
   });
 
   const resultado = useMemo(
@@ -235,165 +263,190 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   }
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-4 items-start">
-      <div className="space-y-4">
-        <Card className="p-4 space-y-4">
-          <div className="space-y-2">
-            <Label>Tipo de simulação</Label>
-            <select
-              className="w-full border rounded-md h-9 px-2 text-sm"
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value as TipoSimulacao)}
-            >
-              <option value="embarque">Embarque (equipe rotativa)</option>
-              <option value="viagem_executiva">Viagem Executiva</option>
-              <option value="servico_terra">Serviço em Terra</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label>Nome do cenário</Label>
-            <Input value={nomeCenario} onChange={(e) => setNomeCenario(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Cliente</Label>
-            <Select value={cliente} onValueChange={setCliente}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione" />
-              </SelectTrigger>
-              <SelectContent>
-                {CLIENTES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-4 items-start">
+        <div className="space-y-4">
+          <Card className="p-4 space-y-4">
             <div className="space-y-2">
-              <Label>Unidade</Label>
-              <Input value={unidade} onChange={(e) => setUnidade(e.target.value)} />
+              <Label>Tipo de simulação</Label>
+              <select
+                className="w-full border rounded-md h-9 px-2 text-sm"
+                value={tipo}
+                onChange={(e) => setTipo(e.target.value as TipoSimulacao)}
+              >
+                <option value="embarque">Embarque (equipe rotativa)</option>
+                <option value="viagem_executiva">Viagem Executiva</option>
+                <option value="servico_terra">Serviço em Terra</option>
+              </select>
             </div>
             <div className="space-y-2">
-              <Label>BSP</Label>
-              <Input
-                value={bsp}
-                onChange={(e) => setBsp(e.target.value)}
-                placeholder="Usado no filtro de Alimentação"
+              <Label>Nome do cenário</Label>
+              <Input value={nomeCenario} onChange={(e) => setNomeCenario(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Cliente</Label>
+              <Select value={cliente} onValueChange={setCliente}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CLIENTES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label>Unidade</Label>
+                <Input value={unidade} onChange={(e) => setUnidade(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>BSP</Label>
+                <Input
+                  value={bsp}
+                  onChange={(e) => setBsp(e.target.value)}
+                  placeholder="Usado no filtro de Alimentação"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Observações</Label>
+              <textarea
+                className="w-full border rounded-md px-2 py-1.5 text-sm min-h-[60px]"
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
               />
             </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Observações</Label>
-            <textarea
-              className="w-full border rounded-md px-2 py-1.5 text-sm min-h-[60px]"
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-            />
-          </div>
 
-          {tipo === "embarque" && (
-            <EmbarqueForm
-              cidadeEmbarque={cidadeEmbarque}
-              setCidadeEmbarque={setCidadeEmbarque}
-              equipe={equipe}
-              setEquipe={setEquipe}
-              regimeTipo={regimeTipo}
-              setRegimeTipo={setRegimeTipo}
-              duracaoValor={duracaoValor}
-              setDuracaoValor={setDuracaoValor}
-              mobDesmob={mobDesmob}
-              setMobDesmob={setMobDesmob}
-            />
-          )}
-          {tipo === "viagem_executiva" && (
-            <ViagemExecutivaForm viagens={viagens} setViagens={setViagens} />
-          )}
-          {tipo === "servico_terra" && (
-            <ServicoTerraForm
-              local={local}
-              setLocal={setLocal}
-              equipe={equipeTerra}
-              setEquipe={setEquipeTerra}
-              duracaoDias={duracaoDiasTerra}
-              setDuracaoDias={setDuracaoDiasTerra}
-              usaAcomodacao={usaAcomodacao}
-              setUsaAcomodacao={setUsaAcomodacao}
-              usaAlimentacao={usaAlimentacao}
-              setUsaAlimentacao={setUsaAlimentacao}
-              usaTransporteLocal={usaTransporteLocal}
-              setUsaTransporteLocal={setUsaTransporteLocal}
-              qtdTransporteLocalPorDia={qtdTransporteLocalPorDia}
-              setQtdTransporteLocalPorDia={setQtdTransporteLocalPorDia}
-              usaLavanderia={usaLavanderia}
-              setUsaLavanderia={setUsaLavanderia}
-              lavanderiaValorDiario={lavanderiaValorDiario}
-              setLavanderiaValorDiario={setLavanderiaValorDiario}
-            />
-          )}
+            {tipo === "embarque" && (
+              <EmbarqueForm
+                cidadeEmbarque={cidadeEmbarque}
+                setCidadeEmbarque={setCidadeEmbarque}
+                equipe={equipe}
+                setEquipe={setEquipe}
+                regimeTipo={regimeTipo}
+                setRegimeTipo={setRegimeTipo}
+                duracaoValor={duracaoValor}
+                setDuracaoValor={setDuracaoValor}
+                mobDesmob={mobDesmob}
+                setMobDesmob={setMobDesmob}
+              />
+            )}
+            {tipo === "viagem_executiva" && (
+              <ViagemExecutivaForm viagens={viagens} setViagens={setViagens} />
+            )}
+            {tipo === "servico_terra" && (
+              <ServicoTerraForm
+                local={local}
+                setLocal={setLocal}
+                equipe={equipeTerra}
+                setEquipe={setEquipeTerra}
+                duracaoDias={duracaoDiasTerra}
+                setDuracaoDias={setDuracaoDiasTerra}
+                usaAcomodacao={usaAcomodacao}
+                setUsaAcomodacao={setUsaAcomodacao}
+                usaAlimentacao={usaAlimentacao}
+                setUsaAlimentacao={setUsaAlimentacao}
+                usaTransporteLocal={usaTransporteLocal}
+                setUsaTransporteLocal={setUsaTransporteLocal}
+                qtdTransporteLocalPorDia={qtdTransporteLocalPorDia}
+                setQtdTransporteLocalPorDia={setQtdTransporteLocalPorDia}
+                usaLavanderia={usaLavanderia}
+                setUsaLavanderia={setUsaLavanderia}
+                lavanderiaValorDiario={lavanderiaValorDiario}
+                setLavanderiaValorDiario={setLavanderiaValorDiario}
+              />
+            )}
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => calcular.mutate()} disabled={calcular.isPending}>
-              {calcular.isPending ? "Buscando custos..." : "Calcular"}
-            </Button>
-            {carregado && (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => calcular.mutate()} disabled={calcular.isPending}>
+                {calcular.isPending ? "Buscando custos..." : "Calcular"}
+              </Button>
+              {carregado && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => salvar.mutate("atualizar")}
+                  disabled={salvar.isPending || !stats || !nomeCenario.trim()}
+                >
+                  <Save className="h-4 w-4 mr-1" /> Atualizar cenário
+                </Button>
+              )}
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => salvar.mutate("atualizar")}
+                variant={carregado ? "outline" : "default"}
+                onClick={() => salvar.mutate("novo")}
                 disabled={salvar.isPending || !stats || !nomeCenario.trim()}
               >
-                <Save className="h-4 w-4 mr-1" /> Atualizar cenário
+                <Save className="h-4 w-4 mr-1" />{" "}
+                {carregado ? "Salvar como novo" : "Salvar cenário"}
               </Button>
+            </div>
+            {!stats && (
+              <p className="text-xs text-muted-foreground">
+                Calcule antes de salvar. Sem nome do cenário, o salvamento fica bloqueado.
+              </p>
             )}
-            <Button
-              type="button"
-              variant={carregado ? "outline" : "default"}
-              onClick={() => salvar.mutate("novo")}
-              disabled={salvar.isPending || !stats || !nomeCenario.trim()}
-            >
-              <Save className="h-4 w-4 mr-1" /> {carregado ? "Salvar como novo" : "Salvar cenário"}
-            </Button>
-          </div>
-          {!stats && (
-            <p className="text-xs text-muted-foreground">
-              Calcule antes de salvar. Sem nome do cenário, o salvamento fica bloqueado.
-            </p>
-          )}
-          {calcular.isError && (
-            <p className="text-sm text-destructive">{(calcular.error as Error).message}</p>
-          )}
-          {salvar.isError && (
-            <p className="text-sm text-destructive">{(salvar.error as Error).message}</p>
-          )}
+            {calcular.isError && (
+              <p className="text-sm text-destructive">{(calcular.error as Error).message}</p>
+            )}
+            {salvar.isError && (
+              <p className="text-sm text-destructive">{(salvar.error as Error).message}</p>
+            )}
+          </Card>
+
+          <AjustesPanel
+            ajustes={ajustes}
+            onChange={setAjustes}
+            opcoesFiltro={opcoesFiltro.data}
+            erroOpcoesFiltro={opcoesFiltro.error ? (opcoesFiltro.error as Error).message : null}
+          />
+        </div>
+
+        <div className="space-y-4">
+          <ResultadoPanel
+            resultado={resultado}
+            overrides={ajustes.overrides}
+            onChangeOverride={setOverride}
+            onExportarPdf={async (graficos) => {
+              if (!resultado) return;
+              await exportarSimulacaoPdf({
+                nomeCenario: nomeCenario.trim(),
+                entradas,
+                ajustes,
+                resultado,
+                geradoPor: profile?.full_name ?? profile?.email ?? null,
+                graficos,
+              });
+            }}
+          />
+        </div>
+      </div>
+
+      {historico.length > 0 && (
+        <Card className="p-4 space-y-3">
+          <h2 className="font-medium">Histórico desta sessão</h2>
+          <ul className="divide-y text-sm">
+            {historico.map((h) => (
+              <li key={h.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <span className="text-muted-foreground mr-2">{h.horario}</span>
+                  <span className="font-medium">{h.nome}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {h.tipo}
+                    {h.cliente ? ` · ${h.cliente}` : ""} · {h.pessoas} pessoa(s)
+                  </span>
+                </span>
+                <span className="font-semibold">{formatBRL(h.total)}</span>
+              </li>
+            ))}
+          </ul>
         </Card>
-
-        <AjustesPanel
-          ajustes={ajustes}
-          onChange={setAjustes}
-          opcoesFiltro={opcoesFiltro.data}
-          erroOpcoesFiltro={opcoesFiltro.error ? (opcoesFiltro.error as Error).message : null}
-        />
-      </div>
-
-      <div className="space-y-4">
-        <ResultadoPanel
-          resultado={resultado}
-          overrides={ajustes.overrides}
-          onChangeOverride={setOverride}
-          onExportarPdf={async (graficos) => {
-            if (!resultado) return;
-            await exportarSimulacaoPdf({
-              nomeCenario: nomeCenario.trim(),
-              entradas,
-              ajustes,
-              resultado,
-              geradoPor: profile?.full_name ?? profile?.email ?? null,
-              graficos,
-            });
-          }}
-        />
-      </div>
+      )}
     </div>
   );
 }
