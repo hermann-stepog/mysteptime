@@ -1209,9 +1209,9 @@ export function PlanejamentoEmbarqueTab() {
 
 
 
-      <Card className="overflow-x-auto">
+      <Card className="overflow-auto max-h-[calc(100dvh-220px)] min-h-[320px] [&>div]:overflow-visible">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-20 bg-card shadow-[0_1px_0_var(--color-border)] [&_th]:bg-card">
             <TableRow>
               <MultiSortableHead label="Matrícula" column="matricula" sortRules={sortRules} onSort={toggleSort} />
               <MultiSortableHead label="Nome" column="nome" sortRules={sortRules} onSort={toggleSort} />

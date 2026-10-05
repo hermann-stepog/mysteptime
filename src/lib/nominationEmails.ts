@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { sendResendTemplatedEmail } from "@/lib/api/email.functions";
-import { STATUS_LABELS, STAGE_ROLE, type Nomination, type NominationStatus } from "@/lib/nominations";
+import { STATUS_LABELS, isSoldador, type Nomination, type NominationStatus } from "@/lib/nominations";
 
 const supabaseAny: any = supabase;
 
@@ -140,22 +140,43 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
 // Solicitante Master só na própria etapa (STAGE_ROLE). O PM (solicitante da nomeação) continua
 // em cópia em toda etapa, é a solicitação dele. Nenhum papel entra "de brinde" em etapas que não
 // são a dele.
+// Quem recebe o alerta ao chegar em cada etapa (definido pela usuária):
+// - recebido_logistica → Projetos ADM (solicitante_master)
+// - validacao_sms_aso → SMS + o PM da solicitação (é o momento em que ele fica sabendo quem foi simulado)
+// - validacao_rh → DP (papel "rh")
+// - aprovacao_tecnica → Aprovação Técnica (produção)
+// - validacao_qualidade → Qualidade, só quando a função tem "soldador"
+// - aprovacao_pm → o PM da solicitação
+// - briefing_sms → SMS
+// - solicitacao → Logística de Pessoal (aviso de nova solicitação)
+// Demais etapas não geram alerta. Quando a etapa trava (observacao informada), PM e Projetos ADM recebem.
+const STAGE_RECIPIENT_ROLES: Partial<Record<NominationStatus, string[]>> = {
+  solicitacao: ["logistics_operator"],
+  recebido_logistica: ["solicitante_master"],
+  validacao_sms_aso: ["sms"],
+  validacao_rh: ["rh"],
+  aprovacao_tecnica: ["aprovacao_tecnica"],
+  validacao_qualidade: ["qualidade"],
+  briefing_sms: ["sms"],
+};
+const STAGES_WITH_PM: NominationStatus[] = ["validacao_sms_aso", "aprovacao_pm"];
+
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus, observacao?: string): Promise<void> {
   try {
-    const stageRole = STAGE_ROLE[stage];
-    const [roleTo, operatorsTo, pm, respostas] = await Promise.all([
-      stageRole
-        ? Promise.all((Array.isArray(stageRole) ? stageRole : [stageRole]).map(emailsForRole)).then((lists) => lists.flat())
-        : Promise.resolve([]),
-      stage === "solicitacao" ? emailsForRole("logistics_operator") : Promise.resolve([]),
-      pmEmail(nomination),
+    const travou = !!observacao;
+    if (stage === "validacao_qualidade" && !isSoldador(nomination.funcao ?? "")) return;
+    const roles = [...(STAGE_RECIPIENT_ROLES[stage] ?? []), ...(travou ? ["solicitante_master"] : [])];
+    const incluiPm = travou || STAGES_WITH_PM.includes(stage);
+    if (roles.length === 0 && !incluiPm) return;
+    const [roleLists, pm, respostas] = await Promise.all([
+      Promise.all(Array.from(new Set(roles)).map(emailsForRole)),
+      incluiPm ? pmEmail(nomination) : Promise.resolve(null),
       stageAnswers(nomination),
     ]);
-    const to = [...roleTo, ...operatorsTo];
-    const toFinal = to.length > 0 ? to : (pm ? [pm] : []);
-    if (toFinal.length === 0) return;
-
-    const cc = pm ? [pm] : [];
+    const todos = Array.from(new Set([...roleLists.flat(), ...(pm ? [pm] : [])]));
+    if (todos.length === 0) return;
+    const toFinal = todos;
+    const cc: string[] = [];
     const periodo = nomination.period_start && nomination.period_end
       ? `${fmtBr(nomination.period_start)} a ${fmtBr(nomination.period_end)}`
       : "—";

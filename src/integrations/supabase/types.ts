@@ -966,6 +966,66 @@ export type Database = {
           },
         ]
       }
+      cost_simulations: {
+        Row: {
+          ajustes: Json
+          bsp: string | null
+          cliente: string | null
+          created_at: string
+          created_by: string
+          created_by_name: string | null
+          entradas: Json
+          id: string
+          metodo_calculo: string
+          nome_cenario: string
+          observacoes: string | null
+          periodo_referencia_fim: string
+          periodo_referencia_inicio: string
+          resultado: Json
+          snapshot_custos: Json
+          unidade: string | null
+          updated_at: string
+        }
+        Insert: {
+          ajustes: Json
+          bsp?: string | null
+          cliente?: string | null
+          created_at?: string
+          created_by: string
+          created_by_name?: string | null
+          entradas: Json
+          id?: string
+          metodo_calculo?: string
+          nome_cenario: string
+          observacoes?: string | null
+          periodo_referencia_fim: string
+          periodo_referencia_inicio: string
+          resultado: Json
+          snapshot_custos: Json
+          unidade?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ajustes?: Json
+          bsp?: string | null
+          cliente?: string | null
+          created_at?: string
+          created_by?: string
+          created_by_name?: string | null
+          entradas?: Json
+          id?: string
+          metodo_calculo?: string
+          nome_cenario?: string
+          observacoes?: string | null
+          periodo_referencia_fim?: string
+          periodo_referencia_inicio?: string
+          resultado?: Json
+          snapshot_custos?: Json
+          unidade?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       documents: {
         Row: {
           collaborator_id: string
@@ -3694,6 +3754,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _cost_sim_stats: { Args: { valores: number[] }; Returns: Json }
+      cost_simulator_unit_stats: { Args: { p_filters: Json }; Returns: Json }
       flow_track_modulo_label: { Args: { t: string }; Returns: string }
       get_email_send_config: {
         Args: never
@@ -3750,6 +3812,7 @@ export type Database = {
         | "diretoria"
         | "medicao"
         | "administrador"
+        | "orcamentos_projetos"
       approval_status: "pending" | "approved" | "rejected"
       billing_type: "com_cobranca" | "sem_cobranca"
       cost_type:
@@ -3926,6 +3989,7 @@ export const Constants = {
         "diretoria",
         "medicao",
         "administrador",
+        "orcamentos_projetos",
       ],
       approval_status: ["pending", "approved", "rejected"],
       billing_type: ["com_cobranca", "sem_cobranca"],
