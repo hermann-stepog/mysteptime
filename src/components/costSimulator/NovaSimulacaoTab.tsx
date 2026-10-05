@@ -35,7 +35,6 @@ import {
   type ViagemLinha,
   type RegimeTipo,
 } from "@/lib/costSimulator";
-import { AjustesPanel } from "@/components/costSimulator/AjustesPanel";
 import { ResultadoPanel } from "@/components/costSimulator/ResultadoPanel";
 import { exportarSimulacaoPdf } from "@/lib/costSimulatorPdf";
 import { TIPO_LABEL, formatBRL } from "@/components/costSimulator/formatacao";
@@ -391,8 +390,6 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
               <p className="text-sm text-destructive">{(salvar.error as Error).message}</p>
             )}
           </Card>
-
-          <AjustesPanel ajustes={ajustes} onChange={setAjustes} />
         </div>
 
         <div className="space-y-4">
