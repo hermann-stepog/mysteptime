@@ -23,6 +23,7 @@ const nav: NavItem[] = [
   { to: "/admin/reembolsos",     label: "Reembolsos" },
   { to: "/admin/collaborators",  label: "Colaboradores" },
   { to: "/admin/costs",          label: "Custos" },
+  { to: "/admin/cost-simulator", label: "Simulador de Custos" },
   { to: "/admin/rates",          label: "Rates" },
   { to: "/admin/bm",             label: "Boletim de Medição" },
   { to: "/admin/reports",        label: "Relatórios" },
@@ -41,6 +42,11 @@ const VISITANTE_PATHS = ["/admin/transport", "/admin/timesheet-offshore", ...NAO
 
 // Medição: só os 4 módulos que ela usa de verdade (pedido dela) — nada de Nomeações/Histograma.
 const MEDICAO_PATHS = ["/admin/bm", "/admin/passagens-aereas", "/admin/transport", "/admin/rates"];
+
+// Orçamentos e Projetos: só o Simulador de Custos Logísticos (pedido dela, 2026-10-02) — esse
+// papel nunca enxerga os lançamentos individuais de Transporte/Hospedagem/Passagens/Custos, só
+// os valores agregados que o simulador calcula (garantido no banco, ver RLS/RPC da migration).
+const ORCAMENTOS_PROJETOS_PATHS = ["/admin/cost-simulator"];
 
 const PM_PATHS = NAO_OPERADOR_PATHS;
 
@@ -76,15 +82,17 @@ function AdminLayout() {
   const { viewAsRole, setViewAsRole } = useViewAs();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isAllowedRole = role === "logistics_operator" || role === "administrador" || role === "adm_master" || role === "visitante" || role === "diretoria" || role === "medicao" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
+  const isAllowedRole = role === "logistics_operator" || role === "administrador" || role === "adm_master" || role === "visitante" || role === "diretoria" || role === "medicao" || role === "orcamentos_projetos" || role === "pm" || REAL_STAGE_ROLES.includes(role ?? "");
 
   useEffect(() => {
     if (loading) return;
     if (!user) navigate({ to: "/auth" });
     else if (!role || role === "pending") navigate({ to: "/pending" });
     else if (!isAllowedRole) navigate({ to: "/app" });
-    // Qualidade só tem acesso a Nomeações.
-    else if ((role === "qualidade" || role === "aprovacao_tecnica") && !pathname.startsWith("/admin/nominations")) navigate({ to: "/admin/nominations" });
+    // Qualidade só tem acesso a Nomeações. Produção (aprovacao_tecnica) também enxerga
+    // Histograma Offshore (pedido dela, 2026-10-05) — ver STAGE_ROLE_PATHS abaixo.
+    else if (role === "qualidade" && !pathname.startsWith("/admin/nominations")) navigate({ to: "/admin/nominations" });
+    else if (role === "aprovacao_tecnica" && !STAGE_ROLE_PATHS.some((p) => pathname.startsWith(p))) navigate({ to: "/admin/nominations" });
   }, [user, role, loading, isAllowedRole, navigate, pathname]);
 
   if (loading || !user || !isAllowedRole) {
@@ -92,12 +100,14 @@ function AdminLayout() {
   }
 
   const navRole = viewAsRole ?? role;
-  const visibleNav = navRole === "qualidade" || navRole === "aprovacao_tecnica"
+  const visibleNav = navRole === "qualidade"
     ? nav.filter((n) => n.to === "/admin/nominations")
     : navRole === "visitante" || navRole === "diretoria"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
     : navRole === "medicao"
     ? nav.filter((n) => MEDICAO_PATHS.includes(n.to))
+    : navRole === "orcamentos_projetos"
+    ? nav.filter((n) => ORCAMENTOS_PROJETOS_PATHS.includes(n.to))
     : navRole === "pm"
       ? nav.filter((n) => PM_PATHS.includes(n.to))
       : navRole === "adm_master"

@@ -109,7 +109,9 @@ const FULL_NOMINATIONS_ACCESS_ROLES = ["logistics_operator", "administrador", "a
 function useCanActOnStage(status: NominationStatus): boolean {
   const { role } = useAuth();
   if (FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "")) return true;
-  return STAGE_ROLE[status] === role;
+  const allowed = STAGE_ROLE[status];
+  if (!allowed) return false;
+  return Array.isArray(allowed) ? allowed.includes(role ?? "") : allowed === role;
 }
 
 // Grava a troca de etapa + histórico + dispara e-mail (fire-and-forget, nunca bloqueia nem
@@ -374,7 +376,7 @@ function NomeadosSection({ nomination, nominees }: { nomination: Nomination; nom
           loading={advance.isPending}
         >
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
-          {nomination.requires_quality_validation ? "Enviar para Validação de Qualidade" : "Enviar para Aprovação PM"}
+          {nomination.requires_quality_validation ? "Enviar para Validação de Qualidade" : "Enviar para Validação PM"}
         </Button>
       )}
     </div>
@@ -397,6 +399,10 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
   // Qualidade vem antes da Aprovação Técnica: avalia todos os candidatos ativos da simulação.
   const avaliados = nominees.filter((n) => n.is_active);
   const todosRespondidos = avaliados.length > 0 && avaliados.every((n) => (n as any).quality_apto_solda != null);
+  // Pedido dela, 2026-10-05: sem escopo anexado, só segue se Observações descrever o tipo de
+  // obra/serviço a bordo — mesma regra de canMoveToColumn (lib/nominations.ts), reforçada aqui
+  // pra avisar antes de aprovar, não só quando a tentativa de mover o card falhar depois.
+  const faltaDescricaoObra = !nomination.scope_document_path && !nomination.notes?.trim();
   const setApto = useMutation({
     mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
       const { error } = await (supabase as any).from("nomination_nominees").update({
@@ -453,7 +459,7 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
               <Button
                 type="button" size="sm" className="h-7 w-7 p-0"
                 variant={nomination.quality_status === "aprovado" ? "default" : "outline"}
-                disabled={!todosRespondidos}
+                disabled={!todosRespondidos || faltaDescricaoObra}
                 loading={setQualityStatus.isPending && setQualityStatus.variables?.status === "aprovado"}
                 onClick={() => { setShowReject(false); setQualityStatus.mutate({ status: "aprovado" }); }}
               >
@@ -489,7 +495,10 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
             <FileText className="h-3.5 w-3.5" /> {nomination.scope_document_name ?? "Baixar escopo do serviço"}
           </button>
         ) : (
-          <p className="text-xs text-purple-900/70">Nenhum escopo do serviço anexado pelo solicitante.</p>
+          <p className={`text-xs ${faltaDescricaoObra ? "font-medium text-amber-700" : "text-purple-900/70"}`}>
+            Nenhum escopo do serviço anexado pelo solicitante.
+            {faltaDescricaoObra && " Só dá pra avançar se as Observações descreverem o tipo de obra/serviço a bordo."}
+          </p>
         )}
         <div className="space-y-1.5 pt-1">
           <p className="text-xs font-medium text-purple-900">
@@ -546,7 +555,7 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
       </div>
       {canAct && nomination.quality_status === "aprovado" && (
         <Button size="sm" onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })} loading={advance.isPending}>
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação PM
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação PM
         </Button>
       )}
       {canAct && nomination.quality_status === "reprovado" && (
@@ -606,7 +615,7 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
         nomination_id: nomination.id, status: "briefing_sms",
-        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística", notes: "Decisões de Aprovação PM confirmadas pela Logística",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística", notes: "Decisões de Validação PM confirmadas pela Logística",
       });
       await notifyStageAdvance({ ...nomination, current_status: "briefing_sms" }, "briefing_sms");
     },
@@ -744,7 +753,7 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
       </div>
       {canAct && (
         <Button size="sm" disabled={!todosChecados} onClick={() => advance.mutate({ nomination, target: "validacao_rh" })} loading={advance.isPending}>
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Administração de Pessoal - DP
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Validação - DP
         </Button>
       )}
     </div>
@@ -815,7 +824,7 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <p className="text-sm font-medium">Administração de Pessoal - DP</p>
+        <p className="text-sm font-medium">Validação - DP</p>
         <div className="space-y-2">
           {aprovados.map((n) => (
             <div key={n.id} className="rounded-md border p-2 text-sm">
@@ -945,6 +954,7 @@ function ManageDialog({
   const nomination = allNominations?.find((n) => n.id === initialNomination.id) ?? initialNomination;
   const { data: nominees = [] } = useNominees(nomination.id);
   const canOperate = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
+  const canActOnCurrentStage = useCanActOnStage(nomination.current_status);
 
   // Demais funções da mesma solicitação (mesmo request_group_id) ainda na mesma etapa — os
   // avanços "administrativos" abaixo (sem decisão por pessoa: Recebido/Simulação/Aprovação
@@ -1158,7 +1168,7 @@ function ManageDialog({
             {/* Atalho pro modo recrutamento logo no topo — antes ficava só escondido na aba
                 "Etapa atual" (Efetivo Disponível), fácil de não achar. Continua existindo lá
                 também, pra quem já estiver naquela aba. */}
-            {nomination.current_status === "simulacao" && (
+            {nomination.current_status === "simulacao" && canActOnCurrentStage && (
               <Button size="sm" className="w-full" onClick={() => { onGoToSimulacao(grupoCompleto); onClose(); }}>
                 <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Simular — selecionar candidatos
               </Button>
@@ -1703,7 +1713,9 @@ function KanbanBoard({
     const current = group[0].current_status;
     if (current === target) return;
 
-    if (!FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "") && STAGE_ROLE[current] !== role) {
+    const stageRole = STAGE_ROLE[current];
+    const podeMover = Array.isArray(stageRole) ? stageRole.includes(role ?? "") : stageRole === role;
+    if (!FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "") && !podeMover) {
       notify.error("Você não tem permissão para mover este card.");
       return;
     }
@@ -1840,9 +1852,14 @@ function SimulacaoTab({
   const [activeFocusId, setActiveFocusId] = useState<string | null>(null);
   const activeFocus = focusGroup?.find((n) => n.id === activeFocusId) ?? focusGroup?.[0] ?? null;
 
+  // Chave de identidade pra achar "já adicionado": colaborador_id quando existe, senão o nome
+  // normalizado — precisa disso porque agora dá pra nomear sem vínculo com o Drake (ver migration
+  // 20261002110000), e várias pessoas sem vínculo teriam colaborador_id null ao mesmo tempo.
+  const identidadeNominee = (n: { colaborador_id: string | null; colaborador_nome: string }) =>
+    n.colaborador_id ?? `nome:${normNomePlanejamento(n.colaborador_nome)}`;
   const focusNomineeIds = useMemo(
     () => new Set(
-      focusNomineesAll.filter((n) => n.is_active && n.nomination_id === activeFocus?.id).map((n) => n.colaborador_id),
+      focusNomineesAll.filter((n) => n.is_active && n.nomination_id === activeFocus?.id).map(identidadeNominee),
     ),
     [focusNomineesAll, activeFocus?.id],
   );
@@ -1869,8 +1886,10 @@ function SimulacaoTab({
     setFilterFuncao(n.funcao);
   };
 
+  // `id` nulo = pessoa disponível no Planejamento de Embarque sem correspondência exata no
+  // Drake (grafia divergente, cadastro recente etc.) — nomeia mesmo assim, só com o nome.
   const addNominee = useMutation({
-    mutationFn: async (c: { id: string; nome: string }) => {
+    mutationFn: async (c: { id: string | null; nome: string }) => {
       if (!activeFocus) return;
       const { error } = await supabase.from("nomination_nominees").insert({
         nomination_id: activeFocus.id,
@@ -1888,10 +1907,13 @@ function SimulacaoTab({
 
   // Desfaz um "Adicionar" feito por engano direto na listagem, sem precisar abrir o card e
   // remover pelo Efetivo Disponível — mesma remoção (exclui a linha de nomination_nominees).
+  // Sem colaborador_id (ver addNominee acima), acha a linha pelo nome normalizado em vez do id.
   const undoAddNominee = useMutation({
-    mutationFn: async (colaboradorId: string) => {
+    mutationFn: async (c: { id: string | null; nome: string }) => {
       const nominee = focusNomineesAll.find(
-        (n) => n.colaborador_id === colaboradorId && n.is_active && n.nomination_id === activeFocus?.id,
+        (n) =>
+          n.is_active && n.nomination_id === activeFocus?.id &&
+          (c.id ? n.colaborador_id === c.id : !n.colaborador_id && normNomePlanejamento(n.colaborador_nome) === normNomePlanejamento(c.nome)),
       );
       if (!nominee) return;
       const { error } = await supabase.from("nomination_nominees").delete().eq("id", nominee.id);
@@ -2167,27 +2189,20 @@ function SimulacaoTab({
                             <p className="text-xs text-muted-foreground">{l.status}</p>
                           </div>
                           {activeFocus && (
-                            !l.colaboradorId ? (
-                              <span
-                                className="shrink-0 text-[11px] text-muted-foreground"
-                                title="Esse nome não tem correspondência no cadastro do Drake — não é possível nomear ainda."
-                              >
-                                Sem cadastro no Drake
-                              </span>
-                            ) : focusNomineeIds.has(l.colaboradorId) ? (
+                            focusNomineeIds.has(identidadeNominee({ colaborador_id: l.colaboradorId, colaborador_nome: l.nome })) ? (
                               <Button
                                 size="sm" variant="ghost" title="Clique para desfazer"
                                 className="h-7 shrink-0 gap-1 px-2 text-xs text-green-700 hover:bg-red-50 hover:text-red-700"
-                                loading={undoAddNominee.isPending && undoAddNominee.variables === l.colaboradorId}
-                                onClick={() => undoAddNominee.mutate(l.colaboradorId!)}
+                                loading={undoAddNominee.isPending && undoAddNominee.variables?.nome === l.nome}
+                                onClick={() => undoAddNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
                               >
                                 <Check className="h-3 w-3" /> Adicionado
                               </Button>
                             ) : (
                               <Button
                                 size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs"
-                                loading={addNominee.isPending && addNominee.variables?.id === l.colaboradorId}
-                                onClick={() => addNominee.mutate({ id: l.colaboradorId!, nome: l.nome })}
+                                loading={addNominee.isPending && addNominee.variables?.nome === l.nome}
+                                onClick={() => addNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
                               >
                                 <UserPlus className="mr-1 h-3 w-3" /> Adicionar
                               </Button>
@@ -2825,7 +2840,7 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   // sincronização — evita duplicar quem já está sendo acompanhado pelo fluxo.
   const colaboradoresComNomeacao = useMemo(() => {
     const ids = new Set<string>();
-    nominations.forEach((n) => (nomineesByNomination.get(n.id) ?? []).forEach((nn) => { if (nn.is_active) ids.add(nn.colaborador_id); }));
+    nominations.forEach((n) => (nomineesByNomination.get(n.id) ?? []).forEach((nn) => { if (nn.is_active && nn.colaborador_id) ids.add(nn.colaborador_id); }));
     return ids;
   }, [nominations, nomineesByNomination]);
 
@@ -3837,7 +3852,16 @@ function LinhaDoTempoNomeacoesTab() {
 // a aba Aptidão (Matriz de Qualificação não é assunto dele) e o botão "Nova Solicitação" daqui
 // de dentro (já existe um específico na aba "Minhas Solicitações" do /pm, não precisa duplicar)
 // — mantém Nomeações/Equipes Embarcadas/Mapa/Simulação normalmente.
-export function NominationsPage({ onlyKanban = false, solicitanteArea = false }: { onlyKanban?: boolean; solicitanteArea?: boolean } = {}) {
+// `hideAptidao` tira só a aba Aptidão, sem mexer no botão "Nova Solicitação" nem nas outras abas
+// — usado pelo Solicitante Master em /admin/nominations (pedido dela, 2026-10-02), que precisa
+// continuar criando solicitação por ali (diferente do Solicitante em /pm, que já tem botão
+// próprio em "Minhas Solicitações").
+// `hideCreate` tira só o botão "Nova Solicitação", sem mexer nas abas — usado por Produção
+// (aprovacao_tecnica) em /admin/nominations (pedido dela, 2026-10-05: todas as abas, mas criar
+// solicitação não é papel dela).
+export function NominationsPage({
+  onlyKanban = false, solicitanteArea = false, hideAptidao = false, hideCreate = false,
+}: { onlyKanban?: boolean; solicitanteArea?: boolean; hideAptidao?: boolean; hideCreate?: boolean } = {}) {
   const [selected, setSelected]       = useState<Nomination | null>(null);
   const [showCreate, setShowCreate]   = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("todos");
@@ -3967,7 +3991,7 @@ export function NominationsPage({ onlyKanban = false, solicitanteArea = false }:
               <Grid3x3 className="mr-1.5 h-3.5 w-3.5" /> Mapa
             </TabsTrigger>
             <TabsTrigger value="simulacao">Simulação</TabsTrigger>
-            {!solicitanteArea && (
+            {!solicitanteArea && !hideAptidao && (
               <TabsTrigger value="aptidao">
                 <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
               </TabsTrigger>
@@ -4006,7 +4030,7 @@ export function NominationsPage({ onlyKanban = false, solicitanteArea = false }:
             </select>
             <div className="ml-auto flex items-center gap-2">
               <HistoricoAlteracoesButton modulo="nomeacoes" titulo="Nomeações" />
-              {!onlyKanban && !solicitanteArea && (
+              {!onlyKanban && !solicitanteArea && !hideCreate && (
                 <Button size="sm" onClick={() => setShowCreate(true)}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova Solicitação
                 </Button>
@@ -4048,7 +4072,7 @@ export function NominationsPage({ onlyKanban = false, solicitanteArea = false }:
         )}
 
         {/* ── Aptidão (Matriz de Qualificação) ── */}
-        {!onlyKanban && !solicitanteArea && (
+        {!onlyKanban && !solicitanteArea && !hideAptidao && (
           <TabsContent value="aptidao" className="pt-4">
             <QualificationEligibilityTab />
           </TabsContent>
