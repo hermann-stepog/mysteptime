@@ -60,6 +60,7 @@ export interface FetchCostStatsParams {
   periodoFim: string;
   cidades: ReturnType<typeof cidadesERotas>["cidades"];
   rotas: ReturnType<typeof cidadesERotas>["rotas"];
+  trajetos: ReturnType<typeof cidadesERotas>["trajetos"];
   bsp?: string; // usado só no filtro de Alimentação (Reembolsos não tem cidade, só BSP)
   hotelIds?: string[];
   tipoTransporte?: string;
@@ -84,7 +85,30 @@ export async function fetchCostStats(
     },
   });
   if (error) throw new Error(error.message);
-  return (data ?? {}) as CostSimulatorUnitStats;
+  const stats = (data ?? {}) as CostSimulatorUnitStats;
+  if (params.trajetos.length === 0) return stats;
+
+  const { data: dataTrajetos, error: errorTrajetos } = await supabase.rpc(
+    "cost_simulator_transport_trajetos",
+    {
+      p_filters: {
+        periodo_inicio: params.periodoInicio,
+        periodo_fim: params.periodoFim,
+        trajetos: params.trajetos,
+      },
+    },
+  );
+  if (errorTrajetos) throw new Error(errorTrajetos.message);
+  return {
+    ...stats,
+    transporteTrajeto: (dataTrajetos ?? {}) as CostSimulatorUnitStats["transporteTrajeto"],
+  };
+}
+
+export async function fetchTransportLocais(): Promise<string[]> {
+  const { data, error } = await supabase.rpc("cost_simulator_transport_locais");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as string[];
 }
 
 export async function listCostSimulations(): Promise<CostSimulationRow[]> {

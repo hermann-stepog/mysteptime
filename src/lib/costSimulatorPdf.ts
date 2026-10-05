@@ -67,8 +67,6 @@ export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] 
   const itens = [
     entradas.usaAcomodacao && "Acomodação",
     entradas.usaAlimentacao && "Alimentação",
-    entradas.usaTransporteLocal &&
-      `Transporte exclusivo (${entradas.qtdTransporteLocalPorDia} viagem(ns)/dia)`,
     entradas.usaLavanderia &&
       `Lavanderia (valor único: ${formatBRL(entradas.lavanderiaValorDiario)})`,
   ]
@@ -79,6 +77,13 @@ export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] 
     ["Duração", `${entradas.duracaoDias} dia(s)`],
     ["Equipe", entradas.equipe.map((l) => `${l.funcao || "Função"}: ${l.qtd}`).join("\n") || "—"],
     ["Itens", itens || "—"],
+    [
+      "Trajetos",
+      entradas.trajetos
+        .filter((t) => t.origem.trim() && t.destino.trim())
+        .map((t) => `${t.origem} -> ${t.destino}: ${t.qtd} viagem(ns)`)
+        .join("\n") || "—",
+    ],
   ];
 }
 

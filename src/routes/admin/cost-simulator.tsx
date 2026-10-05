@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Calculator } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BrandLogo } from "@/components/BrandLogo";
 import { BannerSimulacao } from "@/components/costSimulator/BannerSimulacao";
 import { NovaSimulacaoTab } from "@/components/costSimulator/NovaSimulacaoTab";
 import { CenariosSalvosTab } from "@/components/costSimulator/CenariosSalvosTab";
@@ -28,7 +29,8 @@ function CostSimulatorPage() {
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        <BrandLogo className="h-10 w-auto" />
         <Calculator className="h-6 w-6 text-muted-foreground" />
         <h1 className="text-2xl font-semibold">Simulador de Custos Logísticos</h1>
       </div>

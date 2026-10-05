@@ -15,6 +15,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { CLIENTES } from "@/lib/clientes";
 import {
   fetchCostStats,
+  fetchTransportLocais,
   saveCostSimulation,
   updateCostSimulation,
   type CostSimulationRow,
@@ -33,6 +34,7 @@ import {
   type EquipeLinha,
   type EquipeSimples,
   type ViagemLinha,
+  type TrajetoTerra,
   type RegimeTipo,
 } from "@/lib/costSimulator";
 import { ResultadoPanel } from "@/components/costSimulator/ResultadoPanel";
@@ -71,6 +73,7 @@ const VIAGEM_VAZIA: ViagemLinha = {
 };
 const EQUIPE_EMBARQUE_VAZIA: EquipeLinha[] = [{ funcao: "", qtd: 1, cidadeOrigem: "" }];
 const EQUIPE_TERRA_VAZIA: EquipeSimples[] = [{ funcao: "", qtd: 1 }];
+const TRAJETOS_TERRA_VAZIO: TrajetoTerra[] = [{ origem: "", destino: "", qtd: 4 }];
 
 interface NovaSimulacaoTabProps {
   carregado: CostSimulationRow | null;
@@ -112,9 +115,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   const [duracaoDiasTerra, setDuracaoDiasTerra] = useState(ter?.duracaoDias ?? 9);
   const [usaAcomodacao, setUsaAcomodacao] = useState(ter?.usaAcomodacao ?? true);
   const [usaAlimentacao, setUsaAlimentacao] = useState(ter?.usaAlimentacao ?? true);
-  const [usaTransporteLocal, setUsaTransporteLocal] = useState(ter?.usaTransporteLocal ?? true);
-  const [qtdTransporteLocalPorDia, setQtdTransporteLocalPorDia] = useState(
-    ter?.qtdTransporteLocalPorDia ?? 2,
+  const [trajetosTerra, setTrajetosTerra] = useState<TrajetoTerra[]>(
+    ter?.trajetos ?? TRAJETOS_TERRA_VAZIO,
   );
   const [usaLavanderia, setUsaLavanderia] = useState(ter?.usaLavanderia ?? false);
   const [lavanderiaValorDiario, setLavanderiaValorDiario] = useState(
@@ -148,8 +150,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
         duracaoDias: duracaoDiasTerra,
         usaAcomodacao,
         usaAlimentacao,
-        usaTransporteLocal,
-        qtdTransporteLocalPorDia,
+        trajetos: trajetosTerra,
         usaLavanderia,
         lavanderiaValorDiario,
       };
@@ -172,20 +173,20 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     duracaoDiasTerra,
     usaAcomodacao,
     usaAlimentacao,
-    usaTransporteLocal,
-    qtdTransporteLocalPorDia,
+    trajetosTerra,
     usaLavanderia,
     lavanderiaValorDiario,
   ]);
 
   const calcular = useMutation({
     mutationFn: async () => {
-      const { cidades, rotas } = cidadesERotas(entradas);
+      const { cidades, rotas, trajetos } = cidadesERotas(entradas);
       const novoStats = await fetchCostStats({
         periodoInicio: ajustes.periodoReferencia.inicio,
         periodoFim: ajustes.periodoReferencia.fim,
         cidades,
         rotas,
+        trajetos,
         bsp: entradas.bsp,
         hotelIds: ajustes.filtros.hotelIds,
         tipoTransporte: ajustes.filtros.tipoTransporte,
@@ -217,6 +218,11 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
 
   const { profile } = useAuth();
   const queryClient = useQueryClient();
+  const locaisTransporte = useQuery({
+    queryKey: ["cost-simulator-transport-locais"],
+    queryFn: fetchTransportLocais,
+    staleTime: 5 * 60_000,
+  });
   const salvar = useMutation({
     mutationFn: async (modo: "novo" | "atualizar") => {
       if (!stats || !resultado) throw new Error("Calcule a simulação antes de salvar.");
@@ -339,10 +345,9 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setUsaAcomodacao={setUsaAcomodacao}
                 usaAlimentacao={usaAlimentacao}
                 setUsaAlimentacao={setUsaAlimentacao}
-                usaTransporteLocal={usaTransporteLocal}
-                setUsaTransporteLocal={setUsaTransporteLocal}
-                qtdTransporteLocalPorDia={qtdTransporteLocalPorDia}
-                setQtdTransporteLocalPorDia={setQtdTransporteLocalPorDia}
+                trajetos={trajetosTerra}
+                locais={locaisTransporte.data ?? []}
+                setTrajetos={setTrajetosTerra}
                 usaLavanderia={usaLavanderia}
                 setUsaLavanderia={setUsaLavanderia}
                 lavanderiaValorDiario={lavanderiaValorDiario}
@@ -662,10 +667,9 @@ function ServicoTerraForm({
   setUsaAcomodacao,
   usaAlimentacao,
   setUsaAlimentacao,
-  usaTransporteLocal,
-  setUsaTransporteLocal,
-  qtdTransporteLocalPorDia,
-  setQtdTransporteLocalPorDia,
+  trajetos,
+  setTrajetos,
+  locais,
   usaLavanderia,
   setUsaLavanderia,
   lavanderiaValorDiario,
@@ -681,10 +685,9 @@ function ServicoTerraForm({
   setUsaAcomodacao: (v: boolean) => void;
   usaAlimentacao: boolean;
   setUsaAlimentacao: (v: boolean) => void;
-  usaTransporteLocal: boolean;
-  setUsaTransporteLocal: (v: boolean) => void;
-  qtdTransporteLocalPorDia: number;
-  setQtdTransporteLocalPorDia: (v: number) => void;
+  trajetos: TrajetoTerra[];
+  locais: string[];
+  setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
   usaLavanderia: boolean;
   setUsaLavanderia: (v: boolean) => void;
   lavanderiaValorDiario: number;
@@ -760,24 +763,66 @@ function ServicoTerraForm({
         />{" "}
         Alimentação (histórico de Reembolsos)
       </label>
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={usaTransporteLocal}
-            onChange={(e) => setUsaTransporteLocal(e.target.checked)}
-          />{" "}
-          Transporte exclusivo
-        </label>
-        <Input
-          type="number"
-          min={0}
-          className="w-28"
-          placeholder="Viagens/dia"
-          value={qtdTransporteLocalPorDia}
-          onChange={(e) => setQtdTransporteLocalPorDia(Number(e.target.value) || 0)}
-          disabled={!usaTransporteLocal}
-        />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>Transporte por trajeto (custo do histórico)</Label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setTrajetos((ts) => [...ts, { origem: "", destino: "", qtd: 4 }])}
+          >
+            <Plus className="h-4 w-4 mr-1" /> Trajeto
+          </Button>
+        </div>
+        {trajetos.map((t, i) => (
+          <div key={i} className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 items-end">
+            <Input
+              list="locais-transporte"
+              placeholder="Origem (ex. Aeroporto)"
+              value={t.origem}
+              onChange={(e) =>
+                setTrajetos((ts) =>
+                  ts.map((x, idx) => (idx === i ? { ...x, origem: e.target.value } : x)),
+                )
+              }
+            />
+            <Input
+              list="locais-transporte"
+              placeholder="Destino (ex. Pousada)"
+              value={t.destino}
+              onChange={(e) =>
+                setTrajetos((ts) =>
+                  ts.map((x, idx) => (idx === i ? { ...x, destino: e.target.value } : x)),
+                )
+              }
+            />
+            <Input
+              type="number"
+              min={0}
+              placeholder="Viagens"
+              value={t.qtd}
+              onChange={(e) =>
+                setTrajetos((ts) =>
+                  ts.map((x, idx) => (idx === i ? { ...x, qtd: Number(e.target.value) || 0 } : x)),
+                )
+              }
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => setTrajetos((ts) => ts.filter((_, idx) => idx !== i))}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+        <datalist id="locais-transporte">
+          {locais.map((l) => (
+            <option key={l} value={l} />
+          ))}
+        </datalist>
       </div>
       <div className="flex items-center gap-2">
         <label className="flex items-center gap-2 text-sm">
