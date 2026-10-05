@@ -813,7 +813,7 @@ function ServicoTerraForm({
           min={0}
           step="0.01"
           className="w-32"
-          placeholder="R$/pessoa/dia"
+          placeholder="Valor único (R$)"
           value={lavanderiaValorDiario}
           onChange={(e) => setLavanderiaValorDiario(Number(e.target.value) || 0)}
           disabled={!usaLavanderia}

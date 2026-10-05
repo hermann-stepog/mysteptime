@@ -70,7 +70,7 @@ export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] 
     entradas.usaTransporteLocal &&
       `Transporte exclusivo (${entradas.qtdTransporteLocalPorDia} viagem(ns)/dia)`,
     entradas.usaLavanderia &&
-      `Lavanderia (${formatBRL(entradas.lavanderiaValorDiario)}/pessoa/dia)`,
+      `Lavanderia (valor único: ${formatBRL(entradas.lavanderiaValorDiario)})`,
   ]
     .filter(Boolean)
     .join(", ");
@@ -189,9 +189,7 @@ export async function exportarSimulacaoPdf({
     ["Total", formatBRL(resultado.total)],
     ["Por pessoa", formatBRL(resultado.porPessoa)],
     ["Por mês", formatBRL(resultado.porMes)],
-    ...(resultado.nCiclos > 0
-      ? [["Por troca de turma/viagem", formatBRL(resultado.porTrocaDeTurma)]]
-      : []),
+    ["Pessoas", String(resultado.totalPessoas)],
   ];
   autoTable(doc, {
     ...cabecalhoTabela,
@@ -203,41 +201,44 @@ export async function exportarSimulacaoPdf({
     bodyStyles: { fontStyle: "bold" },
   });
 
+  const porPessoaDe = (valor: number) =>
+    resultado.totalPessoas > 0 ? formatBRL(valor / resultado.totalPessoas) : "—";
+
   const linhasCategoria = resultado.porCategoria.map((c) => [
     texto(c.categoria),
     formatBRL(c.unitario),
     String(c.qtd),
     formatBRL(c.subtotal),
+    porPessoaDe(c.subtotal),
     `${c.percentualDoTotal.toFixed(1)}%`,
   ]);
-  const rodapeValores: [string, string][] = [
-    ["Subtotal", formatBRL(resultado.subtotal)],
+  const rodapeValores: [string, number][] = [
+    ["Subtotal", resultado.subtotal],
     ...(resultado.reajusteValor !== 0
-      ? [["Reajuste", formatBRL(resultado.reajusteValor)] as [string, string]]
+      ? [["Reajuste", resultado.reajusteValor] as [string, number]]
       : []),
     ...(resultado.contingenciaValor !== 0
-      ? [["Contingência", formatBRL(resultado.contingenciaValor)] as [string, string]]
+      ? [["Contingência", resultado.contingenciaValor] as [string, number]]
       : []),
-    ...(resultado.markupValor !== 0
-      ? [["Markup", formatBRL(resultado.markupValor)] as [string, string]]
-      : []),
-    ["Total", formatBRL(resultado.total)],
+    ...(resultado.markupValor !== 0 ? [["Markup", resultado.markupValor] as [string, number]] : []),
+    ["Total", resultado.total],
   ];
   autoTable(doc, {
     ...cabecalhoTabela,
     startY: fimDaUltimaTabela(doc, TOPO_CONTEUDO) + 6,
-    head: [["Categoria", "Unitário", "Qtd", "Subtotal", "% do total"]],
+    head: [["Categoria", "Unitário", "Qtd", "Subtotal", "Por pessoa", "% do total"]],
     body:
       linhasCategoria.length > 0
         ? linhasCategoria
-        : [["Nenhum custo histórico encontrado pros filtros informados.", "", "", "", ""]],
-    foot: rodapeValores.map(([k, v]) => [k, "", "", v, ""]),
+        : [["Nenhum custo histórico encontrado pros filtros informados.", "", "", "", "", ""]],
+    foot: rodapeValores.map(([k, v]) => [k, "", "", formatBRL(v), porPessoaDe(v), ""]),
     footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
     columnStyles: {
       1: { halign: "right" },
       2: { halign: "right" },
       3: { halign: "right" },
       4: { halign: "right" },
+      5: { halign: "right" },
     },
   });
 
