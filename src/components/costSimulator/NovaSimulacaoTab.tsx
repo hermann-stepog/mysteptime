@@ -100,7 +100,6 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   const [equipe, setEquipe] = useState<EquipeLinha[]>(emb?.equipe ?? EQUIPE_EMBARQUE_VAZIA);
   const [regimeTipo, setRegimeTipo] = useState<RegimeTipo>(emb?.regime.tipo ?? "14x14");
   const [duracaoValor, setDuracaoValor] = useState(emb?.duracao.valor ?? 90);
-  const [mobDesmob, setMobDesmob] = useState(emb?.mobDesmob ?? true);
 
   // ── Viagem Executiva ──
   const [viagens, setViagens] = useState<ViagemLinha[]>(via?.viagens ?? [VIAGEM_VAZIA]);
@@ -137,7 +136,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
         },
         dataInicio: hojeISO(),
         duracao: { valor: duracaoValor, unidade: "dias" },
-        mobDesmob,
+        mobDesmob: false,
       };
     }
     if (tipo === "servico_terra") {
@@ -167,7 +166,6 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     equipe,
     regimeTipo,
     duracaoValor,
-    mobDesmob,
     viagens,
     local,
     equipeTerra,
@@ -324,8 +322,6 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setRegimeTipo={setRegimeTipo}
                 duracaoValor={duracaoValor}
                 setDuracaoValor={setDuracaoValor}
-                mobDesmob={mobDesmob}
-                setMobDesmob={setMobDesmob}
               />
             )}
             {tipo === "viagem_executiva" && (
@@ -446,8 +442,6 @@ function EmbarqueForm({
   setRegimeTipo,
   duracaoValor,
   setDuracaoValor,
-  mobDesmob,
-  setMobDesmob,
 }: {
   cidadeEmbarque: string;
   setCidadeEmbarque: (v: string) => void;
@@ -457,8 +451,6 @@ function EmbarqueForm({
   setRegimeTipo: (v: RegimeTipo) => void;
   duracaoValor: number;
   setDuracaoValor: (v: number) => void;
-  mobDesmob: boolean;
-  setMobDesmob: (v: boolean) => void;
 }) {
   function addLinha() {
     setEquipe((e) => [...e, { funcao: "", qtd: 1, cidadeOrigem: "" }]);
@@ -533,15 +525,6 @@ function EmbarqueForm({
           />
         </div>
       </div>
-
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={mobDesmob}
-          onChange={(e) => setMobDesmob(e.target.checked)}
-        />
-        Mob/Desmob (ida extra no início, volta extra no fim)
-      </label>
     </>
   );
 }
