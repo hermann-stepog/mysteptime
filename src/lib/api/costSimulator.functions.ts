@@ -1,8 +1,15 @@
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
-import type { AjustesSimulacao, CostSimulatorUnitStats, EntradasSimulacao, ResultadoSimulacao, cidadesERotas } from "@/lib/costSimulator";
+import type {
+  AjustesSimulacao,
+  CostSimulatorUnitStats,
+  EntradasSimulacao,
+  ResultadoSimulacao,
+  cidadesERotas,
+} from "@/lib/costSimulator";
 
 // cost_simulations ainda não está no types.ts gerado — mesmo padrão de bm.ts/smartsheetBm.functions.ts
 // pra tabelas novas antes da próxima geração de tipos.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const supabase: any = supabaseTyped;
 
 export interface CostSimulationRow {
@@ -25,6 +32,7 @@ export interface CostSimulationRow {
   updatedAt: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapRow(r: any): CostSimulationRow {
   return {
     id: r.id,
@@ -61,7 +69,9 @@ export interface FetchCostStatsParams {
 // simulador — sempre via a RPC SECURITY DEFINER. Nunca cai pra leitura direta das
 // tabelas-fonte: se a RPC falhar (migration não aplicada, sem permissão etc.), o erro sobe pra
 // tela em vez de mascarar com dado vazio.
-export async function fetchCostStats(params: FetchCostStatsParams): Promise<CostSimulatorUnitStats> {
+export async function fetchCostStats(
+  params: FetchCostStatsParams,
+): Promise<CostSimulatorUnitStats> {
   const { data, error } = await supabase.rpc("cost_simulator_unit_stats", {
     p_filters: {
       periodo_inicio: params.periodoInicio,
@@ -75,6 +85,21 @@ export async function fetchCostStats(params: FetchCostStatsParams): Promise<Cost
   });
   if (error) throw new Error(error.message);
   return (data ?? {}) as CostSimulatorUnitStats;
+}
+
+export interface CostFilterOptions {
+  hoteis: { id: string; nome: string; cidade: string | null }[];
+  tiposTransporte: string[];
+}
+
+export async function fetchCostFilterOptions(): Promise<CostFilterOptions> {
+  const { data, error } = await supabase.rpc("cost_simulator_filter_options");
+  if (error) throw new Error(error.message);
+  const bruto = (data ?? {}) as {
+    hoteis?: CostFilterOptions["hoteis"];
+    tipos_transporte?: string[];
+  };
+  return { hoteis: bruto.hoteis ?? [], tiposTransporte: bruto.tipos_transporte ?? [] };
 }
 
 export async function listCostSimulations(): Promise<CostSimulationRow[]> {
@@ -102,7 +127,9 @@ export interface SaveCostSimulationInput {
   createdByName: string | null;
 }
 
-export async function saveCostSimulation(input: SaveCostSimulationInput): Promise<CostSimulationRow> {
+export async function saveCostSimulation(
+  input: SaveCostSimulationInput,
+): Promise<CostSimulationRow> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw new Error(userError.message);
   const { data, error } = await supabase
@@ -129,8 +156,16 @@ export async function saveCostSimulation(input: SaveCostSimulationInput): Promis
   return mapRow(data);
 }
 
-export async function duplicateCostSimulation(id: string, novoNome: string, createdByName: string | null): Promise<CostSimulationRow> {
-  const { data: original, error: fetchError } = await supabase.from("cost_simulations").select("*").eq("id", id).single();
+export async function duplicateCostSimulation(
+  id: string,
+  novoNome: string,
+  createdByName: string | null,
+): Promise<CostSimulationRow> {
+  const { data: original, error: fetchError } = await supabase
+    .from("cost_simulations")
+    .select("*")
+    .eq("id", id)
+    .single();
   if (fetchError) throw new Error(fetchError.message);
   const row = mapRow(original);
   return saveCostSimulation({
@@ -150,7 +185,10 @@ export async function duplicateCostSimulation(id: string, novoNome: string, crea
   });
 }
 
-export async function updateCostSimulation(id: string, input: SaveCostSimulationInput): Promise<CostSimulationRow> {
+export async function updateCostSimulation(
+  id: string,
+  input: SaveCostSimulationInput,
+): Promise<CostSimulationRow> {
   const { data, error } = await supabase
     .from("cost_simulations")
     .update({
