@@ -49,6 +49,7 @@ import { Route as ApiIntegrationsDrakeQualificationEligibilityRouteImport } from
 import { Route as ApiIntegrationsDrakeQualificationUpdateRouteImport } from './routes/api/integrations/drake/qualification-update'
 import { Route as ApiIntegrationsDrakeUpdateRouteImport } from './routes/api/integrations/drake/update'
 import { Route as ApiIntegrationsSmsEmployeesRouteImport } from './routes/api/integrations/sms/employees'
+import { Route as ApiIntegrationsSmsQualificationsRouteImport } from './routes/api/integrations/sms/qualifications'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -256,6 +257,12 @@ const ApiIntegrationsSmsEmployeesRoute =
     path: '/api/integrations/sms/employees',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiIntegrationsSmsQualificationsRoute =
+  ApiIntegrationsSmsQualificationsRouteImport.update({
+    id: '/api/integrations/sms/qualifications',
+    path: '/api/integrations/sms/qualifications',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -298,6 +305,7 @@ export interface FileRoutesByFullPath {
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
   '/api/integrations/sms/employees': typeof ApiIntegrationsSmsEmployeesRoute
+  '/api/integrations/sms/qualifications': typeof ApiIntegrationsSmsQualificationsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -337,6 +345,7 @@ export interface FileRoutesByTo {
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
   '/api/integrations/sms/employees': typeof ApiIntegrationsSmsEmployeesRoute
+  '/api/integrations/sms/qualifications': typeof ApiIntegrationsSmsQualificationsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -380,6 +389,7 @@ export interface FileRoutesById {
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
   '/api/integrations/drake/update': typeof ApiIntegrationsDrakeUpdateRoute
   '/api/integrations/sms/employees': typeof ApiIntegrationsSmsEmployeesRoute
+  '/api/integrations/sms/qualifications': typeof ApiIntegrationsSmsQualificationsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -424,6 +434,7 @@ export interface FileRouteTypes {
     | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
     | '/api/integrations/sms/employees'
+    | '/api/integrations/sms/qualifications'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -463,6 +474,7 @@ export interface FileRouteTypes {
     | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
     | '/api/integrations/sms/employees'
+    | '/api/integrations/sms/qualifications'
   id:
     | '__root__'
     | '/'
@@ -505,6 +517,7 @@ export interface FileRouteTypes {
     | '/api/integrations/drake/qualification-update'
     | '/api/integrations/drake/update'
     | '/api/integrations/sms/employees'
+    | '/api/integrations/sms/qualifications'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -520,6 +533,7 @@ export interface RootRouteChildren {
   ApiIntegrationsDrakeQualificationUpdateRoute: typeof ApiIntegrationsDrakeQualificationUpdateRoute
   ApiIntegrationsDrakeUpdateRoute: typeof ApiIntegrationsDrakeUpdateRoute
   ApiIntegrationsSmsEmployeesRoute: typeof ApiIntegrationsSmsEmployeesRoute
+  ApiIntegrationsSmsQualificationsRoute: typeof ApiIntegrationsSmsQualificationsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -804,6 +818,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIntegrationsSmsEmployeesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/integrations/sms/qualifications': {
+      id: '/api/integrations/sms/qualifications'
+      path: '/api/integrations/sms/qualifications'
+      fullPath: '/api/integrations/sms/qualifications'
+      preLoaderRoute: typeof ApiIntegrationsSmsQualificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -918,6 +939,7 @@ const rootRouteChildren: RootRouteChildren = {
     ApiIntegrationsDrakeQualificationUpdateRoute,
   ApiIntegrationsDrakeUpdateRoute: ApiIntegrationsDrakeUpdateRoute,
   ApiIntegrationsSmsEmployeesRoute: ApiIntegrationsSmsEmployeesRoute,
+  ApiIntegrationsSmsQualificationsRoute: ApiIntegrationsSmsQualificationsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
