@@ -93,9 +93,24 @@ describe("SMS context endpoint", () => {
     const doc = { id: "d", collaborator_id: "c", doc_type: "ASO", doc_name: "n", issued_at: "2026-01-01", expires_at: null, file_url: "http://x" };
     const b1 = await (await handleSmsContextRequest(req("dataset=employee_documents"), deps([doc]))).json();
     expect(JSON.stringify(b1)).not.toMatch(/file_url|http:\/\/x/);
-    expect(Object.keys(b1.records[0]).sort()).toEqual(["collaborator_name", "collaborator_source_id", "document_name", "document_type", "expires_at", "issued_at", "source_record_id"]);
+    expect(Object.keys(b1.records[0]).sort()).toEqual(["document_name", "document_type", "employee_source_id", "expires_at", "issued_at", "source_profile_id", "source_record_id"]);
+    expect(b1.records[0].employee_source_id).toBeNull();
     const b2 = await (await handleSmsContextRequest(req("dataset=nomination_aptitude_alerts"), deps([{ id: "a", nomination_id: "n", colaborador_nome: "X", created_at: "t", extra: 1 }]))).json();
     expect(Object.keys(b2.records[0]).sort()).toEqual(["collaborator_name", "created_at", "nomination_source_id", "source_record_id"]);
+  });
+
+  it("employee_documents: vínculo gera employee_source_id; sem vínculo null; endpoint só lê", async () => {
+    const linked = { id: "d1", collaborator_id: "p1", hist_colaborador_id: "h1", hist: { empresa: " STEP ", matricula: " 123 " }, doc_type: "NR", doc_name: "x", issued_at: null, expires_at: null, file_url: "u" };
+    const unlinked = { id: "d2", collaborator_id: "p2", hist_colaborador_id: null, hist: null, doc_type: "NR", doc_name: "y", issued_at: null, expires_at: null };
+    const d = deps([linked, unlinked]);
+    const body = await (await handleSmsContextRequest(req("dataset=employee_documents"), d)).json();
+    expect(body.records[0].employee_source_id).toBe("STEP::123");
+    expect(body.records[0].source_profile_id).toBe("p1");
+    expect(body.records[1].employee_source_id).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("file_url");
+    expect(Object.keys(d)).not.toContain("write");
+    const src = readFileSync("src/routes/api/integrations/sms/context.ts", "utf8");
+    expect(src).not.toMatch(/\.(insert|update|upsert|delete|rpc)\(/);
   });
 
 

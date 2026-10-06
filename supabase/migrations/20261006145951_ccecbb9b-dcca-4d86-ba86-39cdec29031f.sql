@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.documents_fill_hist_colaborador() FROM PUBLIC, anon, authenticated;
