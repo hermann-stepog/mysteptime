@@ -193,13 +193,14 @@ export const SMS_DATASETS: Record<string, DatasetDef> = {
       qualification_count: r.qualification_count, option_count: r.option_count,
     }),
   },
-  // documents.collaborator_id referencia profiles (não collaborators): sem join; collaborator_name = null.
+  // documents.collaborator_id → profiles; hist_colaborador_id (opcional) → hist_novo_colaboradores. Left join.
   employee_documents: {
     table: "documents",
-    select: "id, collaborator_id, doc_type, doc_name, issued_at, expires_at",
+    select: "id, collaborator_id, hist_colaborador_id, doc_type, doc_name, issued_at, expires_at, hist:hist_novo_colaboradores!documents_hist_colaborador_id_fkey(empresa, matricula)",
     order: ["issued_at", "id"],
     map: (r) => ({
-      source_record_id: r.id, collaborator_source_id: r.collaborator_id, collaborator_name: null,
+      source_record_id: r.id, source_profile_id: r.collaborator_id,
+      employee_source_id: r.hist_colaborador_id ? empKey(r.hist) : null,
       document_type: r.doc_type, document_name: r.doc_name, issued_at: r.issued_at, expires_at: r.expires_at,
     }),
   },
