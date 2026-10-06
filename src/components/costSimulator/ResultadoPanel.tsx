@@ -3,6 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
 import { FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
+import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,7 +43,10 @@ export function ResultadoPanel({
   if (!resultado) {
     return (
       <Card className="p-4">
-        <h2 className="mb-2 font-medium">Resultado</h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="font-medium">Resultado</h2>
+          <BrandLogo className="h-7 w-auto" />
+        </div>
         <p className="text-sm text-muted-foreground">Preencha o formulário e clique em Calcular.</p>
       </Card>
     );
@@ -67,7 +71,10 @@ export function ResultadoPanel({
     <div ref={raiz} className="space-y-4">
       <Card className="space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-medium">Resultado</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="font-medium">Resultado</h2>
+            <BrandLogo className="h-7 w-auto" />
+          </div>
           <Button
             type="button"
             variant="outline"
