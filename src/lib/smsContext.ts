@@ -193,6 +193,24 @@ export const SMS_DATASETS: Record<string, DatasetDef> = {
       qualification_count: r.qualification_count, option_count: r.option_count,
     }),
   },
+  // documents.collaborator_id referencia profiles (não collaborators): sem join; collaborator_name = null.
+  employee_documents: {
+    table: "documents",
+    select: "id, collaborator_id, doc_type, doc_name, issued_at, expires_at",
+    order: ["issued_at", "id"],
+    map: (r) => ({
+      source_record_id: r.id, collaborator_source_id: r.collaborator_id, collaborator_name: null,
+      document_type: r.doc_type, document_name: r.doc_name, issued_at: r.issued_at, expires_at: r.expires_at,
+    }),
+  },
+  nomination_aptitude_alerts: {
+    table: "nomination_aptitude_alerts",
+    select: "id, nomination_id, colaborador_nome, created_at",
+    order: ["created_at", "id"],
+    map: (r) => ({
+      source_record_id: r.id, nomination_source_id: r.nomination_id, collaborator_name: r.colaborador_nome, created_at: r.created_at,
+    }),
+  },
 };
 
 // nomination_nominees ordena por created_at, mas created_at não está no SELECT — o PostgREST aceita.

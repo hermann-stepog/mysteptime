@@ -87,6 +87,18 @@ describe("SMS context endpoint", () => {
     expect(body.next_cursor).toBe(2);
   });
 
+  it("employee_documents e nomination_aptitude_alerts: sem file_url, sem SELECT *, projeção exata", async () => {
+    expect(SMS_DATASETS.employee_documents.select).not.toMatch(/\*|file_url/);
+    expect(SMS_DATASETS.nomination_aptitude_alerts.select).not.toContain("*");
+    const doc = { id: "d", collaborator_id: "c", doc_type: "ASO", doc_name: "n", issued_at: "2026-01-01", expires_at: null, file_url: "http://x" };
+    const b1 = await (await handleSmsContextRequest(req("dataset=employee_documents"), deps([doc]))).json();
+    expect(JSON.stringify(b1)).not.toMatch(/file_url|http:\/\/x/);
+    expect(Object.keys(b1.records[0]).sort()).toEqual(["collaborator_name", "collaborator_source_id", "document_name", "document_type", "expires_at", "issued_at", "source_record_id"]);
+    const b2 = await (await handleSmsContextRequest(req("dataset=nomination_aptitude_alerts"), deps([{ id: "a", nomination_id: "n", colaborador_nome: "X", created_at: "t", extra: 1 }]))).json();
+    expect(Object.keys(b2.records[0]).sort()).toEqual(["collaborator_name", "created_at", "nomination_source_id", "source_record_id"]);
+  });
+
+
   it("rota é GET only", () => {
     const src = readFileSync("src/routes/api/integrations/sms/context.ts", "utf8");
     expect(src).toMatch(/GET:/);
