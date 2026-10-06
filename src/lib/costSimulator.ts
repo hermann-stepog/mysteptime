@@ -84,8 +84,8 @@ export interface EntradasServicoTerra extends EntradasComuns {
   duracaoDias: number;
   usaAcomodacao: boolean;
   usaAlimentacao: boolean;
-  usaTransporteLocal: boolean;
-  qtdTransporteLocal: number; // nº total de viagens do transporte exclusivo (ida e volta somadas)
+  usaTransporteExecutivo: boolean;
+  valorTransporteExecutivo: number; // valor de 1 unidade (1 pessoa × 1 dia), digitado manualmente
   trajetos: TrajetoTerra[];
   usaLavanderia: boolean;
   lavanderiaValorDiario: number; // sem fonte de histórico no sistema — sempre digitado manualmente
@@ -121,13 +121,13 @@ export interface CostSimulatorUnitStats {
   hospedagem?: Record<string, CostStats>;
   transporte?: Record<string, CostStats>;
   passagens?: Record<string, CostStats>;
-  transporteFuture?: Record<string, CostStats>;
   transporteTrajeto?: Record<string, CostStats>;
   alimentacao?: CostStats;
 }
 
 export interface CategoriaResultado {
   categoria: string;
+  base: string;
   chaveOverride: string;
   unitario: number;
   qtd: number;
@@ -284,6 +284,7 @@ function montarCategoriasEmbarque(
     const qtd = diasEmbarcado * nCiclos * totalPessoas;
     porCategoria.push({
       categoria: "Hospedagem",
+      base: `${diasEmbarcado * nCiclos} noites × ${totalPessoas} pessoas`,
       chaveOverride: "hospedagem",
       unitario,
       qtd,
@@ -302,6 +303,7 @@ function montarCategoriasEmbarque(
     const qtd = 2 * nCiclos + mobDesmobExtra;
     porCategoria.push({
       categoria: "Transporte",
+      base: `${2 * nCiclos + mobDesmobExtra} viagens`,
       chaveOverride: "transporte",
       unitario,
       qtd,
@@ -330,6 +332,7 @@ function montarCategoriasEmbarque(
       const qtd = (2 * nCiclos + mobDesmobExtra) * qtdPessoas;
       porCategoria.push({
         categoria: `Passagens (${cidade})`,
+        base: `${2 * nCiclos + mobDesmobExtra} trechos × ${qtdPessoas} pessoas`,
         chaveOverride: chave,
         unitario,
         qtd,
@@ -364,6 +367,7 @@ function montarCategoriasViagemExecutiva(
         const qtd = (v.somenteIda ? 1 : 2) * qtdPessoas; // passagem é sempre por pessoa
         porCategoria.push({
           categoria: `Passagens (${rotulo}: ${v.origem.trim()} → ${v.destino.trim()})`,
+          base: `${v.somenteIda ? 1 : 2} trecho(s) × ${qtdPessoas} pessoa(s)`,
           chaveOverride: `${chave}#${i}`,
           unitario,
           qtd,
@@ -382,6 +386,7 @@ function montarCategoriasViagemExecutiva(
         const qtd = (Number(v.noitesHotel) || 0) * qtdPessoas;
         porCategoria.push({
           categoria: `Hospedagem (${rotulo}: ${v.destino.trim()})`,
+          base: `${Number(v.noitesHotel) || 0} noite(s) × ${qtdPessoas} pessoa(s)`,
           chaveOverride: chave,
           unitario,
           qtd,
@@ -402,6 +407,7 @@ function montarCategoriasViagemExecutiva(
         const qtd = Number(v.qtdTransporteLocal) || 0;
         porCategoria.push({
           categoria: `Transporte (${rotulo}: ${v.destino.trim()})`,
+          base: `${Number(v.qtdTransporteLocal) || 0} viagem(ns)`,
           chaveOverride: chave,
           unitario,
           qtd,
@@ -433,6 +439,7 @@ function montarCategoriasServicoTerra(
       const qtd = duracaoDias * totalPessoas;
       porCategoria.push({
         categoria: "Acomodação",
+        base: `${duracaoDias} diárias × ${totalPessoas} pessoas`,
         chaveOverride: "hospedagem",
         unitario,
         qtd,
@@ -448,6 +455,7 @@ function montarCategoriasServicoTerra(
     const qtd = duracaoDias * totalPessoas;
     porCategoria.push({
       categoria: "Alimentação",
+      base: `${duracaoDias} diárias × ${totalPessoas} pessoas`,
       chaveOverride: "alimentacao",
       unitario,
       qtd,
@@ -456,22 +464,18 @@ function montarCategoriasServicoTerra(
     });
   }
 
-  // Transporte exclusivo: custo por viagem (um carro leva o grupo todo), total de viagens informado.
-  if (entradas.usaTransporteLocal) {
-    const stat = stats.transporteFuture?.[local];
-    if (stat) {
-      const override = ajustes.overrides["transporte"];
-      const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-      const qtd = Number(entradas.qtdTransporteLocal) || 0;
-      porCategoria.push({
-        categoria: "Transporte exclusivo (Future)",
-        chaveOverride: "transporte",
-        unitario,
-        qtd,
-        subtotal: round2(unitario * qtd),
-        percentualDoTotal: 0,
-      });
-    }
+  if (entradas.usaTransporteExecutivo) {
+    const unitario = ajustes.overrides["transporte_executivo"] ?? entradas.valorTransporteExecutivo;
+    const qtd = totalPessoas * duracaoDias;
+    porCategoria.push({
+      categoria: "Transporte executivo",
+      base: `${totalPessoas} pessoas × ${duracaoDias} dias`,
+      chaveOverride: "transporte_executivo",
+      unitario,
+      qtd,
+      subtotal: round2(unitario * qtd),
+      percentualDoTotal: 0,
+    });
   }
 
   // Uber por trajeto: custo por viagem, puxado do histórico de viagens Uber entre as duas
@@ -489,6 +493,7 @@ function montarCategoriasServicoTerra(
     const qtd = Number(t.qtd) || 0;
     porCategoria.push({
       categoria: `Uber (${origem} → ${destino})`,
+      base: `${qtd} viagem(ns)`,
       chaveOverride: chave,
       unitario,
       qtd,
@@ -501,6 +506,7 @@ function montarCategoriasServicoTerra(
   if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {
     porCategoria.push({
       categoria: "Lavanderia",
+      base: "valor único",
       chaveOverride: "lavanderia",
       unitario: entradas.lavanderiaValorDiario,
       qtd: 1,

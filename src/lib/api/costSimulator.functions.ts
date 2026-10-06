@@ -87,18 +87,6 @@ export async function fetchCostStats(
   if (error) throw new Error(error.message);
   const stats = (data ?? {}) as CostSimulatorUnitStats;
 
-  const { data: dataFuture, error: errorFuture } = await supabase.rpc("cost_simulator_unit_stats", {
-    p_filters: {
-      periodo_inicio: params.periodoInicio,
-      periodo_fim: params.periodoFim,
-      cidades: params.cidades,
-      rotas: [],
-      tipo_transporte: "Future",
-    },
-  });
-  if (errorFuture) throw new Error(errorFuture.message);
-  const transporteFuture = (dataFuture as CostSimulatorUnitStats | null)?.transporte ?? {};
-
   let transporteTrajeto: CostSimulatorUnitStats["transporteTrajeto"] = {};
   if (params.trajetos.length > 0) {
     const { data: dataTrajetos, error: errorTrajetos } = await supabase.rpc(
@@ -115,7 +103,7 @@ export async function fetchCostStats(
     transporteTrajeto = (dataTrajetos ?? {}) as CostSimulatorUnitStats["transporteTrajeto"];
   }
 
-  return { ...stats, transporteFuture, transporteTrajeto };
+  return { ...stats, transporteTrajeto };
 }
 
 export async function fetchTransportLocais(): Promise<string[]> {

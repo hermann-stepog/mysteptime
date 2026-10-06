@@ -6,6 +6,9 @@ project_id = "lzahnaekoiervgqxmouv"
 [functions.check-turma-alerts]
 verify_jwt = false
 
+[functions.create-fixed-nominations]
+verify_jwt = false
+
 # Mesmo esquema (pg_cron via pg_net) — ver migration 20260929000000_schedule_planejamento_snapshot.sql.
 [functions.capture-planejamento-snapshot]
 verify_jwt = false

@@ -62,8 +62,8 @@ export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] 
   const itens = [
     entradas.usaAcomodacao && "Acomodação",
     entradas.usaAlimentacao && "Alimentação",
-    entradas.usaTransporteLocal &&
-      `Transporte exclusivo (${entradas.qtdTransporteLocal} viagem(ns))`,
+    entradas.usaTransporteExecutivo &&
+      `Transporte executivo: ${formatBRL(entradas.valorTransporteExecutivo)} por pessoa/dia`,
     entradas.usaLavanderia &&
       `Lavanderia (valor único: ${formatBRL(entradas.lavanderiaValorDiario)})`,
   ]
@@ -206,6 +206,7 @@ export async function exportarSimulacaoPdf({
 
   const linhasCategoria = resultado.porCategoria.map((c) => [
     texto(c.categoria),
+    texto(c.base ?? ""),
     formatBRL(c.unitario),
     String(c.qtd),
     formatBRL(c.subtotal),
@@ -226,19 +227,21 @@ export async function exportarSimulacaoPdf({
   autoTable(doc, {
     ...cabecalhoTabela,
     startY: fimDaUltimaTabela(doc, TOPO_CONTEUDO) + 6,
-    head: [["Categoria", "Unitário", "Qtd", "Subtotal", "Por pessoa", "% do total"]],
+    head: [
+      ["Categoria", "Base do cálculo", "Unitário", "Qtd", "Subtotal", "Por pessoa", "% do total"],
+    ],
     body:
       linhasCategoria.length > 0
         ? linhasCategoria
-        : [["Nenhum custo histórico encontrado pros filtros informados.", "", "", "", "", ""]],
-    foot: rodapeValores.map(([k, v]) => [k, "", "", formatBRL(v), porPessoaDe(v), ""]),
+        : [["Nenhum custo histórico encontrado pros filtros informados.", "", "", "", "", "", ""]],
+    foot: rodapeValores.map(([k, v]) => [k, "", "", "", formatBRL(v), porPessoaDe(v), ""]),
     footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
     columnStyles: {
-      1: { halign: "right" },
       2: { halign: "right" },
       3: { halign: "right" },
       4: { halign: "right" },
       5: { halign: "right" },
+      6: { halign: "right" },
     },
   });
 
