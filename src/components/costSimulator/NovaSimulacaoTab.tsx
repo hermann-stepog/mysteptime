@@ -790,7 +790,7 @@ function ViagemExecutivaForm({
               type="number"
               min={0}
               className="w-24"
-              placeholder="Qtd (× pessoas × dias)"
+              placeholder="Carros na ida"
               value={v.qtdTransporteLocal}
               onChange={(e) => updateViagem(i, { qtdTransporteLocal: Number(e.target.value) || 0 })}
               disabled={!v.usaTransporteLocal}
@@ -1026,7 +1026,7 @@ function TrajetosEditor({
           <Input
             type="number"
             min={0}
-            placeholder="Qtd (× pessoas × dias)"
+            placeholder="Carros na ida"
             value={t.qtd}
             onChange={(e) =>
               setTrajetos((ts) =>

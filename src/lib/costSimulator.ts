@@ -303,8 +303,6 @@ function categoriasTrajetos(
   entradas: { trajetos?: TrajetoTerra[]; trajetosExecutivos?: TrajetoTerra[] },
   ajustes: AjustesSimulacao,
   stats: CostSimulatorUnitStats,
-  pessoas: number,
-  dias: number,
 ): CategoriaResultado[] {
   const out: CategoriaResultado[] = [];
   const adicionar = (
@@ -322,11 +320,11 @@ function categoriasTrajetos(
       if (!stat) return;
       const chave = `${chavePrefixo}:${key}#${i}`;
       const unitario = ajustes.overrides[chave] ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-      const unidades = Number(t.qtd) || 0;
-      const qtd = unidades * pessoas * dias;
+      const carrosIda = Number(t.qtd) || 0;
+      const qtd = carrosIda * 2;
       out.push({
         categoria: `${prefixo} (${origem} → ${destino})`,
-        base: `${unidades} × ${pessoas} pessoas × ${dias} dias`,
+        base: `${carrosIda} carro(s) na ida × 2 (ida e volta)`,
         chaveOverride: chave,
         unitario,
         qtd,
@@ -442,9 +440,7 @@ function montarCategoriasEmbarque(
       ),
     );
   }
-  porCategoria.push(
-    ...categoriasTrajetos(entradas, ajustes, stats, totalPessoas, diasEmbarcado * nCiclos),
-  );
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
 
   return { porCategoria, nCiclos, totalPessoas, duracaoDias };
 }
@@ -532,7 +528,7 @@ function montarCategoriasViagemExecutiva(
       ...categoriaAlimentacao(pessoaDias, "pessoas × dias de cada viagem", ajustes, stats),
     );
   }
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats, totalPessoas, 1));
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
 
   return { porCategoria, nCiclos: entradas.viagens.length, totalPessoas, duracaoDias: 30 };
 }
@@ -580,7 +576,7 @@ function montarCategoriasServicoTerra(
     });
   }
 
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats, totalPessoas, duracaoDias));
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
 
   // Lavanderia: sem fonte de histórico no sistema hoje — valor sempre digitado manualmente.
   if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {
