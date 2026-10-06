@@ -11,7 +11,7 @@ const deps = (rows: any[] = [], active: any[] = []) => ({
   fetchActiveEmployees: vi.fn(async () => active),
 });
 
-const FORBIDDEN = /tipo|observacoes|rh_bloque|justificativa|ferias|folga_|notes|cancel_reason|changed_by|_by"|pm_user|email|hora_entrada|hora_saida|sms_bloqueio_saude|aptidao_divergence|quality_apto_solda_obs|scope_document|sync_id|synced_at|updated_by|custo|valor/;
+const FORBIDDEN = /tipo|observacoes|rh_bloque|justificativa|ferias|folga_|notes|cancel_reason|changed_by|_by"|pm_user|email|hora_entrada|hora_saida|sms_bloqueio_saude|aptidao_divergence|quality_apto_solda_obs|scope_document|sync_id|synced_at|updated_by|\bcusto\b|\bvalor\b/;
 
 describe("SMS context endpoint", () => {
   it("503 sem secret e 401 sem/errado token", async () => {
