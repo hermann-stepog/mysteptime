@@ -1,31 +1,42 @@
-# Investigação: data de admissão e função atual
+# Auditoria read-only: dados do My Step Time úteis ao Sistema SMS/SGI
 
-Somente leitura. Nenhuma alteração foi feita.
+Esta auditoria só consultou dados. Nada foi alterado. Contagens de 06/10/2026.
 
-## 1) Data de admissão
+## Identificador para casar pessoas
 
-Não existe em nenhum lugar do sistema hoje.
+- `drake_qualification_workers.drake_worker_id` é o ID imutável do Drake.
+- Todos os 629 workers casam com `hist_novo_colaboradores` por `registration = trim(matricula)` (teste por matrícula, sem considerar empresa).
+- Recomendação: o SMS guarda `drake_worker_id` junto com o `source_id` (empresa::matrícula) que já sincroniza.
 
-- Banco: nenhuma coluna no schema `public` com nome parecido com `admiss`, `hire` ou `contrat`.
-- Código: nenhuma ocorrência de admissao, admissão, admission, hire_date, data_admissao ou equivalentes. A única ocorrência de "contratacao" é o rótulo de um gráfico de Nomeações ("Pessoas a contratar"), que não tem relação com admissão.
-- Drake: a importação/sincronização não lê nenhum campo de admissão. Nem `hist_novo_colaboradores` nem `drake_qualification_workers` guardam esse dado.
-- Planilha / Smartsheet / manual: nenhuma coluna de admissão em `planejamento_embarque` nem em `collaborators`.
+## Inventário priorizado
 
-Por isso não há nenhuma ligação com `hist_novo_colaboradores` ou `drake_qualification_workers`. Para expor esse dado, primeiro seria preciso definir a fonte (por exemplo, confirmar se o Drake oferece esse campo) e criar onde guardá-lo.
+| Candidato | Origem | Cobertura | Classificação | Motivo / risco LGPD |
+|---|---|---|---|---|
+| `drake_worker_qualifications`: curso, `indicated_course_name`, `expiration_date` | Drake | 47.640 registros, 629 pessoas, 206 cursos distintos (Política de QSMS, NR 17, NR 26, Percepção de Risco, Proteção Auditiva etc.). `expiration_date` preenchida em 20.521. `issue_date` vazia em 100% | IMPORTAR AGORA | Base direta para Certificações/Treinamentos e vencimentos. Risco baixo: dado profissional. Limitação: não há data de emissão |
+| `drake_qualification_workers`: `drake_worker_id`, `job_name`, `worker_state`, `worker_type`, `current_operational_unit_name` | Drake | 629 (628 ativos), última sincronização em 05/08/2026 | IMPORTAR AGORA | Melhor chave e unidade atual. Atenção: o snapshot está há cerca de 2 meses sem atualizar |
+| `hist_novo_periodos`: `unidade_operacional`, `centro_de_custo`, `bsp`, `tipo`, datas | Drake | 20.210 períodos, 912 pessoas, de 03/2022 a 02/2030. Unidade em 18.103, centro de custo em 13.481 | IMPORTAR DEPOIS (só `unidade`/`centro_de_custo`/embarcado sim ou não) | Útil para GHE/exposição offshore, PT e LAIPR (quem estava a bordo). `tipo` inclui férias, atestado e folga: não enviar o motivo |
+| `timesheet_embarques`: unidade, BSP, `funcao_embarque`, datas | Derivado do Drake | 7.419 embarques, 518 pessoas | IMPORTAR DEPOIS | Histórico de exposição por unidade/função. Risco baixo |
+| `colaborador_funcoes_historico`: `funcao`, `embarcacao`, datas, `cod_alocacao` | Histórico de alocação (ligado ao cadastro mestre) | 1.012 registros, 238 pessoas | IMPORTAR DEPOIS | Função histórica para GHE. Cobertura parcial |
+| `drake_qualification_options` (unidades/funções) | Drake | 1.137 opções | IMPORTAR DEPOIS | Catálogo de unidades e funções. Sem dado pessoal |
+| `drake_qualification_requirements` / `contexts` | Drake | 0 linhas (vazias) | NÃO IMPORTAR | Sem dados hoje. A matriz é consultada ao vivo |
+| `planejamento_embarque`: status, datas, unidade, BSP | Planilha/manual | 272 linhas, 257 matrículas | NÃO IMPORTAR agora | Operacional, manual, com férias e bloqueio RH. LGPD: alto |
+| `nomination_nominees`: `sms_aso_em_dia`, `sms_bloqueio_saude`, aptidão, `quality_apto_solda` | Manual, por nomeação | 53 linhas | NÃO IMPORTAR | Dado de saúde (sensível). O SMS deve ser a origem, não o destino |
+| `documents.expires_at` | Manual (app colaborador) | Pouco uso | NÃO IMPORTAR | Sem tipo padronizado. Avaliar depois |
 
-## 2) Função atual do colaborador
+## O que NÃO existe no My Step Time hoje
 
-| Tabela.coluna | Fonte | Observação |
-|---|---|---|
-| `hist_novo_colaboradores.funcao` e `.funcao_operacao` | Drake: sincronização anual e importação da planilha do Drake (colunas "Função" e "Função de operação do trabalhador") | Cadastro mestre. É de onde o endpoint SMS lê |
-| `drake_qualification_workers.job_name` | Drake (sincronização da Matriz de Qualificação) | Ligada ao cadastro mestre só por `registration` = `matricula`; não existe FK |
-| `planejamento_embarque.funcao` | Importação de planilha / edição manual | Ligada por matrícula/nome, sem FK |
-| `colaborador_funcoes_historico.funcao` | Gerada por trigger a partir do Planejamento (`capture_funcao_planejamento`) | Tem `colaborador_id`, que aponta para o cadastro mestre |
-| `collaborators.role` | Smartsheet | Cadastro legado, ligado só pelo nome |
-| `timesheet_embarques.funcao_embarque`, `timesheet_semanas.funcao_override`, `bm_timesheet_dias.funcao`, `bm_lines_mo.funcao`, `nominations.funcao`, `planejamento_embarque_snapshots.funcao` | Derivadas/operacionais | Função num embarque, num BM ou numa nomeação; não é o cadastro |
+- Data de admissão (nenhum campo, em nenhuma fonte)
+- Data de emissão de curso (a coluna existe, mas está 100% vazia)
+- ASO como registro próprio: tipo, data, validade, médico. Só existem as marcações sim/não da nomeação
+- Exames médicos, EPI/entregas, GHE, acidentes/incidentes, PT, LAIPR, inspeções, auditorias, licenças e planos de ação
+- CPF, data de nascimento, contato pessoal dos colaboradores
 
-Fonte recomendada para "função atual": `hist_novo_colaboradores.funcao` (Drake), com `funcao_operacao` como complemento.
+## LGPD (resumo)
 
-## Próximo passo (se quiser a admissão)
+- Enviar só dado profissional: identidade funcional, função, unidade e cursos com vencimento.
+- Nunca enviar: motivo de ausência (férias/atestado), bloqueio RH, observações livres, respostas de saúde das nomeações.
+- Registrar a finalidade (gestão de SMS/SGI) e a base legal (obrigação legal/execução de contrato) antes de ampliar.
 
-Confirmar se o Drake fornece a data de admissão. Só então planejar onde guardar e como expor, num pedido separado.
+## Próximo passo sugerido (pedido separado)
+
+Ampliar a integração read-only com `drake_worker_id` e um endpoint de qualificações (curso + vencimento). Antes, atualizar a sincronização do Drake.
