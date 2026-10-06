@@ -47,6 +47,7 @@ export interface EntradasEmbarque extends EntradasComuns {
   dataInicio: string;
   duracao: { valor: number; unidade: "dias" | "meses" };
   mobDesmob: boolean;
+  usaAcomodacao: boolean;
   usaAlimentacao: boolean;
   trajetos: TrajetoTerra[];
   trajetosExecutivos: TrajetoTerra[];
@@ -67,6 +68,7 @@ export interface ViagemLinha {
 export interface EntradasViagemExecutiva extends EntradasComuns {
   tipo: "viagem_executiva";
   viagens: ViagemLinha[];
+  usaAcomodacao: boolean;
   usaAlimentacao: boolean;
   trajetos: TrajetoTerra[];
   trajetosExecutivos: TrajetoTerra[];
@@ -363,7 +365,7 @@ function montarCategoriasEmbarque(
 
   // ── Hospedagem: diária única da base de embarque, qtd por ciclo = noites embarcadas ──
   const statsHospedagem = stats.hospedagem?.[cidadeBase];
-  if (statsHospedagem) {
+  if (statsHospedagem && entradas.usaAcomodacao) {
     const override = ajustes.overrides["hospedagem"];
     const unitario = override ?? valorPorMetodo(statsHospedagem, ajustes.metodoCalculo);
     const qtd = diasEmbarcado * nCiclos * totalPessoas;
@@ -474,7 +476,7 @@ function montarCategoriasViagemExecutiva(
       }
     }
 
-    if (v.usaHotel) {
+    if (entradas.usaAcomodacao && v.usaHotel) {
       const stat = stats.hospedagem?.[v.destino.trim()];
       if (stat) {
         const chave = `hospedagem:${v.destino.trim()}#${i}`;

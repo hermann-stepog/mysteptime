@@ -113,7 +113,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     ter?.equipe ?? EQUIPE_TERRA_VAZIA,
   );
   const [duracaoDiasTerra, setDuracaoDiasTerra] = useState(ter?.duracaoDias ?? 9);
-  const [usaAcomodacao, setUsaAcomodacao] = useState(ter?.usaAcomodacao ?? true);
+  const [usaAcomodacao, setUsaAcomodacao] = useState((ter ?? emb ?? via)?.usaAcomodacao ?? true);
   const [usaAlimentacao, setUsaAlimentacao] = useState((ter ?? emb ?? via)?.usaAlimentacao ?? true);
   const [trajetosExecutivos, setTrajetosExecutivos] = useState<TrajetoTerra[]>(
     (ter ?? emb ?? via)?.trajetosExecutivos ?? TRAJETOS_TERRA_VAZIO,
@@ -140,6 +140,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
           diasFolga: regimeTipo === "custom" ? 14 : REGIMES_ROTACAO[regimeTipo].diasFolga,
         },
         dataInicio: hojeISO(),
+        usaAcomodacao,
         usaAlimentacao,
         trajetos: trajetosTerra,
         trajetosExecutivos,
@@ -166,6 +167,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
       ...comuns,
       tipo: "viagem_executiva",
       viagens,
+      usaAcomodacao,
       usaAlimentacao,
       trajetos: trajetosTerra,
       trajetosExecutivos,
@@ -372,6 +374,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setDuracaoValor={setDuracaoValor}
                 usaAlimentacao={usaAlimentacao}
                 setUsaAlimentacao={setUsaAlimentacao}
+                usaAcomodacao={usaAcomodacao}
+                setUsaAcomodacao={setUsaAcomodacao}
                 trajetos={trajetosTerra}
                 setTrajetos={setTrajetosTerra}
                 trajetosExecutivos={trajetosExecutivos}
@@ -385,6 +389,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setViagens={setViagens}
                 usaAlimentacao={usaAlimentacao}
                 setUsaAlimentacao={setUsaAlimentacao}
+                usaAcomodacao={usaAcomodacao}
+                setUsaAcomodacao={setUsaAcomodacao}
                 trajetos={trajetosTerra}
                 setTrajetos={setTrajetosTerra}
                 trajetosExecutivos={trajetosExecutivos}
@@ -515,6 +521,8 @@ function EmbarqueForm({
   trajetosExecutivos,
   setTrajetosExecutivos,
   locais,
+  usaAcomodacao,
+  setUsaAcomodacao,
 }: {
   cidadeEmbarque: string;
   setCidadeEmbarque: (v: string) => void;
@@ -531,6 +539,8 @@ function EmbarqueForm({
   trajetosExecutivos: TrajetoTerra[];
   setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
   locais: string[];
+  usaAcomodacao: boolean;
+  setUsaAcomodacao: (v: boolean) => void;
 }) {
   function addLinha() {
     setEquipe((e) => [...e, { funcao: "", qtd: 1, cidadeOrigem: "" }]);
@@ -608,6 +618,14 @@ function EmbarqueForm({
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
+          checked={usaAcomodacao}
+          onChange={(e) => setUsaAcomodacao(e.target.checked)}
+        />{" "}
+        Acomodação
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
           checked={usaAlimentacao}
           onChange={(e) => setUsaAlimentacao(e.target.checked)}
         />{" "}
@@ -639,6 +657,8 @@ function ViagemExecutivaForm({
   trajetosExecutivos,
   setTrajetosExecutivos,
   locais,
+  usaAcomodacao,
+  setUsaAcomodacao,
 }: {
   viagens: ViagemLinha[];
   setViagens: (v: ViagemLinha[] | ((v: ViagemLinha[]) => ViagemLinha[])) => void;
@@ -649,6 +669,8 @@ function ViagemExecutivaForm({
   trajetosExecutivos: TrajetoTerra[];
   setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
   locais: string[];
+  usaAcomodacao: boolean;
+  setUsaAcomodacao: (v: boolean) => void;
 }) {
   function addViagem() {
     setViagens((v) => [
@@ -761,6 +783,14 @@ function ViagemExecutivaForm({
           </div>
         </div>
       ))}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={usaAcomodacao}
+          onChange={(e) => setUsaAcomodacao(e.target.checked)}
+        />{" "}
+        Acomodação
+      </label>
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
