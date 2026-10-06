@@ -1,22 +1,40 @@
-# Chave real de public.drake_worker_qualifications (somente leitura)
+# Significado dos códigos de hist_novo_periodos.tipo (somente leitura)
 
-Nada foi alterado.
+Nada foi alterado. Fonte principal: `TIPO_LABEL` em `src/lib/histogramaNovo.ts` (linhas 96-125).
 
-## Constraints
-- **PRIMARY KEY (drake_worker_id, qualification_id)**, com índice único `drake_worker_qualifications_pkey`
-- FOREIGN KEY `drake_worker_id` -> `drake_qualification_workers(drake_worker_id)` ON DELETE CASCADE
-- Índices comuns (não únicos) em `drake_worker_id` e em `qualification_id`
+| Código | Significado |
+|---|---|
+| E | Embarcado |
+| DES | Desembarque |
+| STB | Standby |
+| F | Folga |
+| HTL | Hotel (inclui Hotel Pré-Embarque e Quarentena Hotel, pelo mapa do Access) |
+| DB | Dobra |
+| CANC | Embarque Cancelado (inclui Hotel Embarque Cancelado) |
+| DDN | Desembarque em Dia Não Útil (contado como Folga) |
+| AT | Atestado (médico) |
+| TE | Trabalho Externo |
+| FI | Folga Indenizada |
+| FE | Férias |
+| FIH | Folga Indenizada Hotel |
+| BASE | Na Base (trabalhando em terra) |
+| FIF | Folga Indenizada Férias |
+| FIC | Folga Indenizada Cancelamento |
+| AFA | Afastamento |
+| TR | Treinamento (inclui Integração) |
+| FT | Falta |
+| NS | No Show |
+| FIE | Folga Indenizada Trabalho Externo |
+| FIT | Folga Indenizada Treinamento |
 
-## Respostas
-- **Existe no máximo uma linha por (drake_worker_id, qualification_id)?** Sim. A PK garante isso, e os dados confirmam: 47.640 linhas e 47.640 pares distintos.
-- **qualification_id sozinho pode repetir entre trabalhadores?** Sim. Ele identifica o curso, não a linha. Há 206 qualification_id distintos, e 201 deles aparecem em mais de um trabalhador.
+Outros códigos que existem no mesmo mapa mas não foram pedidos: P (Programado), EC (Empresa em Casa), DI (Disponível), LM/LMV (Licença Médica), AD (À Disposição).
 
-## Implicação para a integração SMS
-A chave de upsert no SMS deve ser o par `(drake_worker_id, qualification_id)`, nunca `qualification_id` sozinho.
+## Onde é usado
+- `src/lib/histogramaNovo.ts`: rótulos (`TIPO_LABEL`), cores do Histograma e da legenda, e siglas curtas na grade (ex.: BASE → "B", CANC → "EC").
+- `src/lib/histograma/drake-snapshot.ts` e `import-drake.ts`: conversão dos eventos do Drake nesses códigos (DDN é preservado e tratado como Folga).
+- `scripts/access-history-migration/access-history.config.json`: mapa do legado Access, rótulo → código.
+- `src/lib/smartsheet.ts`: tradução de BASE para "IND" na visão do Smartsheet.
+- Usados nos KPIs do Histograma Offshore, no Timesheet e no BM (`bmDayGrid`), e nos próximos eventos (`upcoming-events.ts`).
 
-## Colisões de matrícula (colaboradores ativos do endpoint publicado)
-- Registros com `drake_worker_id`: 604 de 687
-- `drake_worker_id` distintos: 591
-- `drake_worker_id` associados a mais de um `source_id`: 12, somando 25 registros
-- Causa: a mesma matrícula existe em empresas diferentes no cadastro mestre, e o match só pela matrícula atribui o mesmo Drake a todas elas
-- Recomendação: no SMS, não usar `drake_worker_id` como chave única de colaborador. Manter `source_id` como chave e tratar esses 12 casos como ambíguos. Uma correção futura no endpoint (deixar `drake_worker_id` nulo quando houver colisão, ou casar também pela empresa) só se for pedida.
+## Atenção LGPD para o SMS
+AT, AFA, FE, FI*, FT e NS revelam motivo de ausência (saúde, faltas). Se forem expostos ao SMS, recomenda-se agrupar em embarcado / disponível / indisponível.
