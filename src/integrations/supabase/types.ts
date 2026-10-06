@@ -1034,6 +1034,7 @@ export type Database = {
           doc_type: string
           expires_at: string
           file_url: string | null
+          hist_colaborador_id: string | null
           id: string
           issued_at: string | null
         }
@@ -1044,6 +1045,7 @@ export type Database = {
           doc_type: string
           expires_at: string
           file_url?: string | null
+          hist_colaborador_id?: string | null
           id?: string
           issued_at?: string | null
         }
@@ -1054,6 +1056,7 @@ export type Database = {
           doc_type?: string
           expires_at?: string
           file_url?: string | null
+          hist_colaborador_id?: string | null
           id?: string
           issued_at?: string | null
         }
@@ -1063,6 +1066,13 @@ export type Database = {
             columns: ["collaborator_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_hist_colaborador_id_fkey"
+            columns: ["hist_colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
             referencedColumns: ["id"]
           },
         ]
