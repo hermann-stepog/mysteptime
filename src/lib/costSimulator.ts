@@ -170,7 +170,7 @@ export function mesesAtras(n: number): string {
 
 export function ajustesPadrao(): AjustesSimulacao {
   return {
-    periodoReferencia: { tipo: "6", inicio: mesesAtras(6), fim: hojeISO() },
+    periodoReferencia: { tipo: "custom", inicio: "2000-01-01", fim: "2100-12-31" },
     metodoCalculo: "media",
     filtros: {},
     overrides: {},
@@ -275,19 +275,20 @@ function trajetosValidos(lista: TrajetoTerra[] | undefined): TrajetoTerra[] {
   return (lista ?? []).filter((t) => t.origem.trim() && t.destino.trim());
 }
 
+// Alimentação: valor fixo por pessoa por dia (R$ 100), não vem do histórico de reembolsos.
+const ALIMENTACAO_VALOR_FIXO = 100;
+
 function categoriaAlimentacao(
   qtd: number,
   base: string,
   ajustes: AjustesSimulacao,
-  stats: CostSimulatorUnitStats,
 ): CategoriaResultado[] {
-  if (!stats.alimentacao || qtd <= 0) return [];
-  const unitario =
-    ajustes.overrides["alimentacao"] ?? valorPorMetodo(stats.alimentacao, ajustes.metodoCalculo);
+  if (qtd <= 0) return [];
+  const unitario = ajustes.overrides["alimentacao"] ?? ALIMENTACAO_VALOR_FIXO;
   return [
     {
       categoria: "Alimentação",
-      base,
+      base: `${base} (R$ ${ALIMENTACAO_VALOR_FIXO},00 fixo)`,
       chaveOverride: "alimentacao",
       unitario,
       qtd,
@@ -436,7 +437,6 @@ function montarCategoriasEmbarque(
         diasEmbarcado * nCiclos * totalPessoas,
         `${diasEmbarcado * nCiclos} dias × ${totalPessoas} pessoas`,
         ajustes,
-        stats,
       ),
     );
   }
@@ -525,7 +525,7 @@ function montarCategoriasViagemExecutiva(
       0,
     );
     porCategoria.push(
-      ...categoriaAlimentacao(pessoaDias, "pessoas × dias de cada viagem", ajustes, stats),
+      ...categoriaAlimentacao(pessoaDias, "pessoas × dias de cada viagem", ajustes),
     );
   }
   porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
@@ -561,19 +561,14 @@ function montarCategoriasServicoTerra(
     }
   }
 
-  if (entradas.usaAlimentacao && stats.alimentacao) {
-    const override = ajustes.overrides["alimentacao"];
-    const unitario = override ?? valorPorMetodo(stats.alimentacao, ajustes.metodoCalculo);
-    const qtd = duracaoDias * totalPessoas;
-    porCategoria.push({
-      categoria: "Alimentação",
-      base: `${duracaoDias} diárias × ${totalPessoas} pessoas`,
-      chaveOverride: "alimentacao",
-      unitario,
-      qtd,
-      subtotal: round2(unitario * qtd),
-      percentualDoTotal: 0,
-    });
+  if (entradas.usaAlimentacao) {
+    porCategoria.push(
+      ...categoriaAlimentacao(
+        duracaoDias * totalPessoas,
+        `${duracaoDias} diárias × ${totalPessoas} pessoas`,
+        ajustes,
+      ),
+    );
   }
 
   porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));

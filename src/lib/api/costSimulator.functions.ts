@@ -121,6 +121,7 @@ export async function fetchCostStats(
         periodo_inicio: params.periodoInicio,
         periodo_fim: params.periodoFim,
         cidades: params.cidades,
+        hotel_ids: params.hotelIds && params.hotelIds.length > 0 ? params.hotelIds : undefined,
       },
     });
     if (erroAprox) throw new Error(erroAprox.message);
@@ -136,11 +137,17 @@ export async function fetchCostStats(
   };
 }
 
-export async function fetchHoteisRegiao(cidade: string): Promise<string[]> {
+export interface HotelRegiao {
+  id: string;
+  nome: string;
+  cidade: string | null;
+}
+
+export async function fetchHoteisRegiao(cidade: string): Promise<HotelRegiao[]> {
   if (!cidade.trim()) return [];
   const { data, error } = await supabase.rpc("cost_simulator_hoteis_regiao", { p_cidade: cidade });
   if (error) throw new Error(error.message);
-  return (data ?? []) as string[];
+  return (data ?? []) as HotelRegiao[];
 }
 
 export async function fetchTransportLocais(): Promise<string[]> {
