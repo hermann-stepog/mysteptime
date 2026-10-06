@@ -19,6 +19,7 @@ import { Route as RhSmsRouteRouteImport } from './routes/rh-sms/route'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
 import { Route as AdminBmRouteImport } from './routes/admin/bm'
 import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
+import { Route as AdminCostSimulatorRouteImport } from './routes/admin/cost-simulator'
 import { Route as AdminCostsRouteImport } from './routes/admin/costs'
 import { Route as AdminFlowTrackRouteImport } from './routes/admin/flow-track'
 import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
@@ -96,6 +97,11 @@ const AdminBmRoute = AdminBmRouteImport.update({
 const AdminCollaboratorsRoute = AdminCollaboratorsRouteImport.update({
   id: '/collaborators',
   path: '/collaborators',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminCostSimulatorRoute = AdminCostSimulatorRouteImport.update({
+  id: '/cost-simulator',
+  path: '/cost-simulator',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminCostsRoute = AdminCostsRouteImport.update({
@@ -255,6 +261,7 @@ export interface FileRoutesByFullPath {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
+  '/admin/cost-simulator': typeof AdminCostSimulatorRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
@@ -292,6 +299,7 @@ export interface FileRoutesByTo {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
+  '/admin/cost-simulator': typeof AdminCostSimulatorRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
@@ -333,6 +341,7 @@ export interface FileRoutesById {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
+  '/admin/cost-simulator': typeof AdminCostSimulatorRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
@@ -375,6 +384,7 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/bm'
     | '/admin/collaborators'
+    | '/admin/cost-simulator'
     | '/admin/costs'
     | '/admin/flow-track'
     | '/admin/histograma-novo'
@@ -412,6 +422,7 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/bm'
     | '/admin/collaborators'
+    | '/admin/cost-simulator'
     | '/admin/costs'
     | '/admin/flow-track'
     | '/admin/histograma-novo'
@@ -452,6 +463,7 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/bm'
     | '/admin/collaborators'
+    | '/admin/cost-simulator'
     | '/admin/costs'
     | '/admin/flow-track'
     | '/admin/histograma-novo'
@@ -566,6 +578,13 @@ declare module '@tanstack/react-router' {
       path: '/collaborators'
       fullPath: '/admin/collaborators'
       preLoaderRoute: typeof AdminCollaboratorsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/cost-simulator': {
+      id: '/admin/cost-simulator'
+      path: '/cost-simulator'
+      fullPath: '/admin/cost-simulator'
+      preLoaderRoute: typeof AdminCostSimulatorRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/costs': {
@@ -771,6 +790,7 @@ interface AdminRouteRouteChildren {
   AdminApprovalsRoute: typeof AdminApprovalsRoute
   AdminBmRoute: typeof AdminBmRoute
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
+  AdminCostSimulatorRoute: typeof AdminCostSimulatorRoute
   AdminCostsRoute: typeof AdminCostsRoute
   AdminFlowTrackRoute: typeof AdminFlowTrackRoute
   AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
@@ -792,6 +812,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminApprovalsRoute: AdminApprovalsRoute,
   AdminBmRoute: AdminBmRoute,
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
+  AdminCostSimulatorRoute: AdminCostSimulatorRoute,
   AdminCostsRoute: AdminCostsRoute,
   AdminFlowTrackRoute: AdminFlowTrackRoute,
   AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,

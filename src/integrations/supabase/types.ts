@@ -3755,6 +3755,11 @@ export type Database = {
     }
     Functions: {
       _cost_sim_stats: { Args: { valores: number[] }; Returns: Json }
+      cost_simulator_transport_locais: { Args: never; Returns: Json }
+      cost_simulator_transport_trajetos: {
+        Args: { p_filters: Json }
+        Returns: Json
+      }
       cost_simulator_unit_stats: { Args: { p_filters: Json }; Returns: Json }
       flow_track_modulo_label: { Args: { t: string }; Returns: string }
       get_email_send_config: {
