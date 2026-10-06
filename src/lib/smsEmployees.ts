@@ -131,7 +131,17 @@ export async function handleSmsEmployeesRequest(
   try {
     const [rows, drake] = await Promise.all([deps.fetchRows(), deps.fetchDrakeWorkers?.() ?? Promise.resolve([])]);
     const idx = indexDrakeWorkers(drake);
-    const employees = rows.map((r) => mapSmsEmployee(r, idx.get((r.matricula ?? "").trim()) ?? null));
+    // Matrícula repetida entre registros ativos = match Drake ambíguo: não associa nenhum.
+    const regCount = new Map<string, number>();
+    for (const r of rows) {
+      const k = (r.matricula ?? "").trim();
+      regCount.set(k, (regCount.get(k) ?? 0) + 1);
+    }
+    const employees = rows.map((r) => {
+      const k = (r.matricula ?? "").trim();
+      const drakeRow = k && regCount.get(k) === 1 ? idx.get(k) ?? null : null;
+      return mapSmsEmployee(r, drakeRow);
+    });
     return json({ generated_at: (deps.now?.() ?? new Date()).toISOString(), count: employees.length, employees }, 200);
   } catch {
     return json({ error: "Falha ao consultar colaboradores." }, 500);
