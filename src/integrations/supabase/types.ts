@@ -3764,7 +3764,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _cost_sim_aprox: { Args: { a: string; b: string }; Returns: boolean }
       _cost_sim_stats: { Args: { valores: number[] }; Returns: Json }
+      cost_simulator_local_stats: { Args: { p_filters: Json }; Returns: Json }
       cost_simulator_transport_locais: { Args: never; Returns: Json }
       cost_simulator_transport_trajetos: {
         Args: { p_filters: Json }
