@@ -111,7 +111,29 @@ export async function fetchCostStats(
     buscarTrajetos("future", params.trajetosExecutivos),
   ]);
 
-  return { ...stats, transporteTrajeto, transporteExecutivoTrajeto };
+  let aproximado: {
+    hospedagem?: Record<string, CostStats>;
+    transporte?: Record<string, CostStats>;
+  } = {};
+  if (params.cidades.length > 0) {
+    const { data: dataAprox, error: erroAprox } = await supabase.rpc("cost_simulator_local_stats", {
+      p_filters: {
+        periodo_inicio: params.periodoInicio,
+        periodo_fim: params.periodoFim,
+        cidades: params.cidades,
+      },
+    });
+    if (erroAprox) throw new Error(erroAprox.message);
+    aproximado = (dataAprox ?? {}) as typeof aproximado;
+  }
+
+  return {
+    ...stats,
+    hospedagem: { ...(stats.hospedagem ?? {}), ...(aproximado.hospedagem ?? {}) },
+    transporte: { ...(stats.transporte ?? {}), ...(aproximado.transporte ?? {}) },
+    transporteTrajeto,
+    transporteExecutivoTrajeto,
+  };
 }
 
 export async function fetchTransportLocais(): Promise<string[]> {
