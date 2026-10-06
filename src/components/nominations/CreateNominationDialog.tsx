@@ -17,8 +17,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Upload, X } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
@@ -46,12 +58,17 @@ export async function currentAuthUserId(): Promise<string> {
 // nomeação no banco/kanban (cada uma segue seu próprio fluxo de aprovação/nomeação). Soldador
 // não pede tipo de solda/material em lista — em vez disso, anexa o escopo do serviço
 // (documento) pra Qualidade avaliar e aprovar a qualificação a partir dele.
-export interface FuncaoLinha { funcao: string; quantidade: string; scopeFile: File | null }
+export interface FuncaoLinha {
+  funcao: string;
+  quantidade: string;
+  scopeFile: File | null;
+}
 export function novaLinhaFuncao(): FuncaoLinha {
   return { funcao: "", quantidade: "1", scopeFile: null };
 }
 
-export const SCOPE_DOCUMENT_TYPES = "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png";
+export const SCOPE_DOCUMENT_TYPES =
+  "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png";
 const SCOPE_DOCUMENT_MAX_SIZE = 20 * 1024 * 1024;
 export const SCOPE_BUCKET = "nomeacoes-anexos";
 
@@ -62,7 +79,9 @@ export async function uploadScopeDocument(file: File): Promise<{ path: string; n
   if (file.size > SCOPE_DOCUMENT_MAX_SIZE) throw new Error("Arquivo muito grande (máximo 20MB).");
   const nomeSeguro = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
   const path = `${crypto.randomUUID()}-${nomeSeguro}`;
-  const { error } = await supabase.storage.from(SCOPE_BUCKET).upload(path, file, { contentType: file.type });
+  const { error } = await supabase.storage
+    .from(SCOPE_BUCKET)
+    .upload(path, file, { contentType: file.type });
   if (error) throw error;
   return { path, name: file.name };
 }
@@ -111,31 +130,40 @@ export function useNominationFormData() {
   }, [planejamentoEmbarque]);
 
   const unidadeOptions = useMemo(
-    () => Array.from(unidadeGroups.values()).map((g) => g.display).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    () =>
+      Array.from(unidadeGroups.values())
+        .map((g) => g.display)
+        .sort((a, b) => a.localeCompare(b, "pt-BR")),
     [unidadeGroups],
   );
 
   return { funcaoOptions, unidadeGroups, unidadeOptions };
 }
 
+const BSP_NOVA = "__nova_bsp__";
+
 export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const registrarLog = useRegistrarLog("nomeacoes");
 
-  const [linhas, setLinhas]         = useState<FuncaoLinha[]>([novaLinhaFuncao()]);
-  const [unidade, setUnidade]       = useState("");
-  const [bsp, setBsp]               = useState("");
-  const [start, setStart]           = useState("");
-  const [end, setEnd]               = useState("");
-  const [client, setClient]         = useState("");
-  const [notes, setNotes]           = useState("");
+  const [linhas, setLinhas] = useState<FuncaoLinha[]>([novaLinhaFuncao()]);
+  const [unidade, setUnidade] = useState("");
+  const [bsp, setBsp] = useState("");
+  const [bspNova, setBspNova] = useState(false);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [client, setClient] = useState("");
+  const [notes, setNotes] = useState("");
+  const [fixo, setFixo] = useState(false);
+  const [proximaTroca, setProximaTroca] = useState("");
 
   const updateLinha = (i: number, patch: Partial<FuncaoLinha>) => {
     setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   };
   const addLinha = () => setLinhas((atual) => [...atual, novaLinhaFuncao()]);
-  const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
+  const removeLinha = (i: number) =>
+    setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
 
   const { funcaoOptions, unidadeGroups, unidadeOptions } = useNominationFormData();
   const bspOptions = useMemo(() => {
@@ -152,7 +180,8 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       const validas = linhas.filter((l) => l.funcao.trim());
       if (validas.length === 0) throw new Error("Adicione ao menos uma função.");
       if (!unidade) throw new Error("Selecione a unidade.");
-      if (!bsp) throw new Error("Selecione a BSP.");
+      if (!bsp.trim()) throw new Error("Selecione a BSP.");
+      if (fixo && !proximaTroca) throw new Error("Informe a data da próxima troca de turma.");
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
       const pmUserId = await currentAuthUserId();
       // Um id só pra todas as funções desta solicitação — "Minhas Solicitações" agrupa por
@@ -171,37 +200,58 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
         const { data, error } = await supabase
           .from("nominations")
           .insert({
-            pm_user_id:                 pmUserId,
-            pm_name:                    pmName,
-            request_group_id:           groupId,
-            funcao:                     l.funcao.trim(),
-            quantidade:                 Math.max(1, Number(l.quantidade) || 1),
+            pm_user_id: pmUserId,
+            pm_name: pmName,
+            request_group_id: groupId,
+            funcao: l.funcao.trim(),
+            quantidade: Math.max(1, Number(l.quantidade) || 1),
             unidade,
-            bsp,
-            weld_type:                  null,
-            weld_material:               null,
-            scope_document_path:        scopeDocument?.path ?? null,
-            scope_document_name:        scopeDocument?.name ?? null,
-            period_start:               start || null,
-            period_end:                 end || null,
-            project:                    null,
-            client:                     client || null,
-            notes:                      notes.trim() || null,
+            bsp: bsp.trim(),
+            weld_type: null,
+            weld_material: null,
+            scope_document_path: scopeDocument?.path ?? null,
+            scope_document_name: scopeDocument?.name ?? null,
+            period_start: start || null,
+            period_end: end || null,
+            project: null,
+            client: client || null,
+            notes: notes.trim() || null,
             requires_quality_validation: isWelder,
-            current_status:              "solicitacao",
+            current_status: "solicitacao",
           })
           .select()
           .single();
         if (error) throw error;
 
         await supabase.from("nomination_status_history").insert({
-          nomination_id:   data.id,
-          status:          "solicitacao",
+          nomination_id: data.id,
+          status: "solicitacao",
           changed_by_name: pmName,
-          notes:           "Solicitação criada pelo solicitante",
+          notes: "Solicitação criada pelo solicitante",
         });
-        await notifyStageAdvance(data as Nomination, "solicitacao");
-        criadas.push(`${l.funcao.trim()} (${unidade}/${bsp})`);
+        if (fixo) {
+          const periodoDias =
+            start && end
+              ? Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000)
+              : null;
+          const { error: fixoError } = await supabase.from("nomination_fixed_teams").insert({
+            funcao: l.funcao.trim(),
+            quantidade: Math.max(1, Number(l.quantidade) || 1),
+            unidade,
+            bsp: bsp.trim(),
+            client: client || null,
+            notes: notes.trim() || null,
+            periodo_dias: periodoDias,
+            pm_user_id: pmUserId,
+            pm_name: pmName,
+            proxima_troca: proximaTroca,
+            ultima_nomeacao_id: data.id,
+          });
+          if (fixoError) throw fixoError;
+        } else {
+          await notifyStageAdvance(data as Nomination, "solicitacao");
+        }
+        criadas.push(`${l.funcao.trim()} (${unidade}/${bsp.trim()})`);
       }
       return criadas;
     },
@@ -243,10 +293,21 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
                     </div>
                     <div className="space-y-1">
                       <Label>Qtd. *</Label>
-                      <Input type="number" min={1} value={l.quantidade} onChange={(e) => updateLinha(i, { quantidade: e.target.value })} />
+                      <Input
+                        type="number"
+                        min={1}
+                        value={l.quantidade}
+                        onChange={(e) => updateLinha(i, { quantidade: e.target.value })}
+                      />
                     </div>
                     {linhas.length > 1 && (
-                      <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => removeLinha(i)}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 shrink-0"
+                        onClick={() => removeLinha(i)}
+                      >
                         <X className="h-4 w-4" />
                       </Button>
                     )}
@@ -259,8 +320,12 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
                         <Upload className="h-3.5 w-3.5 shrink-0" />
                         {l.scopeFile ? l.scopeFile.name : "Selecionar arquivo..."}
                         <input
-                          type="file" accept={SCOPE_DOCUMENT_TYPES} className="hidden"
-                          onChange={(e) => updateLinha(i, { scopeFile: e.target.files?.[0] ?? null })}
+                          type="file"
+                          accept={SCOPE_DOCUMENT_TYPES}
+                          className="hidden"
+                          onChange={(e) =>
+                            updateLinha(i, { scopeFile: e.target.files?.[0] ?? null })
+                          }
                         />
                       </label>
                       <p className="text-[11px] text-muted-foreground">
@@ -281,21 +346,62 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Unidade *</Label>
-              <Select value={unidade} onValueChange={(v) => { setUnidade(v); setBsp(""); setClient(clienteDaUnidade(v) ?? ""); }}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <Select
+                value={unidade}
+                onValueChange={(v) => {
+                  setUnidade(v);
+                  setBsp("");
+                  setBspNova(false);
+                  setClient(clienteDaUnidade(v) ?? "");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
                 <SelectContent>
-                  {unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                  {unidadeOptions.map((u) => (
+                    <SelectItem key={u} value={u}>
+                      {u}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
               <Label>BSP *</Label>
-              <Select value={bsp} onValueChange={setBsp} disabled={!unidade}>
-                <SelectTrigger><SelectValue placeholder={unidade ? "Selecione" : "Escolha a unidade"} /></SelectTrigger>
+              <Select
+                value={bspNova ? BSP_NOVA : bsp}
+                onValueChange={(v) => {
+                  if (v === BSP_NOVA) {
+                    setBspNova(true);
+                    setBsp("");
+                    return;
+                  }
+                  setBspNova(false);
+                  setBsp(v);
+                }}
+                disabled={!unidade}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={unidade ? "Selecione" : "Escolha a unidade"} />
+                </SelectTrigger>
                 <SelectContent>
-                  {bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                  {bspOptions.map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {b}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={BSP_NOVA}>+ Inserir nova BSP</SelectItem>
                 </SelectContent>
               </Select>
+              {bspNova && (
+                <Input
+                  autoFocus
+                  placeholder="Ex.: 25-1031"
+                  value={bsp}
+                  onChange={(e) => setBsp(e.target.value)}
+                />
+              )}
             </div>
           </div>
 
@@ -309,12 +415,32 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
               <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={fixo} onChange={(e) => setFixo(e.target.checked)} />
+            Equipe fixa (repete a cada ciclo de 14 dias)
+          </label>
+          {fixo && (
+            <div className="space-y-1">
+              <Label>Data da próxima troca de turma *</Label>
+              <Input
+                type="date"
+                value={proximaTroca}
+                onChange={(e) => setProximaTroca(e.target.value)}
+              />
+            </div>
+          )}
           <div className="space-y-1">
             <Label>Cliente</Label>
             <Select value={client} onValueChange={setClient}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione" />
+              </SelectTrigger>
               <SelectContent>
-                {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                {CLIENTES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -325,7 +451,9 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
           <Button onClick={() => create.mutate()} loading={create.isPending}>
             Enviar solicitação
           </Button>
