@@ -115,8 +115,12 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   const [duracaoDiasTerra, setDuracaoDiasTerra] = useState(ter?.duracaoDias ?? 9);
   const [usaAcomodacao, setUsaAcomodacao] = useState(ter?.usaAcomodacao ?? true);
   const [usaAlimentacao, setUsaAlimentacao] = useState(ter?.usaAlimentacao ?? true);
-  const [usaTransporteLocal, setUsaTransporteLocal] = useState(ter?.usaTransporteLocal ?? true);
-  const [qtdTransporteLocal, setQtdTransporteLocal] = useState(ter?.qtdTransporteLocal ?? 4);
+  const [usaTransporteExecutivo, setUsaTransporteExecutivo] = useState(
+    ter?.usaTransporteExecutivo ?? true,
+  );
+  const [valorTransporteExecutivo, setValorTransporteExecutivo] = useState(
+    ter?.valorTransporteExecutivo ?? 0,
+  );
   const [trajetosTerra, setTrajetosTerra] = useState<TrajetoTerra[]>(
     ter?.trajetos ?? TRAJETOS_TERRA_VAZIO,
   );
@@ -152,8 +156,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
         duracaoDias: duracaoDiasTerra,
         usaAcomodacao,
         usaAlimentacao,
-        usaTransporteLocal,
-        qtdTransporteLocal,
+        usaTransporteExecutivo,
+        valorTransporteExecutivo,
         trajetos: trajetosTerra,
         usaLavanderia,
         lavanderiaValorDiario,
@@ -177,8 +181,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     duracaoDiasTerra,
     usaAcomodacao,
     usaAlimentacao,
-    usaTransporteLocal,
-    qtdTransporteLocal,
+    usaTransporteExecutivo,
+    valorTransporteExecutivo,
     trajetosTerra,
     usaLavanderia,
     lavanderiaValorDiario,
@@ -351,10 +355,10 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setUsaAcomodacao={setUsaAcomodacao}
                 usaAlimentacao={usaAlimentacao}
                 setUsaAlimentacao={setUsaAlimentacao}
-                usaTransporteLocal={usaTransporteLocal}
-                setUsaTransporteLocal={setUsaTransporteLocal}
-                qtdTransporteLocal={qtdTransporteLocal}
-                setQtdTransporteLocal={setQtdTransporteLocal}
+                usaTransporteExecutivo={usaTransporteExecutivo}
+                setUsaTransporteExecutivo={setUsaTransporteExecutivo}
+                valorTransporteExecutivo={valorTransporteExecutivo}
+                setValorTransporteExecutivo={setValorTransporteExecutivo}
                 trajetos={trajetosTerra}
                 locais={locaisTransporte.data ?? []}
                 setTrajetos={setTrajetosTerra}
@@ -677,10 +681,10 @@ function ServicoTerraForm({
   setUsaAcomodacao,
   usaAlimentacao,
   setUsaAlimentacao,
-  usaTransporteLocal,
-  setUsaTransporteLocal,
-  qtdTransporteLocal,
-  setQtdTransporteLocal,
+  usaTransporteExecutivo,
+  setUsaTransporteExecutivo,
+  valorTransporteExecutivo,
+  setValorTransporteExecutivo,
   trajetos,
   setTrajetos,
   locais,
@@ -699,10 +703,10 @@ function ServicoTerraForm({
   setUsaAcomodacao: (v: boolean) => void;
   usaAlimentacao: boolean;
   setUsaAlimentacao: (v: boolean) => void;
-  usaTransporteLocal: boolean;
-  setUsaTransporteLocal: (v: boolean) => void;
-  qtdTransporteLocal: number;
-  setQtdTransporteLocal: (v: number) => void;
+  usaTransporteExecutivo: boolean;
+  setUsaTransporteExecutivo: (v: boolean) => void;
+  valorTransporteExecutivo: number;
+  setValorTransporteExecutivo: (v: number) => void;
   trajetos: TrajetoTerra[];
   locais: string[];
   setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
@@ -785,19 +789,20 @@ function ServicoTerraForm({
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            checked={usaTransporteLocal}
-            onChange={(e) => setUsaTransporteLocal(e.target.checked)}
+            checked={usaTransporteExecutivo}
+            onChange={(e) => setUsaTransporteExecutivo(e.target.checked)}
           />{" "}
-          Transporte exclusivo
+          Transporte executivo
         </label>
         <Input
           type="number"
           min={0}
-          className="w-28"
-          placeholder="Viagens (total)"
-          value={qtdTransporteLocal}
-          onChange={(e) => setQtdTransporteLocal(Number(e.target.value) || 0)}
-          disabled={!usaTransporteLocal}
+          step="0.01"
+          className="w-40"
+          placeholder="R$ por pessoa/dia"
+          value={valorTransporteExecutivo}
+          onChange={(e) => setValorTransporteExecutivo(Number(e.target.value) || 0)}
+          disabled={!usaTransporteExecutivo}
         />
       </div>
       <div className="space-y-2">

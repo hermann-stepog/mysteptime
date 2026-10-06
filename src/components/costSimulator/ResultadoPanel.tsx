@@ -99,6 +99,7 @@ export function ResultadoPanel({
           <thead>
             <tr className="border-b text-left text-muted-foreground">
               <th className="py-1.5 pr-2">Categoria</th>
+              <th className="py-1.5 pr-2">Base do cálculo</th>
               <th className="py-1.5 pr-2">Valor unitário</th>
               <th className="py-1.5 pr-2">Qtd</th>
               <th className="py-1.5 pr-2">Subtotal</th>
@@ -110,6 +111,7 @@ export function ResultadoPanel({
             {resultado.porCategoria.map((c) => (
               <tr key={c.chaveOverride} className="border-b last:border-0">
                 <td className="py-1.5 pr-2">{c.categoria}</td>
+                <td className="py-1.5 pr-2 text-muted-foreground">{c.base}</td>
                 <td className="py-1.5 pr-2">
                   <Input
                     type="number"
@@ -133,7 +135,7 @@ export function ResultadoPanel({
             ))}
             {resultado.porCategoria.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-3 text-center text-muted-foreground">
+                <td colSpan={7} className="py-3 text-center text-muted-foreground">
                   Nenhum custo histórico encontrado pros filtros informados.
                 </td>
               </tr>
@@ -227,7 +229,7 @@ function LinhaTotal({
       <td className={`py-1.5 pr-2 ${destaque ? "font-semibold" : "text-muted-foreground"}`}>
         {label}
       </td>
-      <td colSpan={2} />
+      <td colSpan={3} />
       <td className={`py-1.5 pr-2 text-right ${destaque ? "font-semibold" : "font-medium"}`}>
         {formatBRL(valor)}
       </td>
