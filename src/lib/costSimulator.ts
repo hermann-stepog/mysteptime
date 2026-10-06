@@ -47,6 +47,9 @@ export interface EntradasEmbarque extends EntradasComuns {
   dataInicio: string;
   duracao: { valor: number; unidade: "dias" | "meses" };
   mobDesmob: boolean;
+  usaAlimentacao: boolean;
+  trajetos: TrajetoTerra[];
+  trajetosExecutivos: TrajetoTerra[];
 }
 
 export interface ViagemLinha {
@@ -64,6 +67,9 @@ export interface ViagemLinha {
 export interface EntradasViagemExecutiva extends EntradasComuns {
   tipo: "viagem_executiva";
   viagens: ViagemLinha[];
+  usaAlimentacao: boolean;
+  trajetos: TrajetoTerra[];
+  trajetosExecutivos: TrajetoTerra[];
 }
 
 export interface EquipeSimples {
@@ -84,9 +90,8 @@ export interface EntradasServicoTerra extends EntradasComuns {
   duracaoDias: number;
   usaAcomodacao: boolean;
   usaAlimentacao: boolean;
-  usaTransporteExecutivo: boolean;
-  valorTransporteExecutivo: number; // valor de 1 unidade (1 pessoa × 1 dia), digitado manualmente
   trajetos: TrajetoTerra[];
+  trajetosExecutivos: TrajetoTerra[];
   usaLavanderia: boolean;
   lavanderiaValorDiario: number; // sem fonte de histórico no sistema — sempre digitado manualmente
 }
@@ -122,6 +127,7 @@ export interface CostSimulatorUnitStats {
   transporte?: Record<string, CostStats>;
   passagens?: Record<string, CostStats>;
   transporteTrajeto?: Record<string, CostStats>;
+  transporteExecutivoTrajeto?: Record<string, CostStats>;
   alimentacao?: CostStats;
 }
 
@@ -229,22 +235,25 @@ export function cidadesERotas(entradas: EntradasSimulacao): {
   cidades: string[];
   rotas: { origem: string; destino: string }[];
   trajetos: { origem: string; destino: string }[];
+  trajetosExecutivos: { origem: string; destino: string }[];
 } {
+  const aTrajeto = (t: TrajetoTerra) => ({ origem: t.origem.trim(), destino: t.destino.trim() });
+  const trajetos = trajetosValidos(entradas.trajetos).map(aTrajeto);
+  const trajetosExecutivos = trajetosValidos(entradas.trajetosExecutivos).map(aTrajeto);
+
   if (entradas.tipo === "embarque") {
     const cidadeBase = entradas.cidadeEmbarque.trim();
     const origens = new Set(entradas.equipe.map((e) => e.cidadeOrigem.trim()).filter(Boolean));
     return {
       cidades: cidadeBase ? [cidadeBase] : [],
       rotas: Array.from(origens).map((origem) => ({ origem, destino: cidadeBase })),
-      trajetos: [],
+      trajetos,
+      trajetosExecutivos,
     };
   }
   if (entradas.tipo === "servico_terra") {
     const local = entradas.local.trim();
-    const trajetos = (entradas.trajetos ?? [])
-      .filter((t) => t.origem.trim() && t.destino.trim())
-      .map((t) => ({ origem: t.origem.trim(), destino: t.destino.trim() }));
-    return { cidades: local ? [local] : [], rotas: [], trajetos };
+    return { cidades: local ? [local] : [], rotas: [], trajetos, trajetosExecutivos };
   }
   const cidades = new Set(entradas.viagens.map((v) => v.destino.trim()).filter(Boolean));
   const rotas = new Map<string, { origem: string; destino: string }>();
@@ -252,7 +261,83 @@ export function cidadesERotas(entradas: EntradasSimulacao): {
     if (!v.origem.trim() || !v.destino.trim()) continue;
     rotas.set(rotaKey(v.origem, v.destino), { origem: v.origem.trim(), destino: v.destino.trim() });
   }
-  return { cidades: Array.from(cidades), rotas: Array.from(rotas.values()), trajetos: [] };
+  return {
+    cidades: Array.from(cidades),
+    rotas: Array.from(rotas.values()),
+    trajetos,
+    trajetosExecutivos,
+  };
+}
+
+function trajetosValidos(lista: TrajetoTerra[] | undefined): TrajetoTerra[] {
+  return (lista ?? []).filter((t) => t.origem.trim() && t.destino.trim());
+}
+
+function categoriaAlimentacao(
+  qtd: number,
+  base: string,
+  ajustes: AjustesSimulacao,
+  stats: CostSimulatorUnitStats,
+): CategoriaResultado[] {
+  if (!stats.alimentacao || qtd <= 0) return [];
+  const unitario =
+    ajustes.overrides["alimentacao"] ?? valorPorMetodo(stats.alimentacao, ajustes.metodoCalculo);
+  return [
+    {
+      categoria: "Alimentação",
+      base,
+      chaveOverride: "alimentacao",
+      unitario,
+      qtd,
+      subtotal: round2(unitario * qtd),
+      percentualDoTotal: 0,
+    },
+  ];
+}
+
+// Transporte executivo (Future) e Uber por trajeto: custo por viagem do histórico entre as duas
+// cidades nos dois sentidos; a quantidade é o nº de viagens digitado, não se multiplica por pessoa.
+function categoriasTrajetos(
+  entradas: { trajetos?: TrajetoTerra[]; trajetosExecutivos?: TrajetoTerra[] },
+  ajustes: AjustesSimulacao,
+  stats: CostSimulatorUnitStats,
+): CategoriaResultado[] {
+  const out: CategoriaResultado[] = [];
+  const adicionar = (
+    lista: TrajetoTerra[] | undefined,
+    prefixo: "Transporte executivo" | "Uber",
+    statsPorRota: Record<string, CostStats> | undefined,
+    chavePrefixo: "executivo" | "trajeto",
+  ) => {
+    (lista ?? []).forEach((t, i) => {
+      const origem = t.origem.trim();
+      const destino = t.destino.trim();
+      if (!origem || !destino) return;
+      const key = rotaKey(origem, destino);
+      const stat = statsPorRota?.[key];
+      if (!stat) return;
+      const chave = `${chavePrefixo}:${key}#${i}`;
+      const unitario = ajustes.overrides[chave] ?? valorPorMetodo(stat, ajustes.metodoCalculo);
+      const qtd = Number(t.qtd) || 0;
+      out.push({
+        categoria: `${prefixo} (${origem} → ${destino})`,
+        base: `${qtd} viagem(ns)`,
+        chaveOverride: chave,
+        unitario,
+        qtd,
+        subtotal: round2(unitario * qtd),
+        percentualDoTotal: 0,
+      });
+    });
+  };
+  adicionar(
+    entradas.trajetosExecutivos,
+    "Transporte executivo",
+    stats.transporteExecutivoTrajeto,
+    "executivo",
+  );
+  adicionar(entradas.trajetos, "Uber", stats.transporteTrajeto, "trajeto");
+  return out;
 }
 
 function montarCategoriasEmbarque(
@@ -342,6 +427,18 @@ function montarCategoriasEmbarque(
     }
   }
 
+  if (entradas.usaAlimentacao) {
+    porCategoria.push(
+      ...categoriaAlimentacao(
+        diasEmbarcado * nCiclos * totalPessoas,
+        `${diasEmbarcado * nCiclos} dias × ${totalPessoas} pessoas`,
+        ajustes,
+        stats,
+      ),
+    );
+  }
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+
   return { porCategoria, nCiclos, totalPessoas, duracaoDias };
 }
 
@@ -418,6 +515,18 @@ function montarCategoriasViagemExecutiva(
     }
   });
 
+  if (entradas.usaAlimentacao) {
+    const pessoaDias = entradas.viagens.reduce(
+      (soma, v) =>
+        soma + (Number(v.qtd) || 0) * (v.usaHotel ? Math.max(1, Number(v.noitesHotel) || 0) : 1),
+      0,
+    );
+    porCategoria.push(
+      ...categoriaAlimentacao(pessoaDias, "pessoas × dias de cada viagem", ajustes, stats),
+    );
+  }
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+
   return { porCategoria, nCiclos: entradas.viagens.length, totalPessoas, duracaoDias: 30 };
 }
 
@@ -464,43 +573,7 @@ function montarCategoriasServicoTerra(
     });
   }
 
-  if (entradas.usaTransporteExecutivo) {
-    const unitario = ajustes.overrides["transporte_executivo"] ?? entradas.valorTransporteExecutivo;
-    const qtd = totalPessoas * duracaoDias;
-    porCategoria.push({
-      categoria: "Transporte executivo",
-      base: `${totalPessoas} pessoas × ${duracaoDias} dias`,
-      chaveOverride: "transporte_executivo",
-      unitario,
-      qtd,
-      subtotal: round2(unitario * qtd),
-      percentualDoTotal: 0,
-    });
-  }
-
-  // Uber por trajeto: custo por viagem, puxado do histórico de viagens Uber entre as duas
-  // cidades nos dois sentidos.
-  (entradas.trajetos ?? []).forEach((t, i) => {
-    const origem = t.origem.trim();
-    const destino = t.destino.trim();
-    if (!origem || !destino) return;
-    const key = rotaKey(origem, destino);
-    const stat = stats.transporteTrajeto?.[key];
-    if (!stat) return;
-    const chave = `trajeto:${key}#${i}`;
-    const override = ajustes.overrides[chave];
-    const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-    const qtd = Number(t.qtd) || 0;
-    porCategoria.push({
-      categoria: `Uber (${origem} → ${destino})`,
-      base: `${qtd} viagem(ns)`,
-      chaveOverride: chave,
-      unitario,
-      qtd,
-      subtotal: round2(unitario * qtd),
-      percentualDoTotal: 0,
-    });
-  });
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
 
   // Lavanderia: sem fonte de histórico no sistema hoje — valor sempre digitado manualmente.
   if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {

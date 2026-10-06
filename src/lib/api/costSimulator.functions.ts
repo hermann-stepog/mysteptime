@@ -2,6 +2,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import type {
   AjustesSimulacao,
   CostSimulatorUnitStats,
+  CostStats,
   EntradasSimulacao,
   ResultadoSimulacao,
   cidadesERotas,
@@ -61,6 +62,7 @@ export interface FetchCostStatsParams {
   cidades: ReturnType<typeof cidadesERotas>["cidades"];
   rotas: ReturnType<typeof cidadesERotas>["rotas"];
   trajetos: ReturnType<typeof cidadesERotas>["trajetos"];
+  trajetosExecutivos: ReturnType<typeof cidadesERotas>["trajetosExecutivos"];
   bsp?: string; // usado só no filtro de Alimentação (Reembolsos não tem cidade, só BSP)
   hotelIds?: string[];
   tipoTransporte?: string;
@@ -87,23 +89,29 @@ export async function fetchCostStats(
   if (error) throw new Error(error.message);
   const stats = (data ?? {}) as CostSimulatorUnitStats;
 
-  let transporteTrajeto: CostSimulatorUnitStats["transporteTrajeto"] = {};
-  if (params.trajetos.length > 0) {
-    const { data: dataTrajetos, error: errorTrajetos } = await supabase.rpc(
-      "cost_simulator_transport_trajetos",
-      {
-        p_filters: {
-          periodo_inicio: params.periodoInicio,
-          periodo_fim: params.periodoFim,
-          trajetos: params.trajetos,
-        },
+  const buscarTrajetos = async (
+    tipo: "uber" | "future",
+    trajetos: { origem: string; destino: string }[],
+  ) => {
+    if (trajetos.length === 0) return {};
+    const { data: dados, error: erro } = await supabase.rpc("cost_simulator_transport_trajetos", {
+      p_filters: {
+        periodo_inicio: params.periodoInicio,
+        periodo_fim: params.periodoFim,
+        tipo,
+        trajetos,
       },
-    );
-    if (errorTrajetos) throw new Error(errorTrajetos.message);
-    transporteTrajeto = (dataTrajetos ?? {}) as CostSimulatorUnitStats["transporteTrajeto"];
-  }
+    });
+    if (erro) throw new Error(erro.message);
+    return (dados ?? {}) as Record<string, CostStats>;
+  };
 
-  return { ...stats, transporteTrajeto };
+  const [transporteTrajeto, transporteExecutivoTrajeto] = await Promise.all([
+    buscarTrajetos("uber", params.trajetos),
+    buscarTrajetos("future", params.trajetosExecutivos),
+  ]);
+
+  return { ...stats, transporteTrajeto, transporteExecutivoTrajeto };
 }
 
 export async function fetchTransportLocais(): Promise<string[]> {
