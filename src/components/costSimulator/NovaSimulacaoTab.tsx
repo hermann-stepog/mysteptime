@@ -16,6 +16,7 @@ import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import {
   fetchCostStats,
   fetchTransportLocais,
+  fetchHoteisRegiao,
   saveCostSimulation,
   updateCostSimulation,
   type CostSimulationRow,
@@ -260,6 +261,20 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     queryFn: fetchTransportLocais,
     staleTime: 5 * 60_000,
   });
+  const cidadeBaseHoteis = (
+    tipo === "servico_terra" ? local : tipo === "embarque" ? cidadeEmbarque : ""
+  ).trim();
+  const hoteisRegiao = useQuery({
+    queryKey: ["cost-simulator-hoteis-regiao", cidadeBaseHoteis],
+    queryFn: () => fetchHoteisRegiao(cidadeBaseHoteis),
+    enabled: cidadeBaseHoteis.length > 0,
+    staleTime: 5 * 60_000,
+  });
+  const sugestoesTrajeto = useMemo(
+    () =>
+      Array.from(new Set([...(locaisTransporte.data ?? []), ...(hoteisRegiao.data ?? [])])).sort(),
+    [locaisTransporte.data, hoteisRegiao.data],
+  );
   const salvar = useMutation({
     mutationFn: async (modo: "novo" | "atualizar") => {
       if (!stats || !resultado) throw new Error("Calcule a simulação antes de salvar.");
@@ -380,7 +395,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setTrajetos={setTrajetosTerra}
                 trajetosExecutivos={trajetosExecutivos}
                 setTrajetosExecutivos={setTrajetosExecutivos}
-                locais={locaisTransporte.data ?? []}
+                locais={sugestoesTrajeto}
               />
             )}
             {tipo === "viagem_executiva" && (
@@ -395,7 +410,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setTrajetos={setTrajetosTerra}
                 trajetosExecutivos={trajetosExecutivos}
                 setTrajetosExecutivos={setTrajetosExecutivos}
-                locais={locaisTransporte.data ?? []}
+                locais={sugestoesTrajeto}
               />
             )}
             {tipo === "servico_terra" && (
@@ -413,7 +428,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 trajetosExecutivos={trajetosExecutivos}
                 setTrajetosExecutivos={setTrajetosExecutivos}
                 trajetos={trajetosTerra}
-                locais={locaisTransporte.data ?? []}
+                locais={sugestoesTrajeto}
                 setTrajetos={setTrajetosTerra}
                 usaLavanderia={usaLavanderia}
                 setUsaLavanderia={setUsaLavanderia}
