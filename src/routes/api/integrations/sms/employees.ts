@@ -16,6 +16,7 @@ export const Route = createFileRoute("/api/integrations/sms/employees")({
               const { data, error } = await (supabaseAdmin as any)
                 .from("hist_novo_colaboradores")
                 .select(SMS_EMPLOYEE_COLUMNS)
+                .eq("ativo", true)
                 .order("nome", { ascending: true })
                 .order("id", { ascending: true })
                 .range(from, from + page - 1);
