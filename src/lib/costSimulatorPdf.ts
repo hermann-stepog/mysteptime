@@ -22,7 +22,27 @@ const METODO_LABEL: Record<AjustesSimulacao["metodoCalculo"], string> = {
   ultimo: "Último valor lançado",
 };
 
+function linhasTrajetos(lista: { origem: string; destino: string; qtd: number }[]): string {
+  return (
+    lista
+      .filter((t) => t.origem.trim() && t.destino.trim())
+      .map((t) => `${t.origem} -> ${t.destino}: ${t.qtd} viagem(ns)`)
+      .join("\n") || "—"
+  );
+}
+
 export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] {
+  const extras: [string, string][] = [
+    ...(entradas.tipo !== "servico_terra"
+      ? [["Alimentação", entradas.usaAlimentacao ? "Sim" : "Não"] as [string, string]]
+      : []),
+    ["Uber por trajeto", linhasTrajetos(entradas.trajetos ?? [])],
+    ["Transporte executivo por trajeto", linhasTrajetos(entradas.trajetosExecutivos ?? [])],
+  ];
+  return [...resumoEntradasBase(entradas), ...extras];
+}
+
+function resumoEntradasBase(entradas: EntradasSimulacao): [string, string][] {
   if (entradas.tipo === "embarque") {
     const regimeDias =
       entradas.regime.tipo === "custom"
@@ -62,8 +82,6 @@ export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] 
   const itens = [
     entradas.usaAcomodacao && "Acomodação",
     entradas.usaAlimentacao && "Alimentação",
-    entradas.usaTransporteExecutivo &&
-      `Transporte executivo: ${formatBRL(entradas.valorTransporteExecutivo)} por pessoa/dia`,
     entradas.usaLavanderia &&
       `Lavanderia (valor único: ${formatBRL(entradas.lavanderiaValorDiario)})`,
   ]
@@ -74,13 +92,6 @@ export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] 
     ["Duração", `${entradas.duracaoDias} dia(s)`],
     ["Equipe", entradas.equipe.map((l) => `${l.funcao || "Função"}: ${l.qtd}`).join("\n") || "—"],
     ["Itens", itens || "—"],
-    [
-      "Uber por trajeto",
-      entradas.trajetos
-        .filter((t) => t.origem.trim() && t.destino.trim())
-        .map((t) => `${t.origem} -> ${t.destino}: ${t.qtd} viagem(ns)`)
-        .join("\n") || "—",
-    ],
   ];
 }
 

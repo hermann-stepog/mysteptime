@@ -104,13 +104,14 @@ export function CenariosSalvosTab({ onEditar }: { onEditar: (row: CostSimulation
 
   const recalcular = useMutation({
     mutationFn: async (row: CostSimulationRow) => {
-      const { cidades, rotas, trajetos } = cidadesERotas(row.entradas);
+      const { cidades, rotas, trajetos, trajetosExecutivos } = cidadesERotas(row.entradas);
       const stats = await fetchCostStats({
         periodoInicio: row.ajustes.periodoReferencia.inicio,
         periodoFim: row.ajustes.periodoReferencia.fim,
         cidades,
         rotas,
         trajetos,
+        trajetosExecutivos,
         bsp: row.entradas.bsp,
         hotelIds: row.ajustes.filtros.hotelIds,
         tipoTransporte: row.ajustes.filtros.tipoTransporte,

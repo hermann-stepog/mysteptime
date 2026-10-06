@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
-import { CLIENTES } from "@/lib/clientes";
+import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import {
   fetchCostStats,
   fetchTransportLocais,
@@ -114,15 +114,12 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   );
   const [duracaoDiasTerra, setDuracaoDiasTerra] = useState(ter?.duracaoDias ?? 9);
   const [usaAcomodacao, setUsaAcomodacao] = useState(ter?.usaAcomodacao ?? true);
-  const [usaAlimentacao, setUsaAlimentacao] = useState(ter?.usaAlimentacao ?? true);
-  const [usaTransporteExecutivo, setUsaTransporteExecutivo] = useState(
-    ter?.usaTransporteExecutivo ?? true,
-  );
-  const [valorTransporteExecutivo, setValorTransporteExecutivo] = useState(
-    ter?.valorTransporteExecutivo ?? 0,
+  const [usaAlimentacao, setUsaAlimentacao] = useState((ter ?? emb ?? via)?.usaAlimentacao ?? true);
+  const [trajetosExecutivos, setTrajetosExecutivos] = useState<TrajetoTerra[]>(
+    (ter ?? emb ?? via)?.trajetosExecutivos ?? TRAJETOS_TERRA_VAZIO,
   );
   const [trajetosTerra, setTrajetosTerra] = useState<TrajetoTerra[]>(
-    ter?.trajetos ?? TRAJETOS_TERRA_VAZIO,
+    (ter ?? emb ?? via)?.trajetos ?? TRAJETOS_TERRA_VAZIO,
   );
   const [usaLavanderia, setUsaLavanderia] = useState(ter?.usaLavanderia ?? false);
   const [lavanderiaValorDiario, setLavanderiaValorDiario] = useState(
@@ -143,6 +140,9 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
           diasFolga: regimeTipo === "custom" ? 14 : REGIMES_ROTACAO[regimeTipo].diasFolga,
         },
         dataInicio: hojeISO(),
+        usaAlimentacao,
+        trajetos: trajetosTerra,
+        trajetosExecutivos,
         duracao: { valor: duracaoValor, unidade: "dias" },
         mobDesmob: false,
       };
@@ -156,14 +156,20 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
         duracaoDias: duracaoDiasTerra,
         usaAcomodacao,
         usaAlimentacao,
-        usaTransporteExecutivo,
-        valorTransporteExecutivo,
         trajetos: trajetosTerra,
+        trajetosExecutivos,
         usaLavanderia,
         lavanderiaValorDiario,
       };
     }
-    return { ...comuns, tipo: "viagem_executiva", viagens };
+    return {
+      ...comuns,
+      tipo: "viagem_executiva",
+      viagens,
+      usaAlimentacao,
+      trajetos: trajetosTerra,
+      trajetosExecutivos,
+    };
   }, [
     tipo,
     nomeCenario,
@@ -181,22 +187,27 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     duracaoDiasTerra,
     usaAcomodacao,
     usaAlimentacao,
-    usaTransporteExecutivo,
-    valorTransporteExecutivo,
     trajetosTerra,
+    trajetosExecutivos,
     usaLavanderia,
     lavanderiaValorDiario,
   ]);
 
   const calcular = useMutation({
     mutationFn: async () => {
-      const { cidades, rotas, trajetos } = cidadesERotas(entradas);
+      const {
+        cidades,
+        rotas,
+        trajetos,
+        trajetosExecutivos: trajetosExec,
+      } = cidadesERotas(entradas);
       const novoStats = await fetchCostStats({
         periodoInicio: ajustes.periodoReferencia.inicio,
         periodoFim: ajustes.periodoReferencia.fim,
         cidades,
         rotas,
         trajetos,
+        trajetosExecutivos: trajetosExec,
         bsp: entradas.bsp,
         hotelIds: ajustes.filtros.hotelIds,
         tipoTransporte: ajustes.filtros.tipoTransporte,
@@ -220,6 +231,20 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
       ]);
     },
   });
+
+  const chaveBusca = useMemo(() => JSON.stringify(cidadesERotas(entradas)), [entradas]);
+  const primeiraBusca = useRef(true);
+  useEffect(() => {
+    if (primeiraBusca.current) {
+      primeiraBusca.current = false;
+      return;
+    }
+    const { cidades, rotas, trajetos } = JSON.parse(chaveBusca) as ReturnType<typeof cidadesERotas>;
+    if (cidades.length === 0 && rotas.length === 0 && trajetos.length === 0) return;
+    const timer = setTimeout(() => calcular.mutate(), 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaveBusca]);
 
   const resultado = useMemo(
     () => (stats ? montarResultado(entradas, ajustes, stats) : null),
@@ -308,7 +333,14 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">
                 <Label>Unidade</Label>
-                <Input value={unidade} onChange={(e) => setUnidade(e.target.value)} />
+                <Input
+                  value={unidade}
+                  onChange={(e) => {
+                    setUnidade(e.target.value);
+                    const clienteDaUnidadeDigitada = clienteDaUnidade(e.target.value);
+                    if (clienteDaUnidadeDigitada) setCliente(clienteDaUnidadeDigitada);
+                  }}
+                />
               </div>
               <div className="space-y-2">
                 <Label>BSP</Label>
@@ -338,10 +370,27 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setRegimeTipo={setRegimeTipo}
                 duracaoValor={duracaoValor}
                 setDuracaoValor={setDuracaoValor}
+                usaAlimentacao={usaAlimentacao}
+                setUsaAlimentacao={setUsaAlimentacao}
+                trajetos={trajetosTerra}
+                setTrajetos={setTrajetosTerra}
+                trajetosExecutivos={trajetosExecutivos}
+                setTrajetosExecutivos={setTrajetosExecutivos}
+                locais={locaisTransporte.data ?? []}
               />
             )}
             {tipo === "viagem_executiva" && (
-              <ViagemExecutivaForm viagens={viagens} setViagens={setViagens} />
+              <ViagemExecutivaForm
+                viagens={viagens}
+                setViagens={setViagens}
+                usaAlimentacao={usaAlimentacao}
+                setUsaAlimentacao={setUsaAlimentacao}
+                trajetos={trajetosTerra}
+                setTrajetos={setTrajetosTerra}
+                trajetosExecutivos={trajetosExecutivos}
+                setTrajetosExecutivos={setTrajetosExecutivos}
+                locais={locaisTransporte.data ?? []}
+              />
             )}
             {tipo === "servico_terra" && (
               <ServicoTerraForm
@@ -355,10 +404,8 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setUsaAcomodacao={setUsaAcomodacao}
                 usaAlimentacao={usaAlimentacao}
                 setUsaAlimentacao={setUsaAlimentacao}
-                usaTransporteExecutivo={usaTransporteExecutivo}
-                setUsaTransporteExecutivo={setUsaTransporteExecutivo}
-                valorTransporteExecutivo={valorTransporteExecutivo}
-                setValorTransporteExecutivo={setValorTransporteExecutivo}
+                trajetosExecutivos={trajetosExecutivos}
+                setTrajetosExecutivos={setTrajetosExecutivos}
                 trajetos={trajetosTerra}
                 locais={locaisTransporte.data ?? []}
                 setTrajetos={setTrajetosTerra}
@@ -461,6 +508,13 @@ function EmbarqueForm({
   setRegimeTipo,
   duracaoValor,
   setDuracaoValor,
+  usaAlimentacao,
+  setUsaAlimentacao,
+  trajetos,
+  setTrajetos,
+  trajetosExecutivos,
+  setTrajetosExecutivos,
+  locais,
 }: {
   cidadeEmbarque: string;
   setCidadeEmbarque: (v: string) => void;
@@ -470,6 +524,13 @@ function EmbarqueForm({
   setRegimeTipo: (v: RegimeTipo) => void;
   duracaoValor: number;
   setDuracaoValor: (v: number) => void;
+  usaAlimentacao: boolean;
+  setUsaAlimentacao: (v: boolean) => void;
+  trajetos: TrajetoTerra[];
+  setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  trajetosExecutivos: TrajetoTerra[];
+  setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  locais: string[];
 }) {
   function addLinha() {
     setEquipe((e) => [...e, { funcao: "", qtd: 1, cidadeOrigem: "" }]);
@@ -544,6 +605,26 @@ function EmbarqueForm({
           />
         </div>
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={usaAlimentacao}
+          onChange={(e) => setUsaAlimentacao(e.target.checked)}
+        />{" "}
+        Alimentação (pessoas × dias embarcados)
+      </label>
+      <TrajetosEditor
+        titulo="Uber por trajeto (custo do histórico)"
+        trajetos={trajetos}
+        setTrajetos={setTrajetos}
+        locais={locais}
+      />
+      <TrajetosEditor
+        titulo="Transporte executivo por trajeto (custo do histórico Future)"
+        trajetos={trajetosExecutivos}
+        setTrajetos={setTrajetosExecutivos}
+        locais={locais}
+      />
     </>
   );
 }
@@ -551,9 +632,23 @@ function EmbarqueForm({
 function ViagemExecutivaForm({
   viagens,
   setViagens,
+  usaAlimentacao,
+  setUsaAlimentacao,
+  trajetos,
+  setTrajetos,
+  trajetosExecutivos,
+  setTrajetosExecutivos,
+  locais,
 }: {
   viagens: ViagemLinha[];
   setViagens: (v: ViagemLinha[] | ((v: ViagemLinha[]) => ViagemLinha[])) => void;
+  usaAlimentacao: boolean;
+  setUsaAlimentacao: (v: boolean) => void;
+  trajetos: TrajetoTerra[];
+  setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  trajetosExecutivos: TrajetoTerra[];
+  setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  locais: string[];
 }) {
   function addViagem() {
     setViagens((v) => [
@@ -666,6 +761,26 @@ function ViagemExecutivaForm({
           </div>
         </div>
       ))}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={usaAlimentacao}
+          onChange={(e) => setUsaAlimentacao(e.target.checked)}
+        />{" "}
+        Alimentação (pessoas × dias de cada viagem)
+      </label>
+      <TrajetosEditor
+        titulo="Uber por trajeto (custo do histórico)"
+        trajetos={trajetos}
+        setTrajetos={setTrajetos}
+        locais={locais}
+      />
+      <TrajetosEditor
+        titulo="Transporte executivo por trajeto (custo do histórico Future)"
+        trajetos={trajetosExecutivos}
+        setTrajetos={setTrajetosExecutivos}
+        locais={locais}
+      />
     </div>
   );
 }
@@ -681,10 +796,8 @@ function ServicoTerraForm({
   setUsaAcomodacao,
   usaAlimentacao,
   setUsaAlimentacao,
-  usaTransporteExecutivo,
-  setUsaTransporteExecutivo,
-  valorTransporteExecutivo,
-  setValorTransporteExecutivo,
+  trajetosExecutivos,
+  setTrajetosExecutivos,
   trajetos,
   setTrajetos,
   locais,
@@ -703,10 +816,8 @@ function ServicoTerraForm({
   setUsaAcomodacao: (v: boolean) => void;
   usaAlimentacao: boolean;
   setUsaAlimentacao: (v: boolean) => void;
-  usaTransporteExecutivo: boolean;
-  setUsaTransporteExecutivo: (v: boolean) => void;
-  valorTransporteExecutivo: number;
-  setValorTransporteExecutivo: (v: number) => void;
+  trajetosExecutivos: TrajetoTerra[];
+  setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
   trajetos: TrajetoTerra[];
   locais: string[];
   setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
@@ -785,87 +896,18 @@ function ServicoTerraForm({
         />{" "}
         Alimentação (histórico de Reembolsos)
       </label>
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={usaTransporteExecutivo}
-            onChange={(e) => setUsaTransporteExecutivo(e.target.checked)}
-          />{" "}
-          Transporte executivo
-        </label>
-        <Input
-          type="number"
-          min={0}
-          step="0.01"
-          className="w-40"
-          placeholder="R$ por pessoa/dia"
-          value={valorTransporteExecutivo}
-          onChange={(e) => setValorTransporteExecutivo(Number(e.target.value) || 0)}
-          disabled={!usaTransporteExecutivo}
-        />
-      </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label>Uber por trajeto (custo do histórico)</Label>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setTrajetos((ts) => [...ts, { origem: "", destino: "", qtd: 4 }])}
-          >
-            <Plus className="h-4 w-4 mr-1" /> Trajeto
-          </Button>
-        </div>
-        {trajetos.map((t, i) => (
-          <div key={i} className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 items-end">
-            <Input
-              list="locais-transporte"
-              placeholder="Origem (ex. Aeroporto)"
-              value={t.origem}
-              onChange={(e) =>
-                setTrajetos((ts) =>
-                  ts.map((x, idx) => (idx === i ? { ...x, origem: e.target.value } : x)),
-                )
-              }
-            />
-            <Input
-              list="locais-transporte"
-              placeholder="Destino (ex. Pousada)"
-              value={t.destino}
-              onChange={(e) =>
-                setTrajetos((ts) =>
-                  ts.map((x, idx) => (idx === i ? { ...x, destino: e.target.value } : x)),
-                )
-              }
-            />
-            <Input
-              type="number"
-              min={0}
-              placeholder="Viagens"
-              value={t.qtd}
-              onChange={(e) =>
-                setTrajetos((ts) =>
-                  ts.map((x, idx) => (idx === i ? { ...x, qtd: Number(e.target.value) || 0 } : x)),
-                )
-              }
-            />
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              onClick={() => setTrajetos((ts) => ts.filter((_, idx) => idx !== i))}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        ))}
-        <datalist id="locais-transporte">
-          {locais.map((l) => (
-            <option key={l} value={l} />
-          ))}
-        </datalist>
-      </div>
+      <TrajetosEditor
+        titulo="Uber por trajeto (custo do histórico)"
+        trajetos={trajetos}
+        setTrajetos={setTrajetos}
+        locais={locais}
+      />
+      <TrajetosEditor
+        titulo="Transporte executivo por trajeto (custo do histórico Future)"
+        trajetos={trajetosExecutivos}
+        setTrajetos={setTrajetosExecutivos}
+        locais={locais}
+      />
       <div className="flex items-center gap-2">
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -887,5 +929,81 @@ function ServicoTerraForm({
         />
       </div>
     </>
+  );
+}
+
+function TrajetosEditor({
+  titulo,
+  trajetos,
+  setTrajetos,
+  locais,
+}: {
+  titulo: string;
+  trajetos: TrajetoTerra[];
+  setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  locais: string[];
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label>{titulo}</Label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setTrajetos((ts) => [...ts, { origem: "", destino: "", qtd: 4 }])}
+        >
+          <Plus className="h-4 w-4 mr-1" /> Trajeto
+        </Button>
+      </div>
+      {trajetos.map((t, i) => (
+        <div key={i} className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 items-end">
+          <Input
+            list="locais-transporte"
+            placeholder="Origem (ex. Aeroporto)"
+            value={t.origem}
+            onChange={(e) =>
+              setTrajetos((ts) =>
+                ts.map((x, idx) => (idx === i ? { ...x, origem: e.target.value } : x)),
+              )
+            }
+          />
+          <Input
+            list="locais-transporte"
+            placeholder="Destino (ex. Pousada)"
+            value={t.destino}
+            onChange={(e) =>
+              setTrajetos((ts) =>
+                ts.map((x, idx) => (idx === i ? { ...x, destino: e.target.value } : x)),
+              )
+            }
+          />
+          <Input
+            type="number"
+            min={0}
+            placeholder="Viagens"
+            value={t.qtd}
+            onChange={(e) =>
+              setTrajetos((ts) =>
+                ts.map((x, idx) => (idx === i ? { ...x, qtd: Number(e.target.value) || 0 } : x)),
+              )
+            }
+          />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={() => setTrajetos((ts) => ts.filter((_, idx) => idx !== i))}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+      <datalist id="locais-transporte">
+        {locais.map((l) => (
+          <option key={l} value={l} />
+        ))}
+      </datalist>
+    </div>
   );
 }
