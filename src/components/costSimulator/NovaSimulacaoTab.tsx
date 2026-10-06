@@ -17,6 +17,7 @@ import {
   fetchCostStats,
   fetchTransportLocais,
   fetchHoteisRegiao,
+  type HotelRegiao,
   saveCostSimulation,
   updateCostSimulation,
   type CostSimulationRow,
@@ -270,9 +271,18 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     enabled: cidadeBaseHoteis.length > 0,
     staleTime: 5 * 60_000,
   });
+  const hotelAcomodacao = ajustes.filtros.hotelIds?.[0] ?? "";
+  function setHotelAcomodacao(id: string) {
+    setAjustes((a) => ({ ...a, filtros: { ...a.filtros, hotelIds: id ? [id] : undefined } }));
+  }
   const sugestoesTrajeto = useMemo(
     () =>
-      Array.from(new Set([...(locaisTransporte.data ?? []), ...(hoteisRegiao.data ?? [])])).sort(),
+      Array.from(
+        new Set([
+          ...(locaisTransporte.data ?? []),
+          ...(hoteisRegiao.data ?? []).map((h) => h.nome),
+        ]),
+      ).sort(),
     [locaisTransporte.data, hoteisRegiao.data],
   );
   const salvar = useMutation({
@@ -391,6 +401,9 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setUsaAlimentacao={setUsaAlimentacao}
                 usaAcomodacao={usaAcomodacao}
                 setUsaAcomodacao={setUsaAcomodacao}
+                hoteisAcomodacao={hoteisRegiao.data ?? []}
+                hotelAcomodacao={hotelAcomodacao}
+                setHotelAcomodacao={setHotelAcomodacao}
                 trajetos={trajetosTerra}
                 setTrajetos={setTrajetosTerra}
                 trajetosExecutivos={trajetosExecutivos}
@@ -423,6 +436,9 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setDuracaoDias={setDuracaoDiasTerra}
                 usaAcomodacao={usaAcomodacao}
                 setUsaAcomodacao={setUsaAcomodacao}
+                hoteisAcomodacao={hoteisRegiao.data ?? []}
+                hotelAcomodacao={hotelAcomodacao}
+                setHotelAcomodacao={setHotelAcomodacao}
                 usaAlimentacao={usaAlimentacao}
                 setUsaAlimentacao={setUsaAlimentacao}
                 trajetosExecutivos={trajetosExecutivos}
@@ -538,6 +554,9 @@ function EmbarqueForm({
   locais,
   usaAcomodacao,
   setUsaAcomodacao,
+  hoteisAcomodacao,
+  hotelAcomodacao,
+  setHotelAcomodacao,
 }: {
   cidadeEmbarque: string;
   setCidadeEmbarque: (v: string) => void;
@@ -556,6 +575,9 @@ function EmbarqueForm({
   locais: string[];
   usaAcomodacao: boolean;
   setUsaAcomodacao: (v: boolean) => void;
+  hoteisAcomodacao: HotelRegiao[];
+  hotelAcomodacao: string;
+  setHotelAcomodacao: (v: string) => void;
 }) {
   function addLinha() {
     setEquipe((e) => [...e, { funcao: "", qtd: 1, cidadeOrigem: "" }]);
@@ -638,6 +660,13 @@ function EmbarqueForm({
         />{" "}
         Acomodação
       </label>
+      {usaAcomodacao && (
+        <SeletorHotel
+          hoteis={hoteisAcomodacao}
+          valor={hotelAcomodacao}
+          onChange={setHotelAcomodacao}
+        />
+      )}
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -850,6 +879,9 @@ function ServicoTerraForm({
   setUsaLavanderia,
   lavanderiaValorDiario,
   setLavanderiaValorDiario,
+  hoteisAcomodacao,
+  hotelAcomodacao,
+  setHotelAcomodacao,
 }: {
   local: string;
   setLocal: (v: string) => void;
@@ -870,6 +902,9 @@ function ServicoTerraForm({
   setUsaLavanderia: (v: boolean) => void;
   lavanderiaValorDiario: number;
   setLavanderiaValorDiario: (v: number) => void;
+  hoteisAcomodacao: HotelRegiao[];
+  hotelAcomodacao: string;
+  setHotelAcomodacao: (v: string) => void;
 }) {
   function addLinha() {
     setEquipe((e) => [...e, { funcao: "", qtd: 1 }]);
@@ -933,6 +968,13 @@ function ServicoTerraForm({
         />{" "}
         Acomodação
       </label>
+      {usaAcomodacao && (
+        <SeletorHotel
+          hoteis={hoteisAcomodacao}
+          valor={hotelAcomodacao}
+          onChange={setHotelAcomodacao}
+        />
+      )}
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -1049,6 +1091,40 @@ function TrajetosEditor({
           <option key={l} value={l} />
         ))}
       </datalist>
+    </div>
+  );
+}
+
+function SeletorHotel({
+  hoteis,
+  valor,
+  onChange,
+}: {
+  hoteis: HotelRegiao[];
+  valor: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>Hotel (todos os da cidade, se não escolher)</Label>
+      <select
+        className="w-full border rounded-md h-9 px-2 text-sm"
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={hoteis.length === 0}
+      >
+        <option value="">
+          {hoteis.length === 0
+            ? "Informe a cidade para listar os hotéis"
+            : "Todos os hotéis da cidade"}
+        </option>
+        {hoteis.map((h) => (
+          <option key={h.id} value={h.id}>
+            {h.nome}
+            {h.cidade ? ` (${h.cidade})` : ""}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

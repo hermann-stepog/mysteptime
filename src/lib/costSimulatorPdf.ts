@@ -95,23 +95,6 @@ function resumoEntradasBase(entradas: EntradasSimulacao): [string, string][] {
   ];
 }
 
-function resumoAjustes(ajustes: AjustesSimulacao): [string, string][] {
-  const m = ajustes.markup;
-  const markup = m.aplicar
-    ? `${m.tipo === "com_imposto" ? "Com imposto" : "Simples"}: ${m.percentualLucro}% lucro${m.tipo === "com_imposto" ? ` + ${m.percentualImposto}% imposto` : ""}`
-    : "Não aplicado";
-  const manuais = Object.keys(ajustes.overrides).length;
-  return [
-    ["Reajuste", `${ajustes.reajustePercent}%`],
-    ["Contingência", `${ajustes.contingenciaPercent}%`],
-    ["Markup", markup],
-    [
-      "Valores manuais",
-      manuais > 0 ? `${manuais} categoria(s) com valor unitário informado manualmente` : "Nenhum",
-    ],
-  ];
-}
-
 // jspdf-autotable grava a posição final da última tabela no documento, mas o tipo não expõe isso.
 function fimDaUltimaTabela(doc: unknown, padrao: number): number {
   return (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? padrao;
@@ -190,7 +173,6 @@ export async function exportarSimulacaoPdf({
       ["BSP", entradas.bsp || "—"],
       ["Método de cálculo", METODO_LABEL[ajustes.metodoCalculo]],
       ...resumoEntradas(entradas),
-      ...resumoAjustes(ajustes),
       ["Gerado em", geradoEm],
       ["Gerado por", geradoPor || "—"],
     ].map(([k, v]) => [texto(k), texto(v)]),
