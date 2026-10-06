@@ -87,3 +87,22 @@ describe("SMS qualifications endpoint", () => {
     );
   });
 });
+
+describe("SMS employees — matrícula ambígua", () => {
+  it("não associa Drake quando a matrícula se repete entre empresas", async () => {
+    const a = { ...row, empresa: "A", matricula: "123" };
+    const b = { ...row, empresa: "B", matricula: " 123" };
+    const u = { ...row, empresa: "A", matricula: "999" };
+    const drake = [
+      { drake_worker_id: "D1", registration: "123", job_name: null, current_operational_unit_name: null, worker_state: "Ativo", worker_type: null },
+      { drake_worker_id: "D9", registration: "999", job_name: null, current_operational_unit_name: null, worker_state: "Ativo", worker_type: null },
+    ];
+    const res = await handleSmsEmployeesRequest(req("s3cret"), { secret: "s3cret", fetchRows: async () => [a, b, u], fetchDrakeWorkers: async () => drake });
+    const body = await res.json();
+    const byId = Object.fromEntries(body.employees.map((e: any) => [e.source_id, e]));
+    expect(byId["A::123"].drake_worker_id).toBeNull();
+    expect(byId["B::123"].drake_worker_id).toBeNull();
+    expect(byId["A::123"].worker_state).toBeNull();
+    expect(byId["A::999"].drake_worker_id).toBe("D9");
+  });
+});
