@@ -303,6 +303,8 @@ function categoriasTrajetos(
   entradas: { trajetos?: TrajetoTerra[]; trajetosExecutivos?: TrajetoTerra[] },
   ajustes: AjustesSimulacao,
   stats: CostSimulatorUnitStats,
+  pessoas: number,
+  dias: number,
 ): CategoriaResultado[] {
   const out: CategoriaResultado[] = [];
   const adicionar = (
@@ -320,10 +322,11 @@ function categoriasTrajetos(
       if (!stat) return;
       const chave = `${chavePrefixo}:${key}#${i}`;
       const unitario = ajustes.overrides[chave] ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-      const qtd = Number(t.qtd) || 0;
+      const unidades = Number(t.qtd) || 0;
+      const qtd = unidades * pessoas * dias;
       out.push({
         categoria: `${prefixo} (${origem} → ${destino})`,
-        base: `${qtd} viagem(ns)`,
+        base: `${unidades} × ${pessoas} pessoas × ${dias} dias`,
         chaveOverride: chave,
         unitario,
         qtd,
@@ -439,7 +442,9 @@ function montarCategoriasEmbarque(
       ),
     );
   }
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+  porCategoria.push(
+    ...categoriasTrajetos(entradas, ajustes, stats, totalPessoas, diasEmbarcado * nCiclos),
+  );
 
   return { porCategoria, nCiclos, totalPessoas, duracaoDias };
 }
@@ -527,7 +532,7 @@ function montarCategoriasViagemExecutiva(
       ...categoriaAlimentacao(pessoaDias, "pessoas × dias de cada viagem", ajustes, stats),
     );
   }
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats, totalPessoas, 1));
 
   return { porCategoria, nCiclos: entradas.viagens.length, totalPessoas, duracaoDias: 30 };
 }
@@ -575,7 +580,7 @@ function montarCategoriasServicoTerra(
     });
   }
 
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats, totalPessoas, duracaoDias));
 
   // Lavanderia: sem fonte de histórico no sistema hoje — valor sempre digitado manualmente.
   if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {

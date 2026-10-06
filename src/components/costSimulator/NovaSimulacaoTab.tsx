@@ -73,7 +73,7 @@ const VIAGEM_VAZIA: ViagemLinha = {
 };
 const EQUIPE_EMBARQUE_VAZIA: EquipeLinha[] = [{ funcao: "", qtd: 1, cidadeOrigem: "" }];
 const EQUIPE_TERRA_VAZIA: EquipeSimples[] = [{ funcao: "", qtd: 1 }];
-const TRAJETOS_TERRA_VAZIO: TrajetoTerra[] = [{ origem: "", destino: "", qtd: 4 }];
+const TRAJETOS_TERRA_VAZIO: TrajetoTerra[] = [{ origem: "", destino: "", qtd: 1 }];
 
 interface NovaSimulacaoTabProps {
   carregado: CostSimulationRow | null;
@@ -775,7 +775,7 @@ function ViagemExecutivaForm({
               type="number"
               min={0}
               className="w-24"
-              placeholder="Viagens"
+              placeholder="Qtd (× pessoas × dias)"
               value={v.qtdTransporteLocal}
               onChange={(e) => updateViagem(i, { qtdTransporteLocal: Number(e.target.value) || 0 })}
               disabled={!v.usaTransporteLocal}
@@ -981,7 +981,7 @@ function TrajetosEditor({
           type="button"
           size="sm"
           variant="outline"
-          onClick={() => setTrajetos((ts) => [...ts, { origem: "", destino: "", qtd: 4 }])}
+          onClick={() => setTrajetos((ts) => [...ts, { origem: "", destino: "", qtd: 1 }])}
         >
           <Plus className="h-4 w-4 mr-1" /> Trajeto
         </Button>
@@ -1011,7 +1011,7 @@ function TrajetosEditor({
           <Input
             type="number"
             min={0}
-            placeholder="Viagens"
+            placeholder="Qtd (× pessoas × dias)"
             value={t.qtd}
             onChange={(e) =>
               setTrajetos((ts) =>
