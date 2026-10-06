@@ -136,6 +136,13 @@ export async function fetchCostStats(
   };
 }
 
+export async function fetchHoteisRegiao(cidade: string): Promise<string[]> {
+  if (!cidade.trim()) return [];
+  const { data, error } = await supabase.rpc("cost_simulator_hoteis_regiao", { p_cidade: cidade });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as string[];
+}
+
 export async function fetchTransportLocais(): Promise<string[]> {
   const { data, error } = await supabase.rpc("cost_simulator_transport_locais");
   if (error) throw new Error(error.message);
