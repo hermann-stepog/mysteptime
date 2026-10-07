@@ -1454,6 +1454,68 @@ export type Database = {
           },
         ]
       }
+      flow_track_demandas: {
+        Row: {
+          cobranca_em: string | null
+          cobranca_texto: string | null
+          concluido_em: string | null
+          criado_em: string
+          descricao: string | null
+          id: string
+          lida_em: string | null
+          link_destino: string | null
+          modulo: string
+          prazo_em: string
+          registro_id: string
+          regra_id: string
+          responsavel_user_id: string | null
+          status: string
+          titulo: string
+        }
+        Insert: {
+          cobranca_em?: string | null
+          cobranca_texto?: string | null
+          concluido_em?: string | null
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          lida_em?: string | null
+          link_destino?: string | null
+          modulo: string
+          prazo_em: string
+          registro_id: string
+          regra_id: string
+          responsavel_user_id?: string | null
+          status?: string
+          titulo: string
+        }
+        Update: {
+          cobranca_em?: string | null
+          cobranca_texto?: string | null
+          concluido_em?: string | null
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          lida_em?: string | null
+          link_destino?: string | null
+          modulo?: string
+          prazo_em?: string
+          registro_id?: string
+          regra_id?: string
+          responsavel_user_id?: string | null
+          status?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_track_demandas_regra_id_fkey"
+            columns: ["regra_id"]
+            isOneToOne: false
+            referencedRelation: "flow_track_regras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       flow_track_events: {
         Row: {
           acao: string
@@ -1541,6 +1603,65 @@ export type Database = {
           user_id?: string
           user_name?: string | null
           user_role?: string | null
+        }
+        Relationships: []
+      }
+      flow_track_regra_responsaveis: {
+        Row: {
+          regra_id: string
+          user_id: string
+        }
+        Insert: {
+          regra_id: string
+          user_id: string
+        }
+        Update: {
+          regra_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_track_regra_responsaveis_regra_id_fkey"
+            columns: ["regra_id"]
+            isOneToOne: false
+            referencedRelation: "flow_track_regras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_track_regras: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          codigo: string
+          criado_em: string
+          descricao: string | null
+          id: string
+          modulo: string
+          nome: string
+          prazo_horas: number
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          codigo: string
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          modulo: string
+          nome: string
+          prazo_horas: number
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          codigo?: string
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          modulo?: string
+          nome?: string
+          prazo_horas?: number
         }
         Relationships: []
       }
