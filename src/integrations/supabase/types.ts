@@ -3766,6 +3766,10 @@ export type Database = {
     Functions: {
       _cost_sim_aprox: { Args: { a: string; b: string }; Returns: boolean }
       _cost_sim_stats: { Args: { valores: number[] }; Returns: Json }
+      cost_simulator_hoteis_regiao: {
+        Args: { p_cidade: string }
+        Returns: Json
+      }
       cost_simulator_local_stats: { Args: { p_filters: Json }; Returns: Json }
       cost_simulator_transport_locais: { Args: never; Returns: Json }
       cost_simulator_transport_trajetos: {
