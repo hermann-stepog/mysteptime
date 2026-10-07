@@ -34,6 +34,7 @@ export type NominationStatus =
   | "equipe_formada";
 
 export interface Nomination {
+  pm_responsavel?: string | null;
   id: string;
   created_at: string;
   updated_at: string;

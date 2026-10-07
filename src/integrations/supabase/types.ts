@@ -2112,6 +2112,7 @@ export type Database = {
           period_end: string | null
           period_start: string | null
           pm_name: string | null
+          pm_responsavel: string | null
           pm_user_id: string | null
           project: string | null
           quality_rejection_reason: string | null
@@ -2153,6 +2154,7 @@ export type Database = {
           period_end?: string | null
           period_start?: string | null
           pm_name?: string | null
+          pm_responsavel?: string | null
           pm_user_id?: string | null
           project?: string | null
           quality_rejection_reason?: string | null
@@ -2194,6 +2196,7 @@ export type Database = {
           period_end?: string | null
           period_start?: string | null
           pm_name?: string | null
+          pm_responsavel?: string | null
           pm_user_id?: string | null
           project?: string | null
           quality_rejection_reason?: string | null

@@ -254,6 +254,28 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
   }
 }
 
+// Recusa por Projetos ADM (Paulo Nunes): avisa o solicitante (PM) e a Logística.
+export async function notifyRefusal(nomination: Nomination, reason: string | null): Promise<void> {
+  try {
+    const [pm, logistica] = await Promise.all([pmEmail(nomination), emailsForRole("logistics_operator")]);
+    const todos = Array.from(new Set([...(pm ? [pm] : []), ...logistica]))
+      .filter((e) => !NUNCA_RECEBEM.includes(e.toLowerCase()));
+    if (todos.length === 0) return;
+    await sendAlert({
+      to: todos[0],
+      cc: todos.slice(1),
+      tituloAlerta: `Solicitação recusada por Projetos ADM — ${nomination.funcao}`,
+      colaboradorNome: await nomineeNames(nomination),
+      nomination,
+      detalhesLabel: "Motivo da recusa",
+      detalhes: reason ?? "Não informado",
+      rodapeTexto: "A solicitação foi descartada automaticamente. Este é um alerta automático do My Step Time.",
+    });
+  } catch (err) {
+    console.warn("Falha ao enviar e-mail de recusa (aviso, não bloqueia):", err);
+  }
+}
+
 // Diverge de notifyStageAdvance: é um bloqueio (a Qualidade reprovou), não um avanço — vai pro
 // PM (precisa agir/decidir o próximo passo) + cópia Paulo Nunes (é uma reprovação, uma das 3
 // situações que ele acompanha).
