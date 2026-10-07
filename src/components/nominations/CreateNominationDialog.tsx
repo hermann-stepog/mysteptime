@@ -5,7 +5,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // tipos gerados; cast local pra não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
-import { type Nomination, isSoldador } from "@/lib/nominations";
+import { type Nomination, isSoldador, isInspetor } from "@/lib/nominations";
 import { notifyStageAdvance } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
@@ -102,7 +102,7 @@ export function useNominationFormData() {
       ),
   });
   const funcaoOptions = useMemo(
-    () => funcaoCatalogo.map((f) => f.funcao).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    () => funcaoCatalogo.map((f) => f.funcao).filter((f) => !isInspetor(f)).sort((a, b) => a.localeCompare(b, "pt-BR")),
     [funcaoCatalogo],
   );
 
