@@ -1990,7 +1990,9 @@ function SimulacaoTab({
           emFolga: doPlanejamento?.emFolga ?? false,
         };
       })
-      .filter((l) => funcaoMatchesFilter(l.funcao, [], filterFuncao))
+      // Função exatamente igual à do Planejamento de Embarque (sem agrupar "SOLDADOR" com
+      // "SOLDADOR IRATA N1" etc.) — pedido dela, 2026-10-07.
+      .filter((l) => filterFuncao === "all" || l.funcao.trim().toUpperCase() === filterFuncao.trim().toUpperCase())
       .filter((l) => matchesNameSearch(l.nome, searchNome))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   }, [planejamentoSim, colaboradorIdPorNome, filterFuncao, searchNome]);
@@ -2129,12 +2131,38 @@ function SimulacaoTab({
                 </button>
                 {aberto && (
                   <div className="grid grid-cols-1 gap-x-4 gap-y-2 divide-y border-t px-2.5 py-2 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
-                    {pessoas.map((l) => (
-                      <div key={l.nome} className="pt-2 first:pt-0 sm:pt-0">
-                        <p className="font-medium text-foreground">{l.nome}</p>
-                        <p className="text-muted-foreground">{l.funcao}</p>
-                      </div>
-                    ))}
+                    {pessoas.map((l) => {
+                      const adicionado = focusNomineeIds.has(identidadeNominee({ colaborador_id: l.colaboradorId, colaborador_nome: l.nome }));
+                      return (
+                        <div key={l.nome} className="flex items-start gap-2 pt-2 first:pt-0 sm:pt-0">
+                          {activeFocus && (
+                            adicionado ? (
+                              <Button
+                                size="icon" variant="ghost" title="Adicionado — clique para desfazer"
+                                className="h-6 w-6 shrink-0 text-green-700 hover:bg-red-50 hover:text-red-700"
+                                loading={undoAddNominee.isPending && undoAddNominee.variables?.nome === l.nome}
+                                onClick={() => undoAddNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="icon" variant="outline" title={`Adicionar a ${activeFocus.funcao}`}
+                                className="h-6 w-6 shrink-0"
+                                loading={addNominee.isPending && addNominee.variables?.nome === l.nome}
+                                onClick={() => addNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </Button>
+                            )
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">{l.nome}</p>
+                            <p className="text-muted-foreground">{l.funcao}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
