@@ -1567,6 +1567,7 @@ function NominationCard({
             </p>
           ))}
         </div>
+        {first.pm_name && <p className="mt-1 text-xs"><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{first.pm_name}</span></p>}
         {first.pm_responsavel && <p className="mt-1 text-xs"><span className="text-muted-foreground">PM:</span> <span className="font-medium">{first.pm_responsavel}</span></p>}
         {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
         {first.period_start && first.period_end && (
