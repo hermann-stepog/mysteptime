@@ -1049,6 +1049,24 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao cancelar."),
   });
 
+  const [pmDraft, setPmDraft] = useState(nomination.pm_responsavel ?? "");
+  const savePm = useMutation({
+    mutationFn: async () => {
+      const valor = pmDraft.trim() || null;
+      // Aplica a todas as funções da mesma solicitação (mesmo cartão).
+      const q = supabase.from("nominations").update({ pm_responsavel: valor });
+      const { error } = nomination.request_group_id
+        ? await q.eq("request_group_id", nomination.request_group_id)
+        : await q.eq("id", nomination.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      notify.success("PM responsável salvo.");
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao salvar PM."),
+  });
+
   const [showRefuse, setShowRefuse] = useState(false);
   const [refuseReason, setRefuseReason] = useState("");
   const refuse = useMutation({
@@ -1206,7 +1224,26 @@ function ManageDialog({
             )}
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
-              {nomination.pm_responsavel && (
+              {canOperate ? (
+                <div className="col-span-2 flex items-center gap-2">
+                  <span className="shrink-0 text-muted-foreground">PM responsável:</span>
+                  <Input
+                    className="h-7 text-xs"
+                    placeholder="Inserir nome do PM"
+                    value={pmDraft}
+                    onChange={(e) => setPmDraft(e.target.value)}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-7"
+                    disabled={pmDraft.trim() === (nomination.pm_responsavel ?? "")}
+                    loading={savePm.isPending}
+                    onClick={() => savePm.mutate()}
+                  >
+                    Salvar
+                  </Button>
+                </div>
+              ) : nomination.pm_responsavel && (
                 <div><span className="text-muted-foreground">PM responsável:</span> <span className="font-medium">{nomination.pm_responsavel}</span></div>
               )}
               {nomination.pm_name && (
