@@ -44,7 +44,7 @@ import {
   Plus, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
   Trash2, AlertTriangle, ArrowRight, ArrowLeft, Stethoscope, X, UserPlus, Check, MoreVertical,
   ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale, Info, ExternalLink,
+  Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale, Info, ExternalLink, Plus,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
