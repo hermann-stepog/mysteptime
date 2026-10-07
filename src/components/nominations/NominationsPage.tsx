@@ -1049,6 +1049,37 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao cancelar."),
   });
 
+  const [showRefuse, setShowRefuse] = useState(false);
+  const [refuseReason, setRefuseReason] = useState("");
+  const refuse = useMutation({
+    mutationFn: async () => {
+      const motivo = refuseReason.trim() || null;
+      const quem = profile?.full_name ?? profile?.email ?? "Projetos ADM";
+      const { error } = await supabase.from("nominations").update({
+        current_status: "equipe_formada",
+        outcome: "cancelada",
+        cancel_reason: `Recusada por Projetos ADM${motivo ? `: ${motivo}` : ""}`,
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: quem,
+      }).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id, status: "equipe_formada",
+        changed_by_name: quem,
+        notes: motivo ? `Recusada por Projetos ADM: ${motivo}` : "Recusada por Projetos ADM",
+      });
+      await notifyRefusal(nomination, motivo);
+    },
+    onSuccess: () => {
+      notify.success("Solicitação recusada e descartada. PM e Logística avisados.");
+      registrarLog(`Recusou ${nomination.funcao} (${nomination.unidade ?? "—"})`);
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      setShowRefuse(false);
+      onClose();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao recusar."),
+  });
+
   const remove = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.from("nominations").delete().eq("id", nomination.id);
@@ -1175,6 +1206,9 @@ function ManageDialog({
             )}
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
+              {nomination.pm_responsavel && (
+                <div><span className="text-muted-foreground">PM responsável:</span> <span className="font-medium">{nomination.pm_responsavel}</span></div>
+              )}
               {nomination.pm_name && (
                 <div><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{nomination.pm_name}</span></div>
               )}
@@ -1333,6 +1367,28 @@ function ManageDialog({
                       <Button size="sm" variant="ghost" onClick={() => { setShowForceAdvance(false); setForceAdvanceTarget(""); }}>Voltar</Button>
                     </div>
                   </div>
+                </>
+              )}
+              {role === "solicitante_master" && !nomination.outcome && nomination.current_status !== "equipe_formada" && (
+                <>
+                  <Separator />
+                  {!showRefuse ? (
+                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setShowRefuse(true)}>
+                      Recusar solicitação
+                    </Button>
+                  ) : (
+                    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                      <Label className="text-xs">Motivo da recusa</Label>
+                      <Textarea rows={2} value={refuseReason} onChange={(e) => setRefuseReason(e.target.value)} />
+                      <p className="text-[11px] text-muted-foreground">O PM e a Logística serão avisados por e-mail e a solicitação será descartada.</p>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="destructive" loading={refuse.isPending} onClick={() => refuse.mutate()}>
+                          Confirmar recusa
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setShowRefuse(false)}>Voltar</Button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
               {canOperate && nomination.current_status !== "equipe_formada" && (
