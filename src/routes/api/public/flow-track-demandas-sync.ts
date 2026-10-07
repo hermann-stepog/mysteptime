@@ -1,16 +1,16 @@
-import { serve } from "https://deno.land/std/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-// Roda a cada 15 minutos via pg_cron (ver migration 20261007120000_schedule_flow_track_demandas.sql).
-// Etapa 2 de 4 do recurso "Alertas de Pendências de Demandas" (ver migration
-// 20261007100000_flow_track_demandas.sql pras tabelas e regras-semente).
+// Sincronização das demandas de "Alertas de Pendências" (Etapa 2 do recurso). Chamado pelo
+// pg_cron a cada 15 minutos (ver migration 20261007120000_schedule_flow_track_demandas.sql).
+// Protegido por header x-flow-track-sync-token comparado ao secret FLOW_TRACK_SYNC_SECRET.
+//
+// Vive como rota do app (não como Supabase Edge Function) porque o projeto não aceita mais
+// funções novas no formato clássico — mesmo padrão já usado em lgp-flow-monitoring.ts.
 //
 // Nesta etapa ficam ativas 5 das 7 regras: NOM_RECEBIDO, NOM_ETAPA_LOGISTICA, CUSTO_PASSAGEM,
 // CUSTO_HOSPEDAGEM e NOM_PARADA. PLAN_EMBARQUE e TRANSPORTE ficam de fora por enquanto — elas
 // precisam cruzar o nomeado (nomination_nominees.colaborador_nome) com o cadastro de
 // Planejamento de Embarque (nome texto) e de Transporte (transport_trip_collaborators,
-// ligado por id de colaborador formal) e eu não tenho confirmação de como esses três nomes de
-// colaborador se equivalem hoje — melhor confirmar antes de criar regras que concluem sozinhas.
+// ligado por id de colaborador formal), e isso ainda não foi confirmado.
+import { createFileRoute } from "@tanstack/react-router";
 
 // ── Horas úteis (seg-sex, 08h-18h, horário de Brasília = UTC-3, sem horário de verão) ──
 const FERIADOS_FIXOS = new Set(["01-01", "04-21", "05-01", "09-07", "11-02", "11-15", "12-25"]);
@@ -84,8 +84,9 @@ function somarHorasUteis(inicio: Date, horas: number): Date {
   return atual;
 }
 
-// ── Util ──
-// deno-lint-ignore no-explicit-any
+// flow_track_regras/flow_track_demandas ainda não estão no types.ts gerado — mesmo padrão já
+// usado em outras tabelas novas do projeto (ver cost_simulations em costSimulator.functions.ts).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Supabase = any;
 
 async function escolherResponsavel(supabase: Supabase, regraId: string): Promise<string | null> {
@@ -102,7 +103,10 @@ async function concluirDemanda(
   const noPrazo = new Date(concluidoEm) <= new Date(prazoEm);
   await supabase
     .from("flow_track_demandas")
-    .update({ concluido_em: concluidoEm, status: noPrazo ? "concluida_no_prazo" : "concluida_com_atraso" })
+    .update({
+      concluido_em: concluidoEm,
+      status: noPrazo ? "concluida_no_prazo" : "concluida_com_atraso",
+    })
     .eq("id", demandaId);
 }
 
@@ -152,7 +156,12 @@ async function syncNomRecebido(supabase: Supabase, regra: { id: string; prazo_ho
         .order("changed_at", { ascending: true })
         .limit(1)
         .maybeSingle();
-      await concluirDemanda(supabase, d.id, d.prazo_em, hist?.changed_at ?? new Date().toISOString());
+      await concluirDemanda(
+        supabase,
+        d.id,
+        d.prazo_em,
+        hist?.changed_at ?? new Date().toISOString(),
+      );
       concluidas++;
     }
   }
@@ -160,9 +169,10 @@ async function syncNomRecebido(supabase: Supabase, regra: { id: string; prazo_ho
 }
 
 // ── NOM_ETAPA_LOGISTICA: nomeação em "recebido_logistica" precisa avançar ──
-// Premissa (a confirmar com ela): "etapa de responsabilidade da Logística" = o próprio estágio
-// recebido_logistica — é aí que Rodrigo/Larissa precisam empurrar o cartão pra Simulação.
-async function syncNomEtapaLogistica(supabase: Supabase, regra: { id: string; prazo_horas: number }) {
+async function syncNomEtapaLogistica(
+  supabase: Supabase,
+  regra: { id: string; prazo_horas: number },
+) {
   let criadas = 0;
   let concluidas = 0;
   const STATUS = "recebido_logistica";
@@ -217,7 +227,12 @@ async function syncNomEtapaLogistica(supabase: Supabase, regra: { id: string; pr
         .order("changed_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      await concluirDemanda(supabase, d.id, d.prazo_em, hist?.changed_at ?? new Date().toISOString());
+      await concluirDemanda(
+        supabase,
+        d.id,
+        d.prazo_em,
+        hist?.changed_at ?? new Date().toISOString(),
+      );
       concluidas++;
     }
   }
@@ -321,7 +336,11 @@ async function syncCustoHospedagem(supabase: Supabase, regra: { id: string; praz
 // por isso o gatilho fica fixo aqui em vez de vir do cadastro de regras.
 const LIMITE_PARADA_HORAS = 24;
 
-async function syncNomParada(supabase: Supabase, regra: { id: string; prazo_horas: number }, agora: Date) {
+async function syncNomParada(
+  supabase: Supabase,
+  regra: { id: string; prazo_horas: number },
+  agora: Date,
+) {
   let criadas = 0;
   let concluidas = 0;
 
@@ -393,53 +412,77 @@ async function marcarVencidas(supabase: Supabase, agora: Date): Promise<number> 
   return data?.length ?? 0;
 }
 
-serve(async (req) => {
-  const cronSecret = Deno.env.get("CRON_SECRET");
-  if (cronSecret && req.headers.get("x-cron-secret") !== cronSecret) {
-    return new Response("Unauthorized", { status: 401 });
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
+async function handle(request: Request): Promise<Response> {
+  const expected = process.env["FLOW_TRACK_SYNC_SECRET"];
+  const provided = request.headers.get("x-flow-track-sync-token");
+  if (!expected || !provided || provided !== expected) {
+    return json({ error: "Unauthorized" }, 401);
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceRoleKey) {
-    return new Response(JSON.stringify({ error: "SUPABASE_URL/SERVICE_ROLE_KEY não configurados" }), { status: 500 });
-  }
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const supabase: Supabase = supabaseAdmin;
   const agora = new Date();
 
   const { data: regras, error: errRegras } = await supabase
     .from("flow_track_regras")
     .select("id, codigo, prazo_horas")
     .eq("ativo", true);
-  if (errRegras) {
-    return new Response(JSON.stringify({ error: errRegras.message }), { status: 500 });
-  }
-  const regraPorCodigo = new Map((regras ?? []).map((r: { codigo: string }) => [r.codigo, r]));
+  if (errRegras) return json({ error: errRegras.message }, 500);
 
+  const regraPorCodigo = new Map<string, { id: string; codigo: string; prazo_horas: number }>(
+    (regras ?? []).map((r: { id: string; codigo: string; prazo_horas: number }) => [r.codigo, r]),
+  );
   const resultado: Record<string, { criadas: number; concluidas: number }> = {};
+
   try {
     if (regraPorCodigo.has("NOM_RECEBIDO")) {
-      resultado.NOM_RECEBIDO = await syncNomRecebido(supabase, regraPorCodigo.get("NOM_RECEBIDO"));
+      resultado.NOM_RECEBIDO = await syncNomRecebido(supabase, regraPorCodigo.get("NOM_RECEBIDO")!);
     }
     if (regraPorCodigo.has("NOM_ETAPA_LOGISTICA")) {
-      resultado.NOM_ETAPA_LOGISTICA = await syncNomEtapaLogistica(supabase, regraPorCodigo.get("NOM_ETAPA_LOGISTICA"));
+      resultado.NOM_ETAPA_LOGISTICA = await syncNomEtapaLogistica(
+        supabase,
+        regraPorCodigo.get("NOM_ETAPA_LOGISTICA")!,
+      );
     }
     if (regraPorCodigo.has("CUSTO_PASSAGEM")) {
-      resultado.CUSTO_PASSAGEM = await syncCustoPassagem(supabase, regraPorCodigo.get("CUSTO_PASSAGEM"));
+      resultado.CUSTO_PASSAGEM = await syncCustoPassagem(
+        supabase,
+        regraPorCodigo.get("CUSTO_PASSAGEM")!,
+      );
     }
     if (regraPorCodigo.has("CUSTO_HOSPEDAGEM")) {
-      resultado.CUSTO_HOSPEDAGEM = await syncCustoHospedagem(supabase, regraPorCodigo.get("CUSTO_HOSPEDAGEM"));
+      resultado.CUSTO_HOSPEDAGEM = await syncCustoHospedagem(
+        supabase,
+        regraPorCodigo.get("CUSTO_HOSPEDAGEM")!,
+      );
     }
     if (regraPorCodigo.has("NOM_PARADA")) {
-      resultado.NOM_PARADA = await syncNomParada(supabase, regraPorCodigo.get("NOM_PARADA"), agora);
+      resultado.NOM_PARADA = await syncNomParada(
+        supabase,
+        regraPorCodigo.get("NOM_PARADA")!,
+        agora,
+      );
     }
   } catch (err) {
-    return new Response(JSON.stringify({ error: (err as Error).message, resultadoParcial: resultado }), { status: 500 });
+    return json({ error: (err as Error).message, resultadoParcial: resultado }, 500);
   }
 
   const vencidas = await marcarVencidas(supabase, agora);
+  return json({ ok: true, resultado, vencidas });
+}
 
-  return new Response(JSON.stringify({ ok: true, resultado, vencidas }), {
-    headers: { "Content-Type": "application/json" },
-  });
+export const Route = createFileRoute("/api/public/flow-track-demandas-sync")({
+  server: {
+    handlers: {
+      GET: async ({ request }) => handle(request),
+      POST: async ({ request }) => handle(request),
+    },
+  },
 });

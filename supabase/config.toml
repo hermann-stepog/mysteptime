@@ -12,7 +12,3 @@ verify_jwt = false
 # Mesmo esquema (pg_cron via pg_net) — ver migration 20260929000000_schedule_planejamento_snapshot.sql.
 [functions.capture-planejamento-snapshot]
 verify_jwt = false
-
-# Mesmo esquema (pg_cron via pg_net) — ver migration 20261007120000_schedule_flow_track_demandas.sql.
-[functions.flow-track-demandas-sync]
-verify_jwt = false
