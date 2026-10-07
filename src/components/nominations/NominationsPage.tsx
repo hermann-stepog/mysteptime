@@ -16,6 +16,7 @@ import {
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE,
   columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador, requestTitle,
 } from "@/lib/nominations";
+import { isInspetor } from "@/lib/nominations";
 import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyRefusal, notifyQualityRejection } from "@/lib/nominationEmails";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
@@ -2048,7 +2049,8 @@ function SimulacaoTab({
   // nominees.colaborador_id é uma FK obrigatória pra hist_novo_colaboradores — sem esse
   // vínculo não tem como gravar o nomeado no banco); quem não tem correspondência no Drake
   // ainda aparece na lista, só não pode ser adicionado ainda (ver "Adicionar" desabilitado).
-  const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
+  const { data: planejamentoSimTodos = [] } = usePlanejamentoEmbarqueQuery();
+  const planejamentoSim = useMemo(() => planejamentoSimTodos.filter((r) => !isInspetor(r.funcao)), [planejamentoSimTodos]);
   const { data: colaboradoresDrake = [] } = useQuery<{ id: string; nome: string }[]>({
     queryKey: ["sim-colaboradores-drake-ids"],
     queryFn: () =>
