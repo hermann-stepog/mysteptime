@@ -148,6 +148,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
   const registrarLog = useRegistrarLog("nomeacoes");
 
   const [linhas, setLinhas] = useState<FuncaoLinha[]>([novaLinhaFuncao()]);
+  const [pmResponsavel, setPmResponsavel] = useState("");
   const [unidade, setUnidade] = useState("");
   const [bsp, setBsp] = useState("");
   const [bspNova, setBspNova] = useState(false);
@@ -181,6 +182,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       if (validas.length === 0) throw new Error("Adicione ao menos uma função.");
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp.trim()) throw new Error("Selecione a BSP.");
+      if (!pmResponsavel.trim()) throw new Error("Informe o PM responsável.");
       if (fixo && !proximaTroca) throw new Error("Informe a data da próxima troca de turma.");
       const pmName = profile?.full_name ?? profile?.email ?? "Solicitante";
       const pmUserId = await currentAuthUserId();
@@ -202,6 +204,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
           .insert({
             pm_user_id: pmUserId,
             pm_name: pmName,
+            pm_responsavel: pmResponsavel.trim(),
             request_group_id: groupId,
             funcao: l.funcao.trim(),
             quantidade: Math.max(1, Number(l.quantidade) || 1),
@@ -429,6 +432,10 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
               />
             </div>
           )}
+          <div className="space-y-1">
+            <Label>PM responsável *</Label>
+            <Input value={pmResponsavel} onChange={(e) => setPmResponsavel(e.target.value)} placeholder="Nome do PM responsável" />
+          </div>
           <div className="space-y-1">
             <Label>Cliente</Label>
             <Select value={client} onValueChange={setClient}>

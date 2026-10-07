@@ -16,7 +16,7 @@ import {
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE,
   columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador, requestTitle,
 } from "@/lib/nominations";
-import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyQualityRejection } from "@/lib/nominationEmails";
+import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyRefusal, notifyQualityRejection } from "@/lib/nominationEmails";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
@@ -1530,6 +1530,7 @@ function NominationCard({
             </p>
           ))}
         </div>
+        {first.pm_responsavel && <p className="mt-1 text-xs"><span className="text-muted-foreground">PM:</span> <span className="font-medium">{first.pm_responsavel}</span></p>}
         {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
         {first.period_start && first.period_end && (
           <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(first.period_start)} – {fmtDate(first.period_end)}</p>
