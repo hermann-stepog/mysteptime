@@ -107,9 +107,14 @@ function useColaboradoresQuery() {
     queryKey: ["hist-novo-colaboradores"],
     queryFn: () => selectAllPages<ColaboradorBasico>((from, to) =>
       supabase.from("hist_novo_colaboradores").select("id, nome, funcao, funcao_operacao").order("nome").range(from, to),
-    ),
+    ).then((rows) => [...rows, ...COLABORADORES_EXTRAS_PASSAGEM.filter((e) => !rows.some((r) => r.nome.trim().toUpperCase() === e.nome))]),
   });
 }
+
+// Pessoas que viajam mas não estão no cadastro do Drake.
+const COLABORADORES_EXTRAS_PASSAGEM = [
+  { id: "extra-ernst-albertus", nome: "ERNST ALBERTUS", funcao: null, funcao_operacao: null },
+] as unknown as ColaboradorBasico[];
 
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", companhiaAerea: "", origem: "", destino: "",
