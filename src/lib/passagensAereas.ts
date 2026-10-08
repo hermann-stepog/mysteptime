@@ -10,6 +10,7 @@ export interface PassagemAerea {
   origem: string | null;
   destino: string | null;
   data_ida: string;
+  data_lancamento?: string | null;
   data_volta: string | null;
   tipo: string;
   valor: number;
