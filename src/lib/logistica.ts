@@ -4,7 +4,7 @@ import { getTotalPassagensPorBsp } from "@/lib/passagensAereas";
 // Lista de motivos compartilhada entre os módulos de logística (Hospedagem, Passagens Aéreas
 // e o que mais vier depois) — um só lugar pra manter em sincronia, sem duplicar a lista/combobox
 // em cada módulo.
-export const MOTIVOS_LOGISTICA = ["Pré-Embarque", "Voo Cancelado", "Standby", "Viagem", "Curso", "Outros"];
+export const MOTIVOS_LOGISTICA = ["Pré-Embarque", "Embarque", "Desembarque", "Voo Cancelado", "Standby", "Viagem", "Curso", "Outros"];
 
 // Forma de pagamento — mesma lista fixa (sem "Outro") em Transporte/Hospedagem/Passagens Aéreas.
 export const FORMAS_PAGAMENTO = ["Cartão de Crédito", "Faturado"] as const;

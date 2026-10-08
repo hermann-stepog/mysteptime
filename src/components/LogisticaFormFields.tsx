@@ -12,6 +12,40 @@ import { matchesNameSearch } from "@/lib/utils";
 
 // Autocomplete a partir de hist_novo_colaboradores, mas aceita qualquer texto digitado (ex.:
 // alguém do administrativo, sem cadastro prévio) — não é uma FK, é só um texto.
+// Lista com seleção por digitação das primeiras letras (mesmo comportamento do campo Motivo),
+// com escape "Outro (digitar)..." para valores fora da lista.
+export function ListaDigitavelField({ value, onChange, options, placeholder = "Selecione", manualPlaceholder = "Digitar" }: {
+  value: string; onChange: (v: string) => void; options: string[]; placeholder?: string; manualPlaceholder?: string;
+}) {
+  const [manual, setManual] = useState(value !== "" && !options.includes(value));
+  if (manual) {
+    return (
+      <div className="flex gap-1">
+        <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={manualPlaceholder} />
+        <Button type="button" variant="ghost" size="sm" onClick={() => { setManual(false); onChange(""); }}>Lista</Button>
+      </div>
+    );
+  }
+  return (
+    <Select value={value} onValueChange={(v) => { if (v === "__outro__") { setManual(true); return; } onChange(v); }}>
+      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={placeholder} /></SelectTrigger>
+      <SelectContent className="max-h-72">
+        {options.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function nomesUnicos(colaboradores: { nome: string }[]): string[] {
+  const vistos = new Set<string>(); const out: string[] = [];
+  for (const c of colaboradores) {
+    const n = c.nome.trim(); const k = n.toUpperCase();
+    if (!n || vistos.has(k)) continue; vistos.add(k); out.push(n);
+  }
+  return out.sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
 export function NomeUsuarioField({ value, onChange, colaboradores }: {
   value: string; onChange: (v: string) => void; colaboradores: { id: string; nome: string }[];
 }) {
@@ -371,7 +405,7 @@ export function PessoasAdicionaisPanel({ estado, colaboradores, unidadeOptions, 
 
 // Nome do usuário + colaboradores extras (cada um vira um lançamento próprio ao salvar).
 export function NomeUsuarioMultiField({
-  label = "Nome do usuário", value, onChange, colaboradores, extras, permiteAdicionar = true,
+  label = "Nome do usuário", value, onChange, colaboradores, extras, permiteAdicionar = true, modoLista = false,
   helpText = "Cada colaborador adicionado gera um lançamento próprio com os mesmos dados.",
 }: {
   label?: string;
@@ -381,7 +415,12 @@ export function NomeUsuarioMultiField({
   extras: UsePessoasAdicionaisReturn;
   permiteAdicionar?: boolean;
   helpText?: string;
+  modoLista?: boolean;
 }) {
+  const nomes = useMemo(() => (modoLista ? nomesUnicos(colaboradores) : []), [modoLista, colaboradores]);
+  const Campo = ({ v, set }: { v: string; set: (x: string) => void }) => modoLista
+    ? <ListaDigitavelField value={v} onChange={set} options={nomes} placeholder="Nome de quem vai utilizar" manualPlaceholder="Nome de quem vai utilizar" />
+    : <NomeUsuarioField value={v} onChange={set} colaboradores={colaboradores} />;
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
@@ -392,13 +431,13 @@ export function NomeUsuarioMultiField({
           </Button>
         )}
       </div>
-      <NomeUsuarioField value={value} onChange={onChange} colaboradores={colaboradores} />
+      {Campo({ v: value, set: onChange })}
       {permiteAdicionar && extras.pessoas.length > 0 && (
         <div className="mt-2 space-y-2">
           {extras.pessoas.map((p, i) => (
             <div key={i} className="flex items-center gap-1">
               <div className="flex-1">
-                <NomeUsuarioField value={p.nome} onChange={(v) => extras.update(i, { nome: v })} colaboradores={colaboradores} />
+                {Campo({ v: p.nome, set: (v) => extras.update(i, { nome: v }) })}
               </div>
               <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => extras.remove(i)}>✕</Button>
             </div>

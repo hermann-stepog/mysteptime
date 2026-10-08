@@ -808,62 +808,30 @@ function LocationSelect({
           </Button>
         </div>
       ) : (
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              className="w-full justify-between font-normal"
-            >
-              <span className="truncate">{value || "—"}</span>
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-            <Command filter={(v, search) => (matchesNameSearch(v, search) ? 1 : 0)}>
-              <CommandInput placeholder="Buscar local..." />
-              <CommandList>
-                <CommandEmpty>Nenhum encontrado.</CommandEmpty>
-                <CommandGroup>
-                  <CommandItem
-                    value="—"
-                    onSelect={() => {
-                      onChange("");
-                      setOpen(false);
-                    }}
-                  >
-                    <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />—
-                  </CommandItem>
-                  {options.map((o) => (
-                    <CommandItem
-                      key={o}
-                      value={o}
-                      onSelect={() => {
-                        onChange(o);
-                        setOpen(false);
-                      }}
-                    >
-                      <Check
-                        className={cn("mr-2 h-4 w-4", value === o ? "opacity-100" : "opacity-0")}
-                      />
-                      {o}
-                    </CommandItem>
-                  ))}
-                  <CommandItem
-                    value="Outro (digitar)..."
-                    onSelect={() => {
-                      setManual(true);
-                      onChange("");
-                      setOpen(false);
-                    }}
-                  >
-                    Outro (digitar)...
-                  </CommandItem>
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+        <Select
+          value={value ? (isKnown(value) ? toDisplayCase(value) : value) : "__vazio__"}
+          onValueChange={(v) => {
+            if (v === "__outro__") {
+              setManual(true);
+              onChange("");
+              return;
+            }
+            onChange(v === "__vazio__" ? "" : v);
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            <SelectItem value="__vazio__">—</SelectItem>
+            {options.map((o) => (
+              <SelectItem key={o} value={o}>
+                {o}
+              </SelectItem>
+            ))}
+            <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
+          </SelectContent>
+        </Select>
       )}
     </div>
   );
@@ -1309,15 +1277,13 @@ function TripDialog({
           .insert(f.collab_ids.map((cid) => ({ trip_id: id!, collaborator_id: cid })));
       await supabase.from("transport_trip_materials").delete().eq("trip_id", id);
       if (f.tipo === "material" && f.materials.length)
-        await supabase
-          .from("transport_trip_materials")
-          .insert(
-            f.materials.map((m) => ({
-              trip_id: id!,
-              material_id: m.material_id,
-              quantidade: m.quantidade,
-            })),
-          );
+        await supabase.from("transport_trip_materials").insert(
+          f.materials.map((m) => ({
+            trip_id: id!,
+            material_id: m.material_id,
+            quantidade: m.quantidade,
+          })),
+        );
       return {
         isNew,
         descricaoViagem: `${toDisplayCase(nomeTransporte(payload.car_number))} (${payload.origin} → ${payload.destination})`,

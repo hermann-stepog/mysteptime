@@ -2471,6 +2471,7 @@ export type Database = {
           created_at: string
           data_faturamento: string | null
           data_ida: string
+          data_lancamento: string | null
           data_volta: string | null
           destino: string | null
           diferenca_preco: number | null
@@ -2512,6 +2513,7 @@ export type Database = {
           created_at?: string
           data_faturamento?: string | null
           data_ida: string
+          data_lancamento?: string | null
           data_volta?: string | null
           destino?: string | null
           diferenca_preco?: number | null
@@ -2553,6 +2555,7 @@ export type Database = {
           created_at?: string
           data_faturamento?: string | null
           data_ida?: string
+          data_lancamento?: string | null
           data_volta?: string | null
           destino?: string | null
           diferenca_preco?: number | null

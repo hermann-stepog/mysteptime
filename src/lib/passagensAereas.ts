@@ -10,6 +10,7 @@ export interface PassagemAerea {
   origem: string | null;
   destino: string | null;
   data_ida: string;
+  data_lancamento?: string | null;
   data_volta: string | null;
   tipo: string;
   valor: number;
@@ -73,7 +74,7 @@ export interface PassagemStatusHistory {
   notes: string | null;
 }
 
-export const TIPOS_PASSAGEM = ["Ida", "Ida e Volta", "Remarcação"];
+export const TIPOS_PASSAGEM = ["Ida", "Ida e Volta", "Remarcação", "Bagagem Extra"];
 export const STATUS_PASSAGEM = ["Confirmada", "Cancelada", "Remarcada"];
 
 // ── Fluxo de solicitação (Fase 1 da reformulação de Passagens Aéreas) ──────────────────────

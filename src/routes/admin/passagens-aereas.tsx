@@ -1,3 +1,5 @@
+import { ListaDigitavelField } from "@/components/LogisticaFormFields";
+import { AEROPORTO_OPTIONS } from "@/lib/aeroportos";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -108,6 +110,12 @@ import {
   todayStr,
   type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
+
+const BSPS_EXTRAS_PASSAGEM = ["Produção"];
+function bspOptionsPassagem(...args: Parameters<typeof bspOptionsForUnidade>): string[] {
+  const base = bspOptionsForUnidade(...args);
+  return [...base, ...BSPS_EXTRAS_PASSAGEM.filter((b) => !base.includes(b))];
+}
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
   TIPOS_PASSAGEM,
@@ -211,9 +219,19 @@ function useColaboradoresQuery() {
           .select("id, nome, funcao, funcao_operacao")
           .order("nome")
           .range(from, to),
-      ),
+      ).then((rows) => [
+        ...rows,
+        ...COLABORADORES_EXTRAS_PASSAGEM.filter(
+          (e) => !rows.some((r) => r.nome.trim().toUpperCase() === e.nome),
+        ),
+      ]),
   });
 }
+
+// Pessoas que viajam mas não estão no cadastro do Drake.
+const COLABORADORES_EXTRAS_PASSAGEM = [
+  { id: "extra-ernst-albertus", nome: "ERNST ALBERTUS", funcao: null, funcao_operacao: null },
+] as unknown as ColaboradorBasico[];
 
 const FORM_VAZIO = {
   unidade: "",
@@ -222,6 +240,7 @@ const FORM_VAZIO = {
   companhiaAerea: "",
   origem: "",
   destino: "",
+  dataLancamento: "",
   dataIda: "",
   dataVolta: "",
   tipo: "Ida e Volta",
@@ -269,6 +288,7 @@ function PassagemDialog({
       companhiaAerea: editing.companhia_aerea ?? "",
       origem: editing.origem ?? "",
       destino: editing.destino ?? "",
+      dataLancamento: editing.data_lancamento ?? dataLancamentoSp(editing.created_at),
       dataIda: editing.data_ida,
       dataVolta: editing.data_volta ?? "",
       tipo: editing.tipo,
@@ -298,7 +318,7 @@ function PassagemDialog({
     setBound(editing.id);
   }
   if (open && !editing && bound !== "novo") {
-    setF(FORM_VAZIO);
+    setF({ ...FORM_VAZIO, dataLancamento: dataLancamentoSp(new Date().toISOString()) });
     rateio.reset();
     pessoas.reset();
     unidades.reset();
@@ -307,7 +327,7 @@ function PassagemDialog({
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(
-    () => bspOptionsForUnidade(periodosE, f.unidade || "all"),
+    () => bspOptionsPassagem(periodosE, f.unidade || "all"),
     [periodosE, f.unidade],
   );
 
@@ -325,6 +345,7 @@ function PassagemDialog({
         companhia_aerea: f.companhiaAerea.trim() || null,
         origem: f.origem.trim() || null,
         destino: f.destino.trim() || null,
+        data_lancamento: f.dataLancamento || dataLancamentoSp(new Date().toISOString()),
         data_ida: f.dataIda,
         data_volta: f.dataVolta || null,
         tipo: f.tipo,
@@ -393,6 +414,16 @@ function PassagemDialog({
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
+              <Label className="text-xs">Data de lançamento</Label>
+              <Input
+                type="date"
+                value={f.dataLancamento}
+                onChange={(e) => setF({ ...f, dataLancamento: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
               <Label className="text-xs">Motivo</Label>
               <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
             </div>
@@ -404,22 +435,13 @@ function PassagemDialog({
               />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <Label className="text-xs">Solicitante</Label>
               <Input
                 value={f.solicitante}
                 onChange={(e) => setF({ ...f, solicitante: e.target.value })}
                 placeholder="Quem está pedindo"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">E-mail do solicitante (opcional)</Label>
-              <Input
-                type="email"
-                value={f.solicitanteEmail}
-                onChange={(e) => setF({ ...f, solicitanteEmail: e.target.value })}
-                placeholder="Pra avisar a cada etapa"
               />
             </div>
           </div>
@@ -430,6 +452,7 @@ function PassagemDialog({
             colaboradores={colaboradores}
             extras={pessoas}
             permiteAdicionar={!editing}
+            modoLista
             helpText="Os colaboradores adicionados entram no mesmo lançamento, com nome combinado e valor único."
           />
           <label className="flex items-center gap-2 text-sm">
@@ -450,23 +473,27 @@ function PassagemDialog({
             </div>
             <div>
               <Label className="text-xs">Aeroporto de origem</Label>
-              <AeroportoSelect
+              <ListaDigitavelField
                 value={f.origem}
-                onValueChange={(v) => setF({ ...f, origem: v })}
+                onChange={(v) => setF({ ...f, origem: v })}
+                options={AEROPORTO_OPTIONS}
                 placeholder="Selecionar aeroporto"
+                manualPlaceholder="Aeroporto"
               />
             </div>
             <div>
               <Label className="text-xs">Aeroporto de destino</Label>
-              <AeroportoSelect
+              <ListaDigitavelField
                 value={f.destino}
-                onValueChange={(v) => setF({ ...f, destino: v })}
+                onChange={(v) => setF({ ...f, destino: v })}
+                options={AEROPORTO_OPTIONS}
                 placeholder="Selecionar aeroporto"
+                manualPlaceholder="Aeroporto"
               />
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
+            <div className="space-y-1">
               <Label className="text-xs">Data de ida</Label>
               <Input
                 type="date"
@@ -532,7 +559,7 @@ function PassagemDialog({
               options={unidadeOptions}
               extras={unidades}
               permiteAdicionar={!editing}
-              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u || "all")}
+              bspOptionsFor={(u) => bspOptionsPassagem(periodosE, u || "all")}
             />
             <BspMultiField
               value={f.bsp}
@@ -1678,9 +1705,12 @@ function ConsolidadoTab({
   const [filterMotivo, setFilterMotivo] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  const [filterDe, setFilterDe] = useState("");
+  const [filterAte, setFilterAte] = useState("");
+  const [filterDataTipo, setFilterDataTipo] = useState<"lancamento" | "ida">("lancamento");
 
   const bspOptions = useMemo(
-    () => bspOptionsForUnidade(periodosE, filterUnidade),
+    () => bspOptionsPassagem(periodosE, filterUnidade),
     [periodosE, filterUnidade],
   );
   const motivosVistos = useMemo(
@@ -1697,9 +1727,27 @@ function ConsolidadoTab({
           (filterBsp === "all" || p.bsp === filterBsp) &&
           (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
           (filterStatus === "all" || p.status === filterStatus) &&
-          (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)),
+          (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
+          (!filterDe ||
+            (filterDataTipo === "ida"
+              ? (p.data_ida ?? "")
+              : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) >= filterDe) &&
+          (!filterAte ||
+            (filterDataTipo === "ida"
+              ? (p.data_ida ?? "")
+              : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) <= filterAte),
       ),
-    [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome],
+    [
+      passagens,
+      filterUnidade,
+      filterBsp,
+      filterMotivo,
+      filterStatus,
+      filterNome,
+      filterDe,
+      filterAte,
+      filterDataTipo,
+    ],
   );
 
   // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
@@ -1845,6 +1893,45 @@ function ConsolidadoTab({
               placeholder="Buscar por nome..."
               value={filterNome}
               onChange={(e) => setFilterNome(e.target.value)}
+            />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Filtrar data por
+            </Label>
+            <Select
+              value={filterDataTipo}
+              onValueChange={(v) => setFilterDataTipo(v as "lancamento" | "ida")}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="lancamento">Lançamento</SelectItem>
+                <SelectItem value="ida">Data de ida</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              {filterDataTipo === "ida" ? "Ida de" : "Lançamento de"}
+            </Label>
+            <Input
+              type="date"
+              className="h-8 text-xs"
+              value={filterDe}
+              onChange={(e) => setFilterDe(e.target.value)}
+            />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Até
+            </Label>
+            <Input
+              type="date"
+              className="h-8 text-xs"
+              value={filterAte}
+              onChange={(e) => setFilterAte(e.target.value)}
             />
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -2070,6 +2157,9 @@ export function PassagensAereasPage({
   const [filterMotivo, setFilterMotivo] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  const [filterDe, setFilterDe] = useState("");
+  const [filterAte, setFilterAte] = useState("");
+  const [filterDataTipo, setFilterDataTipo] = useState<"lancamento" | "ida">("lancamento");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PassagemAerea | null>(null);
   const [gerenciando, setGerenciando] = useState<PassagemAerea | null>(null);
@@ -2081,7 +2171,7 @@ export function PassagensAereasPage({
   const { sortColumn, sortDirection, toggleSort } = useTableSort<PassagensSortColumn>();
 
   const bspOptions = useMemo(
-    () => bspOptionsForUnidade(periodosE, filterUnidade),
+    () => bspOptionsPassagem(periodosE, filterUnidade),
     [periodosE, filterUnidade],
   );
   const motivosVistos = useMemo(
@@ -2116,7 +2206,15 @@ export function PassagensAereasPage({
             (filterBsp === "all" || p.bsp === filterBsp) &&
             (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
             (filterStatus === "all" || p.status === filterStatus) &&
-            (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)),
+            (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
+            (!filterDe ||
+              (filterDataTipo === "ida"
+                ? (p.data_ida ?? "")
+                : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) >= filterDe) &&
+            (!filterAte ||
+              (filterDataTipo === "ida"
+                ? (p.data_ida ?? "")
+                : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) <= filterAte),
         )
         .sort((a, b) => {
           if (!sortColumn) return 0;
@@ -2160,6 +2258,9 @@ export function PassagensAereasPage({
       filterMotivo,
       filterStatus,
       filterNome,
+      filterDe,
+      filterAte,
+      filterDataTipo,
       sortColumn,
       sortDirection,
     ],
@@ -2169,6 +2270,7 @@ export function PassagensAereasPage({
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
   const exportarRelatorio = () => {
     const rows = filtradas.map((p) => ({
+      "Data de lançamento": fmt(p.data_lancamento ?? dataLancamentoSp(p.created_at)),
       Unidade: p.unidade,
       BSP: p.bsp,
       "Nome do usuário": p.nome_usuario,
@@ -2375,6 +2477,45 @@ export function PassagensAereasPage({
                     placeholder="Buscar por nome..."
                     value={filterNome}
                     onChange={(e) => setFilterNome(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-0.5 w-36">
+                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    Filtrar data por
+                  </Label>
+                  <Select
+                    value={filterDataTipo}
+                    onValueChange={(v) => setFilterDataTipo(v as "lancamento" | "ida")}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lancamento">Lançamento</SelectItem>
+                      <SelectItem value="ida">Data de ida</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-0.5 w-36">
+                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    {filterDataTipo === "ida" ? "Ida de" : "Lançamento de"}
+                  </Label>
+                  <Input
+                    type="date"
+                    className="h-8 text-xs"
+                    value={filterDe}
+                    onChange={(e) => setFilterDe(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-0.5 w-36">
+                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    Até
+                  </Label>
+                  <Input
+                    type="date"
+                    className="h-8 text-xs"
+                    value={filterAte}
+                    onChange={(e) => setFilterAte(e.target.value)}
                   />
                 </div>
                 <div className="ml-auto flex items-center gap-2">
@@ -2614,4 +2755,14 @@ export function PassagensAereasPage({
       )}
     </div>
   );
+}
+
+// Data do lançamento (created_at, gravada automaticamente ao salvar) no fuso de São Paulo, em AAAA-MM-DD.
+function dataLancamentoSp(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
 }

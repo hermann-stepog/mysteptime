@@ -1,0 +1,2 @@
+ALTER TABLE public.passagens_aereas ADD COLUMN IF NOT EXISTS data_lancamento date DEFAULT ((now() AT TIME ZONE 'America/Sao_Paulo')::date);
+UPDATE public.passagens_aereas SET data_lancamento = (created_at AT TIME ZONE 'America/Sao_Paulo')::date WHERE data_lancamento IS NULL OR data_lancamento <> (created_at AT TIME ZONE 'America/Sao_Paulo')::date;
