@@ -814,13 +814,14 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
               <SortableHead label="Valor diária" column="valor_diaria" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Valor total" column="valor_total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead>Forma de pagamento</TableHead>
               <TableHead>NF</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtradas.length === 0 ? (
-              <EmptyStateRow colSpan={12} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
+              <EmptyStateRow colSpan={13} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
             ) : filtradas.map((h) => {
               const hotel = hotelById.get(h.hotel_id);
               const rateios = rateiosDaHospedagem(h);
@@ -836,6 +837,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                   <TableCell className="text-right">{fmtMoney(h.valor_diaria)}</TableCell>
                   <TableCell className="text-right font-medium">{fmtMoney(h.valor_total)}</TableCell>
                   <TableCell>{h.motivo ?? "—"}</TableCell>
+                  <TableCell>{h.forma_pagamento ?? "—"}</TableCell>
                   <TableCell>{h.nf ?? "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
@@ -1087,7 +1089,6 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
                                     <div className="min-w-0">
                                       <p className="truncate font-medium">{h.nome_usuario}</p>
                                       <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
-                                      <p className="text-muted-foreground">Forma de pagamento: {h.forma_pagamento || "—"}</p>
                                     </div>
                                     <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                   </div>
@@ -1121,7 +1122,6 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
                                       <div className="min-w-0">
                                         <p className="truncate font-medium">{h.nome_usuario}</p>
                                         <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
-                                      <p className="text-muted-foreground">Forma de pagamento: {h.forma_pagamento || "—"}</p>
                                       </div>
                                       <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                     </div>
