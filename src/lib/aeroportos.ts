@@ -206,6 +206,7 @@ export const AEROPORTOS: Aeroporto[] = [
   { iata: "ICN", nome: "Incheon", cidade: "Seul", pais: "Coreia do Sul" },
   { iata: "DEL", nome: "Indira Gandhi", cidade: "Nova Délhi", pais: "Índia" },
   { iata: "BOM", nome: "Chhatrapati Shivaji", cidade: "Mumbai", pais: "Índia" },
+  { iata: "JLR", nome: "Jabalpur (Dumna)", cidade: "Jabalpur", pais: "Índia" },
   { iata: "KUL", nome: "Kuala Lumpur International", cidade: "Kuala Lumpur", pais: "Malásia" },
   { iata: "BKK", nome: "Suvarnabhumi", cidade: "Bangkok", pais: "Tailândia" },
   { iata: "SYD", nome: "Kingsford Smith", cidade: "Sydney", pais: "Austrália" },
