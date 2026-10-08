@@ -821,7 +821,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
           </TableHeader>
           <TableBody>
             {filtradas.length === 0 ? (
-              <EmptyStateRow colSpan={12} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
+              <EmptyStateRow colSpan={13} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
             ) : filtradas.map((h) => {
               const hotel = hotelById.get(h.hotel_id);
               const rateios = rateiosDaHospedagem(h);
