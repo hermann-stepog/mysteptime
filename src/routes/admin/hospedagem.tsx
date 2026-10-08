@@ -814,6 +814,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
               <SortableHead label="Valor diária" column="valor_diaria" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Valor total" column="valor_total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead>Forma de pagamento</TableHead>
               <TableHead>NF</TableHead>
               <TableHead className="w-20" />
             </TableRow>
@@ -836,6 +837,7 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
                   <TableCell className="text-right">{fmtMoney(h.valor_diaria)}</TableCell>
                   <TableCell className="text-right font-medium">{fmtMoney(h.valor_total)}</TableCell>
                   <TableCell>{h.motivo ?? "—"}</TableCell>
+                  <TableCell>{h.forma_pagamento ?? "—"}</TableCell>
                   <TableCell>{h.nf ?? "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
