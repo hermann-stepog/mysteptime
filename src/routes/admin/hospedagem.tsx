@@ -1087,7 +1087,6 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
                                     <div className="min-w-0">
                                       <p className="truncate font-medium">{h.nome_usuario}</p>
                                       <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
-                                      <p className="text-muted-foreground">Forma de pagamento: {h.forma_pagamento || "—"}</p>
                                     </div>
                                     <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                   </div>
@@ -1121,7 +1120,6 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
                                       <div className="min-w-0">
                                         <p className="truncate font-medium">{h.nome_usuario}</p>
                                         <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
-                                      <p className="text-muted-foreground">Forma de pagamento: {h.forma_pagamento || "—"}</p>
                                       </div>
                                       <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
                                     </div>
