@@ -136,21 +136,29 @@ export function CollaboratorMultiSelect({
   const { data: collaborators = [] } = useCollaboratorsQuery();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Collaborator | null>(null);
+  const [search, setSearch] = useState("");
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
   const selected = value.map((id) => collaborators.find((c) => c.id === id)).filter(Boolean) as Collaborator[];
 
   return (
     <div className="space-y-2">
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(""); }}>
         <PopoverTrigger asChild>
-          <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+          <Button
+            variant="outline" role="combobox" className="w-full justify-between font-normal"
+            onKeyDown={(e) => {
+              // Digitar as primeiras letras com o campo focado já abre a lista filtrada
+              // (Enter escolhe o primeiro), como no campo Motivo.
+              if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setSearch(e.key); setOpen(true); }
+            }}
+          >
             <span className="truncate text-muted-foreground">{selected.length ? `${selected.length} selecionado(s)` : placeholder}</span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0 pointer-events-auto" align="start">
           <Command filter={(value, search) => (matchesNameSearch(value, search) ? 1 : 0)}>
-            <CommandInput placeholder="Buscar colaborador..." />
+            <CommandInput placeholder="Buscar colaborador..." value={search} onValueChange={setSearch} />
             <CommandList>
               <CommandEmpty>Nenhum encontrado.</CommandEmpty>
               <CommandGroup>
