@@ -1366,6 +1366,7 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
   const exportarRelatorio = () => {
     const rows = filtradas.map((p) => ({
+      "Data de lançamento": fmt(p.data_lancamento ?? dataLancamentoSp(p.created_at)),
       Unidade: p.unidade,
       BSP: p.bsp,
       "Nome do usuário": p.nome_usuario,
