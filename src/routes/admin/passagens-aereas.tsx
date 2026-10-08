@@ -1,3 +1,5 @@
+import { ListaDigitavelField } from "@/components/LogisticaFormFields";
+import { AEROPORTO_OPTIONS } from "@/lib/aeroportos";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -239,7 +241,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
           <NomeUsuarioMultiField
             label="Colaborador (quem vai viajar)"
             value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
-            colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing}
+            colaboradores={colaboradores} extras={pessoas} permiteAdicionar={!editing} modoLista
             helpText="Os colaboradores adicionados entram no mesmo lançamento, com nome combinado e valor único."
           />
           <label className="flex items-center gap-2 text-sm">
@@ -253,11 +255,11 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
             </div>
             <div>
               <Label className="text-xs">Aeroporto de origem</Label>
-              <AeroportoSelect value={f.origem} onValueChange={(v) => setF({ ...f, origem: v })} placeholder="Selecionar aeroporto" />
+              <ListaDigitavelField value={f.origem} onChange={(v) => setF({ ...f, origem: v })} options={AEROPORTO_OPTIONS} placeholder="Selecionar aeroporto" manualPlaceholder="Aeroporto" />
             </div>
             <div>
               <Label className="text-xs">Aeroporto de destino</Label>
-              <AeroportoSelect value={f.destino} onValueChange={(v) => setF({ ...f, destino: v })} placeholder="Selecionar aeroporto" />
+              <ListaDigitavelField value={f.destino} onChange={(v) => setF({ ...f, destino: v })} options={AEROPORTO_OPTIONS} placeholder="Selecionar aeroporto" manualPlaceholder="Aeroporto" />
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
