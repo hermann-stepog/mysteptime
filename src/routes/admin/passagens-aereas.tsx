@@ -42,6 +42,12 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, todayStr, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+
+const BSPS_EXTRAS_PASSAGEM = ["Produção"];
+function bspOptionsPassagem(...args: Parameters<typeof bspOptionsForUnidade>): string[] {
+  const base = bspOptionsForUnidade(...args);
+  return [...base, ...BSPS_EXTRAS_PASSAGEM.filter((b) => !base.includes(b))];
+}
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
   TIPOS_PASSAGEM, STATUS_PASSAGEM, STATUS_FLUXO_ORDER, STATUS_FLUXO_LABEL, STATUS_FLUXO_COLOR,
@@ -149,7 +155,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
   if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, dataLancamento: dataLancamentoSp(new Date().toISOString()) }); rateio.reset(); pessoas.reset(); unidades.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
+  const bspOptions = useMemo(() => bspOptionsPassagem(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -288,7 +294,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
             <UnidadeMultiField
               value={f.unidade} onChange={(v) => setF({ ...f, unidade: v, bsp: "" })}
               options={unidadeOptions} extras={unidades} permiteAdicionar={!editing}
-              bspOptionsFor={(u) => bspOptionsForUnidade(periodosE, u || "all")}
+              bspOptionsFor={(u) => bspOptionsPassagem(periodosE, u || "all")}
             />
             <BspMultiField
               value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })}
@@ -1004,7 +1010,7 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
   const [filterAte, setFilterAte] = useState("");
   const [filterDataTipo, setFilterDataTipo] = useState<"lancamento" | "ida">("lancamento");
 
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
+  const bspOptions = useMemo(() => bspOptionsPassagem(periodosE, filterUnidade), [periodosE, filterUnidade]);
   const motivosVistos = useMemo(
     () => Array.from(new Set(passagens.map((p) => p.motivo).filter((m): m is string => !!m))).sort(),
     [passagens],
@@ -1294,7 +1300,7 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
   // escolhida, mantém a ordem padrão vinda da consulta (data de ida mais recente primeiro).
   const { sortColumn, sortDirection, toggleSort } = useTableSort<PassagensSortColumn>();
 
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
+  const bspOptions = useMemo(() => bspOptionsPassagem(periodosE, filterUnidade), [periodosE, filterUnidade]);
   const motivosVistos = useMemo(
     () => Array.from(new Set(passagens.map((p) => p.motivo).filter((m): m is string => !!m))).sort(),
     [passagens],
