@@ -1013,8 +1013,8 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
     (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
-    (!filterDe || (p.data_ida ?? "") >= filterDe) &&
-    (!filterAte || (!!p.data_ida && p.data_ida <= filterAte)),
+    (!filterDe || dataLancamentoSp(p.created_at) >= filterDe) &&
+    (!filterAte || dataLancamentoSp(p.created_at) <= filterAte),
   ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte]);
 
   // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
@@ -1108,7 +1108,7 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Data ida de</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Lançamento de</Label>
             <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
@@ -1307,8 +1307,8 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
     (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
-    (!filterDe || (p.data_ida ?? "") >= filterDe) &&
-    (!filterAte || (!!p.data_ida && p.data_ida <= filterAte)),
+    (!filterDe || dataLancamentoSp(p.created_at) >= filterDe) &&
+    (!filterAte || dataLancamentoSp(p.created_at) <= filterAte),
   ).sort((a, b) => {
     if (!sortColumn) return 0;
     const dir = sortDirection === "asc" ? 1 : -1;
@@ -1481,7 +1481,7 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Data ida de</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Lançamento de</Label>
             <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
@@ -1603,4 +1603,9 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
       )}
     </div>
   );
+}
+
+// Data do lançamento (created_at, gravada automaticamente ao salvar) no fuso de São Paulo, em AAAA-MM-DD.
+function dataLancamentoSp(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
 }
