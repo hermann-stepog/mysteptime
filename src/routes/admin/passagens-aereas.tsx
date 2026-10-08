@@ -105,7 +105,7 @@ function useColaboradoresQuery() {
 
 const FORM_VAZIO = {
   unidade: "", bsp: "", nomeUsuario: "", companhiaAerea: "", origem: "", destino: "",
-  dataIda: "", dataVolta: "", tipo: "Ida e Volta", valor: "", status: "Confirmada",
+  dataLancamento: "", dataIda: "", dataVolta: "", tipo: "Ida e Volta", valor: "", status: "Confirmada",
   motivo: "", motivoCancelamento: "", formaPagamento: "", observacoes: "",
   solicitante: "", solicitanteEmail: "", internacional: false,
 };
@@ -128,7 +128,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
     setF({
       unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: editing.nome_usuario,
       companhiaAerea: editing.companhia_aerea ?? "", origem: editing.origem ?? "", destino: editing.destino ?? "",
-      dataIda: editing.data_ida, dataVolta: editing.data_volta ?? "", tipo: editing.tipo,
+      dataLancamento: editing.data_lancamento ?? dataLancamentoSp(editing.created_at), dataIda: editing.data_ida, dataVolta: editing.data_volta ?? "", tipo: editing.tipo,
       valor: String(editing.valor), status: editing.status, motivo: editing.motivo ?? "",
       motivoCancelamento: editing.motivo_cancelamento ?? "", formaPagamento: editing.forma_pagamento ?? "",
       observacoes: editing.observacoes ?? "",
@@ -146,7 +146,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
     }
     setBound(editing.id);
   }
-  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO); rateio.reset(); pessoas.reset(); unidades.reset(); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF({ ...FORM_VAZIO, dataLancamento: dataLancamentoSp(new Date().toISOString()) }); rateio.reset(); pessoas.reset(); unidades.reset(); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
@@ -161,7 +161,7 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
       const payload = {
         unidade: f.unidade, bsp: f.bsp, nome_usuario: f.nomeUsuario.trim(),
         companhia_aerea: f.companhiaAerea.trim() || null, origem: f.origem.trim() || null, destino: f.destino.trim() || null,
-        data_ida: f.dataIda, data_volta: f.dataVolta || null, tipo: f.tipo, valor: valorPassagem,
+        data_lancamento: f.dataLancamento || dataLancamentoSp(new Date().toISOString()), data_ida: f.dataIda, data_volta: f.dataVolta || null, tipo: f.tipo, valor: valorPassagem,
         status: f.status, motivo: f.motivo.trim() || null,
         motivo_cancelamento: f.status === "Cancelada" ? (f.motivoCancelamento.trim() || null) : null,
         forma_pagamento: f.formaPagamento || null,
@@ -254,6 +254,10 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
+              <Label className="text-xs">Data de lançamento</Label>
+              <Input type="date" value={f.dataLancamento} onChange={(e) => setF({ ...f, dataLancamento: e.target.value })} />
+            </div>
+            <div className="space-y-1">
               <Label className="text-xs">Data de ida</Label>
               <Input type="date" value={f.dataIda} onChange={(e) => setF({ ...f, dataIda: e.target.value })} />
             </div>
@@ -1013,8 +1017,8 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
     (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
-    (!filterDe || dataLancamentoSp(p.created_at) >= filterDe) &&
-    (!filterAte || dataLancamentoSp(p.created_at) <= filterAte),
+    (!filterDe || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) >= filterDe) &&
+    (!filterAte || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) <= filterAte),
   ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte]);
 
   // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
@@ -1307,8 +1311,8 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
     (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
-    (!filterDe || dataLancamentoSp(p.created_at) >= filterDe) &&
-    (!filterAte || dataLancamentoSp(p.created_at) <= filterAte),
+    (!filterDe || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) >= filterDe) &&
+    (!filterAte || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) <= filterAte),
   ).sort((a, b) => {
     if (!sortColumn) return 0;
     const dir = sortDirection === "asc" ? 1 : -1;
