@@ -10,35 +10,135 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, Calendar as CalIcon, ArrowRight, Users as UsersIcon, Package, Wand2, TrendingUp, CheckCircle2, Activity, X, Copy, Loader2, Check, ChevronsUpDown, ChevronsDownUp, Upload, AlertTriangle, Building2, Ship, Layers3, Wallet, Download } from "lucide-react";
-import { parsePlanilhaCustos, parseCustoBRL, parseDataBR, parseUnidadeBsp, splitNomes, parseBooleanoSN, parseBooleanoSimNao, type LinhaCustoBruta } from "@/lib/importCustos";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Calendar as CalIcon,
+  ArrowRight,
+  Users as UsersIcon,
+  Package,
+  Wand2,
+  TrendingUp,
+  CheckCircle2,
+  Activity,
+  X,
+  Copy,
+  Loader2,
+  Check,
+  ChevronsUpDown,
+  ChevronsDownUp,
+  Upload,
+  AlertTriangle,
+  Building2,
+  Ship,
+  Layers3,
+  Wallet,
+  Download,
+} from "lucide-react";
+import {
+  parsePlanilhaCustos,
+  parseCustoBRL,
+  parseDataBR,
+  parseUnidadeBsp,
+  splitNomes,
+  parseBooleanoSN,
+  parseBooleanoSimNao,
+  type LinhaCustoBruta,
+} from "@/lib/importCustos";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { notify } from "@/lib/notify";
-import { CollaboratorMultiSelect, useCollaboratorsQuery, type Collaborator } from "@/components/CollaboratorSelect";
-import { MaterialQuantitySelect, useMaterialsQuery, materialLabel, type Material, type MaterialQty } from "@/components/MaterialMultiSelect";
+import { planilhaComCabecalho } from "@/lib/reportHeader";
+import {
+  CollaboratorMultiSelect,
+  useCollaboratorsQuery,
+  type Collaborator,
+} from "@/components/CollaboratorSelect";
+import {
+  MaterialQuantitySelect,
+  useMaterialsQuery,
+  materialLabel,
+  type Material,
+  type MaterialQty,
+} from "@/components/MaterialMultiSelect";
 import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
 import { KpiValue } from "@/components/KpiValue";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
-import { useRateioPercentual, RateioPercentualPanel, FormaPagamentoField } from "@/components/LogisticaFormFields";
+import {
+  useRateioPercentual,
+  RateioPercentualPanel,
+  FormaPagamentoField,
+} from "@/components/LogisticaFormFields";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtDate, fmtDateTime, fmtMoney, toDisplayCase } from "@/lib/format";
 import { cn, matchesNameSearch } from "@/lib/utils";
-import { PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from "recharts";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  BarChart,
+  Bar,
+  LabelList,
+} from "recharts";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { pageTitle } from "@/lib/pageTitle";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
-import { usePlanejamentoEmbarqueQuery, unidadesPlanejamento, bspOptionsPlanejamento } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import {
+  usePlanejamentoEmbarqueQuery,
+  unidadesPlanejamento,
+  bspOptionsPlanejamento,
+} from "@/components/histograma/PlanejamentoEmbarqueTab";
 import { StringMultiCombobox } from "@/components/histograma/HistogramaOffshoreNovo";
 
 // Unidades/BSPs fixas pedidas por ela pro formulário de Transporte, sempre disponíveis mesmo
@@ -52,13 +152,19 @@ const BSP_TRANSPORTE_EXTRAS: Record<string, string[]> = {
 // Unidade marcada, ou até sem nenhuma marcada.
 const BSP_TRANSPORTE_EXTRAS_GLOBAIS = ["Executiva", "Produção", "RH", "SMS", "TI"];
 
-
 type TripStatus = "em_andamento" | "realizado" | "faturado" | "cancelado";
 type TripTipo = "pessoas" | "material";
 
-type TransportSearch = { tab?: string; tag?: string; status?: string; cliente?: string; tipo?: string };
+type TransportSearch = {
+  tab?: string;
+  tag?: string;
+  status?: string;
+  cliente?: string;
+  tipo?: string;
+};
 
-export const Route = createFileRoute("/admin/transport")({ head: () => pageTitle("Transporte"),
+export const Route = createFileRoute("/admin/transport")({
+  head: () => pageTitle("Transporte"),
   component: TransportPage,
   validateSearch: (s: Record<string, unknown>): TransportSearch => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
@@ -113,7 +219,12 @@ type Trip = {
   materials: { material_id: string; quantidade: number | null }[];
 };
 
-const STATUS_LABEL: Record<TripStatus, string> = { em_andamento: "Em Andamento", realizado: "Realizado", faturado: "Faturado", cancelado: "Cancelado" };
+const STATUS_LABEL: Record<TripStatus, string> = {
+  em_andamento: "Em Andamento",
+  realizado: "Realizado",
+  faturado: "Faturado",
+  cancelado: "Cancelado",
+};
 const STATUS_BADGE: Record<TripStatus, string> = {
   em_andamento: "bg-primary/15 text-primary border-primary/30",
   realizado: "bg-success/15 text-success border-success/30",
@@ -139,7 +250,9 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 function fmtTime(iso: string) {
-  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(
+    new Date(iso),
+  );
 }
 // Soma o valor rateado entre os até 3 BSPs de uma viagem (null quando nenhum foi preenchido).
 // Valor digitado no formulário — aceita o jeito brasileiro ("R$ 1.234,56", "1234,56") e também
@@ -176,7 +289,12 @@ function compareCarNumber(a: string, b: string) {
 // Monta a linha de planilha de uma viagem — compartilhado entre o export do módulo de
 // Relatórios (generateRelatorioTransporte, busca tudo do zero) e o botão de exportar do
 // Quadro Detalhado (exporta só o que já está filtrado na tela, sem nova consulta).
-function tripToRelatorioRow(t: Trip, tagsById: Map<string, Tag>, collabsById: Map<string, Collaborator>, materialsById: Map<string, Material>) {
+function tripToRelatorioRow(
+  t: Trip,
+  tagsById: Map<string, Tag>,
+  collabsById: Map<string, Collaborator>,
+  materialsById: Map<string, Material>,
+) {
   return {
     Data: fmtDate(t.scheduled_at),
     Carro: t.car_number,
@@ -188,12 +306,24 @@ function tripToRelatorioRow(t: Trip, tagsById: Map<string, Tag>, collabsById: Ma
     "BSP 2": t.bsp_2 ?? "",
     "BSP 3": t.bsp_3 ?? "",
     Unidade: (t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ?? "",
-    Etiquetas: t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", "),
+    Etiquetas: t.tags
+      .map((x) => tagsById.get(x.tag_id)?.name)
+      .filter(Boolean)
+      .join(", "),
     Horário: fmtTime(t.scheduled_at),
     Origem: [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; "),
     Destino: [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; "),
-    Colaboradores: t.collabs.map((x) => collabsById.get(x.collaborator_id)?.full_name).filter(Boolean).join(", "),
-    Materiais: t.materials.map((x) => { const m = materialsById.get(x.material_id); return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null; }).filter(Boolean).join(", "),
+    Colaboradores: t.collabs
+      .map((x) => collabsById.get(x.collaborator_id)?.full_name)
+      .filter(Boolean)
+      .join(", "),
+    Materiais: t.materials
+      .map((x) => {
+        const m = materialsById.get(x.material_id);
+        return m ? `${materialLabel(m)} ×${x.quantidade ?? 1}` : null;
+      })
+      .filter(Boolean)
+      .join(", "),
     Observações: t.notes ?? "",
     Status: STATUS_LABEL[t.status],
     Custo: t.custo ?? "",
@@ -205,27 +335,36 @@ function tripToRelatorioRow(t: Trip, tagsById: Map<string, Tag>, collabsById: Ma
 // Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
 // Busca os próprios dados (não depende de nenhuma tela já aberta) e já baixa tudo, sem
 // diálogo de opções — igual ao resto dos cartões de Relatórios.
-export async function generateRelatorioTransporte(dataInicio?: string, dataFim?: string): Promise<void> {
-  let tripsQuery = supabase.from("transport_trips")
-    .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
+export async function generateRelatorioTransporte(
+  dataInicio?: string,
+  dataFim?: string,
+): Promise<void> {
+  let tripsQuery = supabase
+    .from("transport_trips")
+    .select(
+      "*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)",
+    )
     .order("scheduled_at");
   if (dataInicio) tripsQuery = tripsQuery.gte("scheduled_at", dataInicio);
   if (dataFim) tripsQuery = tripsQuery.lte("scheduled_at", `${dataFim}T23:59:59`);
 
-  const [{ data: trips, error: tripsErr }, { data: tags }, { data: collabs }, { data: materials }] = await Promise.all([
-    tripsQuery,
-    supabase.from("transport_tags").select("*"),
-    supabase.from("collaborators").select("*").eq("active", true),
-    supabase.from("materials").select("*").eq("active", true),
-  ]);
+  const [{ data: trips, error: tripsErr }, { data: tags }, { data: collabs }, { data: materials }] =
+    await Promise.all([
+      tripsQuery,
+      supabase.from("transport_tags").select("*"),
+      supabase.from("collaborators").select("*").eq("active", true),
+      supabase.from("materials").select("*").eq("active", true),
+    ]);
   if (tripsErr) throw tripsErr;
 
   const tagsById = new Map(((tags ?? []) as Tag[]).map((t) => [t.id, t]));
   const collabsById = new Map(((collabs ?? []) as Collaborator[]).map((c) => [c.id, c]));
   const materialsById = new Map(((materials ?? []) as Material[]).map((m) => [m.id, m]));
 
-  const rows = ((trips ?? []) as Trip[]).map((t) => tripToRelatorioRow(t, tagsById, collabsById, materialsById));
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const rows = ((trips ?? []) as Trip[]).map((t) =>
+    tripToRelatorioRow(t, tagsById, collabsById, materialsById),
+  );
+  const ws = planilhaComCabecalho(rows, "Relatório de Transporte");
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Transporte");
   XLSX.writeFile(wb, `transporte_${todayISO()}.xlsx`);
@@ -235,7 +374,10 @@ function useTransportData() {
   const columns = useQuery({
     queryKey: ["transport_columns"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("transport_columns").select("*").order("position");
+      const { data, error } = await supabase
+        .from("transport_columns")
+        .select("*")
+        .order("position");
       if (error) throw error;
       return (data ?? []) as Column[];
     },
@@ -247,27 +389,43 @@ function useTransportData() {
     // (ex.: quando a tabela passa de 1000 linhas, agosto some quase inteiro da tela, mesmo com
     // o dado intacto no banco). selectAllPages já é o padrão usado pras outras tabelas grandes
     // do app (timesheet_dias, hist_novo_periodos etc.) por esse mesmo motivo.
-    queryFn: () => selectAllPages<Trip>((from, to) =>
-      supabase
-        .from("transport_trips")
-        .select("*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)")
-        .order("scheduled_at")
-        .range(from, to),
-    ),
+    queryFn: () =>
+      selectAllPages<Trip>((from, to) =>
+        supabase
+          .from("transport_trips")
+          .select(
+            "*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)",
+          )
+          .order("scheduled_at")
+          .range(from, to),
+      ),
   });
   return { columns, trips };
 }
 
 function StatusBadge({ status }: { status: TripStatus }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium shadow-sm transition-colors", STATUS_BADGE[status])}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium shadow-sm transition-colors",
+        STATUS_BADGE[status],
+      )}
+    >
       <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[status])} />
       {STATUS_LABEL[status]}
     </span>
   );
 }
 
-function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatus, onDuplicate }: {
+function TripCard({
+  trip,
+  tagsById,
+  collabsById,
+  materialsById,
+  onClick,
+  onStatus,
+  onDuplicate,
+}: {
   trip: Trip;
   tagsById: Map<string, Tag>;
   collabsById: Map<string, Collaborator>;
@@ -277,14 +435,26 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
   onDuplicate?: () => void;
 }) {
   return (
-    <Card className={cn("cursor-pointer p-3 hover:border-primary/40 transition border-l-4", STATUS_BORDER[trip.status])} onClick={onClick}>
+    <Card
+      className={cn(
+        "cursor-pointer p-3 hover:border-primary/40 transition border-l-4",
+        STATUS_BORDER[trip.status],
+      )}
+      onClick={onClick}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="font-semibold">{trip.car_number}</div>
           {trip.tipo === "material" ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"><Package className="h-3 w-3" />Material</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <Package className="h-3 w-3" />
+              Material
+            </span>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"><UsersIcon className="h-3 w-3" />Pessoas</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <UsersIcon className="h-3 w-3" />
+              Pessoas
+            </span>
           )}
         </div>
         <div className="text-right text-xs text-muted-foreground">
@@ -303,17 +473,33 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
         {trip.tags.map((t) => {
           const tag = tagsById.get(t.tag_id);
           if (!tag) return null;
-          return <span key={t.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>;
+          return (
+            <span
+              key={t.tag_id}
+              className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+              style={{ backgroundColor: tag.color }}
+            >
+              {tag.name}
+            </span>
+          );
         })}
         {[trip.cliente, trip.cliente_2, trip.cliente_3].filter(Boolean).map((c, i) => (
-          <span key={`cli-${i}`} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">{c}</span>
+          <span
+            key={`cli-${i}`}
+            className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground"
+          >
+            {c}
+          </span>
         ))}
       </div>
 
       {[trip.bsp, trip.bsp_2, trip.bsp_3].some(Boolean) && (
         <div className="mt-2 flex flex-wrap gap-1">
           {[trip.bsp, trip.bsp_2, trip.bsp_3].filter(Boolean).map((b, i) => (
-            <span key={`bsp-${i}`} className="inline-flex items-center rounded-md border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">
+            <span
+              key={`bsp-${i}`}
+              className="inline-flex items-center rounded-md border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground"
+            >
               BSP: {b}
             </span>
           ))}
@@ -349,18 +535,29 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
 
       {trip.tipo === "pessoas" && trip.collabs.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground truncate">
-          {trip.collabs.map((c) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}
+          {trip.collabs
+            .map((c) => collabsById.get(c.collaborator_id)?.full_name)
+            .filter(Boolean)
+            .join(", ")}
         </div>
       )}
       {trip.tipo === "material" && trip.materials.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground truncate">
-          {trip.materials.map((m) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
+          {trip.materials
+            .map((m) => {
+              const mat = materialsById.get(m.material_id);
+              return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null;
+            })
+            .filter(Boolean)
+            .join(", ")}
         </div>
       )}
 
       <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         <Select value={trip.status} onValueChange={(v) => onStatus(v as TripStatus)}>
-          <SelectTrigger className="h-7 text-xs flex-1"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-7 text-xs flex-1">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="em_andamento">Em Andamento</SelectItem>
             <SelectItem value="realizado">Realizado</SelectItem>
@@ -369,8 +566,16 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
           </SelectContent>
         </Select>
         {onDuplicate && (
-          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={onDuplicate} title="Duplicar viagem">
-            <Copy className="mr-1 h-3 w-3" />Duplicar
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onDuplicate}
+            title="Duplicar viagem"
+          >
+            <Copy className="mr-1 h-3 w-3" />
+            Duplicar
           </Button>
         )}
       </div>
@@ -378,9 +583,21 @@ function TripCard({ trip, tagsById, collabsById, materialsById, onClick, onStatu
   );
 }
 
-type CollabFormSlice = { collab_ids: string[]; origin: string; destination: string; notes: string; unidades: string[] };
+type CollabFormSlice = {
+  collab_ids: string[];
+  origin: string;
+  destination: string;
+  notes: string;
+  unidades: string[];
+};
 
-function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; setF: (v: T) => void }) {
+function CollaboratorsSection<T extends CollabFormSlice>({
+  f,
+  setF,
+}: {
+  f: T;
+  setF: (v: T) => void;
+}) {
   const { data: collaborators = [] } = useCollaboratorsQuery();
   const selectedCollabs = f.collab_ids
     .map((id) => collaborators.find((c) => c.id === id))
@@ -393,7 +610,10 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
       const city = (c.city ?? "").trim();
       if (city && cities[cities.length - 1] !== city) cities.push(city);
     }
-    if (cities.length === 0) { notify.error("Nenhum colaborador com cidade cadastrada"); return; }
+    if (cities.length === 0) {
+      notify.error("Nenhum colaborador com cidade cadastrada");
+      return;
+    }
     if (cities.length === 1) {
       setF({ ...f, origin: cities[0], destination: cities[0] });
       notify.success("Trajeto sugerido aplicado");
@@ -414,8 +634,15 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
       <div className="flex items-center justify-between">
         <Label>Colaboradores</Label>
         {selectedCollabs.length >= 2 && citiesAvailable >= 1 && (
-          <Button type="button" variant="ghost" size="sm" onClick={autoTrajeto} className="h-7 text-xs">
-            <Wand2 className="mr-1 h-3 w-3" />Montar trajeto automaticamente
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={autoTrajeto}
+            className="h-7 text-xs"
+          >
+            <Wand2 className="mr-1 h-3 w-3" />
+            Montar trajeto automaticamente
           </Button>
         )}
       </div>
@@ -443,7 +670,15 @@ function CollaboratorsSection<T extends CollabFormSlice>({ f, setF }: { f: T; se
 }
 
 // Lista fixa de clientes (CLIENTES) + opção de digitar um cliente manual não cadastrado.
-function ClientSelect({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function ClientSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
   const isKnown = (v: string) => (CLIENTES as readonly string[]).includes(v);
   const [manual, setManual] = useState(() => !!value && !isKnown(value));
 
@@ -462,7 +697,15 @@ function ClientSelect({ label, value, onChange }: { label: string; value: string
             placeholder="Nome do cliente"
             className="flex-1"
           />
-          <Button type="button" variant="outline" size="sm" onClick={() => { setManual(false); onChange(""); }}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setManual(false);
+              onChange("");
+            }}
+          >
             Lista
           </Button>
         </div>
@@ -470,14 +713,22 @@ function ClientSelect({ label, value, onChange }: { label: string; value: string
         <Select
           value={value || "__none__"}
           onValueChange={(v) => {
-            if (v === "__custom__") { setManual(true); onChange(""); }
-            else onChange(v === "__none__" ? "" : v);
+            if (v === "__custom__") {
+              setManual(true);
+              onChange("");
+            } else onChange(v === "__none__" ? "" : v);
           }}
         >
-          <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="__none__">—</SelectItem>
-            {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            {CLIENTES.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
             <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
           </SelectContent>
         </Select>
@@ -492,9 +743,18 @@ function ClientSelect({ label, value, onChange }: { label: string; value: string
 function useLocationOptionsQuery() {
   return useQuery({
     queryKey: ["transport_trip_locations"],
-    queryFn: () => selectAllPages<{ origin: string; destination: string; origens_extras: string[] | null; destinos_extras: string[] | null }>(
-      (from, to) => supabase.from("transport_trips").select("origin, destination, origens_extras, destinos_extras").range(from, to),
-    ),
+    queryFn: () =>
+      selectAllPages<{
+        origin: string;
+        destination: string;
+        origens_extras: string[] | null;
+        destinos_extras: string[] | null;
+      }>((from, to) =>
+        supabase
+          .from("transport_trips")
+          .select("origin, destination, origens_extras, destinos_extras")
+          .range(from, to),
+      ),
     staleTime: 5 * 60_000,
   });
 }
@@ -503,7 +763,17 @@ function useLocationOptionsQuery() {
 // campos, já que o mesmo lugar pode ser origem numa viagem e destino em outra. Combobox com
 // busca (digitar as primeiras letras já filtra), pedido dela — mesmo padrão popover+Command já
 // usado em NfFiltroCombobox/ColaboradorFiltroCombobox, com "Outro (digitar)..." preservado.
-function LocationSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+function LocationSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
   // Compara já normalizado — uma viagem antiga salva como "MACAÉ" (maiúscula) deve casar com a
   // opção "Macaé" da lista, não cair em "digitar manualmente" só por causa da caixa.
   const isKnown = (v: string) => options.includes(toDisplayCase(v));
@@ -525,14 +795,26 @@ function LocationSelect({ label, value, onChange, options }: { label: string; va
             placeholder="Digite o local"
             className="flex-1"
           />
-          <Button type="button" variant="outline" size="sm" onClick={() => { setManual(false); onChange(""); }}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setManual(false);
+              onChange("");
+            }}
+          >
             Lista
           </Button>
         </div>
       ) : (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+            <Button
+              variant="outline"
+              role="combobox"
+              className="w-full justify-between font-normal"
+            >
               <span className="truncate">{value || "—"}</span>
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
@@ -543,17 +825,38 @@ function LocationSelect({ label, value, onChange, options }: { label: string; va
               <CommandList>
                 <CommandEmpty>Nenhum encontrado.</CommandEmpty>
                 <CommandGroup>
-                  <CommandItem value="—" onSelect={() => { onChange(""); setOpen(false); }}>
-                    <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
-                    —
+                  <CommandItem
+                    value="—"
+                    onSelect={() => {
+                      onChange("");
+                      setOpen(false);
+                    }}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />—
                   </CommandItem>
                   {options.map((o) => (
-                    <CommandItem key={o} value={o} onSelect={() => { onChange(o); setOpen(false); }}>
-                      <Check className={cn("mr-2 h-4 w-4", value === o ? "opacity-100" : "opacity-0")} />
+                    <CommandItem
+                      key={o}
+                      value={o}
+                      onSelect={() => {
+                        onChange(o);
+                        setOpen(false);
+                      }}
+                    >
+                      <Check
+                        className={cn("mr-2 h-4 w-4", value === o ? "opacity-100" : "opacity-0")}
+                      />
                       {o}
                     </CommandItem>
                   ))}
-                  <CommandItem value="Outro (digitar)..." onSelect={() => { setManual(true); onChange(""); setOpen(false); }}>
+                  <CommandItem
+                    value="Outro (digitar)..."
+                    onSelect={() => {
+                      setManual(true);
+                      onChange("");
+                      setOpen(false);
+                    }}
+                  >
                     Outro (digitar)...
                   </CommandItem>
                 </CommandGroup>
@@ -575,18 +878,47 @@ function LocationSelect({ label, value, onChange, options }: { label: string; va
 // popover-com-toggle já usado em SelectPlanejamentoCell, só que aqui o campo fica sempre visível
 // (sem popover) — cada instância remonta do zero ao trocar de viagem (TripDialog tem key por
 // viagem), então o modo manual não vaza de uma viagem pra outra.
-function BspSelect({ label, value, onChange, options, opcional }: {
-  label: string; value: string; onChange: (v: string) => void; options: string[]; opcional: boolean;
+function BspSelect({
+  label,
+  value,
+  onChange,
+  options,
+  opcional,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  opcional: boolean;
 }) {
   const [manual, setManual] = useState(() => !!value && !options.includes(value));
 
   if (manual) {
     return (
       <div>
-        <Label>{label}{opcional ? " (opcional)" : ""}</Label>
+        <Label>
+          {label}
+          {opcional ? " (opcional)" : ""}
+        </Label>
         <div className="flex gap-2">
-          <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="Digite o BSP" className="flex-1" autoFocus />
-          <Button type="button" variant="outline" size="sm" onClick={() => { setManual(false); onChange(""); }}>Lista</Button>
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Digite o BSP"
+            className="flex-1"
+            autoFocus
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setManual(false);
+              onChange("");
+            }}
+          >
+            Lista
+          </Button>
         </div>
       </div>
     );
@@ -594,18 +926,29 @@ function BspSelect({ label, value, onChange, options, opcional }: {
 
   return (
     <div>
-      <Label>{label}{opcional ? " (opcional)" : ""}</Label>
+      <Label>
+        {label}
+        {opcional ? " (opcional)" : ""}
+      </Label>
       <Select
         value={value || "__none__"}
         onValueChange={(v) => {
-          if (v === "__custom__") { setManual(true); onChange(""); }
-          else onChange(v === "__none__" ? "" : v);
+          if (v === "__custom__") {
+            setManual(true);
+            onChange("");
+          } else onChange(v === "__none__" ? "" : v);
         }}
       >
-        <SelectTrigger><SelectValue placeholder="Selecione o BSP" /></SelectTrigger>
+        <SelectTrigger>
+          <SelectValue placeholder="Selecione o BSP" />
+        </SelectTrigger>
         <SelectContent>
           <SelectItem value="__none__">—</SelectItem>
-          {options.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+          {options.map((b) => (
+            <SelectItem key={b} value={b}>
+              {b}
+            </SelectItem>
+          ))}
           {value && !options.includes(value) && <SelectItem value={value}>{value}</SelectItem>}
           <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
         </SelectContent>
@@ -616,26 +959,60 @@ function BspSelect({ label, value, onChange, options, opcional }: {
 
 // Lista fixa pedida por ela — toma o lugar de "Coluna" no formulário (ver TripDialog); a
 // coluna do Kanban continua existindo por baixo, só casada automaticamente pelo nome.
-const MOTIVOS_TRANSPORTE = ["Embarque", "Desembarque", "Trabalho Externo", "Viagem", "ASO (SMS)", "Treinamento", "Emergência (SMS)"] as const;
+const MOTIVOS_TRANSPORTE = [
+  "Embarque",
+  "Desembarque",
+  "Trabalho Externo",
+  "Viagem",
+  "ASO (SMS)",
+  "Treinamento",
+  "Emergência (SMS)",
+] as const;
 
 const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
-function parseCarro(car_number: string): { carro_opcao: string; carro_future_num: string; carro_outro: string; carro_outro_num: string } {
+function parseCarro(car_number: string): {
+  carro_opcao: string;
+  carro_future_num: string;
+  carro_outro: string;
+  carro_outro_num: string;
+} {
   const v = car_number.trim();
   if (!v) return { carro_opcao: "", carro_future_num: "", carro_outro: "", carro_outro_num: "" };
-  if (CARRO_PRESETS.includes(v)) return { carro_opcao: v, carro_future_num: "", carro_outro: "", carro_outro_num: "" };
+  if (CARRO_PRESETS.includes(v))
+    return { carro_opcao: v, carro_future_num: "", carro_outro: "", carro_outro_num: "" };
   // Variante tipo "Uber - SMS", "Uber -  Alguma coisa": o sufixo depois do traço é só ruído de
   // digitação (motivo/depto anotado junto por engano), não um número de unidade — trata como
   // o preset puro e descarta o sufixo.
-  const presetComSufixo = CARRO_PRESETS.find((preset) => new RegExp(`^${preset}\\s*-\\s*.+$`, "i").test(v));
-  if (presetComSufixo) return { carro_opcao: presetComSufixo, carro_future_num: "", carro_outro: "", carro_outro_num: "" };
+  const presetComSufixo = CARRO_PRESETS.find((preset) =>
+    new RegExp(`^${preset}\\s*-\\s*.+$`, "i").test(v),
+  );
+  if (presetComSufixo)
+    return {
+      carro_opcao: presetComSufixo,
+      carro_future_num: "",
+      carro_outro: "",
+      carro_outro_num: "",
+    };
   const futureMatch = /^Future\s+(\d{1,2})$/i.exec(v);
-  if (futureMatch) return { carro_opcao: "Future", carro_future_num: futureMatch[1], carro_outro: "", carro_outro_num: "" };
+  if (futureMatch)
+    return {
+      carro_opcao: "Future",
+      carro_future_num: futureMatch[1],
+      carro_outro: "",
+      carro_outro_num: "",
+    };
   // Qualquer outro transporte digitado em "Outro" também pode ter um número no final (ex.:
   // "Motorista Step 01") — separa igual ao Future, pra não ficar preso só a esse caso.
   const numeroMatch = /^(.*\S)\s+(\d{1,3})$/.exec(v);
-  if (numeroMatch) return { carro_opcao: "Outro", carro_future_num: "", carro_outro: numeroMatch[1], carro_outro_num: numeroMatch[2] };
+  if (numeroMatch)
+    return {
+      carro_opcao: "Outro",
+      carro_future_num: "",
+      carro_outro: numeroMatch[1],
+      carro_outro_num: numeroMatch[2],
+    };
   return { carro_opcao: "Outro", carro_future_num: "", carro_outro: v, carro_outro_num: "" };
 }
 
@@ -649,56 +1026,140 @@ function nomeTransporte(car_number: string): string {
   return carro_opcao;
 }
 
-function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; columns: Column[]; open: boolean; onOpenChange: (o: boolean) => void }) {
+function TripDialog({
+  trip,
+  columns,
+  open,
+  onOpenChange,
+}: {
+  trip: Trip | null;
+  columns: Column[];
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const qc = useQueryClient();
   type FormState = {
-    id?: string; car_number: string; carro_opcao: string; carro_future_num: string; carro_outro: string; carro_outro_num: string; column_id: string; scheduled_at: string;
-    departure_time: string; arrival_time: string;
-    origin: string; destination: string;
-    origens_extras: string[]; destinos_extras: string[];
+    id?: string;
+    car_number: string;
+    carro_opcao: string;
+    carro_future_num: string;
+    carro_outro: string;
+    carro_outro_num: string;
+    column_id: string;
+    scheduled_at: string;
+    departure_time: string;
+    arrival_time: string;
+    origin: string;
+    destination: string;
+    origens_extras: string[];
+    destinos_extras: string[];
     notes: string;
-    tipo: TripTipo; bsp: string; bsp_2: string; bsp_3: string; cliente: string; cliente_2: string; cliente_3: string; unidades: string[]; status: TripStatus;
-    custo: string; custo_2: string; custo_3: string;
-    nf: string; motivo: string; forma_pagamento: string; cobrado: boolean; status_lancamento: string; faturado: boolean; usuario_faturamento: string; data_faturamento: string;
-    tag_ids: string[]; collab_ids: string[]; materials: MaterialQty[];
+    tipo: TripTipo;
+    bsp: string;
+    bsp_2: string;
+    bsp_3: string;
+    cliente: string;
+    cliente_2: string;
+    cliente_3: string;
+    unidades: string[];
+    status: TripStatus;
+    custo: string;
+    custo_2: string;
+    custo_3: string;
+    nf: string;
+    motivo: string;
+    forma_pagamento: string;
+    cobrado: boolean;
+    status_lancamento: string;
+    faturado: boolean;
+    usuario_faturamento: string;
+    data_faturamento: string;
+    tag_ids: string[];
+    collab_ids: string[];
+    materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
-    if (t) return {
-      id: t.id, car_number: t.car_number, ...parseCarro(t.car_number), column_id: t.column_id ?? (cols[0]?.id ?? ""),
-      scheduled_at: (t.scheduled_at ?? "").slice(0, 10),
-      departure_time: t.departure_time ?? "", arrival_time: t.arrival_time ?? "",
-      // Normaliza a caixa aqui também — uma viagem antiga salva como "MACAÉ" precisa bater com
-      // a opção "Macaé" da lista assim que o formulário abre, não só depois de salvar de novo.
-      origin: toDisplayCase(t.origin), destination: toDisplayCase(t.destination),
-      origens_extras: (t.origens_extras ?? []).map((s) => toDisplayCase(s)), destinos_extras: (t.destinos_extras ?? []).map((s) => toDisplayCase(s)),
-      notes: t.notes ?? "",
-      tipo: t.tipo,
-      bsp: t.bsp ?? "", bsp_2: t.bsp_2 ?? "", bsp_3: t.bsp_3 ?? "",
-      cliente: t.cliente ?? "", cliente_2: t.cliente_2 ?? "", cliente_3: t.cliente_3 ?? "",
-      unidades: t.unidades && t.unidades.length > 0 ? t.unidades : (t.unidade ? [t.unidade] : []), status: t.status,
-      custo: t.custo != null ? String(t.custo) : "",
-      custo_2: t.custo_2 != null ? String(t.custo_2) : "",
-      custo_3: t.custo_3 != null ? String(t.custo_3) : "",
-      nf: t.nf ?? "", motivo: t.motivo ?? "", forma_pagamento: t.forma_pagamento ?? "", cobrado: t.cobrado ?? false,
-      status_lancamento: t.status_lancamento ?? "", faturado: t.faturado ?? false,
-      usuario_faturamento: t.usuario_faturamento ?? "", data_faturamento: t.data_faturamento ?? "",
-      tag_ids: t.tags.map((x) => x.tag_id),
-      collab_ids: t.collabs.map((x) => x.collaborator_id),
-      materials: t.materials.map((x) => ({ material_id: x.material_id, quantidade: x.quantidade ?? 1 })),
-    };
+    if (t)
+      return {
+        id: t.id,
+        car_number: t.car_number,
+        ...parseCarro(t.car_number),
+        column_id: t.column_id ?? cols[0]?.id ?? "",
+        scheduled_at: (t.scheduled_at ?? "").slice(0, 10),
+        departure_time: t.departure_time ?? "",
+        arrival_time: t.arrival_time ?? "",
+        // Normaliza a caixa aqui também — uma viagem antiga salva como "MACAÉ" precisa bater com
+        // a opção "Macaé" da lista assim que o formulário abre, não só depois de salvar de novo.
+        origin: toDisplayCase(t.origin),
+        destination: toDisplayCase(t.destination),
+        origens_extras: (t.origens_extras ?? []).map((s) => toDisplayCase(s)),
+        destinos_extras: (t.destinos_extras ?? []).map((s) => toDisplayCase(s)),
+        notes: t.notes ?? "",
+        tipo: t.tipo,
+        bsp: t.bsp ?? "",
+        bsp_2: t.bsp_2 ?? "",
+        bsp_3: t.bsp_3 ?? "",
+        cliente: t.cliente ?? "",
+        cliente_2: t.cliente_2 ?? "",
+        cliente_3: t.cliente_3 ?? "",
+        unidades: t.unidades && t.unidades.length > 0 ? t.unidades : t.unidade ? [t.unidade] : [],
+        status: t.status,
+        custo: t.custo != null ? String(t.custo) : "",
+        custo_2: t.custo_2 != null ? String(t.custo_2) : "",
+        custo_3: t.custo_3 != null ? String(t.custo_3) : "",
+        nf: t.nf ?? "",
+        motivo: t.motivo ?? "",
+        forma_pagamento: t.forma_pagamento ?? "",
+        cobrado: t.cobrado ?? false,
+        status_lancamento: t.status_lancamento ?? "",
+        faturado: t.faturado ?? false,
+        usuario_faturamento: t.usuario_faturamento ?? "",
+        data_faturamento: t.data_faturamento ?? "",
+        tag_ids: t.tags.map((x) => x.tag_id),
+        collab_ids: t.collabs.map((x) => x.collaborator_id),
+        materials: t.materials.map((x) => ({
+          material_id: x.material_id,
+          quantidade: x.quantidade ?? 1,
+        })),
+      };
     return {
-      car_number: "", carro_opcao: "", carro_future_num: "", carro_outro: "", carro_outro_num: "", column_id: cols[0]?.id ?? "", scheduled_at: new Date().toISOString().slice(0, 10),
-      departure_time: "", arrival_time: "",
-      origin: "", destination: "",
-      origens_extras: [], destinos_extras: [],
+      car_number: "",
+      carro_opcao: "",
+      carro_future_num: "",
+      carro_outro: "",
+      carro_outro_num: "",
+      column_id: cols[0]?.id ?? "",
+      scheduled_at: new Date().toISOString().slice(0, 10),
+      departure_time: "",
+      arrival_time: "",
+      origin: "",
+      destination: "",
+      origens_extras: [],
+      destinos_extras: [],
       notes: "",
       tipo: "pessoas",
-      bsp: "", bsp_2: "", bsp_3: "",
-      cliente: "", cliente_2: "", cliente_3: "",
-      unidades: [], status: "em_andamento",
-      custo: "", custo_2: "", custo_3: "",
-      nf: "", motivo: "", forma_pagamento: "", cobrado: false, status_lancamento: "", faturado: false, usuario_faturamento: "", data_faturamento: "",
-      tag_ids: [], collab_ids: [], materials: [],
+      bsp: "",
+      bsp_2: "",
+      bsp_3: "",
+      cliente: "",
+      cliente_2: "",
+      cliente_3: "",
+      unidades: [],
+      status: "em_andamento",
+      custo: "",
+      custo_2: "",
+      custo_3: "",
+      nf: "",
+      motivo: "",
+      forma_pagamento: "",
+      cobrado: false,
+      status_lancamento: "",
+      faturado: false,
+      usuario_faturamento: "",
+      data_faturamento: "",
+      tag_ids: [],
+      collab_ids: [],
+      materials: [],
     };
   };
   const [f, setF] = useState<FormState>(() => init(trip, columns));
@@ -709,7 +1170,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   // restringe às BSPs que aparecem naquela unidade na planilha.
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
   const unidadeOptions = useMemo(
-    () => Array.from(new Set([...unidadesPlanejamento(planejamentoEmbarque), ...UNIDADES_TRANSPORTE_EXTRAS])).sort(),
+    () =>
+      Array.from(
+        new Set([...unidadesPlanejamento(planejamentoEmbarque), ...UNIDADES_TRANSPORTE_EXTRAS]),
+      ).sort(),
     [planejamentoEmbarque],
   );
   // Com mais de uma Unidade marcada, a lista de BSP é a união das BSPs de cada uma (mais as
@@ -758,33 +1222,49 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     // de uma só com a frequência somada.
     const freq = new Map<string, number>();
     locationRows.forEach((t) => {
-      [t.origin, t.destination, ...(t.origens_extras ?? []), ...(t.destinos_extras ?? [])].forEach((loc) => {
-        const v = toDisplayCase(loc?.trim());
-        if (!v) return;
-        freq.set(v, (freq.get(v) ?? 0) + 1);
-      });
+      [t.origin, t.destination, ...(t.origens_extras ?? []), ...(t.destinos_extras ?? [])].forEach(
+        (loc) => {
+          const v = toDisplayCase(loc?.trim());
+          if (!v) return;
+          freq.set(v, (freq.get(v) ?? 0) + 1);
+        },
+      );
     });
-    return Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).map(([loc]) => loc);
+    return Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([loc]) => loc);
   }, [locationRows]);
 
   const save = useMutation({
     mutationFn: async () => {
       if (!bspOpcional(f.cliente) && !f.bsp.trim()) throw new Error("Selecione o BSP.");
-      if (f.cliente_2.trim() && !bspOpcional(f.cliente_2) && !f.bsp_2.trim()) throw new Error("Selecione o BSP 2.");
-      if (f.cliente_3.trim() && !bspOpcional(f.cliente_3) && !f.bsp_3.trim()) throw new Error("Selecione o BSP 3.");
+      if (f.cliente_2.trim() && !bspOpcional(f.cliente_2) && !f.bsp_2.trim())
+        throw new Error("Selecione o BSP 2.");
+      if (f.cliente_3.trim() && !bspOpcional(f.cliente_3) && !f.bsp_3.trim())
+        throw new Error("Selecione o BSP 3.");
       const isNew = !f.id;
       const payload = {
-        car_number: f.car_number.trim(), column_id: f.column_id || null,
+        car_number: f.car_number.trim(),
+        column_id: f.column_id || null,
         scheduled_at: `${f.scheduled_at}T12:00:00.000Z`,
         departure_time: f.departure_time || null,
         arrival_time: f.arrival_time || null,
-        origin: toDisplayCase(f.origin.trim()), destination: toDisplayCase(f.destination.trim()),
-        origens_extras: f.origens_extras.map((s) => toDisplayCase(s.trim())).filter((_, i) => f.origens_extras[i].trim() || (f.destinos_extras[i] ?? "").trim()),
-        destinos_extras: f.destinos_extras.map((s) => toDisplayCase(s.trim())).filter((_, i) => (f.origens_extras[i] ?? "").trim() || f.destinos_extras[i].trim()),
+        origin: toDisplayCase(f.origin.trim()),
+        destination: toDisplayCase(f.destination.trim()),
+        origens_extras: f.origens_extras
+          .map((s) => toDisplayCase(s.trim()))
+          .filter((_, i) => f.origens_extras[i].trim() || (f.destinos_extras[i] ?? "").trim()),
+        destinos_extras: f.destinos_extras
+          .map((s) => toDisplayCase(s.trim()))
+          .filter((_, i) => (f.origens_extras[i] ?? "").trim() || f.destinos_extras[i].trim()),
         notes: f.notes.trim() || null,
         tipo: f.tipo,
-        bsp: f.bsp.trim() || null, bsp_2: f.bsp_2.trim() || null, bsp_3: f.bsp_3.trim() || null,
-        cliente: f.cliente || null, cliente_2: f.cliente_2 || null, cliente_3: f.cliente_3 || null,
+        bsp: f.bsp.trim() || null,
+        bsp_2: f.bsp_2.trim() || null,
+        bsp_3: f.bsp_3.trim() || null,
+        cliente: f.cliente || null,
+        cliente_2: f.cliente_2 || null,
+        cliente_3: f.cliente_3 || null,
         // "unidade" (singular) segue espelhando a primeira da lista — quem ainda lê só esse
         // campo (filtro/ordenação/relatório) continua funcionando sem precisar mudar.
         unidade: f.unidades[0]?.trim() || null,
@@ -793,27 +1273,55 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
         custo: valorOuErro(f.custo, "Valor"),
         custo_2: valorOuErro(f.custo_2, "Valor 2"),
         custo_3: valorOuErro(f.custo_3, "Valor 3"),
-        realizado: f.status === "realizado", cancelado: f.status === "cancelado",
-        nf: f.nf.trim() || null, motivo: f.motivo.trim() || null, forma_pagamento: f.forma_pagamento || null, cobrado: f.cobrado,
-        status_lancamento: f.status_lancamento.trim() || null, faturado: f.faturado,
-        usuario_faturamento: f.usuario_faturamento.trim() || null, data_faturamento: f.data_faturamento || null,
+        realizado: f.status === "realizado",
+        cancelado: f.status === "cancelado",
+        nf: f.nf.trim() || null,
+        motivo: f.motivo.trim() || null,
+        forma_pagamento: f.forma_pagamento || null,
+        cobrado: f.cobrado,
+        status_lancamento: f.status_lancamento.trim() || null,
+        faturado: f.faturado,
+        usuario_faturamento: f.usuario_faturamento.trim() || null,
+        data_faturamento: f.data_faturamento || null,
       };
       let id = f.id;
       if (id) {
         const { error } = await supabase.from("transport_trips").update(payload).eq("id", id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from("transport_trips").insert(payload).select("id").single();
+        const { data, error } = await supabase
+          .from("transport_trips")
+          .insert(payload)
+          .select("id")
+          .single();
         if (error) throw error;
         id = data.id;
       }
       await supabase.from("transport_trip_tags").delete().eq("trip_id", id);
-      if (f.tag_ids.length) await supabase.from("transport_trip_tags").insert(f.tag_ids.map((tag_id) => ({ trip_id: id!, tag_id })));
+      if (f.tag_ids.length)
+        await supabase
+          .from("transport_trip_tags")
+          .insert(f.tag_ids.map((tag_id) => ({ trip_id: id!, tag_id })));
       await supabase.from("transport_trip_collaborators").delete().eq("trip_id", id);
-      if (f.tipo === "pessoas" && f.collab_ids.length) await supabase.from("transport_trip_collaborators").insert(f.collab_ids.map((cid) => ({ trip_id: id!, collaborator_id: cid })));
+      if (f.tipo === "pessoas" && f.collab_ids.length)
+        await supabase
+          .from("transport_trip_collaborators")
+          .insert(f.collab_ids.map((cid) => ({ trip_id: id!, collaborator_id: cid })));
       await supabase.from("transport_trip_materials").delete().eq("trip_id", id);
-      if (f.tipo === "material" && f.materials.length) await supabase.from("transport_trip_materials").insert(f.materials.map((m) => ({ trip_id: id!, material_id: m.material_id, quantidade: m.quantidade })));
-      return { isNew, descricaoViagem: `${toDisplayCase(nomeTransporte(payload.car_number))} (${payload.origin} → ${payload.destination})` };
+      if (f.tipo === "material" && f.materials.length)
+        await supabase
+          .from("transport_trip_materials")
+          .insert(
+            f.materials.map((m) => ({
+              trip_id: id!,
+              material_id: m.material_id,
+              quantidade: m.quantidade,
+            })),
+          );
+      return {
+        isNew,
+        descricaoViagem: `${toDisplayCase(nomeTransporte(payload.car_number))} (${payload.origin} → ${payload.destination})`,
+      };
     },
     onSuccess: ({ isNew, descricaoViagem }) => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
@@ -825,13 +1333,34 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   });
 
   const setCarroOpcao = (opcao: string) => {
-    if (opcao === "Future") setF({ ...f, carro_opcao: opcao, car_number: f.carro_future_num ? `Future ${f.carro_future_num}` : "" });
-    else if (opcao === "Outro") setF({ ...f, carro_opcao: opcao, car_number: [f.carro_outro, f.carro_outro_num].filter(Boolean).join(" ") });
+    if (opcao === "Future")
+      setF({
+        ...f,
+        carro_opcao: opcao,
+        car_number: f.carro_future_num ? `Future ${f.carro_future_num}` : "",
+      });
+    else if (opcao === "Outro")
+      setF({
+        ...f,
+        carro_opcao: opcao,
+        car_number: [f.carro_outro, f.carro_outro_num].filter(Boolean).join(" "),
+      });
     else setF({ ...f, carro_opcao: opcao, car_number: opcao });
   };
-  const setCarroFutureNum = (num: string) => setF({ ...f, carro_future_num: num, car_number: `Future ${num}` });
-  const setCarroOutro = (val: string) => setF({ ...f, carro_outro: val, car_number: [val, f.carro_outro_num].filter(Boolean).join(" ") });
-  const setCarroOutroNum = (num: string) => setF({ ...f, carro_outro_num: num, car_number: [f.carro_outro, num].filter(Boolean).join(" ") });
+  const setCarroFutureNum = (num: string) =>
+    setF({ ...f, carro_future_num: num, car_number: `Future ${num}` });
+  const setCarroOutro = (val: string) =>
+    setF({
+      ...f,
+      carro_outro: val,
+      car_number: [val, f.carro_outro_num].filter(Boolean).join(" "),
+    });
+  const setCarroOutroNum = (num: string) =>
+    setF({
+      ...f,
+      carro_outro_num: num,
+      car_number: [f.carro_outro, num].filter(Boolean).join(" "),
+    });
 
   const del = useMutation({
     mutationFn: async () => {
@@ -841,7 +1370,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
-      registrarLog(`Excluiu viagem ${toDisplayCase(nomeTransporte(f.car_number))} (${f.origin} → ${f.destination})`);
+      registrarLog(
+        `Excluiu viagem ${toDisplayCase(nomeTransporte(f.car_number))} (${f.origin} → ${f.destination})`,
+      );
       notify.success("Removido");
       onOpenChange(false);
     },
@@ -850,7 +1381,9 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
-        <DialogHeader><DialogTitle>{f.id ? "Editar viagem" : "Nova viagem"}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{f.id ? "Editar viagem" : "Nova viagem"}</DialogTitle>
+        </DialogHeader>
         <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -858,25 +1391,50 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
                 <div className="flex-1">
                   <Label>Transporte</Label>
                   <Select value={f.carro_opcao} onValueChange={setCarroOpcao}>
-                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                    <SelectContent>{CARRO_OPCOES.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CARRO_OPCOES.map((o) => (
+                        <SelectItem key={o} value={o}>
+                          {o}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
                 {f.carro_opcao === "Future" && (
                   <div className="w-20">
                     <Label>Número</Label>
                     <Select value={f.carro_future_num} onValueChange={setCarroFutureNum}>
-                      <SelectTrigger><SelectValue placeholder="Nº" /></SelectTrigger>
-                      <SelectContent>{Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Nº" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => (
+                          <SelectItem key={n} value={n}>
+                            {n}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                   </div>
                 )}
               </div>
               {f.carro_opcao === "Outro" && (
                 <div className="mt-2 flex gap-2">
-                  <Input className="flex-1" value={f.carro_outro} onChange={(e) => setCarroOutro(e.target.value)} placeholder="Especifique o transporte" />
+                  <Input
+                    className="flex-1"
+                    value={f.carro_outro}
+                    onChange={(e) => setCarroOutro(e.target.value)}
+                    placeholder="Especifique o transporte"
+                  />
                   <div className="w-20">
-                    <Input value={f.carro_outro_num} onChange={(e) => setCarroOutroNum(e.target.value)} placeholder="Número" />
+                    <Input
+                      value={f.carro_outro_num}
+                      onChange={(e) => setCarroOutroNum(e.target.value)}
+                      placeholder="Número"
+                    />
                   </div>
                 </div>
               )}
@@ -890,15 +1448,25 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
                   // A coluna do Kanban continua existindo por baixo (ver KanbanView) — só deixa
                   // de ser escolhida à parte aqui; casa sozinha com a coluna de mesmo nome do
                   // Motivo quando existir uma, senão mantém a coluna que já estava.
-                  const colunaCorrespondente = columns.find((c) => c.name.trim().toLowerCase() === motivo.trim().toLowerCase());
+                  const colunaCorrespondente = columns.find(
+                    (c) => c.name.trim().toLowerCase() === motivo.trim().toLowerCase(),
+                  );
                   setF({ ...f, motivo, column_id: colunaCorrespondente?.id ?? f.column_id });
                 }}
               >
-                <SelectTrigger><SelectValue placeholder="Selecione o motivo" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o motivo" />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">—</SelectItem>
-                  {MOTIVOS_TRANSPORTE.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                  {f.motivo && !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo) && <SelectItem value={f.motivo}>{f.motivo}</SelectItem>}
+                  {MOTIVOS_TRANSPORTE.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                  {f.motivo && !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo) && (
+                    <SelectItem value={f.motivo}>{f.motivo}</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -907,27 +1475,81 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           <div>
             <Label>Tipo de transporte</Label>
             <div className="mt-1 inline-flex rounded-md border bg-muted p-0.5">
-              <button type="button" onClick={() => setF({ ...f, tipo: "pessoas" })} className={cn("px-3 py-1.5 text-xs rounded transition", f.tipo === "pessoas" ? "bg-background shadow-sm font-medium" : "text-muted-foreground")}>
-                <UsersIcon className="inline mr-1 h-3 w-3" />Pessoas
+              <button
+                type="button"
+                onClick={() => setF({ ...f, tipo: "pessoas" })}
+                className={cn(
+                  "px-3 py-1.5 text-xs rounded transition",
+                  f.tipo === "pessoas"
+                    ? "bg-background shadow-sm font-medium"
+                    : "text-muted-foreground",
+                )}
+              >
+                <UsersIcon className="inline mr-1 h-3 w-3" />
+                Pessoas
               </button>
-              <button type="button" onClick={() => setF({ ...f, tipo: "material" })} className={cn("px-3 py-1.5 text-xs rounded transition", f.tipo === "material" ? "bg-background shadow-sm font-medium" : "text-muted-foreground")}>
-                <Package className="inline mr-1 h-3 w-3" />Material
+              <button
+                type="button"
+                onClick={() => setF({ ...f, tipo: "material" })}
+                className={cn(
+                  "px-3 py-1.5 text-xs rounded transition",
+                  f.tipo === "material"
+                    ? "bg-background shadow-sm font-medium"
+                    : "text-muted-foreground",
+                )}
+              >
+                <Package className="inline mr-1 h-3 w-3" />
+                Material
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div><Label>Data</Label><Input type="date" value={f.scheduled_at} onChange={(e) => setF({ ...f, scheduled_at: e.target.value })} /></div>
-            <div><Label>Horário de Partida</Label><Input type="time" value={f.departure_time} onChange={(e) => setF({ ...f, departure_time: e.target.value })} /></div>
-            <div><Label>Horário de Destino</Label><Input type="time" value={f.arrival_time} onChange={(e) => setF({ ...f, arrival_time: e.target.value })} /></div>
+            <div>
+              <Label>Data</Label>
+              <Input
+                type="date"
+                value={f.scheduled_at}
+                onChange={(e) => setF({ ...f, scheduled_at: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Horário de Partida</Label>
+              <Input
+                type="time"
+                value={f.departure_time}
+                onChange={(e) => setF({ ...f, departure_time: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Horário de Destino</Label>
+              <Input
+                type="time"
+                value={f.arrival_time}
+                onChange={(e) => setF({ ...f, arrival_time: e.target.value })}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <LocationSelect label="Origem" value={f.origin} onChange={(v) => setF({ ...f, origin: v })} options={locationOptions} />
-            <LocationSelect label="Destino" value={f.destination} onChange={(v) => setF({ ...f, destination: v })} options={locationOptions} />
+            <LocationSelect
+              label="Origem"
+              value={f.origin}
+              onChange={(v) => setF({ ...f, origin: v })}
+              options={locationOptions}
+            />
+            <LocationSelect
+              label="Destino"
+              value={f.destination}
+              onChange={(v) => setF({ ...f, destination: v })}
+              options={locationOptions}
+            />
           </div>
 
           {f.origens_extras.map((_, i) => (
-            <div key={`extra-${i}`} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+            <div
+              key={`extra-${i}`}
+              className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end"
+            >
               <LocationSelect
                 label={`Origem ${i + 2}`}
                 value={f.origens_extras[i] ?? ""}
@@ -953,8 +1575,10 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
                 variant="ghost"
                 size="icon"
                 onClick={() => {
-                  const o = [...f.origens_extras]; o.splice(i, 1);
-                  const d = [...f.destinos_extras]; d.splice(i, 1);
+                  const o = [...f.origens_extras];
+                  o.splice(i, 1);
+                  const d = [...f.destinos_extras];
+                  d.splice(i, 1);
                   setF({ ...f, origens_extras: o, destinos_extras: d });
                 }}
                 aria-label="Remover par"
@@ -968,12 +1592,18 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setF({ ...f, origens_extras: [...f.origens_extras, ""], destinos_extras: [...f.destinos_extras, ""] })}
+              onClick={() =>
+                setF({
+                  ...f,
+                  origens_extras: [...f.origens_extras, ""],
+                  destinos_extras: [...f.destinos_extras, ""],
+                })
+              }
             >
-              <Plus className="mr-1 h-3 w-3" />Adicionar origem/destino
+              <Plus className="mr-1 h-3 w-3" />
+              Adicionar origem/destino
             </Button>
           </div>
-
 
           {/* Unidade primeiro (pode marcar mais de uma) — a lista de BSP das 3 linhas abaixo se
               filtra a partir dela (ambas vêm da aba de Planejamento de Embarque, não mais texto
@@ -993,42 +1623,81 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
               colaboradores de BSPs diferentes, ratear o custo entre eles preenchendo mais de
               uma linha. Na maioria das viagens só a primeira linha é usada. */}
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
-            <ClientSelect label="Cliente" value={f.cliente} onChange={(v) => setF({ ...f, cliente: v })} />
-            <BspSelect label="BSP" value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })} options={bspOptions} opcional={bspOpcional(f.cliente)} />
+            <ClientSelect
+              label="Cliente"
+              value={f.cliente}
+              onChange={(v) => setF({ ...f, cliente: v })}
+            />
+            <BspSelect
+              label="BSP"
+              value={f.bsp}
+              onChange={(v) => setF({ ...f, bsp: v })}
+              options={bspOptions}
+              opcional={bspOpcional(f.cliente)}
+            />
             <div>
               <Label>Valor</Label>
               <Input
-                type="text" inputMode="decimal" readOnly={rateio.ativo}
+                type="text"
+                inputMode="decimal"
+                readOnly={rateio.ativo}
                 className={rateio.ativo ? "bg-muted/40" : undefined}
-                value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })}
+                value={f.custo}
+                onChange={(e) => setF({ ...f, custo: e.target.value })}
                 placeholder="R$ 0,00"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
-            <ClientSelect label="Cliente 2 (opcional)" value={f.cliente_2} onChange={(v) => setF({ ...f, cliente_2: v })} />
-            <BspSelect label="BSP 2" value={f.bsp_2} onChange={(v) => setF({ ...f, bsp_2: v })} options={bspOptions} opcional={!f.cliente_2.trim() || bspOpcional(f.cliente_2)} />
+            <ClientSelect
+              label="Cliente 2 (opcional)"
+              value={f.cliente_2}
+              onChange={(v) => setF({ ...f, cliente_2: v })}
+            />
+            <BspSelect
+              label="BSP 2"
+              value={f.bsp_2}
+              onChange={(v) => setF({ ...f, bsp_2: v })}
+              options={bspOptions}
+              opcional={!f.cliente_2.trim() || bspOpcional(f.cliente_2)}
+            />
             <div>
               <Label>Valor 2</Label>
               <Input
-                type="text" inputMode="decimal" readOnly={rateio.ativo}
+                type="text"
+                inputMode="decimal"
+                readOnly={rateio.ativo}
                 className={rateio.ativo ? "bg-muted/40" : undefined}
-                value={f.custo_2} onChange={(e) => setF({ ...f, custo_2: e.target.value })}
+                value={f.custo_2}
+                onChange={(e) => setF({ ...f, custo_2: e.target.value })}
                 placeholder="R$ 0,00"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
-            <ClientSelect label="Cliente 3 (opcional)" value={f.cliente_3} onChange={(v) => setF({ ...f, cliente_3: v })} />
-            <BspSelect label="BSP 3" value={f.bsp_3} onChange={(v) => setF({ ...f, bsp_3: v })} options={bspOptions} opcional={!f.cliente_3.trim() || bspOpcional(f.cliente_3)} />
+            <ClientSelect
+              label="Cliente 3 (opcional)"
+              value={f.cliente_3}
+              onChange={(v) => setF({ ...f, cliente_3: v })}
+            />
+            <BspSelect
+              label="BSP 3"
+              value={f.bsp_3}
+              onChange={(v) => setF({ ...f, bsp_3: v })}
+              options={bspOptions}
+              opcional={!f.cliente_3.trim() || bspOpcional(f.cliente_3)}
+            />
             <div>
               <Label>Valor 3</Label>
               <Input
-                type="text" inputMode="decimal" readOnly={rateio.ativo}
+                type="text"
+                inputMode="decimal"
+                readOnly={rateio.ativo}
                 className={rateio.ativo ? "bg-muted/40" : undefined}
-                value={f.custo_3} onChange={(e) => setF({ ...f, custo_3: e.target.value })}
+                value={f.custo_3}
+                onChange={(e) => setF({ ...f, custo_3: e.target.value })}
                 placeholder="R$ 0,00"
               />
             </div>
@@ -1036,29 +1705,63 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
 
           <RateioPercentualPanel rateio={rateio} labels={["BSP 1", "BSP 2", "BSP 3"]} />
 
-          <div><Label>Etiquetas</Label><TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} /></div>
+          <div>
+            <Label>Etiquetas</Label>
+            <TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} />
+          </div>
 
           {f.tipo === "pessoas" ? (
             <CollaboratorsSection f={f} setF={setF} />
           ) : (
-            <div><Label>Materiais</Label><MaterialQuantitySelect value={f.materials} onChange={(v) => setF({ ...f, materials: v })} /></div>
+            <div>
+              <Label>Materiais</Label>
+              <MaterialQuantitySelect
+                value={f.materials}
+                onChange={(v) => setF({ ...f, materials: v })}
+              />
+            </div>
           )}
 
-          <div><Label>Observações</Label><Textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} /></div>
+          <div>
+            <Label>Observações</Label>
+            <Textarea
+              value={f.notes}
+              onChange={(e) => setF({ ...f, notes: e.target.value })}
+              rows={3}
+            />
+          </div>
 
           {/* Campos de faturamento/custo — vieram da importação da planilha histórica, mas
               seguem editáveis pra lançamentos novos também. Motivo saiu daqui — agora é a
               lista lá em cima, no lugar de Coluna. */}
-          <div><Label>NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
+          <div>
+            <Label>NF</Label>
+            <Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} />
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label>Forma de pagamento</Label><FormaPagamentoField value={f.forma_pagamento} onChange={(v) => setF({ ...f, forma_pagamento: v })} /></div>
-            <div><Label>Data Faturamento</Label><Input type="date" value={f.data_faturamento} onChange={(e) => setF({ ...f, data_faturamento: e.target.value })} /></div>
+            <div>
+              <Label>Forma de pagamento</Label>
+              <FormaPagamentoField
+                value={f.forma_pagamento}
+                onChange={(v) => setF({ ...f, forma_pagamento: v })}
+              />
+            </div>
+            <div>
+              <Label>Data Faturamento</Label>
+              <Input
+                type="date"
+                value={f.data_faturamento}
+                onChange={(e) => setF({ ...f, data_faturamento: e.target.value })}
+              />
+            </div>
           </div>
 
           <div>
             <Label>Status</Label>
             <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v as TripStatus })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="em_andamento">Em Andamento</SelectItem>
                 <SelectItem value="realizado">Realizado</SelectItem>
@@ -1069,8 +1772,18 @@ function TripDialog({ trip, columns, open, onOpenChange }: { trip: Trip | null; 
           </div>
         </div>
         <DialogFooter className="gap-2">
-          {f.id && <Button variant="destructive" onClick={() => del.mutate()} loading={del.isPending}>Excluir</Button>}
-          <Button onClick={() => save.mutate()} disabled={!f.car_number || !f.origin || !f.destination} loading={save.isPending}>Salvar</Button>
+          {f.id && (
+            <Button variant="destructive" onClick={() => del.mutate()} loading={del.isPending}>
+              Excluir
+            </Button>
+          )}
+          <Button
+            onClick={() => save.mutate()}
+            disabled={!f.car_number || !f.origin || !f.destination}
+            loading={save.isPending}
+          >
+            Salvar
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1086,7 +1799,10 @@ interface ParsedTransporteRow {
   colaboradorIds: string[];
   nomesNaoEncontrados: string[];
   erro: string | null;
-  data: string; fornecedor: string; custo: number | null; funcionarios: string;
+  data: string;
+  fornecedor: string;
+  custo: number | null;
+  funcionarios: string;
   // Preenchidos depois de casar com os cartões já existentes (ver acharCartaoExistente) — null
   // até essa etapa rodar.
   acao?: "cria" | "atualiza" | "sem_mudanca";
@@ -1097,18 +1813,44 @@ interface ParsedTransporteRow {
 // Campos de custo que a importação pode completar num cartão já existente — nunca mexe em
 // origem/destino/tipo/bsp/unidade/carro/observações/colaboradores, que já foram preenchidos
 // manualmente por quem criou o cartão.
-const CAMPOS_CUSTO_ATUALIZAVEIS = ["nf", "motivo", "cobrado", "status_lancamento", "faturado", "usuario_faturamento", "data_faturamento", "custo"] as const;
+const CAMPOS_CUSTO_ATUALIZAVEIS = [
+  "nf",
+  "motivo",
+  "cobrado",
+  "status_lancamento",
+  "faturado",
+  "usuario_faturamento",
+  "data_faturamento",
+  "custo",
+] as const;
 
 function vazio(v: unknown): boolean {
   return v === null || v === undefined || v === "";
 }
 
-function buildTransportRow(l: LinhaCustoBruta, collabByName: Map<string, Collaborator>): ParsedTransporteRow {
+function buildTransportRow(
+  l: LinhaCustoBruta,
+  collabByName: Map<string, Collaborator>,
+): ParsedTransporteRow {
   const data = parseDataBR(l.data);
   const custo = parseCustoBRL(l.custo);
   const base = { data: l.data, fornecedor: l.fornecedor, custo, funcionarios: l.funcionario };
-  if (!data) return { payload: null, colaboradorIds: [], nomesNaoEncontrados: [], erro: "Data inválida", ...base };
-  if (custo == null) return { payload: null, colaboradorIds: [], nomesNaoEncontrados: [], erro: "Custo inválido", ...base };
+  if (!data)
+    return {
+      payload: null,
+      colaboradorIds: [],
+      nomesNaoEncontrados: [],
+      erro: "Data inválida",
+      ...base,
+    };
+  if (custo == null)
+    return {
+      payload: null,
+      colaboradorIds: [],
+      nomesNaoEncontrados: [],
+      erro: "Custo inválido",
+      ...base,
+    };
 
   const { unidade, bsp } = parseUnidadeBsp(l.projeto);
   const nomes = splitNomes(l.funcionario);
@@ -1116,7 +1858,8 @@ function buildTransportRow(l: LinhaCustoBruta, collabByName: Map<string, Collabo
   const nomesNaoEncontrados: string[] = [];
   nomes.forEach((n) => {
     const c = collabByName.get(n.trim().toUpperCase());
-    if (c) colaboradorIds.push(c.id); else nomesNaoEncontrados.push(n);
+    if (c) colaboradorIds.push(c.id);
+    else nomesNaoEncontrados.push(n);
   });
 
   // "CARAPEBUS X MACAE" → origem/destino; sem esse padrão, fica "Não informado" nos dois
@@ -1125,33 +1868,58 @@ function buildTransportRow(l: LinhaCustoBruta, collabByName: Map<string, Collabo
   const origin = obsMatch ? obsMatch[1].trim() : "Não informado";
   const destination = obsMatch ? obsMatch[2].trim() : "Não informado";
 
-  const notes = [
-    l.tipoApontamento,
-    l.observacao,
-    nomesNaoEncontrados.length ? `Colaborador(es) não localizado(s): ${nomesNaoEncontrados.join(", ")}` : null,
-  ].filter(Boolean).join(" — ") || null;
+  const notes =
+    [
+      l.tipoApontamento,
+      l.observacao,
+      nomesNaoEncontrados.length
+        ? `Colaborador(es) não localizado(s): ${nomesNaoEncontrados.join(", ")}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" — ") || null;
 
   const payload = {
     car_number: l.fornecedor.trim() || "Não informado",
     column_id: null,
     scheduled_at: `${data}T12:00:00.000Z`,
-    origin, destination,
-    origens_extras: [], destinos_extras: [],
+    origin,
+    destination,
+    origens_extras: [],
+    destinos_extras: [],
     notes,
     tipo: "pessoas",
-    bsp, bsp_2: null, bsp_3: null,
-    cliente: null, cliente_2: null, cliente_3: null,
+    bsp,
+    bsp_2: null,
+    bsp_3: null,
+    cliente: null,
+    cliente_2: null,
+    cliente_3: null,
     unidade,
-    status: "realizado", realizado: true, cancelado: false,
-    custo, custo_2: null, custo_3: null,
-    nf: l.nf.trim() || null, motivo: l.motivo.trim() || null, cobrado: parseBooleanoSN(l.cobrado),
-    status_lancamento: l.statusLancamento.trim() || null, faturado: parseBooleanoSimNao(l.faturado),
-    usuario_faturamento: l.usuarioFaturamento.trim() || null, data_faturamento: parseDataBR(l.dataFaturamento),
+    status: "realizado",
+    realizado: true,
+    cancelado: false,
+    custo,
+    custo_2: null,
+    custo_3: null,
+    nf: l.nf.trim() || null,
+    motivo: l.motivo.trim() || null,
+    cobrado: parseBooleanoSN(l.cobrado),
+    status_lancamento: l.statusLancamento.trim() || null,
+    faturado: parseBooleanoSimNao(l.faturado),
+    usuario_faturamento: l.usuarioFaturamento.trim() || null,
+    data_faturamento: parseDataBR(l.dataFaturamento),
   };
   return { payload, colaboradorIds, nomesNaoEncontrados, erro: null, ...base };
 }
 
-function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function ImportCustosTransporteDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const qc = useQueryClient();
   const { data: collaborators = [] } = useCollaboratorsQuery();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1167,10 +1935,16 @@ function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; o
   const onFile = async (file: File) => {
     const buf = await file.arrayBuffer();
     const linhas = parsePlanilhaCustos(buf, "Transporte");
-    if (linhas.length === 0) { notify.error('Nenhuma linha encontrada na aba "Transporte" da planilha.'); return; }
+    if (linhas.length === 0) {
+      notify.error('Nenhuma linha encontrada na aba "Transporte" da planilha.');
+      return;
+    }
     const rows = linhas.map((l) => buildTransportRow(l, collabByName));
     const validasIniciais = rows.filter((r) => !r.erro && r.payload);
-    if (validasIniciais.length === 0) { setPreview(rows); return; }
+    if (validasIniciais.length === 0) {
+      setPreview(rows);
+      return;
+    }
 
     // Transporte já tem cartões criados manualmente, muitos deles já com bastante coisa
     // preenchida (tags, materiais, observações) — antes de criar cartão novo, procura se já
@@ -1182,10 +1956,15 @@ function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; o
 
     const { data: existentes, error } = await supabase
       .from("transport_trips")
-      .select("id, scheduled_at, nf, motivo, cobrado, status_lancamento, faturado, usuario_faturamento, data_faturamento, custo, collabs:transport_trip_collaborators(collaborator_id)")
+      .select(
+        "id, scheduled_at, nf, motivo, cobrado, status_lancamento, faturado, usuario_faturamento, data_faturamento, custo, collabs:transport_trip_collaborators(collaborator_id)",
+      )
       .gte("scheduled_at", `${minData}T00:00:00.000Z`)
       .lte("scheduled_at", `${maxData}T23:59:59.999Z`);
-    if (error) { notify.error(error.message); return; }
+    if (error) {
+      notify.error(error.message);
+      return;
+    }
 
     const porDataColaborador = new Map<string, any>();
     (existentes ?? []).forEach((t: any) => {
@@ -1199,7 +1978,9 @@ function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; o
     const enriquecidas = rows.map((r): ParsedTransporteRow => {
       if (r.erro || !r.payload) return r;
       const dia = String(r.payload.scheduled_at).slice(0, 10);
-      const match = r.colaboradorIds.map((cid) => porDataColaborador.get(`${dia}::${cid}`)).find((t) => t);
+      const match = r.colaboradorIds
+        .map((cid) => porDataColaborador.get(`${dia}::${cid}`))
+        .find((t) => t);
       if (!match) return { ...r, acao: "cria" };
       const camposParaAtualizar: Record<string, unknown> = {};
       CAMPOS_CUSTO_ATUALIZAVEIS.forEach((campo) => {
@@ -1208,14 +1989,21 @@ function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; o
         }
       });
       const temMudanca = Object.keys(camposParaAtualizar).length > 0;
-      return { ...r, acao: temMudanca ? "atualiza" : "sem_mudanca", tripIdExistente: match.id, camposParaAtualizar };
+      return {
+        ...r,
+        acao: temMudanca ? "atualiza" : "sem_mudanca",
+        tripIdExistente: match.id,
+        camposParaAtualizar,
+      };
     });
     setPreview(enriquecidas);
   };
 
   const validas = preview?.filter((p) => !p.erro) ?? [];
   const invalidas = preview?.filter((p) => p.erro) ?? [];
-  const nomesNaoEncontradosUnicos = Array.from(new Set(validas.flatMap((p) => p.nomesNaoEncontrados))).sort();
+  const nomesNaoEncontradosUnicos = Array.from(
+    new Set(validas.flatMap((p) => p.nomesNaoEncontrados)),
+  ).sort();
   const paraCriar = validas.filter((p) => p.acao === "cria");
   const paraAtualizar = validas.filter((p) => p.acao === "atualiza");
   const semMudanca = validas.filter((p) => p.acao === "sem_mudanca");
@@ -1226,21 +2014,31 @@ function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; o
       const BATCH = 500;
       for (let i = 0; i < paraCriar.length; i += BATCH) {
         const lote = paraCriar.slice(i, i + BATCH);
-        const { data, error } = await supabase.from("transport_trips").insert(lote.map((r) => r.payload)).select("id");
+        const { data, error } = await supabase
+          .from("transport_trips")
+          .insert(lote.map((r) => r.payload))
+          .select("id");
         if (error) throw error;
         const collabRows: { trip_id: string; collaborator_id: string }[] = [];
         (data ?? []).forEach((row: { id: string }, idx: number) => {
-          lote[idx].colaboradorIds.forEach((cid) => collabRows.push({ trip_id: row.id, collaborator_id: cid }));
+          lote[idx].colaboradorIds.forEach((cid) =>
+            collabRows.push({ trip_id: row.id, collaborator_id: cid }),
+          );
         });
         if (collabRows.length) {
-          const { error: ce } = await supabase.from("transport_trip_collaborators").insert(collabRows);
+          const { error: ce } = await supabase
+            .from("transport_trip_collaborators")
+            .insert(collabRows);
           if (ce) throw ce;
         }
         setProgress({ done: Math.min(i + BATCH, paraCriar.length), total });
       }
       for (let i = 0; i < paraAtualizar.length; i++) {
         const r = paraAtualizar[i];
-        const { error } = await supabase.from("transport_trips").update(r.camposParaAtualizar).eq("id", r.tripIdExistente);
+        const { error } = await supabase
+          .from("transport_trips")
+          .update(r.camposParaAtualizar)
+          .eq("id", r.tripIdExistente);
         if (error) throw error;
         setProgress({ done: paraCriar.length + i + 1, total });
       }
@@ -1248,51 +2046,102 @@ function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; o
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
       notify.success(
-        `${paraCriar.length} cartão(ões) novo(s), ${paraAtualizar.length} completado(s)`
-        + (semMudanca.length ? `, ${semMudanca.length} já estavam completos.` : "."),
+        `${paraCriar.length} cartão(ões) novo(s), ${paraAtualizar.length} completado(s)` +
+          (semMudanca.length ? `, ${semMudanca.length} já estavam completos.` : "."),
       );
-      setPreview(null); setProgress(null); onOpenChange(false);
+      setPreview(null);
+      setProgress(null);
+      onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
   });
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!importar.isPending) { onOpenChange(o); if (!o) { setPreview(null); setProgress(null); } } }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!importar.isPending) {
+          onOpenChange(o);
+          if (!o) {
+            setPreview(null);
+            setProgress(null);
+          }
+        }
+      }}
+    >
       <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Importar planilha de custos — Transporte</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>Importar planilha de custos — Transporte</DialogTitle>
+        </DialogHeader>
         {!preview ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Selecione o arquivo "Relatorio_Custos_Stepup..." — cada linha da aba "Transporte" primeiro tenta
-              completar um cartão já existente (mesma data + colaborador); só cria cartão novo quando não encontra nenhum.
+              Selecione o arquivo "Relatorio_Custos_Stepup..." — cada linha da aba "Transporte"
+              primeiro tenta completar um cartão já existente (mesma data + colaborador); só cria
+              cartão novo quando não encontra nenhum.
             </p>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-            <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Escolher arquivo</Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+            />
+            <Button variant="outline" onClick={() => fileRef.current?.click()}>
+              <Upload className="mr-2 h-4 w-4" />
+              Escolher arquivo
+            </Button>
           </div>
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Linhas na planilha</p><p className="text-xl font-semibold">{preview.length}</p></Card>
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Cartões novos</p><p className="text-xl font-semibold text-success">{paraCriar.length}</p></Card>
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Cartões completados</p><p className="text-xl font-semibold text-sky-600">{paraAtualizar.length}</p></Card>
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Já completos</p><p className="text-xl font-semibold text-muted-foreground">{semMudanca.length}</p></Card>
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Com erro</p><p className="text-xl font-semibold text-destructive">{invalidas.length}</p></Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Linhas na planilha</p>
+                <p className="text-xl font-semibold">{preview.length}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Cartões novos</p>
+                <p className="text-xl font-semibold text-success">{paraCriar.length}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Cartões completados</p>
+                <p className="text-xl font-semibold text-sky-600">{paraAtualizar.length}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Já completos</p>
+                <p className="text-xl font-semibold text-muted-foreground">{semMudanca.length}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Com erro</p>
+                <p className="text-xl font-semibold text-destructive">{invalidas.length}</p>
+              </Card>
             </div>
             {nomesNaoEncontradosUnicos.length > 0 && (
               <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
-                <p className="mb-1 flex items-center gap-1.5 font-medium text-warning-foreground"><AlertTriangle className="h-3.5 w-3.5" />{nomesNaoEncontradosUnicos.length} nome(s) não encontrado(s) em Colaboradores (a viagem é importada mesmo assim, com o nome guardado nas observações)</p>
+                <p className="mb-1 flex items-center gap-1.5 font-medium text-warning-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {nomesNaoEncontradosUnicos.length} nome(s) não encontrado(s) em Colaboradores (a
+                  viagem é importada mesmo assim, com o nome guardado nas observações)
+                </p>
                 <p className="text-muted-foreground">{nomesNaoEncontradosUnicos.join(", ")}</p>
               </div>
             )}
             {invalidas.length > 0 && (
               <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                {invalidas.length} linha(s) não serão importadas (data ou custo inválido) — revise a planilha se o número parecer alto.
+                {invalidas.length} linha(s) não serão importadas (data ou custo inválido) — revise a
+                planilha se o número parecer alto.
               </div>
             )}
             <div className="max-h-[40vh] overflow-auto rounded-md border">
               <Table>
                 <TableHeader>
-                  <TableRow><TableHead>Data</TableHead><TableHead>Fornecedor</TableHead><TableHead>Funcionário(s)</TableHead><TableHead>Custo</TableHead><TableHead>Situação</TableHead></TableRow>
+                  <TableRow>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Fornecedor</TableHead>
+                    <TableHead>Funcionário(s)</TableHead>
+                    <TableHead>Custo</TableHead>
+                    <TableHead>Situação</TableHead>
+                  </TableRow>
                 </TableHeader>
                 <TableBody>
                   {preview.slice(0, 200).map((p, i) => (
@@ -1300,23 +2149,49 @@ function ImportCustosTransporteDialog({ open, onOpenChange }: { open: boolean; o
                       <TableCell className="text-xs">{p.data}</TableCell>
                       <TableCell className="text-xs">{p.fornecedor}</TableCell>
                       <TableCell className="text-xs">{p.funcionarios}</TableCell>
-                      <TableCell className="text-xs">{p.custo != null ? fmtMoney(p.custo) : "—"}</TableCell>
                       <TableCell className="text-xs">
-                        {p.erro ? <span className="text-destructive">{p.erro}</span>
-                          : p.acao === "cria" ? <span className="text-success">Cria cartão novo</span>
-                          : p.acao === "atualiza" ? <span className="text-sky-600">Completa cartão existente</span>
-                          : <span className="text-muted-foreground">Cartão já completo</span>}
+                        {p.custo != null ? fmtMoney(p.custo) : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {p.erro ? (
+                          <span className="text-destructive">{p.erro}</span>
+                        ) : p.acao === "cria" ? (
+                          <span className="text-success">Cria cartão novo</span>
+                        ) : p.acao === "atualiza" ? (
+                          <span className="text-sky-600">Completa cartão existente</span>
+                        ) : (
+                          <span className="text-muted-foreground">Cartão já completo</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              {preview.length > 200 && <p className="p-2 text-center text-xs text-muted-foreground">Mostrando as primeiras 200 de {preview.length} linhas — a importação processa todas.</p>}
+              {preview.length > 200 && (
+                <p className="p-2 text-center text-xs text-muted-foreground">
+                  Mostrando as primeiras 200 de {preview.length} linhas — a importação processa
+                  todas.
+                </p>
+              )}
             </div>
-            {progress && <p className="text-xs text-muted-foreground">Importando {progress.done}/{progress.total}...</p>}
+            {progress && (
+              <p className="text-xs text-muted-foreground">
+                Importando {progress.done}/{progress.total}...
+              </p>
+            )}
             <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setPreview(null)} disabled={importar.isPending}>Escolher outro arquivo</Button>
-              <Button onClick={() => importar.mutate()} loading={importar.isPending} disabled={paraCriar.length + paraAtualizar.length === 0}>
+              <Button
+                variant="outline"
+                onClick={() => setPreview(null)}
+                disabled={importar.isPending}
+              >
+                Escolher outro arquivo
+              </Button>
+              <Button
+                onClick={() => importar.mutate()}
+                loading={importar.isPending}
+                disabled={paraCriar.length + paraAtualizar.length === 0}
+              >
                 Confirmar importação ({paraCriar.length + paraAtualizar.length})
               </Button>
             </DialogFooter>
@@ -1338,16 +2213,24 @@ function buildPernas(trips: Trip[]): PernaCusto[] {
   const pernas: PernaCusto[] = [];
   trips.forEach((t) => {
     const slots: [string | null, string | null, number | null][] = [
-      [t.bsp, t.cliente, t.custo], [t.bsp_2, t.cliente_2, t.custo_2], [t.bsp_3, t.cliente_3, t.custo_3],
+      [t.bsp, t.cliente, t.custo],
+      [t.bsp_2, t.cliente_2, t.custo_2],
+      [t.bsp_3, t.cliente_3, t.custo_3],
     ];
     const preenchidos = slots.filter(([bsp, , custo]) => bsp || custo != null);
     if (preenchidos.length === 0) {
-      pernas.push({ trip: t, bsp: "Não informado", cliente: t.cliente ?? clienteDaUnidade(t.unidade) ?? t.unidade ?? "Base", custo: custoTotal(t) ?? 0 });
+      pernas.push({
+        trip: t,
+        bsp: "Não informado",
+        cliente: t.cliente ?? clienteDaUnidade(t.unidade) ?? t.unidade ?? "Base",
+        custo: custoTotal(t) ?? 0,
+      });
       return;
     }
     preenchidos.forEach(([bsp, cliente, custo]) => {
       pernas.push({
-        trip: t, bsp: bsp?.trim() || "Não informado",
+        trip: t,
+        bsp: bsp?.trim() || "Não informado",
         cliente: cliente ?? clienteDaUnidade(t.unidade) ?? t.unidade ?? "Base",
         custo: custo ?? 0,
       });
@@ -1364,33 +2247,54 @@ function CustosTab({ trips }: { trips: Trip[] }) {
   const [importOpen, setImportOpen] = useState(false);
   const { sortColumn, sortDirection, toggleSort } = useTableSort<TripsSortColumn>();
 
-  const filtradas = useMemo(() => trips.filter((t) => {
-    const dia = t.scheduled_at.slice(0, 10);
-    return (!periodoDe || dia >= periodoDe) && (!periodoAte || dia <= periodoAte) &&
-      (filterUnidade === "all" || t.unidade === filterUnidade) &&
-      (filterBsp === "all" || [t.bsp, t.bsp_2, t.bsp_3].includes(filterBsp));
-  }), [trips, periodoDe, periodoAte, filterUnidade, filterBsp]);
+  const filtradas = useMemo(
+    () =>
+      trips.filter((t) => {
+        const dia = t.scheduled_at.slice(0, 10);
+        return (
+          (!periodoDe || dia >= periodoDe) &&
+          (!periodoAte || dia <= periodoAte) &&
+          (filterUnidade === "all" || t.unidade === filterUnidade) &&
+          (filterBsp === "all" || [t.bsp, t.bsp_2, t.bsp_3].includes(filterBsp))
+        );
+      }),
+    [trips, periodoDe, periodoAte, filterUnidade, filterBsp],
+  );
 
-  const ordenadas = useMemo(() => [...filtradas].sort((a, b) => {
-    if (!sortColumn) return b.scheduled_at.localeCompare(a.scheduled_at);
-    const dir = sortDirection === "asc" ? 1 : -1;
-    switch (sortColumn) {
-      case "data": return dir * a.scheduled_at.localeCompare(b.scheduled_at);
-      case "carro": return dir * compareCarNumber(a.car_number, b.car_number);
-      case "unidade": return dir * (a.unidade ?? "").localeCompare(b.unidade ?? "");
-      case "bsp": return dir * (a.bsp ?? "").localeCompare(b.bsp ?? "");
-      case "custo": return dir * ((custoTotal(a) ?? 0) - (custoTotal(b) ?? 0));
-      case "status": return dir * a.status.localeCompare(b.status);
-      default: return 0;
-    }
-  }), [filtradas, sortColumn, sortDirection]);
+  const ordenadas = useMemo(
+    () =>
+      [...filtradas].sort((a, b) => {
+        if (!sortColumn) return b.scheduled_at.localeCompare(a.scheduled_at);
+        const dir = sortDirection === "asc" ? 1 : -1;
+        switch (sortColumn) {
+          case "data":
+            return dir * a.scheduled_at.localeCompare(b.scheduled_at);
+          case "carro":
+            return dir * compareCarNumber(a.car_number, b.car_number);
+          case "unidade":
+            return dir * (a.unidade ?? "").localeCompare(b.unidade ?? "");
+          case "bsp":
+            return dir * (a.bsp ?? "").localeCompare(b.bsp ?? "");
+          case "custo":
+            return dir * ((custoTotal(a) ?? 0) - (custoTotal(b) ?? 0));
+          case "status":
+            return dir * a.status.localeCompare(b.status);
+          default:
+            return 0;
+        }
+      }),
+    [filtradas, sortColumn, sortDirection],
+  );
 
   const unidadeOptions = useMemo(
     () => Array.from(new Set(trips.map((t) => t.unidade).filter((u): u is string => !!u))).sort(),
     [trips],
   );
   const bspOptions = useMemo(
-    () => Array.from(new Set(trips.flatMap((t) => [t.bsp, t.bsp_2, t.bsp_3]).filter((b): b is string => !!b))).sort(),
+    () =>
+      Array.from(
+        new Set(trips.flatMap((t) => [t.bsp, t.bsp_2, t.bsp_3]).filter((b): b is string => !!b)),
+      ).sort(),
     [trips],
   );
 
@@ -1411,8 +2315,11 @@ function CustosTab({ trips }: { trips: Trip[] }) {
           .map(([unidade, porBsp]) => {
             const bsps = Array.from(porBsp.entries())
               .map(([bsp, pernas]) => ({
-                bsp, total: pernas.reduce((a, p) => a + p.custo, 0),
-                itens: [...pernas].sort((a, b) => b.trip.scheduled_at.localeCompare(a.trip.scheduled_at)),
+                bsp,
+                total: pernas.reduce((a, p) => a + p.custo, 0),
+                itens: [...pernas].sort((a, b) =>
+                  b.trip.scheduled_at.localeCompare(a.trip.scheduled_at),
+                ),
               }))
               .sort((a, b) => b.total - a.total);
             return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
@@ -1428,7 +2335,8 @@ function CustosTab({ trips }: { trips: Trip[] }) {
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
     setter((current) => {
       const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -1438,36 +2346,72 @@ function CustosTab({ trips }: { trips: Trip[] }) {
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
-            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Período - de
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              value={periodoDe}
+              onChange={(e) => setPeriodoDe(e.target.value)}
+            />
           </div>
           <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
-            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Período - até
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              min={periodoDe || undefined}
+              value={periodoAte}
+              onChange={(e) => setPeriodoAte(e.target.value)}
+            />
           </div>
           <div className="space-y-0.5 w-44">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Unidade
+            </Label>
             <Select value={filterUnidade} onValueChange={setFilterUnidade}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todas
+                </SelectItem>
+                {unidadeOptions.map((u) => (
+                  <SelectItem key={u} value={u} className="text-xs">
+                    {u}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              BSP
+            </Label>
             <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todos
+                </SelectItem>
+                {bspOptions.map((b) => (
+                  <SelectItem key={b} value={b} className="text-xs">
+                    {b}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
-              <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
+              <Upload className="mr-1.5 h-4 w-4" />
+              Importar planilha de custos
             </Button>
           </div>
         </div>
@@ -1477,21 +2421,37 @@ function CustosTab({ trips }: { trips: Trip[] }) {
         <div className="space-y-2">
           <div className="flex justify-end">
             <Button
-              type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs text-muted-foreground"
               onClick={() => {
                 const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
                 if (tudoAberto) {
                   setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
-                  setCollapsedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
+                  setCollapsedUnidades(
+                    new Set(
+                      consolidado.flatMap((c) =>
+                        c.unidades.map((u) => `${c.cliente}::${u.unidade}`),
+                      ),
+                    ),
+                  );
                 } else {
-                  setCollapsedClientes(new Set()); setCollapsedUnidades(new Set());
+                  setCollapsedClientes(new Set());
+                  setCollapsedUnidades(new Set());
                 }
               }}
             >
               {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
-                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+                <>
+                  <ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />
+                  Recolher tudo
+                </>
               ) : (
-                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+                <>
+                  <ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />
+                  Expandir tudo
+                </>
               )}
             </Button>
           </div>
@@ -1501,83 +2461,137 @@ function CustosTab({ trips }: { trips: Trip[] }) {
               return (
                 <div key={c.cliente} className="border-b last:border-b-0">
                   <button
-                    type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                    aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                    aria-expanded={clienteAberto}
+                    onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
                   >
                     <span className="flex min-w-0 items-center gap-2 font-semibold">
-                      {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                      <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{c.cliente}</span>
+                      {clienteAberto ? (
+                        <ChevronDown className="h-4 w-4 shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0" />
+                      )}
+                      <Building2 className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="truncate">{c.cliente}</span>
                     </span>
                     <span className="shrink-0 text-sm font-semibold">{fmtMoney(c.total)}</span>
                   </button>
-                  {clienteAberto && c.unidades.map((u) => {
-                    const unidadeKey = `${c.cliente}::${u.unidade}`;
-                    const unidadeAberta = !collapsedUnidades.has(unidadeKey);
-                    return (
-                      <div key={unidadeKey}>
-                        <button
-                          type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
-                          aria-expanded={unidadeAberta} onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
-                        >
-                          <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
-                            {unidadeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                            <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{u.unidade}</span>
-                            {u.bsps.some((b) => b.bsp !== "Não informado") && (
-                              <span className="text-xs font-normal text-muted-foreground">({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)</span>
-                            )}
-                          </span>
-                          <span className="shrink-0 text-sm font-medium">{fmtMoney(u.total)}</span>
-                        </button>
-                        {unidadeAberta && u.bsps.map((b) => {
-                          if (b.bsp === "Não informado") {
-                            return (
-                              <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
-                                {b.itens.map((p) => (
-                                  <div key={`${p.trip.id}-${p.bsp}`} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
-                                    <div className="min-w-0">
-                                      <p className="truncate font-medium">{p.trip.car_number}</p>
-                                      <p className="text-muted-foreground">{fmtDate(p.trip.scheduled_at)} · {p.trip.origin} → {p.trip.destination}{p.trip.motivo ? ` · ${p.trip.motivo}` : ""}</p>
-                                    </div>
-                                    <span className="shrink-0 font-semibold">{fmtMoney(p.custo)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          }
-                          const bspKey = `${unidadeKey}::${b.bsp}`;
-                          const bspAberto = expandedBsps.has(bspKey);
-                          return (
-                            <div key={bspKey}>
-                              <button
-                                type="button" className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
-                                aria-expanded={bspAberto} onClick={() => toggleSet(setExpandedBsps, bspKey)}
-                              >
-                                <span className="flex min-w-0 items-center gap-2">
-                                  {bspAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                                  <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{b.bsp}</span>
-                                  <span className="text-xs font-normal text-muted-foreground">({b.itens.length})</span>
-                                </span>
-                                <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
-                              </button>
-                              {bspAberto && (
-                                <div className="divide-y border-t bg-emerald-50/40 pl-20">
-                                  {b.itens.map((p) => (
-                                    <div key={`${p.trip.id}-${p.bsp}`} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
-                                      <div className="min-w-0">
-                                        <p className="truncate font-medium">{p.trip.car_number}</p>
-                                        <p className="text-muted-foreground">{fmtDate(p.trip.scheduled_at)} · {p.trip.origin} → {p.trip.destination}{p.trip.motivo ? ` · ${p.trip.motivo}` : ""}</p>
-                                      </div>
-                                      <span className="shrink-0 font-semibold">{fmtMoney(p.custo)}</span>
-                                    </div>
-                                  ))}
-                                </div>
+                  {clienteAberto &&
+                    c.unidades.map((u) => {
+                      const unidadeKey = `${c.cliente}::${u.unidade}`;
+                      const unidadeAberta = !collapsedUnidades.has(unidadeKey);
+                      return (
+                        <div key={unidadeKey}>
+                          <button
+                            type="button"
+                            className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
+                            aria-expanded={unidadeAberta}
+                            onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
+                          >
+                            <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
+                              {unidadeAberta ? (
+                                <ChevronDown className="h-4 w-4 shrink-0" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 shrink-0" />
                               )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
+                              <Ship className="h-4 w-4 shrink-0 text-sky-700" />
+                              <span className="truncate">{u.unidade}</span>
+                              {u.bsps.some((b) => b.bsp !== "Não informado") && (
+                                <span className="text-xs font-normal text-muted-foreground">
+                                  ({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)
+                                </span>
+                              )}
+                            </span>
+                            <span className="shrink-0 text-sm font-medium">
+                              {fmtMoney(u.total)}
+                            </span>
+                          </button>
+                          {unidadeAberta &&
+                            u.bsps.map((b) => {
+                              if (b.bsp === "Não informado") {
+                                return (
+                                  <div
+                                    key={`${unidadeKey}::sem-bsp`}
+                                    className="divide-y border-t bg-emerald-50/40 pl-16"
+                                  >
+                                    {b.itens.map((p) => (
+                                      <div
+                                        key={`${p.trip.id}-${p.bsp}`}
+                                        className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs"
+                                      >
+                                        <div className="min-w-0">
+                                          <p className="truncate font-medium">
+                                            {p.trip.car_number}
+                                          </p>
+                                          <p className="text-muted-foreground">
+                                            {fmtDate(p.trip.scheduled_at)} · {p.trip.origin} →{" "}
+                                            {p.trip.destination}
+                                            {p.trip.motivo ? ` · ${p.trip.motivo}` : ""}
+                                          </p>
+                                        </div>
+                                        <span className="shrink-0 font-semibold">
+                                          {fmtMoney(p.custo)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              const bspKey = `${unidadeKey}::${b.bsp}`;
+                              const bspAberto = expandedBsps.has(bspKey);
+                              return (
+                                <div key={bspKey}>
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
+                                    aria-expanded={bspAberto}
+                                    onClick={() => toggleSet(setExpandedBsps, bspKey)}
+                                  >
+                                    <span className="flex min-w-0 items-center gap-2">
+                                      {bspAberto ? (
+                                        <ChevronDown className="h-4 w-4 shrink-0" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4 shrink-0" />
+                                      )}
+                                      <Layers3 className="h-4 w-4 shrink-0 text-sky-600" />
+                                      <span className="truncate">{b.bsp}</span>
+                                      <span className="text-xs font-normal text-muted-foreground">
+                                        ({b.itens.length})
+                                      </span>
+                                    </span>
+                                    <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
+                                  </button>
+                                  {bspAberto && (
+                                    <div className="divide-y border-t bg-emerald-50/40 pl-20">
+                                      {b.itens.map((p) => (
+                                        <div
+                                          key={`${p.trip.id}-${p.bsp}`}
+                                          className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs"
+                                        >
+                                          <div className="min-w-0">
+                                            <p className="truncate font-medium">
+                                              {p.trip.car_number}
+                                            </p>
+                                            <p className="text-muted-foreground">
+                                              {fmtDate(p.trip.scheduled_at)} · {p.trip.origin} →{" "}
+                                              {p.trip.destination}
+                                              {p.trip.motivo ? ` · ${p.trip.motivo}` : ""}
+                                            </p>
+                                          </div>
+                                          <span className="shrink-0 font-semibold">
+                                            {fmtMoney(p.custo)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      );
+                    })}
                 </div>
               );
             })}
@@ -1589,31 +2603,77 @@ function CustosTab({ trips }: { trips: Trip[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Data" column="data" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Carro/Fornecedor" column="carro" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead
+                label="Data"
+                column="data"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Carro/Fornecedor"
+                column="carro"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Unidade"
+                column="unidade"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="BSP"
+                column="bsp"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
               <TableHead>NF</TableHead>
               <TableHead>Motivo</TableHead>
-              <SortableHead label="Custo" column="custo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead
+                label="Custo"
+                column="custo"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="text-right"
+              />
+              <SortableHead
+                label="Status"
+                column="status"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
             {ordenadas.length === 0 ? (
               <EmptyStateRow colSpan={8} icon={Wallet} title="Nenhum custo encontrado no período" />
-            ) : ordenadas.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
-                <TableCell>{t.car_number}</TableCell>
-                <TableCell>{(t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ?? "—"}</TableCell>
-                <TableCell>{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
-                <TableCell>{t.nf ?? "—"}</TableCell>
-                <TableCell>{t.motivo ?? "—"}</TableCell>
-                <TableCell className="text-right font-medium">{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>
-                <TableCell>{STATUS_LABEL[t.status]}</TableCell>
-              </TableRow>
-            ))}
+            ) : (
+              ordenadas.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
+                  <TableCell>{t.car_number}</TableCell>
+                  <TableCell>
+                    {(t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ??
+                      "—"}
+                  </TableCell>
+                  <TableCell>
+                    {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}
+                  </TableCell>
+                  <TableCell>{t.nf ?? "—"}</TableCell>
+                  <TableCell>{t.motivo ?? "—"}</TableCell>
+                  <TableCell className="text-right font-medium">
+                    {custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}
+                  </TableCell>
+                  <TableCell>{STATUS_LABEL[t.status]}</TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </Card>
@@ -1629,19 +2689,43 @@ function NewColumnDialog() {
   const [name, setName] = useState("");
   const create = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("transport_columns").insert({ name: name.trim(), position: 999 });
+      const { error } = await supabase
+        .from("transport_columns")
+        .insert({ name: name.trim(), position: 999 });
       if (error) throw error;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["transport_columns"] }); setName(""); setOpen(false); notify.success("Coluna criada"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transport_columns"] });
+      setName("");
+      setOpen(false);
+      notify.success("Coluna criada");
+    },
     onError: (e: any) => notify.error(e.message),
   });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}><Plus className="mr-1 h-4 w-4" />Nova coluna</Button>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <Plus className="mr-1 h-4 w-4" />
+        Nova coluna
+      </Button>
       <DialogContent>
-        <DialogHeader><DialogTitle>Nova coluna</DialogTitle></DialogHeader>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome da coluna" />
-        <DialogFooter><Button onClick={() => create.mutate()} disabled={!name.trim()} loading={create.isPending}>Criar</Button></DialogFooter>
+        <DialogHeader>
+          <DialogTitle>Nova coluna</DialogTitle>
+        </DialogHeader>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nome da coluna"
+        />
+        <DialogFooter>
+          <Button
+            onClick={() => create.mutate()}
+            disabled={!name.trim()}
+            loading={create.isPending}
+          >
+            Criar
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -1668,15 +2752,24 @@ function TransportPage() {
   const qc = useQueryClient();
   const setStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: TripStatus }) => {
-      const { error } = await supabase.from("transport_trips").update({
-        status, realizado: status === "realizado", cancelado: status === "cancelado",
-      }).eq("id", id);
+      const { error } = await supabase
+        .from("transport_trips")
+        .update({
+          status,
+          realizado: status === "realizado",
+          cancelado: status === "cancelado",
+        })
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["transport_trips"] }),
   });
 
-  const openEdit = (t: Trip | null) => { setEditing(t); setInstanceKey((k) => k + 1); setDialogOpen(true); };
+  const openEdit = (t: Trip | null) => {
+    setEditing(t);
+    setInstanceKey((k) => k + 1);
+    setDialogOpen(true);
+  };
   const openDuplicate = (t: Trip) => {
     const clone: Trip = { ...t, id: "" };
     setEditing(clone);
@@ -1705,13 +2798,17 @@ function TransportPage() {
           <Skeleton className="h-9 w-36" />
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-8 w-32" />)}
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-8 w-32" />
+          ))}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="p-3 space-y-2">
               <Skeleton className="h-4 w-24" />
-              {Array.from({ length: 3 }).map((_, j) => <Skeleton key={j} className="h-16 w-full" />)}
+              {Array.from({ length: 3 }).map((_, j) => (
+                <Skeleton key={j} className="h-16 w-full" />
+              ))}
             </Card>
           ))}
         </div>
@@ -1724,12 +2821,22 @@ function TransportPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Transporte &amp; Rotas</h1>
-          {!isVisitante && <p className="text-sm text-muted-foreground">Kanban de viagens, programação do dia, quadro detalhado e linha do tempo.</p>}
+          {!isVisitante && (
+            <p className="text-sm text-muted-foreground">
+              Kanban de viagens, programação do dia, quadro detalhado e linha do tempo.
+            </p>
+          )}
         </div>
         {!isVisitante && tab !== "solicitacoes" && tab !== "custos" && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="mr-2 h-4 w-4" />Importar planilha de custos</Button>
-            <Button onClick={() => openEdit(null)}><Plus className="mr-2 h-4 w-4" />Nova viagem</Button>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Importar planilha de custos
+            </Button>
+            <Button onClick={() => openEdit(null)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nova viagem
+            </Button>
           </div>
         )}
       </div>
@@ -1753,13 +2860,41 @@ function TransportPage() {
           <SolicitacoesTab />
         </TabsContent>
         <TabsContent value="kanban" className="mt-4">
-          <KanbanView columns={cols} trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} onStatus={(id: string, status: TripStatus) => setStatus.mutate({ id, status })} />
+          <KanbanView
+            columns={cols}
+            trips={allTrips}
+            tagsById={tagsById}
+            collabsById={collabsById}
+            materialsById={materialsById}
+            onEdit={openEdit}
+            onDuplicate={openDuplicate}
+            onStatus={(id: string, status: TripStatus) => setStatus.mutate({ id, status })}
+          />
         </TabsContent>
         <TabsContent value="day" className="mt-4">
-          <DayView trips={allTrips} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} />
+          <DayView
+            trips={allTrips}
+            tagsById={tagsById}
+            collabsById={collabsById}
+            materialsById={materialsById}
+            onEdit={openEdit}
+            onDuplicate={openDuplicate}
+          />
         </TabsContent>
         <TabsContent value="detail" className="mt-4">
-          <DetailView trips={allTrips} tags={tags} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onEdit={openEdit} onDuplicate={openDuplicate} initialTag={search.tag} initialStatus={search.status} initialCliente={search.cliente} initialTipo={search.tipo} />
+          <DetailView
+            trips={allTrips}
+            tags={tags}
+            tagsById={tagsById}
+            collabsById={collabsById}
+            materialsById={materialsById}
+            onEdit={openEdit}
+            onDuplicate={openDuplicate}
+            initialTag={search.tag}
+            initialStatus={search.status}
+            initialCliente={search.cliente}
+            initialTipo={search.tipo}
+          />
         </TabsContent>
         <TabsContent value="timeline" className="mt-4">
           <TimelineView trips={allTrips} tagsById={tagsById} />
@@ -1772,7 +2907,13 @@ function TransportPage() {
         </TabsContent>
       </Tabs>
 
-      <TripDialog key={instanceKey} trip={editing} columns={cols} open={dialogOpen} onOpenChange={setDialogOpen} />
+      <TripDialog
+        key={instanceKey}
+        trip={editing}
+        columns={cols}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
       <ImportCustosTransporteDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
@@ -1781,10 +2922,10 @@ function TransportPage() {
 // ── Tipos de transporte ───────────────────────────────────────────────────────
 
 const TIPO_LABELS: Record<string, string> = {
-  uber:         "Uber",
+  uber: "Uber",
   veiculo_step: "Veículo STEP",
-  locacao_carro:"Locação de Carro",
-  future:       "Future",
+  locacao_carro: "Locação de Carro",
+  future: "Future",
 };
 
 // ── Solicitações tab ──────────────────────────────────────────────────────────
@@ -1803,8 +2944,23 @@ type Solicitacao = {
   notes: string | null;
 };
 
-function SolicitacaoCard({ s, onUpdate, pendingStatus, canManage = true }: { s: Solicitacao; onUpdate: (args: { id: string; status: string }) => void; pendingStatus?: string; canManage?: boolean }) {
-  const borderColor = s.status === "programado" ? "border-l-green-500" : s.status === "cancelado" ? "border-l-destructive" : "border-l-amber-400";
+function SolicitacaoCard({
+  s,
+  onUpdate,
+  pendingStatus,
+  canManage = true,
+}: {
+  s: Solicitacao;
+  onUpdate: (args: { id: string; status: string }) => void;
+  pendingStatus?: string;
+  canManage?: boolean;
+}) {
+  const borderColor =
+    s.status === "programado"
+      ? "border-l-green-500"
+      : s.status === "cancelado"
+        ? "border-l-destructive"
+        : "border-l-amber-400";
   return (
     <Card className={`p-4 border-l-4 ${borderColor}`}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -1821,7 +2977,10 @@ function SolicitacaoCard({ s, onUpdate, pendingStatus, canManage = true }: { s: 
           )}
           <div className="flex flex-wrap gap-1 pt-0.5">
             {(s.tipos_transporte ?? []).map((t) => (
-              <span key={t} className="text-[11px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-800 font-medium">
+              <span
+                key={t}
+                className="text-[11px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-800 font-medium"
+              >
                 {TIPO_LABELS[t] ?? t}
               </span>
             ))}
@@ -1831,8 +2990,21 @@ function SolicitacaoCard({ s, onUpdate, pendingStatus, canManage = true }: { s: 
         <div className="flex items-center gap-2 shrink-0">
           {s.status === "pendente" && canManage && (
             <>
-              <Button size="sm" onClick={() => onUpdate({ id: s.id, status: "programado" })} loading={pendingStatus === "programado"}>Programar</Button>
-              <Button size="sm" variant="outline" onClick={() => onUpdate({ id: s.id, status: "cancelado" })} loading={pendingStatus === "cancelado"}>Cancelar</Button>
+              <Button
+                size="sm"
+                onClick={() => onUpdate({ id: s.id, status: "programado" })}
+                loading={pendingStatus === "programado"}
+              >
+                Programar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onUpdate({ id: s.id, status: "cancelado" })}
+                loading={pendingStatus === "cancelado"}
+              >
+                Cancelar
+              </Button>
             </>
           )}
           {s.status === "pendente" && !canManage && (
@@ -1841,9 +3013,7 @@ function SolicitacaoCard({ s, onUpdate, pendingStatus, canManage = true }: { s: 
           {s.status === "programado" && (
             <span className="text-xs text-green-700 font-semibold">&#10003; Programado</span>
           )}
-          {s.status === "cancelado" && (
-            <span className="text-xs text-destructive">Cancelado</span>
-          )}
+          {s.status === "cancelado" && <span className="text-xs text-destructive">Cancelado</span>}
         </div>
       </div>
     </Card>
@@ -1851,26 +3021,34 @@ function SolicitacaoCard({ s, onUpdate, pendingStatus, canManage = true }: { s: 
 }
 
 const TIPOS_TRANSP = [
-  { id: "uber",          label: "Uber" },
-  { id: "veiculo_step",  label: "Veículo STEP" },
+  { id: "uber", label: "Uber" },
+  { id: "veiculo_step", label: "Veículo STEP" },
   { id: "locacao_carro", label: "Locação de Carro" },
-  { id: "future",        label: "Future" },
+  { id: "future", label: "Future" },
 ] as const;
 
-function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+function CriarSolicitacaoDialog({
+  open,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [solicitante, setSolicitante] = useState("");
-  const [setor, setSetor]             = useState("");
+  const [setor, setSetor] = useState("");
   const [centroCusto, setCentroCusto] = useState("");
-  const [dataHora, setDataHora]       = useState("");
-  const [origem, setOrigem]           = useState("");
-  const [destino, setDestino]         = useState("");
-  const [tipos, setTipos]             = useState<string[]>([]);
-  const [notes, setNotes]             = useState("");
+  const [dataHora, setDataHora] = useState("");
+  const [origem, setOrigem] = useState("");
+  const [destino, setDestino] = useState("");
+  const [tipos, setTipos] = useState<string[]>([]);
+  const [notes, setNotes] = useState("");
 
   const toggle = (id: string) =>
-    setTipos((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]);
+    setTipos((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
 
   const create = useMutation({
     mutationFn: async () => {
@@ -1893,8 +3071,14 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
     onSuccess: () => {
       notify.success("Solicitação criada.");
       qc.invalidateQueries({ queryKey: ["transport-solicitations"] });
-      setSolicitante(""); setSetor(""); setCentroCusto(""); setDataHora("");
-      setOrigem(""); setDestino(""); setTipos([]); setNotes("");
+      setSolicitante("");
+      setSetor("");
+      setCentroCusto("");
+      setDataHora("");
+      setOrigem("");
+      setDestino("");
+      setTipos([]);
+      setNotes("");
       onSaved();
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao criar."),
@@ -1903,41 +3087,70 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Nova Solicitação de Transporte</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>Nova Solicitação de Transporte</DialogTitle>
+        </DialogHeader>
         <div className="space-y-3 py-1">
           <div className="space-y-1">
             <Label className="text-xs">Solicitante *</Label>
-            <Input placeholder="Nome do solicitante" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} />
+            <Input
+              placeholder="Nome do solicitante"
+              value={solicitante}
+              onChange={(e) => setSolicitante(e.target.value)}
+            />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs">Setor *</Label>
-              <Input placeholder="Ex.: Operações" value={setor} onChange={(e) => setSetor(e.target.value)} />
+              <Input
+                placeholder="Ex.: Operações"
+                value={setor}
+                onChange={(e) => setSetor(e.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Centro de Custo *</Label>
-              <Input placeholder="Ex.: CC-001" value={centroCusto} onChange={(e) => setCentroCusto(e.target.value)} />
+              <Input
+                placeholder="Ex.: CC-001"
+                value={centroCusto}
+                onChange={(e) => setCentroCusto(e.target.value)}
+              />
             </div>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Data / Hora de programação *</Label>
-            <Input type="datetime-local" value={dataHora} onChange={(e) => setDataHora(e.target.value)} />
+            <Input
+              type="datetime-local"
+              value={dataHora}
+              onChange={(e) => setDataHora(e.target.value)}
+            />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs">Origem</Label>
-              <Input placeholder="Ex.: Macaé" value={origem} onChange={(e) => setOrigem(e.target.value)} />
+              <Input
+                placeholder="Ex.: Macaé"
+                value={origem}
+                onChange={(e) => setOrigem(e.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Destino</Label>
-              <Input placeholder="Ex.: Rio de Janeiro" value={destino} onChange={(e) => setDestino(e.target.value)} />
+              <Input
+                placeholder="Ex.: Rio de Janeiro"
+                value={destino}
+                onChange={(e) => setDestino(e.target.value)}
+              />
             </div>
           </div>
           <div className="space-y-2">
             <Label className="text-xs">Tipo de transporte *</Label>
             <div className="grid grid-cols-2 gap-2">
               {TIPOS_TRANSP.map(({ id, label }) => (
-                <label key={id} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <label
+                  key={id}
+                  className="flex items-center gap-2 text-sm cursor-pointer select-none"
+                >
                   <input
                     type="checkbox"
                     className="h-3.5 w-3.5 rounded border accent-primary cursor-pointer"
@@ -1951,11 +3164,17 @@ function CriarSolicitacaoDialog({ open, onClose, onSaved }: { open: boolean; onC
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Observações</Label>
-            <Input placeholder="Opcional" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Input
+              placeholder="Opcional"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
           <Button onClick={() => create.mutate()} loading={create.isPending}>
             Criar solicitação
           </Button>
@@ -2002,11 +3221,16 @@ function SolicitacoesTab() {
     onError: () => notify.error("Erro ao atualizar."),
   });
 
-  const pending    = solicitations.filter((s) => s.status === "pendente");
+  const pending = solicitations.filter((s) => s.status === "pendente");
   const programmed = solicitations.filter((s) => s.status === "programado");
-  const cancelled  = solicitations.filter((s) => s.status === "cancelado");
+  const cancelled = solicitations.filter((s) => s.status === "cancelado");
 
-  if (isLoading) return <div className="flex justify-center py-12"><Plus className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (isLoading)
+    return (
+      <div className="flex justify-center py-12">
+        <Plus className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
 
   return (
     <div className="space-y-4">
@@ -2024,14 +3248,17 @@ function SolicitacoesTab() {
 
       {solicitations.length === 0 ? (
         <Card className="p-10 text-center text-muted-foreground text-sm">
-          Clique em "Nova solicitação" para registrar manualmente, ou aguarde pedidos dos colaboradores.
+          Clique em "Nova solicitação" para registrar manualmente, ou aguarde pedidos dos
+          colaboradores.
         </Card>
       ) : (
         <div className="space-y-6">
           {pending.length > 0 && (
             <div>
               <h3 className="mb-3 text-sm font-semibold text-amber-700 flex items-center gap-2">
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-xs font-bold">{pending.length}</span>
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-xs font-bold">
+                  {pending.length}
+                </span>
                 Pendentes
               </h3>
               <div className="space-y-2">
@@ -2041,7 +3268,11 @@ function SolicitacoesTab() {
                     s={s}
                     canManage={canManage}
                     onUpdate={(args) => updateStatus.mutate(args)}
-                    pendingStatus={updateStatus.isPending && updateStatus.variables?.id === s.id ? updateStatus.variables.status : undefined}
+                    pendingStatus={
+                      updateStatus.isPending && updateStatus.variables?.id === s.id
+                        ? updateStatus.variables.status
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -2049,20 +3280,32 @@ function SolicitacoesTab() {
           )}
           {programmed.length > 0 && (
             <div>
-              <h3 className="mb-3 text-sm font-semibold text-green-700">Programadas ({programmed.length})</h3>
+              <h3 className="mb-3 text-sm font-semibold text-green-700">
+                Programadas ({programmed.length})
+              </h3>
               <div className="space-y-2">
                 {programmed.map((s) => (
-                  <SolicitacaoCard key={s.id} s={s} onUpdate={(args) => updateStatus.mutate(args)} />
+                  <SolicitacaoCard
+                    key={s.id}
+                    s={s}
+                    onUpdate={(args) => updateStatus.mutate(args)}
+                  />
                 ))}
               </div>
             </div>
           )}
           {cancelled.length > 0 && (
             <div>
-              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">Canceladas ({cancelled.length})</h3>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+                Canceladas ({cancelled.length})
+              </h3>
               <div className="space-y-2">
                 {cancelled.map((s) => (
-                  <SolicitacaoCard key={s.id} s={s} onUpdate={(args) => updateStatus.mutate(args)} />
+                  <SolicitacaoCard
+                    key={s.id}
+                    s={s}
+                    onUpdate={(args) => updateStatus.mutate(args)}
+                  />
                 ))}
               </div>
             </div>
@@ -2079,18 +3322,31 @@ function SolicitacoesTab() {
   );
 }
 
-function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEdit, onStatus, onDuplicate }: any) {
+function KanbanView({
+  columns,
+  trips,
+  tagsById,
+  collabsById,
+  materialsById,
+  onEdit,
+  onStatus,
+  onDuplicate,
+}: any) {
   const byCol = useMemo(() => {
     const m = new Map<string, Trip[]>();
     for (const c of columns as Column[]) m.set(c.id, []);
-    for (const t of trips as Trip[]) if (t.column_id && m.has(t.column_id)) m.get(t.column_id)!.push(t);
-    for (const list of m.values()) list.sort((a, b) => compareCarNumber(a.car_number, b.car_number));
+    for (const t of trips as Trip[])
+      if (t.column_id && m.has(t.column_id)) m.get(t.column_id)!.push(t);
+    for (const list of m.values())
+      list.sort((a, b) => compareCarNumber(a.car_number, b.car_number));
     return m;
   }, [columns, trips]);
 
   return (
     <div>
-      <div className="mb-3 flex justify-end"><NewColumnDialog /></div>
+      <div className="mb-3 flex justify-end">
+        <NewColumnDialog />
+      </div>
       <div className="flex gap-4 overflow-x-auto pb-2">
         {(columns as Column[]).map((c) => (
           <div key={c.id} className="min-w-[280px] flex-1">
@@ -2100,7 +3356,16 @@ function KanbanView({ columns, trips, tagsById, collabsById, materialsById, onEd
             </div>
             <div className="space-y-2 rounded-lg bg-muted/30 p-2 min-h-[200px]">
               {(byCol.get(c.id) ?? []).map((t) => (
-                <TripCard key={t.id} trip={t} tagsById={tagsById} collabsById={collabsById} materialsById={materialsById} onClick={() => onEdit(t)} onStatus={(s) => onStatus(t.id, s)} onDuplicate={onDuplicate ? () => onDuplicate(t) : undefined} />
+                <TripCard
+                  key={t.id}
+                  trip={t}
+                  tagsById={tagsById}
+                  collabsById={collabsById}
+                  materialsById={materialsById}
+                  onClick={() => onEdit(t)}
+                  onStatus={(s) => onStatus(t.id, s)}
+                  onDuplicate={onDuplicate ? () => onDuplicate(t) : undefined}
+                />
               ))}
             </div>
           </div>
@@ -2115,10 +3380,16 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
   const [to, setTo] = useState(todayISO());
   const singleDay = from === to;
 
-  const rangeTrips = useMemo(() => (trips as Trip[]).filter((t) => {
-    const d = t.scheduled_at.slice(0, 10);
-    return d >= from && d <= to;
-  }).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, from, to]);
+  const rangeTrips = useMemo(
+    () =>
+      (trips as Trip[])
+        .filter((t) => {
+          const d = t.scheduled_at.slice(0, 10);
+          return d >= from && d <= to;
+        })
+        .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)),
+    [trips, from, to],
+  );
 
   // Agrupa por data primeiro (só some no modo dia único, onde já é óbvio pela barra de cima) e
   // depois por carro dentro de cada data — mesma organização por carro de sempre, só que repetida
@@ -2130,24 +3401,34 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
       if (!m.has(d)) m.set(d, []);
       m.get(d)!.push(t);
     }
-    return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([d, list]) => {
-      const byCar = new Map<string, Trip[]>();
-      for (const t of list) {
-        if (!byCar.has(t.car_number)) byCar.set(t.car_number, []);
-        byCar.get(t.car_number)!.push(t);
-      }
-      return { data: d, carros: Array.from(byCar.entries()).sort(([a], [b]) => compareCarNumber(a, b)) };
-    });
+    return Array.from(m.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([d, list]) => {
+        const byCar = new Map<string, Trip[]>();
+        for (const t of list) {
+          if (!byCar.has(t.car_number)) byCar.set(t.car_number, []);
+          byCar.get(t.car_number)!.push(t);
+        }
+        return {
+          data: d,
+          carros: Array.from(byCar.entries()).sort(([a], [b]) => compareCarNumber(a, b)),
+        };
+      });
   }, [rangeTrips]);
 
-  const totalCarros = useMemo(() => new Set(rangeTrips.map((t) => t.car_number)).size, [rangeTrips]);
+  const totalCarros = useMemo(
+    () => new Set(rangeTrips.map((t) => t.car_number)).size,
+    [rangeTrips],
+  );
 
   // Com "De"/"Até" iguais (dia único, o caso mais comum), as setas continuam andando um dia por
   // vez como sempre — com um período selecionado, deslocam as duas pontas mantendo o mesmo
   // tamanho de janela.
   const shift = (n: number) => {
-    const df = new Date(from + "T00:00:00"); df.setDate(df.getDate() + n);
-    const dt = new Date(to + "T00:00:00"); dt.setDate(dt.getDate() + n);
+    const df = new Date(from + "T00:00:00");
+    df.setDate(df.getDate() + n);
+    const dt = new Date(to + "T00:00:00");
+    dt.setDate(dt.getDate() + n);
     setFrom(df.toISOString().slice(0, 10));
     setTo(dt.toISOString().slice(0, 10));
   };
@@ -2155,25 +3436,64 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-2">
-        <Button variant="outline" size="icon" onClick={() => shift(-1)}><ChevronLeft className="h-4 w-4" /></Button>
+        <Button variant="outline" size="icon" onClick={() => shift(-1)}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
         <div className="space-y-0.5">
           <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">De</Label>
-          <Input type="date" value={from} onChange={(e) => { const v = e.target.value; setFrom(v); if (v > to) setTo(v); }} className="h-9 w-40" />
+          <Input
+            type="date"
+            value={from}
+            onChange={(e) => {
+              const v = e.target.value;
+              setFrom(v);
+              if (v > to) setTo(v);
+            }}
+            className="h-9 w-40"
+          />
         </div>
         <div className="space-y-0.5">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
-          <Input type="date" value={to} min={from || undefined} onChange={(e) => { const v = e.target.value; setTo(v); if (v < from) setFrom(v); }} className="h-9 w-40" />
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            Até
+          </Label>
+          <Input
+            type="date"
+            value={to}
+            min={from || undefined}
+            onChange={(e) => {
+              const v = e.target.value;
+              setTo(v);
+              if (v < from) setFrom(v);
+            }}
+            className="h-9 w-40"
+          />
         </div>
-        <Button variant="outline" size="icon" onClick={() => shift(1)}><ChevronRight className="h-4 w-4" /></Button>
-        <Button variant="outline" size="sm" className="h-9" onClick={() => { const hoje = todayISO(); setFrom(hoje); setTo(hoje); }}>Hoje</Button>
+        <Button variant="outline" size="icon" onClick={() => shift(1)}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9"
+          onClick={() => {
+            const hoje = todayISO();
+            setFrom(hoje);
+            setTo(hoje);
+          }}
+        >
+          Hoje
+        </Button>
         <span className="ml-2 text-sm text-muted-foreground">
-          {singleDay ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`} · {rangeTrips.length} viagem(ns) · {totalCarros} carro(s)
+          {singleDay ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`} · {rangeTrips.length}{" "}
+          viagem(ns) · {totalCarros} carro(s)
         </span>
       </div>
       <div className="space-y-8">
         {groupedByDate.map(({ data, carros }) => (
           <div key={data} className="space-y-6">
-            {!singleDay && <h2 className="text-sm font-semibold text-foreground">{fmtDate(data)}</h2>}
+            {!singleDay && (
+              <h2 className="text-sm font-semibold text-foreground">{fmtDate(data)}</h2>
+            )}
             {carros.map(([car, list]) => (
               <div key={car} className="space-y-2">
                 <div className="flex items-center gap-2 border-b pb-1">
@@ -2182,14 +3502,29 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {list.map((t) => (
-                    <Card key={t.id} className={cn("p-3 cursor-pointer hover:border-primary/40 border-l-4", STATUS_BORDER[t.status])} onClick={() => onEdit(t)}>
+                    <Card
+                      key={t.id}
+                      className={cn(
+                        "p-3 cursor-pointer hover:border-primary/40 border-l-4",
+                        STATUS_BORDER[t.status],
+                      )}
+                      onClick={() => onEdit(t)}
+                    >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <div className="font-semibold">{t.car_number}</div>
                         </div>
                         <StatusBadge status={t.status} />
                       </div>
-                      <div className="text-xs text-muted-foreground">{new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(t.scheduled_at))} · {t.tipo === "material" ? "Material" : "Pessoas"}{t.cliente ? ` · ${t.cliente}` : ""}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Intl.DateTimeFormat("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        }).format(new Date(t.scheduled_at))}{" "}
+                        · {t.tipo === "material" ? "Material" : "Pessoas"}
+                        {t.cliente ? ` · ${t.cliente}` : ""}
+                      </div>
                       {(t.departure_time || t.arrival_time) && (
                         <div className="text-[11px] text-muted-foreground">
                           {t.departure_time && <span>Partida: {t.departure_time}</span>}
@@ -2198,12 +3533,30 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                         </div>
                       )}
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}
+                        {t.tags.map((x) => {
+                          const tag = tagsById.get(x.tag_id);
+                          return (
+                            tag && (
+                              <span
+                                key={x.tag_id}
+                                className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                                style={{ backgroundColor: tag.color }}
+                              >
+                                {tag.name}
+                              </span>
+                            )
+                          );
+                        })}
                       </div>
                       {[t.bsp, t.bsp_2, t.bsp_3].some(Boolean) && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).map((b, i) => (
-                            <span key={`bsp-${i}`} className="inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">BSP: {b}</span>
+                            <span
+                              key={`bsp-${i}`}
+                              className="inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground"
+                            >
+                              BSP: {b}
+                            </span>
                           ))}
                         </div>
                       )}
@@ -2214,13 +3567,42 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                           </span>
                         </div>
                       )}
-                      <div className="mt-2 text-sm">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")} <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" /> {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}</div>
-                      {t.tipo === "pessoas" && t.collabs.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")}</div>}
-                      {t.tipo === "material" && t.materials.length > 0 && <div className="mt-1 text-xs text-muted-foreground truncate">{t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}</div>}
+                      <div className="mt-2 text-sm">
+                        {[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")}{" "}
+                        <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" />{" "}
+                        {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}
+                      </div>
+                      {t.tipo === "pessoas" && t.collabs.length > 0 && (
+                        <div className="mt-1 text-xs text-muted-foreground truncate">
+                          {t.collabs
+                            .map((c: any) => collabsById.get(c.collaborator_id)?.full_name)
+                            .filter(Boolean)
+                            .join(", ")}
+                        </div>
+                      )}
+                      {t.tipo === "material" && t.materials.length > 0 && (
+                        <div className="mt-1 text-xs text-muted-foreground truncate">
+                          {t.materials
+                            .map((m: any) => {
+                              const mat = materialsById.get(m.material_id);
+                              return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null;
+                            })
+                            .filter(Boolean)
+                            .join(", ")}
+                        </div>
+                      )}
                       {onDuplicate && (
                         <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
-                          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
-                            <Copy className="mr-1 h-3 w-3" />Duplicar
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => onDuplicate(t)}
+                            title="Duplicar viagem"
+                          >
+                            <Copy className="mr-1 h-3 w-3" />
+                            Duplicar
                           </Button>
                         </div>
                       )}
@@ -2231,7 +3613,11 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
             ))}
           </div>
         ))}
-        {rangeTrips.length === 0 && <Card className="p-4"><EmptyState icon={CalIcon} title="Nenhuma viagem para este período" /></Card>}
+        {rangeTrips.length === 0 && (
+          <Card className="p-4">
+            <EmptyState icon={CalIcon} title="Nenhuma viagem para este período" />
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -2239,7 +3625,13 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
 
 // Busca com autocomplete (digitar e escolher da lista) — mesmo padrão do CollaboratorMultiSelect,
 // só que single-select, pro filtro por colaborador do Quadro Detalhado.
-function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+function ColaboradorFiltroCombobox({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+}) {
   const { data: collaborators = [] } = useCollaboratorsQuery();
   const [open, setOpen] = useState(false);
   const selected = collaborators.find((c) => c.id === value);
@@ -2258,13 +3650,28 @@ function ColaboradorFiltroCombobox({ value, onChange }: { value: string; onChang
           <CommandList>
             <CommandEmpty>Nenhum encontrado.</CommandEmpty>
             <CommandGroup>
-              <CommandItem value="Todos" onSelect={() => { onChange(""); setOpen(false); }}>
+              <CommandItem
+                value="Todos"
+                onSelect={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
                 <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
                 Todos
               </CommandItem>
               {collaborators.map((c) => (
-                <CommandItem key={c.id} value={c.full_name} onSelect={() => { onChange(c.id); setOpen(false); }}>
-                  <Check className={cn("mr-2 h-4 w-4", value === c.id ? "opacity-100" : "opacity-0")} />
+                <CommandItem
+                  key={c.id}
+                  value={c.full_name}
+                  onSelect={() => {
+                    onChange(c.id);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn("mr-2 h-4 w-4", value === c.id ? "opacity-100" : "opacity-0")}
+                  />
                   {c.full_name}
                 </CommandItem>
               ))}
@@ -2283,14 +3690,24 @@ const NF_FILTRO_SEM_NF = "__sem_nf__";
 // Busca com autocomplete pro filtro de NF do Quadro Detalhado — mesmo padrão do
 // ColaboradorFiltroCombobox acima, só que as opções vêm dos próprios dados carregados (NF é
 // texto livre, sem cadastro fixo, então a lista é tudo que já foi preenchido até agora).
-function NfFiltroCombobox({ value, onChange, options }: { value: string; onChange: (nf: string) => void; options: string[] }) {
+function NfFiltroCombobox({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (nf: string) => void;
+  options: string[];
+}) {
   const [open, setOpen] = useState(false);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" role="combobox" className="w-40 justify-between font-normal">
-          <span className="truncate">{value === NF_FILTRO_SEM_NF ? "Sem NF" : value || "Todas"}</span>
+          <span className="truncate">
+            {value === NF_FILTRO_SEM_NF ? "Sem NF" : value || "Todas"}
+          </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -2300,17 +3717,43 @@ function NfFiltroCombobox({ value, onChange, options }: { value: string; onChang
           <CommandList>
             <CommandEmpty>Nenhuma encontrada.</CommandEmpty>
             <CommandGroup>
-              <CommandItem value="Todas" onSelect={() => { onChange(""); setOpen(false); }}>
+              <CommandItem
+                value="Todas"
+                onSelect={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
                 <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
                 Todas
               </CommandItem>
-              <CommandItem value="Sem NF" onSelect={() => { onChange(NF_FILTRO_SEM_NF); setOpen(false); }}>
-                <Check className={cn("mr-2 h-4 w-4", value === NF_FILTRO_SEM_NF ? "opacity-100" : "opacity-0")} />
+              <CommandItem
+                value="Sem NF"
+                onSelect={() => {
+                  onChange(NF_FILTRO_SEM_NF);
+                  setOpen(false);
+                }}
+              >
+                <Check
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    value === NF_FILTRO_SEM_NF ? "opacity-100" : "opacity-0",
+                  )}
+                />
                 Sem NF
               </CommandItem>
               {options.map((nf) => (
-                <CommandItem key={nf} value={nf} onSelect={() => { onChange(nf); setOpen(false); }}>
-                  <Check className={cn("mr-2 h-4 w-4", value === nf ? "opacity-100" : "opacity-0")} />
+                <CommandItem
+                  key={nf}
+                  value={nf}
+                  onSelect={() => {
+                    onChange(nf);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn("mr-2 h-4 w-4", value === nf ? "opacity-100" : "opacity-0")}
+                  />
                   {nf}
                 </CommandItem>
               ))}
@@ -2322,9 +3765,34 @@ function NfFiltroCombobox({ value, onChange, options }: { value: string; onChang
   );
 }
 
-type DetailSortColumn = "data" | "carro" | "tipo" | "cliente" | "bsp" | "nf" | "etiquetas" | "horario" | "origem" | "destino" | "conteudo" | "status" | "custo";
+type DetailSortColumn =
+  | "data"
+  | "carro"
+  | "tipo"
+  | "cliente"
+  | "bsp"
+  | "nf"
+  | "etiquetas"
+  | "horario"
+  | "origem"
+  | "destino"
+  | "conteudo"
+  | "status"
+  | "custo";
 
-function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit, onDuplicate, initialTag, initialStatus, initialCliente, initialTipo }: any) {
+function DetailView({
+  trips,
+  tags,
+  tagsById,
+  collabsById,
+  materialsById,
+  onEdit,
+  onDuplicate,
+  initialTag,
+  initialStatus,
+  initialCliente,
+  initialTipo,
+}: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [tagId, setTagId] = useState(initialTag ?? "all");
@@ -2339,7 +3807,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   // NF é texto livre (sem cadastro fixo) — as opções do filtro vêm de tudo que já foi
   // preenchido nas viagens carregadas.
   const nfOptions = useMemo(
-    () => Array.from(new Set((trips as Trip[]).map((t) => t.nf?.trim()).filter((v): v is string => !!v))).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true })),
+    () =>
+      Array.from(
+        new Set((trips as Trip[]).map((t) => t.nf?.trim()).filter((v): v is string => !!v)),
+      ).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true })),
     [trips],
   );
 
@@ -2351,7 +3822,10 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   // só) — sem isso, o mesmo transporte digitado com capitalização diferente em momentos
   // diferentes aparecia duplicado na lista.
   const carroOptions = useMemo(
-    () => Array.from(new Set((trips as Trip[]).map((t) => toDisplayCase(nomeTransporte(t.car_number))))).sort(compareCarNumber),
+    () =>
+      Array.from(
+        new Set((trips as Trip[]).map((t) => toDisplayCase(nomeTransporte(t.car_number)))),
+      ).sort(compareCarNumber),
     [trips],
   );
 
@@ -2364,9 +3838,11 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
-      if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId)) return false;
-      if (nf === NF_FILTRO_SEM_NF) { if (t.nf?.trim()) return false; }
-      else if (nf && t.nf?.trim() !== nf) return false;
+      if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId))
+        return false;
+      if (nf === NF_FILTRO_SEM_NF) {
+        if (t.nf?.trim()) return false;
+      } else if (nf && t.nf?.trim() !== nf) return false;
       return true;
     });
 
@@ -2375,20 +3851,44 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
     const dir = sortDirection === "asc" ? 1 : -1;
     const txt = (t: Trip): string => {
       switch (sortColumn) {
-        case "data": return t.scheduled_at ?? "";
-        case "tipo": return t.tipo === "material" ? "Material" : "Pessoas";
-        case "cliente": return [t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ");
-        case "bsp": return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
-        case "nf": return t.nf ?? "";
-        case "etiquetas": return t.tags.map((x) => tagsById.get(x.tag_id)?.name).filter(Boolean).join(", ");
-        case "horario": return t.departure_time ?? "";
-        case "origem": return [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ");
-        case "destino": return [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ");
-        case "conteudo": return t.tipo === "pessoas"
-          ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).join(", ")
-          : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? materialLabel(mat) : null; }).filter(Boolean).join(", ");
-        case "status": return t.status ?? "";
-        default: return "";
+        case "data":
+          return t.scheduled_at ?? "";
+        case "tipo":
+          return t.tipo === "material" ? "Material" : "Pessoas";
+        case "cliente":
+          return [t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ");
+        case "bsp":
+          return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
+        case "nf":
+          return t.nf ?? "";
+        case "etiquetas":
+          return t.tags
+            .map((x) => tagsById.get(x.tag_id)?.name)
+            .filter(Boolean)
+            .join(", ");
+        case "horario":
+          return t.departure_time ?? "";
+        case "origem":
+          return [t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join("; ");
+        case "destino":
+          return [t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join("; ");
+        case "conteudo":
+          return t.tipo === "pessoas"
+            ? t.collabs
+                .map((c: any) => collabsById.get(c.collaborator_id)?.full_name)
+                .filter(Boolean)
+                .join(", ")
+            : t.materials
+                .map((m: any) => {
+                  const mat = materialsById.get(m.material_id);
+                  return mat ? materialLabel(mat) : null;
+                })
+                .filter(Boolean)
+                .join(", ");
+        case "status":
+          return t.status ?? "";
+        default:
+          return "";
       }
     };
 
@@ -2401,15 +3901,34 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
       }
       return txt(a).localeCompare(txt(b), "pt-BR", { sensitivity: "base", numeric: true }) * dir;
     });
-  }, [trips, from, to, tagId, status, cliente, tipo, carro, colaboradorId, nf, sortColumn, sortDirection, tagsById, collabsById, materialsById]);
+  }, [
+    trips,
+    from,
+    to,
+    tagId,
+    status,
+    cliente,
+    tipo,
+    carro,
+    colaboradorId,
+    nf,
+    sortColumn,
+    sortDirection,
+    tagsById,
+    collabsById,
+    materialsById,
+  ]);
 
   // Soma o custo de tudo que está filtrado na tela agora (recalcula sozinho a cada mudança de
   // filtro, inclusive o período De/Até) — não é só das linhas "Realizado", é o total exibido.
-  const totalCusto = useMemo(() => filtered.reduce((sum, t) => sum + (custoTotal(t) ?? 0), 0), [filtered]);
+  const totalCusto = useMemo(
+    () => filtered.reduce((sum, t) => sum + (custoTotal(t) ?? 0), 0),
+    [filtered],
+  );
 
   const exportarFiltrado = () => {
     const rows = filtered.map((t) => tripToRelatorioRow(t, tagsById, collabsById, materialsById));
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = planilhaComCabecalho(rows, "Relatório de Transporte");
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Transporte");
     const periodo = from || to ? `_${from || "inicio"}_a_${to || "hoje"}` : "";
@@ -2419,22 +3938,41 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
-        <div><Label className="text-xs">De</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" /></div>
-        <div><Label className="text-xs">Até</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" /></div>
+        <div>
+          <Label className="text-xs">De</Label>
+          <Input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="w-40"
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Até</Label>
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
+        </div>
         <div>
           <Label className="text-xs">Transporte</Label>
           <Select value={carro} onValueChange={setCarro}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {carroOptions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              {carroOptions.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
         <div>
           <Label className="text-xs">Tipo</Label>
           <Select value={tipo} onValueChange={setTipo}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="pessoas">Pessoas</SelectItem>
@@ -2445,27 +3983,41 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         <div>
           <Label className="text-xs">Etiqueta</Label>
           <Select value={tagId} onValueChange={setTagId}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas</SelectItem>
-              {(tags as Tag[]).map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+              {(tags as Tag[]).map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
         <div>
           <Label className="text-xs">Cliente</Label>
           <Select value={cliente} onValueChange={setCliente}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {CLIENTES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              {CLIENTES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
         <div>
           <Label className="text-xs">Status</Label>
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="em_andamento">Em Andamento</SelectItem>
@@ -2484,9 +4036,13 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
           <NfFiltroCombobox value={nf} onChange={setNf} options={nfOptions} />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <HistoricoAlteracoesButton modulo="transporte_quadro_detalhado" titulo="Quadro Detalhado — Transporte" />
+          <HistoricoAlteracoesButton
+            modulo="transporte_quadro_detalhado"
+            titulo="Quadro Detalhado — Transporte"
+          />
           <Button type="button" variant="outline" size="sm" onClick={exportarFiltrado}>
-            <Download className="mr-1.5 h-3.5 w-3.5" />Exportar planilha
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+            Exportar planilha
           </Button>
         </div>
       </div>
@@ -2494,19 +4050,105 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Data" column="data" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Transporte" column="carro" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Tipo" column="tipo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
-              <SortableHead label="Cliente" column="cliente" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
-              <SortableHead label="NF" column="nf" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
-              <SortableHead label="Etiquetas" column="etiquetas" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
-              <SortableHead label="Horário" column="horario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
-              <SortableHead label="Origem" column="origem" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
-              <SortableHead label="Destino" column="destino" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
-              <SortableHead label="Pessoas/Materiais" column="conteudo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="hidden xl:table-cell" />
-              <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Custo" column="custo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead
+                label="Data"
+                column="data"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Transporte"
+                column="carro"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Tipo"
+                column="tipo"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden md:table-cell"
+              />
+              <SortableHead
+                label="Cliente"
+                column="cliente"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="BSP"
+                column="bsp"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden md:table-cell"
+              />
+              <SortableHead
+                label="NF"
+                column="nf"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden md:table-cell"
+              />
+              <SortableHead
+                label="Etiquetas"
+                column="etiquetas"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden xl:table-cell"
+              />
+              <SortableHead
+                label="Horário"
+                column="horario"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden lg:table-cell"
+              />
+              <SortableHead
+                label="Origem"
+                column="origem"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden lg:table-cell"
+              />
+              <SortableHead
+                label="Destino"
+                column="destino"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden lg:table-cell"
+              />
+              <SortableHead
+                label="Pessoas/Materiais"
+                column="conteudo"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden xl:table-cell"
+              />
+              <SortableHead
+                label="Status"
+                column="status"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Custo"
+                column="custo"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
               <TableHead className="hidden w-[1%] xl:table-cell"></TableHead>
             </TableRow>
           </TableHeader>
@@ -2515,36 +4157,102 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
               <TableRow key={t.id} className="cursor-pointer" onClick={() => onEdit(t)}>
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
                 <TableCell>{toDisplayCase(nomeTransporte(t.car_number))}</TableCell>
-                <TableCell className="hidden md:table-cell">{t.tipo === "material" ? "Material" : "Pessoas"}</TableCell>
-                <TableCell>{[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}</TableCell>
-                <TableCell className="hidden md:table-cell">{[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}</TableCell>
+                <TableCell className="hidden md:table-cell">
+                  {t.tipo === "material" ? "Material" : "Pessoas"}
+                </TableCell>
+                <TableCell>
+                  {[t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ") || "—"}
+                </TableCell>
+                <TableCell className="hidden md:table-cell">
+                  {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}
+                </TableCell>
                 <TableCell className="hidden md:table-cell">{t.nf ?? "—"}</TableCell>
-                <TableCell className="hidden xl:table-cell"><div className="flex flex-wrap gap-1">{t.tags.map((x) => { const tag = tagsById.get(x.tag_id); return tag && <span key={x.tag_id} className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: tag.color }}>{tag.name}</span>; })}</div></TableCell>
-                <TableCell className="hidden lg:table-cell">{t.departure_time ? t.departure_time.slice(0, 5) : "—"}</TableCell>
-                <TableCell className="hidden lg:table-cell">{[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).map(toDisplayCase).join("; ")}</TableCell>
-                <TableCell className="hidden lg:table-cell">{[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).map(toDisplayCase).join("; ")}</TableCell>
+                <TableCell className="hidden xl:table-cell">
+                  <div className="flex flex-wrap gap-1">
+                    {t.tags.map((x) => {
+                      const tag = tagsById.get(x.tag_id);
+                      return (
+                        tag && (
+                          <span
+                            key={x.tag_id}
+                            className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                            style={{ backgroundColor: tag.color }}
+                          >
+                            {tag.name}
+                          </span>
+                        )
+                      );
+                    })}
+                  </div>
+                </TableCell>
+                <TableCell className="hidden lg:table-cell">
+                  {t.departure_time ? t.departure_time.slice(0, 5) : "—"}
+                </TableCell>
+                <TableCell className="hidden lg:table-cell">
+                  {[t.origin, ...(t.origens_extras ?? [])]
+                    .filter(Boolean)
+                    .map(toDisplayCase)
+                    .join("; ")}
+                </TableCell>
+                <TableCell className="hidden lg:table-cell">
+                  {[t.destination, ...(t.destinos_extras ?? [])]
+                    .filter(Boolean)
+                    .map(toDisplayCase)
+                    .join("; ")}
+                </TableCell>
                 <TableCell className="hidden max-w-[200px] truncate xl:table-cell">
                   {t.tipo === "pessoas"
-                    ? t.collabs.map((c: any) => collabsById.get(c.collaborator_id)?.full_name).filter(Boolean).map(toDisplayCase).join(", ")
-                    : t.materials.map((m: any) => { const mat = materialsById.get(m.material_id); return mat ? `${toDisplayCase(materialLabel(mat))} ×${m.quantidade ?? 1}` : null; }).filter(Boolean).join(", ")}
+                    ? t.collabs
+                        .map((c: any) => collabsById.get(c.collaborator_id)?.full_name)
+                        .filter(Boolean)
+                        .map(toDisplayCase)
+                        .join(", ")
+                    : t.materials
+                        .map((m: any) => {
+                          const mat = materialsById.get(m.material_id);
+                          return mat
+                            ? `${toDisplayCase(materialLabel(mat))} ×${m.quantidade ?? 1}`
+                            : null;
+                        })
+                        .filter(Boolean)
+                        .join(", ")}
                 </TableCell>
-                <TableCell><StatusBadge status={t.status} /></TableCell>
+                <TableCell>
+                  <StatusBadge status={t.status} />
+                </TableCell>
                 <TableCell>{custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}</TableCell>
                 <TableCell className="hidden xl:table-cell" onClick={(e) => e.stopPropagation()}>
                   {onDuplicate && (
-                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onDuplicate(t)} title="Duplicar viagem">
-                      <Copy className="mr-1 h-3 w-3" />Duplicar
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => onDuplicate(t)}
+                      title="Duplicar viagem"
+                    >
+                      <Copy className="mr-1 h-3 w-3" />
+                      Duplicar
                     </Button>
                   )}
                 </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && <EmptyStateRow colSpan={13} icon={Package} title="Sem viagens" description="Ajuste os filtros ou cadastre uma nova viagem." />}
+            {filtered.length === 0 && (
+              <EmptyStateRow
+                colSpan={13}
+                icon={Package}
+                title="Sem viagens"
+                description="Ajuste os filtros ou cadastre uma nova viagem."
+              />
+            )}
           </TableBody>
           {filtered.length > 0 && (
             <TableFooter>
               <TableRow>
-                <TableCell className="font-medium">Total ({filtered.length} {filtered.length === 1 ? "viagem" : "viagens"})</TableCell>
+                <TableCell className="font-medium">
+                  Total ({filtered.length} {filtered.length === 1 ? "viagem" : "viagens"})
+                </TableCell>
                 <TableCell></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell></TableCell>
@@ -2569,28 +4277,50 @@ function DetailView({ trips, tags, tagsById, collabsById, materialsById, onEdit,
 
 function TimelineView({ trips, tagsById }: { trips: Trip[]; tagsById: Map<string, Tag> }) {
   const [date, setDate] = useState(todayISO());
-  const dayTrips = useMemo(() => trips.filter((t) => t.scheduled_at.slice(0, 10) === date).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)), [trips, date]);
+  const dayTrips = useMemo(
+    () =>
+      trips
+        .filter((t) => t.scheduled_at.slice(0, 10) === date)
+        .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)),
+    [trips, date],
+  );
   const byCar = useMemo(() => {
     const m = new Map<string, Trip[]>();
-    for (const t of dayTrips) { if (!m.has(t.car_number)) m.set(t.car_number, []); m.get(t.car_number)!.push(t); }
+    for (const t of dayTrips) {
+      if (!m.has(t.car_number)) m.set(t.car_number, []);
+      m.get(t.car_number)!.push(t);
+    }
     return Array.from(m.entries()).sort(([a], [b]) => compareCarNumber(a, b));
   }, [dayTrips]);
 
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const slot = (iso: string) => {
-    const d = new Date(iso); return d.getHours() + d.getMinutes() / 60;
+    const d = new Date(iso);
+    return d.getHours() + d.getMinutes() / 60;
   };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
+        <Input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-44"
+        />
         <span className="text-sm text-muted-foreground">{fmtDate(date)}</span>
       </div>
       <Card className="p-4 overflow-x-auto">
         <div className="min-w-[900px]">
-          <div className="ml-32 grid grid-cols-24 text-[10px] text-muted-foreground border-b pb-1" style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}>
-            {hours.map((h) => <div key={h} className="text-center">{String(h).padStart(2, "0")}h</div>)}
+          <div
+            className="ml-32 grid grid-cols-24 text-[10px] text-muted-foreground border-b pb-1"
+            style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}
+          >
+            {hours.map((h) => (
+              <div key={h} className="text-center">
+                {String(h).padStart(2, "0")}h
+              </div>
+            ))}
           </div>
           {byCar.map(([car, list]) => (
             <div key={car} className="flex items-center border-b py-2">
@@ -2600,10 +4330,21 @@ function TimelineView({ trips, tagsById }: { trips: Trip[]; tagsById: Map<string
                   const left = (slot(t.scheduled_at) / 24) * 100;
                   const tag = t.tags[0] ? tagsById.get(t.tags[0].tag_id) : null;
                   return (
-                    <div key={t.id} className="absolute top-1 bottom-1 rounded px-1.5 text-[10px] text-white flex items-center overflow-hidden shadow"
-                      style={{ left: `${left}%`, minWidth: 80, maxWidth: 160, backgroundColor: tag?.color ?? "#3b82f6", opacity: t.status === "cancelado" ? 0.4 : 1 }}
-                      title={`${fmtTime(t.scheduled_at)} ${t.origin} → ${t.destination}`}>
-                      <span className="truncate">{fmtTime(t.scheduled_at)} {t.origin}→{t.destination}</span>
+                    <div
+                      key={t.id}
+                      className="absolute top-1 bottom-1 rounded px-1.5 text-[10px] text-white flex items-center overflow-hidden shadow"
+                      style={{
+                        left: `${left}%`,
+                        minWidth: 80,
+                        maxWidth: 160,
+                        backgroundColor: tag?.color ?? "#3b82f6",
+                        opacity: t.status === "cancelado" ? 0.4 : 1,
+                      }}
+                      title={`${fmtTime(t.scheduled_at)} ${t.origin} → ${t.destination}`}
+                    >
+                      <span className="truncate">
+                        {fmtTime(t.scheduled_at)} {t.origin}→{t.destination}
+                      </span>
                     </div>
                   );
                 })}
@@ -2624,8 +4365,24 @@ const STATUS_COLOR: Record<TripStatus, string> = {
   cancelado: "hsl(var(--destructive))",
 };
 
-const BLUES = ["#1e3a8a", "#1d4ed8", "#1e40af", "#2563eb", "#475569", "#64748b", "#0369a1", "#334155", "#0284c7", "#94a3b8"];
-const STATUS_BLUES: Record<string, string> = { realizado: "#1a5c2a", em_andamento: "#b8860b", faturado: "#5b21b6", cancelado: "#c00000" };
+const BLUES = [
+  "#1e3a8a",
+  "#1d4ed8",
+  "#1e40af",
+  "#2563eb",
+  "#475569",
+  "#64748b",
+  "#0369a1",
+  "#334155",
+  "#0284c7",
+  "#94a3b8",
+];
+const STATUS_BLUES: Record<string, string> = {
+  realizado: "#1a5c2a",
+  em_andamento: "#b8860b",
+  faturado: "#5b21b6",
+  cancelado: "#c00000",
+};
 
 // Fatias/barras com cor por item (Cell) não têm uma chave fixa de série pra mapear num
 // ChartConfig — fica vazio e o tooltip/legenda padrão do shadcn lê a cor de cada item direto
@@ -2641,8 +4398,20 @@ const tagComparisonChartConfig = {
   material: { label: "Material", color: "var(--color-chart-5)" },
 } satisfies ChartConfig;
 
-function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; tagsById: Map<string, Tag> }) {
-  const firstOfMonth = useMemo(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }, []);
+function KpiDashboard({
+  trips,
+  tags,
+  tagsById,
+}: {
+  trips: Trip[];
+  tags: Tag[];
+  tagsById: Map<string, Tag>;
+}) {
+  const firstOfMonth = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().slice(0, 10);
+  }, []);
   const [from, setFrom] = useState(firstOfMonth);
   const [to, setTo] = useState(todayISO());
   const [tagId, setTagId] = useState<string>("all");
@@ -2692,7 +4461,9 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
       const k = t.scheduled_at.slice(0, 7);
       m.set(k, (m.get(k) ?? 0) + 1);
     }
-    return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count }));
+    return Array.from(m.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, count]) => ({ month, count }));
   }, [filtered]);
 
   const topRoutes = useMemo(() => {
@@ -2701,7 +4472,10 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
       const k = `${t.origin} → ${t.destination}`;
       m.set(k, (m.get(k) ?? 0) + 1);
     }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([rota, count]) => ({ rota, count }));
+    return Array.from(m.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([rota, count]) => ({ rota, count }));
   }, [filtered]);
 
   const tagComparison = useMemo(() => {
@@ -2711,7 +4485,8 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         const tag = tagsById.get(x.tag_id);
         if (!tag) continue;
         const entry = m.get(tag.id) ?? { name: tag.name, pessoas: 0, material: 0 };
-        if (t.tipo === "material") entry.material++; else entry.pessoas++;
+        if (t.tipo === "material") entry.material++;
+        else entry.pessoas++;
         m.set(tag.id, entry);
       }
     }
@@ -2724,29 +4499,46 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
       const k = t.cliente?.trim() || "Step";
       m.set(k, (m.get(k) ?? 0) + 1);
     }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([cliente, count]) => ({ cliente, count }));
+    return Array.from(m.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([cliente, count]) => ({ cliente, count }));
   }, [filtered]);
 
   return (
     <div className="space-y-4">
       <Card className="p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div><Label className="text-xs">De</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-          <div><Label className="text-xs">Até</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+          <div>
+            <Label className="text-xs">De</Label>
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Até</Label>
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
           <div>
             <Label className="text-xs">Etiqueta</Label>
             <Select value={tagId} onValueChange={setTagId}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>
-                {tags.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                {tags.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div>
             <Label className="text-xs">Tipo</Label>
             <Select value={tipo} onValueChange={setTipo}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 <SelectItem value="pessoas">Pessoas</SelectItem>
@@ -2759,40 +4551,80 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <FadeInView delay={0}>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1e3a8a", background: "linear-gradient(135deg, rgba(30,58,138,0.08), transparent)" }}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Total de transportes</span>
-            <TrendingUp className="h-4 w-4" style={{ color: "#1e3a8a" }} />
-          </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}><KpiValue value={total} /></div>
-        </Card>
+          <Card
+            className="p-4 border-l-4"
+            style={{
+              borderLeftColor: "#1e3a8a",
+              background: "linear-gradient(135deg, rgba(30,58,138,0.08), transparent)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Total de transportes
+              </span>
+              <TrendingUp className="h-4 w-4" style={{ color: "#1e3a8a" }} />
+            </div>
+            <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a8a" }}>
+              <KpiValue value={total} />
+            </div>
+          </Card>
         </FadeInView>
         <FadeInView delay={0.05}>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1a5c2a", background: "linear-gradient(135deg, rgba(26,92,42,0.08), transparent)" }}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Realizados</span>
-            <CheckCircle2 className="h-4 w-4" style={{ color: "#1a5c2a" }} />
-          </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#1a5c2a" }}><KpiValue value={realizados} /></div>
-        </Card>
+          <Card
+            className="p-4 border-l-4"
+            style={{
+              borderLeftColor: "#1a5c2a",
+              background: "linear-gradient(135deg, rgba(26,92,42,0.08), transparent)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Realizados
+              </span>
+              <CheckCircle2 className="h-4 w-4" style={{ color: "#1a5c2a" }} />
+            </div>
+            <div className="mt-2 text-3xl font-semibold" style={{ color: "#1a5c2a" }}>
+              <KpiValue value={realizados} />
+            </div>
+          </Card>
         </FadeInView>
         <FadeInView delay={0.1}>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#b8860b", background: "linear-gradient(135deg, rgba(184,134,11,0.08), transparent)" }}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Em andamento</span>
-            <Activity className="h-4 w-4" style={{ color: "#b8860b" }} />
-          </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#b8860b" }}><KpiValue value={emAndamento} /></div>
-        </Card>
+          <Card
+            className="p-4 border-l-4"
+            style={{
+              borderLeftColor: "#b8860b",
+              background: "linear-gradient(135deg, rgba(184,134,11,0.08), transparent)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Em andamento
+              </span>
+              <Activity className="h-4 w-4" style={{ color: "#b8860b" }} />
+            </div>
+            <div className="mt-2 text-3xl font-semibold" style={{ color: "#b8860b" }}>
+              <KpiValue value={emAndamento} />
+            </div>
+          </Card>
         </FadeInView>
         <FadeInView delay={0.15}>
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#475569", background: "linear-gradient(135deg, rgba(71,85,105,0.08), transparent)" }}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Média de carros/dia</span>
-            <TrendingUp className="h-4 w-4" style={{ color: "#475569" }} />
-          </div>
-          <div className="mt-2 text-3xl font-semibold" style={{ color: "#475569" }}><KpiValue value={avgCarsPerDay} /></div>
-        </Card>
+          <Card
+            className="p-4 border-l-4"
+            style={{
+              borderLeftColor: "#475569",
+              background: "linear-gradient(135deg, rgba(71,85,105,0.08), transparent)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Média de carros/dia
+              </span>
+              <TrendingUp className="h-4 w-4" style={{ color: "#475569" }} />
+            </div>
+            <div className="mt-2 text-3xl font-semibold" style={{ color: "#475569" }}>
+              <KpiValue value={avgCarsPerDay} />
+            </div>
+          </Card>
         </FadeInView>
       </div>
 
@@ -2800,11 +4632,22 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5">
           <h2 className="text-base font-semibold">Distribuição por status</h2>
           <div className="mt-3 h-64">
-            {statusData.length === 0 ? <EmptyState icon={Activity} title="Sem dados" className="h-full" /> : (
+            {statusData.length === 0 ? (
+              <EmptyState icon={Activity} title="Sem dados" className="h-full" />
+            ) : (
               <ChartContainer config={dynamicChartConfig} className="aspect-auto h-full w-full">
                 <PieChart>
-                  <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} label={(e: any) => `${e.name}: ${e.value}`}>
-                    {statusData.map((e) => <Cell key={e.name} fill={e.color} />)}
+                  <Pie
+                    data={statusData}
+                    dataKey="value"
+                    nameKey="name"
+                    outerRadius={90}
+                    innerRadius={50}
+                    label={(e: any) => `${e.name}: ${e.value}`}
+                  >
+                    {statusData.map((e) => (
+                      <Cell key={e.name} fill={e.color} />
+                    ))}
                   </Pie>
                   <ChartTooltip content={<ChartTooltipContent hideLabel nameKey="name" />} />
                   <ChartLegend content={<ChartLegendContent nameKey="name" />} />
@@ -2817,11 +4660,19 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5">
           <h2 className="text-base font-semibold">Evolução mensal</h2>
           <div className="mt-3 h-64">
-            {monthlyData.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
+            {monthlyData.length === 0 ? (
+              <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" />
+            ) : (
               <ChartContainer config={monthlyChartConfig} className="aspect-auto h-full w-full">
                 <AreaChart data={monthlyData}>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <XAxis
+                    dataKey="month"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    fontSize={11}
+                  />
                   <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
                   <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
                   <Area
@@ -2844,16 +4695,41 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5">
           <h2 className="text-base font-semibold">Top rotas por volume</h2>
           <div className="mt-3 h-72">
-            {topRoutes.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
+            {topRoutes.length === 0 ? (
+              <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" />
+            ) : (
               <ChartContainer config={dynamicChartConfig} className="aspect-auto h-full w-full">
                 <BarChart data={topRoutes} layout="vertical" margin={{ left: 20 }}>
                   <CartesianGrid horizontal={false} />
-                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
-                  <YAxis type="category" dataKey="rota" tickLine={false} axisLine={false} fontSize={10} width={140} />
-                  <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel />} />
+                  <XAxis
+                    type="number"
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                    allowDecimals={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="rota"
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={10}
+                    width={140}
+                  />
+                  <ChartTooltip
+                    cursor={{ fill: "var(--color-muted)" }}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
                   <Bar dataKey="count" radius={[0, 6, 6, 0]}>
-                    {topRoutes.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
-                    <LabelList dataKey="count" position="right" fontSize={11} fill="hsl(var(--foreground))" />
+                    {topRoutes.map((_, i) => (
+                      <Cell key={i} fill={BLUES[i % BLUES.length]} />
+                    ))}
+                    <LabelList
+                      dataKey="count"
+                      position="right"
+                      fontSize={11}
+                      fill="hsl(var(--foreground))"
+                    />
                   </Bar>
                 </BarChart>
               </ChartContainer>
@@ -2864,19 +4740,43 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5">
           <h2 className="text-base font-semibold">Comparativo por etiqueta</h2>
           <div className="mt-3 h-72">
-            {tagComparison.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
-              <ChartContainer config={tagComparisonChartConfig} className="aspect-auto h-full w-full">
+            {tagComparison.length === 0 ? (
+              <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" />
+            ) : (
+              <ChartContainer
+                config={tagComparisonChartConfig}
+                className="aspect-auto h-full w-full"
+              >
                 <BarChart data={tagComparison}>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <XAxis
+                    dataKey="name"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    fontSize={11}
+                  />
                   <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
-                  <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent />} />
+                  <ChartTooltip
+                    cursor={{ fill: "var(--color-muted)" }}
+                    content={<ChartTooltipContent />}
+                  />
                   <ChartLegend content={<ChartLegendContent />} />
                   <Bar dataKey="pessoas" fill="var(--color-pessoas)" radius={[6, 6, 0, 0]}>
-                    <LabelList dataKey="pessoas" position="top" fontSize={11} fill="hsl(var(--foreground))" />
+                    <LabelList
+                      dataKey="pessoas"
+                      position="top"
+                      fontSize={11}
+                      fill="hsl(var(--foreground))"
+                    />
                   </Bar>
                   <Bar dataKey="material" fill="var(--color-material)" radius={[6, 6, 0, 0]}>
-                    <LabelList dataKey="material" position="top" fontSize={11} fill="hsl(var(--foreground))" />
+                    <LabelList
+                      dataKey="material"
+                      position="top"
+                      fontSize={11}
+                      fill="hsl(var(--foreground))"
+                    />
                   </Bar>
                 </BarChart>
               </ChartContainer>
@@ -2887,16 +4787,34 @@ function KpiDashboard({ trips, tags, tagsById }: { trips: Trip[]; tags: Tag[]; t
         <Card className="p-5 lg:col-span-2">
           <h2 className="text-base font-semibold">Quantidade de viagens por cliente</h2>
           <div className="mt-3 h-72">
-            {tripsByClient.length === 0 ? <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" /> : (
+            {tripsByClient.length === 0 ? (
+              <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" />
+            ) : (
               <ChartContainer config={dynamicChartConfig} className="aspect-auto h-full w-full">
                 <BarChart data={tripsByClient}>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="cliente" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <XAxis
+                    dataKey="cliente"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    fontSize={11}
+                  />
                   <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
-                  <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel />} />
+                  <ChartTooltip
+                    cursor={{ fill: "var(--color-muted)" }}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
                   <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                    {tripsByClient.map((_, i) => <Cell key={i} fill={BLUES[i % BLUES.length]} />)}
-                    <LabelList dataKey="count" position="top" fontSize={11} fill="hsl(var(--foreground))" />
+                    {tripsByClient.map((_, i) => (
+                      <Cell key={i} fill={BLUES[i % BLUES.length]} />
+                    ))}
+                    <LabelList
+                      dataKey="count"
+                      position="top"
+                      fontSize={11}
+                      fill="hsl(var(--foreground))"
+                    />
                   </Bar>
                 </BarChart>
               </ChartContainer>

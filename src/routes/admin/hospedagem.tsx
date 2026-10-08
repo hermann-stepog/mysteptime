@@ -13,39 +13,113 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
-  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, NomeUsuarioMultiField, MotivoField, SelectComOutro, usePessoasAdicionais, useUnidadesAdicionais, FormaPagamentoField } from "@/components/LogisticaFormFields";
-import { Check, ChevronsUpDown, ChevronsDownUp, Plus, Pencil, Trash2, BedDouble, Hotel, Upload, Download, Building2, Ship, Layers3, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  NomeUsuarioField,
+  NomeUsuarioMultiField,
+  MotivoField,
+  SelectComOutro,
+  usePessoasAdicionais,
+  useUnidadesAdicionais,
+  FormaPagamentoField,
+} from "@/components/LogisticaFormFields";
+import {
+  Check,
+  ChevronsUpDown,
+  ChevronsDownUp,
+  Plus,
+  Pencil,
+  Trash2,
+  BedDouble,
+  Hotel,
+  Upload,
+  Download,
+  Building2,
+  Ship,
+  Layers3,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import { clienteDaUnidade } from "@/lib/clientes";
 import {
-  parsePlanilhaCustos, parseCustoBRL, parseDataBR, parseUnidadeBsp, splitNomes,
-  parseBooleanoSN, parseBooleanoSimNao, parseCheckOutDeObservacao, diasEntre, type LinhaCustoBruta,
+  parsePlanilhaCustos,
+  parseCustoBRL,
+  parseDataBR,
+  parseUnidadeBsp,
+  splitNomes,
+  parseBooleanoSN,
+  parseBooleanoSimNao,
+  parseCheckOutDeObservacao,
+  diasEntre,
+  type LinhaCustoBruta,
 } from "@/lib/importCustos";
 import { cn } from "@/lib/utils";
 import { notify } from "@/lib/notify";
+import { planilhaComCabecalho } from "@/lib/reportHeader";
 import { pageTitle } from "@/lib/pageTitle";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
-import { bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import {
+  bspOptionsForUnidade,
+  buildUnidadeCanonMap,
+  canonUnidade,
+  DRAKE_DATA_CUTOFF,
+  type HistNovoPeriodo,
+} from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
-  computeDiarias, localizacaoHotel,
+  computeDiarias,
+  localizacaoHotel,
   rateiosDaHospedagem,
-  type HotelFornecedor, type Hospedagem,
+  type HotelFornecedor,
+  type Hospedagem,
 } from "@/lib/hospedagem";
 
 interface HospedagemSearch {
@@ -77,42 +151,62 @@ function fmtMoney(n: number): string {
 function useHoteisQuery() {
   return useQuery<HotelFornecedor[]>({
     queryKey: ["hoteis-fornecedores"],
-    queryFn: () => selectAllPages<HotelFornecedor>((from, to) =>
-      supabase.from("hoteis_fornecedores").select("*").order("nome").range(from, to),
-    ),
+    queryFn: () =>
+      selectAllPages<HotelFornecedor>((from, to) =>
+        supabase.from("hoteis_fornecedores").select("*").order("nome").range(from, to),
+      ),
   });
 }
 
 function useHospedagensQuery() {
   return useQuery<Hospedagem[]>({
     queryKey: ["hospedagens"],
-    queryFn: () => selectAllPages<Hospedagem>((from, to) =>
-      supabase.from("hospedagens").select("*").order("check_in", { ascending: false }).order("id").range(from, to),
-    ),
+    queryFn: () =>
+      selectAllPages<Hospedagem>((from, to) =>
+        supabase
+          .from("hospedagens")
+          .select("*")
+          .order("check_in", { ascending: false })
+          .order("id")
+          .range(from, to),
+      ),
   });
 }
 
 function usePeriodosEQuery() {
   return useQuery<HistNovoPeriodo[]>({
     queryKey: ["hist-novo-periodos"],
-    queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) =>
-      supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to),
-    ),
+    queryFn: () =>
+      selectAllPages<HistNovoPeriodo>((from, to) =>
+        supabase
+          .from("hist_novo_periodos")
+          .select("*")
+          .gte("data_fim", DRAKE_DATA_CUTOFF)
+          .order("id")
+          .range(from, to),
+      ),
   });
 }
 
 function useColaboradoresQuery() {
   return useQuery<{ id: string; nome: string }[]>({
     queryKey: ["hist-novo-colaboradores"],
-    queryFn: () => selectAllPages<{ id: string; nome: string }>((from, to) =>
-      supabase.from("hist_novo_colaboradores").select("id, nome").order("nome").range(from, to),
-    ),
+    queryFn: () =>
+      selectAllPages<{ id: string; nome: string }>((from, to) =>
+        supabase.from("hist_novo_colaboradores").select("id, nome").order("nome").range(from, to),
+      ),
   });
 }
 
 // ─── Combobox: Hotel (com cadastro rápido) ─────────────────────────────────
-function HotelCombobox({ hoteis, value, onChange }: {
-  hoteis: HotelFornecedor[]; value: string; onChange: (id: string) => void;
+function HotelCombobox({
+  hoteis,
+  value,
+  onChange,
+}: {
+  hoteis: HotelFornecedor[];
+  value: string;
+  onChange: (id: string) => void;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -122,9 +216,15 @@ function HotelCombobox({ hoteis, value, onChange }: {
 
   const create = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.from("hoteis_fornecedores").insert({
-        nome: nf.nome.trim(), cidade: nf.cidade.trim(), estado: nf.estado.trim().toUpperCase(),
-      }).select("*").single();
+      const { data, error } = await supabase
+        .from("hoteis_fornecedores")
+        .insert({
+          nome: nf.nome.trim(),
+          cidade: nf.cidade.trim(),
+          estado: nf.estado.trim().toUpperCase(),
+        })
+        .select("*")
+        .single();
       if (error) throw error;
       return data as HotelFornecedor;
     },
@@ -154,17 +254,37 @@ function HotelCombobox({ hoteis, value, onChange }: {
               <CommandEmpty>Nenhum hotel encontrado.</CommandEmpty>
               <CommandGroup>
                 {hoteis.map((h) => (
-                  <CommandItem key={h.id} value={`${h.nome} ${h.cidade}`} onSelect={() => { onChange(h.id); setOpen(false); }}>
-                    <Check className={cn("mr-2 h-4 w-4", value === h.id ? "opacity-100" : "opacity-0")} />
+                  <CommandItem
+                    key={h.id}
+                    value={`${h.nome} ${h.cidade}`}
+                    onSelect={() => {
+                      onChange(h.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn("mr-2 h-4 w-4", value === h.id ? "opacity-100" : "opacity-0")}
+                    />
                     <span className="flex-1 truncate">{h.nome}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{localizacaoHotel(h)}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {localizacaoHotel(h)}
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>
             </CommandList>
             <div className="border-t p-1">
-              <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setOpen(false); setNewOpen(true); }}>
-                <Plus className="mr-2 h-4 w-4" />Cadastrar novo hotel
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start"
+                onClick={() => {
+                  setOpen(false);
+                  setNewOpen(true);
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Cadastrar novo hotel
               </Button>
             </div>
           </Command>
@@ -173,14 +293,35 @@ function HotelCombobox({ hoteis, value, onChange }: {
 
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Novo hotel</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Novo hotel</DialogTitle>
+          </DialogHeader>
           <div className="grid gap-3">
-            <div><Label className="text-xs">Nome</Label><Input value={nf.nome} onChange={(e) => setNf({ ...nf, nome: e.target.value })} /></div>
-            <div><Label className="text-xs">Cidade</Label><Input value={nf.cidade} onChange={(e) => setNf({ ...nf, cidade: e.target.value })} /></div>
-            <div><Label className="text-xs">Estado (UF)</Label><Input maxLength={2} value={nf.estado} onChange={(e) => setNf({ ...nf, estado: e.target.value.toUpperCase() })} /></div>
+            <div>
+              <Label className="text-xs">Nome</Label>
+              <Input value={nf.nome} onChange={(e) => setNf({ ...nf, nome: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Cidade</Label>
+              <Input value={nf.cidade} onChange={(e) => setNf({ ...nf, cidade: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Estado (UF)</Label>
+              <Input
+                maxLength={2}
+                value={nf.estado}
+                onChange={(e) => setNf({ ...nf, estado: e.target.value.toUpperCase() })}
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button disabled={!nf.nome.trim() || !nf.cidade.trim() || !nf.estado.trim()} loading={create.isPending} onClick={() => create.mutate()}>Salvar</Button>
+            <Button
+              disabled={!nf.nome.trim() || !nf.cidade.trim() || !nf.estado.trim()}
+              loading={create.isPending}
+              onClick={() => create.mutate()}
+            >
+              Salvar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -189,16 +330,37 @@ function HotelCombobox({ hoteis, value, onChange }: {
 }
 
 const FORM_VAZIO = {
-  unidade: "", bsp: "", nomeUsuario: "", hotelId: "", checkIn: "", checkOut: "",
-  motivo: "", formaPagamento: "", observacoes: "",
-  nf: "", dataFaturamento: "",
+  unidade: "",
+  bsp: "",
+  nomeUsuario: "",
+  hotelId: "",
+  checkIn: "",
+  checkOut: "",
+  motivo: "",
+  formaPagamento: "",
+  observacoes: "",
+  nf: "",
+  dataFaturamento: "",
 };
 
 // ─── Dialog: Nova hospedagem / Editar ───────────────────────────────────────
-function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, periodosE, colaboradores, unidadeOptions }: {
-  open: boolean; onOpenChange: (o: boolean) => void; editing: Hospedagem | null;
+function HospedagemDialog({
+  open,
+  onOpenChange,
+  editing,
+  prefill,
+  hoteis,
+  periodosE,
+  colaboradores,
+  unidadeOptions,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  editing: Hospedagem | null;
   prefill?: Partial<typeof FORM_VAZIO> | null;
-  hoteis: HotelFornecedor[]; periodosE: HistNovoPeriodo[]; colaboradores: { id: string; nome: string }[];
+  hoteis: HotelFornecedor[];
+  periodosE: HistNovoPeriodo[];
+  colaboradores: { id: string; nome: string }[];
   unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
@@ -225,12 +387,22 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
     // "+ colaborador" ficava desabilitado ao editar (não tinha como saber quais nomes já
     // combinados eram "o principal" x "os extras"), e quem precisasse acrescentar mais gente
     // depois do primeiro salvamento só conseguia criando um lançamento novo, duplicando tudo.
-    const [primeiroNome, ...outrosNomes] = editing.nome_usuario.split(",").map((n) => n.trim()).filter(Boolean);
+    const [primeiroNome, ...outrosNomes] = editing.nome_usuario
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
     setF({
-      unidade: editing.unidade, bsp: editing.bsp, nomeUsuario: primeiroNome ?? "", hotelId: editing.hotel_id,
-      checkIn: editing.check_in, checkOut: editing.check_out,
-      motivo: editing.motivo ?? "", formaPagamento: editing.forma_pagamento ?? "", observacoes: editing.observacoes ?? "",
-      nf: editing.nf ?? "", dataFaturamento: editing.data_faturamento ?? "",
+      unidade: editing.unidade,
+      bsp: editing.bsp,
+      nomeUsuario: primeiroNome ?? "",
+      hotelId: editing.hotel_id,
+      checkIn: editing.check_in,
+      checkOut: editing.check_out,
+      motivo: editing.motivo ?? "",
+      formaPagamento: editing.forma_pagamento ?? "",
+      observacoes: editing.observacoes ?? "",
+      nf: editing.nf ?? "",
+      dataFaturamento: editing.data_faturamento ?? "",
     });
     pessoas.replace(outrosNomes.map((nome) => ({ nome, unidade: "", bsp: "" })));
     const v2 = editing.bsp_2 ? (editing.valor_2 ?? 0) : 0;
@@ -239,8 +411,12 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
     setValor2(editing.bsp_2 ? String(v2) : "");
     setValor3(editing.bsp_3 ? String(v3) : "");
     unidades.replace([
-      ...(editing.bsp_2 ? [{ unidade: editing.unidade_2 || editing.unidade, bsp: editing.bsp_2 }] : []),
-      ...(editing.bsp_3 ? [{ unidade: editing.unidade_3 || editing.unidade, bsp: editing.bsp_3 }] : []),
+      ...(editing.bsp_2
+        ? [{ unidade: editing.unidade_2 || editing.unidade, bsp: editing.bsp_2 }]
+        : []),
+      ...(editing.bsp_3
+        ? [{ unidade: editing.unidade_3 || editing.unidade, bsp: editing.bsp_3 }]
+        : []),
     ]);
     setBound(editing.id);
   }
@@ -249,12 +425,19 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   // continua em branco pra digitação normal.
   if (open && !editing && bound !== "novo") {
     setF({ ...FORM_VAZIO, ...prefill });
-    setValorPrincipal(""); setValor2(""); setValor3("");
-    pessoas.reset(); unidades.reset(); setBound("novo");
+    setValorPrincipal("");
+    setValor2("");
+    setValor3("");
+    pessoas.reset();
+    unidades.reset();
+    setBound("novo");
   }
   if (!open && bound !== null) setBound(null);
 
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
+  const bspOptions = useMemo(
+    () => bspOptionsForUnidade(periodosE, f.unidade || "all"),
+    [periodosE, f.unidade],
+  );
   const hotelSelecionado = hoteis.find((h) => h.id === f.hotelId);
 
   const salvar = useMutation({
@@ -265,38 +448,61 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
       if (!f.hotelId) throw new Error("Selecione o hotel.");
       if (!f.checkIn || !f.checkOut) throw new Error("Informe check-in e check-out.");
       if (diarias <= 0) throw new Error("Check-out precisa ser depois do check-in.");
-      if (unidades.validas.length > 2) throw new Error("O lançamento aceita até três unidades/BSPs.");
-      if (unidades.unidades.some((item, index) => {
-        const valor = index === 0 ? valor2 : valor3;
-        return !item.unidade.trim() && (!!item.bsp.trim() || !!valor);
-      })) {
+      if (unidades.validas.length > 2)
+        throw new Error("O lançamento aceita até três unidades/BSPs.");
+      if (
+        unidades.unidades.some((item, index) => {
+          const valor = index === 0 ? valor2 : valor3;
+          return !item.unidade.trim() && (!!item.bsp.trim() || !!valor);
+        })
+      ) {
         throw new Error("Informe a unidade de cada rateio adicionado.");
       }
-      if (unidades.validas.some((item) => !item.bsp.trim())) throw new Error("Informe o BSP de cada unidade adicionada.");
-      if (unidades.validas.length >= 1 && valor2Num <= 0) throw new Error("Informe o valor da segunda unidade/BSP.");
-      if (unidades.validas.length >= 2 && valor3Num <= 0) throw new Error("Informe o valor da terceira unidade/BSP.");
-      const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(Boolean);
+      if (unidades.validas.some((item) => !item.bsp.trim()))
+        throw new Error("Informe o BSP de cada unidade adicionada.");
+      if (unidades.validas.length >= 1 && valor2Num <= 0)
+        throw new Error("Informe o valor da segunda unidade/BSP.");
+      if (unidades.validas.length >= 2 && valor3Num <= 0)
+        throw new Error("Informe o valor da terceira unidade/BSP.");
+      const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(
+        Boolean,
+      );
       const segundaUnidade = unidades.validas[0];
       const terceiraUnidade = unidades.validas[1];
       const payload: Record<string, unknown> = {
-        unidade: f.unidade, bsp: f.bsp, nome_usuario: nomes.join(", "), hotel_id: f.hotelId,
-        check_in: f.checkIn, check_out: f.checkOut, diarias,
+        unidade: f.unidade,
+        bsp: f.bsp,
+        nome_usuario: nomes.join(", "),
+        hotel_id: f.hotelId,
+        check_in: f.checkIn,
+        check_out: f.checkOut,
+        diarias,
         valor_diaria: valorDiariaNum,
-        valor_total: valorTotal, motivo: f.motivo.trim() || null, forma_pagamento: f.formaPagamento || null, observacoes: f.observacoes.trim() || null,
+        valor_total: valorTotal,
+        motivo: f.motivo.trim() || null,
+        forma_pagamento: f.formaPagamento || null,
+        observacoes: f.observacoes.trim() || null,
         unidade_2: segundaUnidade?.unidade || null,
         unidade_3: terceiraUnidade?.unidade || null,
         bsp_2: segundaUnidade?.bsp.trim() || null,
         bsp_3: terceiraUnidade?.bsp.trim() || null,
         valor_2: segundaUnidade ? valor2Num : null,
         valor_3: terceiraUnidade ? valor3Num : null,
-        nf: f.nf.trim() || null, data_faturamento: f.dataFaturamento || null,
+        nf: f.nf.trim() || null,
+        data_faturamento: f.dataFaturamento || null,
       };
       // Fornecedor/Cobrado/Status Lanç./Faturado/Usuário Faturamento saíram do formulário —
       // numa hospedagem NOVA entram com um valor padrão neutro; ao EDITAR, ficam de fora do
       // payload de propósito, pra não apagar o que já estava preenchido (ex.: vindo da
       // importação da planilha de custos, que continua populando essas colunas normalmente).
       if (!editing) {
-        Object.assign(payload, { fornecedor: null, cobrado: false, status_lancamento: null, faturado: false, usuario_faturamento: null });
+        Object.assign(payload, {
+          fornecedor: null,
+          cobrado: false,
+          status_lancamento: null,
+          faturado: false,
+          usuario_faturamento: null,
+        });
       }
       if (editing) {
         const { error } = await supabase.from("hospedagens").update(payload).eq("id", editing.id);
@@ -311,7 +517,9 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
       notify.success(editing ? "Hospedagem atualizada" : "Hospedagem lançada");
-      registrarLog(`${editing ? "Editou" : "Lançou"} hospedagem de ${f.nomeUsuario.trim()} (${f.unidade}/${f.bsp}, ${fmt(f.checkIn)} a ${fmt(f.checkOut)})`);
+      registrarLog(
+        `${editing ? "Editou" : "Lançou"} hospedagem de ${f.nomeUsuario.trim()} (${f.unidade}/${f.bsp}, ${fmt(f.checkIn)} a ${fmt(f.checkOut)})`,
+      );
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -320,22 +528,34 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col overflow-hidden">
-        <DialogHeader><DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle>
+        </DialogHeader>
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <NomeUsuarioMultiField
             label="Nome do colaborador"
-            value={f.nomeUsuario} onChange={(v) => setF({ ...f, nomeUsuario: v })}
-            colaboradores={colaboradores} extras={pessoas}
+            value={f.nomeUsuario}
+            onChange={(v) => setF({ ...f, nomeUsuario: v })}
+            colaboradores={colaboradores}
+            extras={pessoas}
             helpText="Os colaboradores adicionados pertencem ao mesmo lançamento e não multiplicam o valor do boleto."
           />
           <div className="space-y-2 rounded-md border border-dashed p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <Label className="text-xs">Distribuição por unidade / BSP</Label>
-                <p className="text-[11px] text-muted-foreground">Digite o valor de cada unidade/BSP deste lançamento — o Total soma tudo.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Digite o valor de cada unidade/BSP deste lançamento — o Total soma tudo.
+                </p>
               </div>
               {unidades.unidades.length < 2 && (
-                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => unidades.add()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => unidades.add()}
+                >
                   + unidade / BSP
                 </Button>
               )}
@@ -343,51 +563,107 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
             <div className="grid grid-cols-1 gap-2 rounded-md bg-muted/30 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px]">
               <div>
                 <Label className="text-[11px]">Unidade principal</Label>
-                <SelectComOutro value={f.unidade} onChange={(v) => setF({ ...f, unidade: v, bsp: "" })} options={unidadeOptions} manualPlaceholder="Digitar unidade" />
+                <SelectComOutro
+                  value={f.unidade}
+                  onChange={(v) => setF({ ...f, unidade: v, bsp: "" })}
+                  options={unidadeOptions}
+                  manualPlaceholder="Digitar unidade"
+                />
               </div>
               <div>
                 <Label className="text-[11px]">BSP principal</Label>
-                <SelectComOutro value={f.bsp} onChange={(v) => setF({ ...f, bsp: v })} options={bspOptions} disabled={!f.unidade} manualPlaceholder="Digitar BSP" />
+                <SelectComOutro
+                  value={f.bsp}
+                  onChange={(v) => setF({ ...f, bsp: v })}
+                  options={bspOptions}
+                  disabled={!f.unidade}
+                  manualPlaceholder="Digitar BSP"
+                />
               </div>
               <div>
                 <Label className="text-[11px]">Valor</Label>
-                <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={valorPrincipal} onChange={(e) => setValorPrincipal(e.target.value)} />
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="R$ 0,00"
+                  value={valorPrincipal}
+                  onChange={(e) => setValorPrincipal(e.target.value)}
+                />
               </div>
             </div>
             {unidades.unidades.map((item, index) => {
               const valorItem = index === 0 ? valor2 : valor3;
               const setValorItem = index === 0 ? setValor2 : setValor3;
               return (
-                <div key={index} className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_auto] sm:items-end">
+                <div
+                  key={index}
+                  className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_auto] sm:items-end"
+                >
                   <div>
                     <Label className="text-[11px]">Unidade {index + 2}</Label>
-                    <SelectComOutro value={item.unidade} onChange={(v) => unidades.update(index, { unidade: v, bsp: "" })} options={unidadeOptions} placeholder="Unidade" manualPlaceholder="Digitar unidade" />
+                    <SelectComOutro
+                      value={item.unidade}
+                      onChange={(v) => unidades.update(index, { unidade: v, bsp: "" })}
+                      options={unidadeOptions}
+                      placeholder="Unidade"
+                      manualPlaceholder="Digitar unidade"
+                    />
                   </div>
                   <div>
                     <Label className="text-[11px]">BSP {index + 2}</Label>
-                    <SelectComOutro value={item.bsp} onChange={(v) => unidades.update(index, { bsp: v })} options={bspOptionsForUnidade(periodosE, item.unidade || "all")} placeholder="BSP" manualPlaceholder="Digitar BSP" disabled={!item.unidade} />
+                    <SelectComOutro
+                      value={item.bsp}
+                      onChange={(v) => unidades.update(index, { bsp: v })}
+                      options={bspOptionsForUnidade(periodosE, item.unidade || "all")}
+                      placeholder="BSP"
+                      manualPlaceholder="Digitar BSP"
+                      disabled={!item.unidade}
+                    />
                   </div>
                   <div>
                     <Label className="text-[11px]">Valor</Label>
-                    <Input type="number" step="0.01" min="0" placeholder="R$ 0,00" value={valorItem} onChange={(e) => setValorItem(e.target.value)} />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="R$ 0,00"
+                      value={valorItem}
+                      onChange={(e) => setValorItem(e.target.value)}
+                    />
                   </div>
-                  <Button type="button" variant="ghost" size="sm" className="h-9 px-2" onClick={() => {
-                    unidades.remove(index);
-                    if (index === 0 && unidades.unidades.length === 2) { setValor2(valor3); setValor3(""); }
-                    else if (index === 0) setValor2("");
-                    else setValor3("");
-                  }}>✕</Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 px-2"
+                    onClick={() => {
+                      unidades.remove(index);
+                      if (index === 0 && unidades.unidades.length === 2) {
+                        setValor2(valor3);
+                        setValor3("");
+                      } else if (index === 0) setValor2("");
+                      else setValor3("");
+                    }}
+                  >
+                    ✕
+                  </Button>
                 </div>
               );
             })}
             <p className="text-right text-sm font-medium">
-              Total: {fmtMoney(valorTotal)}{diariasAtual > 0 ? ` (${diariasAtual} diária${diariasAtual > 1 ? "s" : ""})` : ""}
+              Total: {fmtMoney(valorTotal)}
+              {diariasAtual > 0 ? ` (${diariasAtual} diária${diariasAtual > 1 ? "s" : ""})` : ""}
             </p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Hotel</Label>
-              <HotelCombobox hoteis={hoteis} value={f.hotelId} onChange={(id) => setF({ ...f, hotelId: id })} />
+              <HotelCombobox
+                hoteis={hoteis}
+                value={f.hotelId}
+                onChange={(id) => setF({ ...f, hotelId: id })}
+              />
             </div>
             <div>
               <Label className="text-xs">Cidade</Label>
@@ -397,11 +673,19 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Check-in</Label>
-              <Input type="date" value={f.checkIn} onChange={(e) => setF({ ...f, checkIn: e.target.value })} />
+              <Input
+                type="date"
+                value={f.checkIn}
+                onChange={(e) => setF({ ...f, checkIn: e.target.value })}
+              />
             </div>
             <div>
               <Label className="text-xs">Check-out</Label>
-              <Input type="date" value={f.checkOut} onChange={(e) => setF({ ...f, checkOut: e.target.value })} />
+              <Input
+                type="date"
+                value={f.checkOut}
+                onChange={(e) => setF({ ...f, checkOut: e.target.value })}
+              />
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -411,21 +695,40 @@ function HospedagemDialog({ open, onOpenChange, editing, prefill, hoteis, period
             </div>
             <div>
               <Label className="text-xs">Forma de pagamento</Label>
-              <FormaPagamentoField value={f.formaPagamento} onChange={(v) => setF({ ...f, formaPagamento: v })} />
+              <FormaPagamentoField
+                value={f.formaPagamento}
+                onChange={(v) => setF({ ...f, formaPagamento: v })}
+              />
             </div>
           </div>
           <div>
             <Label className="text-xs">Observações</Label>
-            <Textarea rows={2} value={f.observacoes} onChange={(e) => setF({ ...f, observacoes: e.target.value })} />
+            <Textarea
+              rows={2}
+              value={f.observacoes}
+              onChange={(e) => setF({ ...f, observacoes: e.target.value })}
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><Label className="text-xs">NF</Label><Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} /></div>
-            <div><Label className="text-xs">Data Faturamento</Label><Input type="date" value={f.dataFaturamento} onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })} /></div>
+            <div>
+              <Label className="text-xs">NF</Label>
+              <Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Data Faturamento</Label>
+              <Input
+                type="date"
+                value={f.dataFaturamento}
+                onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={() => salvar.mutate()} loading={salvar.isPending}>Salvar</Button>
+          <Button onClick={() => salvar.mutate()} loading={salvar.isPending}>
+            Salvar
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -439,7 +742,9 @@ interface ParsedHospedagemRow {
   payload: Omit<Record<string, unknown>, "hotel_id"> | null;
   fornecedorNome: string;
   erro: string | null;
-  nome: string; data: string; custo: number | null;
+  nome: string;
+  data: string;
+  custo: number | null;
 }
 
 function buildHospedagemRows(l: LinhaCustoBruta): ParsedHospedagemRow[] {
@@ -447,9 +752,39 @@ function buildHospedagemRows(l: LinhaCustoBruta): ParsedHospedagemRow[] {
   const custo = parseCustoBRL(l.custo);
   const nomes = splitNomes(l.funcionario);
   const fornecedorNome = l.fornecedor.trim() || "Fornecedor não informado";
-  if (!checkIn) return [{ payload: null, fornecedorNome, erro: "Data inválida", nome: l.funcionario, data: l.data, custo }];
-  if (custo == null) return [{ payload: null, fornecedorNome, erro: "Custo inválido", nome: l.funcionario, data: l.data, custo }];
-  if (nomes.length === 0) return [{ payload: null, fornecedorNome, erro: "Sem nome de colaborador", nome: "", data: l.data, custo }];
+  if (!checkIn)
+    return [
+      {
+        payload: null,
+        fornecedorNome,
+        erro: "Data inválida",
+        nome: l.funcionario,
+        data: l.data,
+        custo,
+      },
+    ];
+  if (custo == null)
+    return [
+      {
+        payload: null,
+        fornecedorNome,
+        erro: "Custo inválido",
+        nome: l.funcionario,
+        data: l.data,
+        custo,
+      },
+    ];
+  if (nomes.length === 0)
+    return [
+      {
+        payload: null,
+        fornecedorNome,
+        erro: "Sem nome de colaborador",
+        nome: "",
+        data: l.data,
+        custo,
+      },
+    ];
 
   const { unidade, bsp } = parseUnidadeBsp(l.projeto);
   const checkOut = parseCheckOutDeObservacao(l.observacao, checkIn) ?? checkIn;
@@ -457,22 +792,44 @@ function buildHospedagemRows(l: LinhaCustoBruta): ParsedHospedagemRow[] {
   const observacoes = [l.tipoApontamento, l.observacao].filter(Boolean).join(" — ") || null;
 
   const nomeCombinado = nomes.join(", ");
-  return [{
-    payload: {
-      unidade, bsp: bsp || "Não informado", nome_usuario: nomeCombinado,
-      check_in: checkIn, check_out: checkOut, diarias,
-      valor_diaria: Math.round((custo / diarias) * 100) / 100, valor_total: custo,
-      motivo: l.motivo.trim() || null, observacoes,
-      nf: l.nf.trim() || null, fornecedor: l.fornecedor.trim() || null, cobrado: parseBooleanoSN(l.cobrado),
-      status_lancamento: l.statusLancamento.trim() || null, faturado: parseBooleanoSimNao(l.faturado),
-      usuario_faturamento: l.usuarioFaturamento.trim() || null, data_faturamento: parseDataBR(l.dataFaturamento),
+  return [
+    {
+      payload: {
+        unidade,
+        bsp: bsp || "Não informado",
+        nome_usuario: nomeCombinado,
+        check_in: checkIn,
+        check_out: checkOut,
+        diarias,
+        valor_diaria: Math.round((custo / diarias) * 100) / 100,
+        valor_total: custo,
+        motivo: l.motivo.trim() || null,
+        observacoes,
+        nf: l.nf.trim() || null,
+        fornecedor: l.fornecedor.trim() || null,
+        cobrado: parseBooleanoSN(l.cobrado),
+        status_lancamento: l.statusLancamento.trim() || null,
+        faturado: parseBooleanoSimNao(l.faturado),
+        usuario_faturamento: l.usuarioFaturamento.trim() || null,
+        data_faturamento: parseDataBR(l.dataFaturamento),
+      },
+      fornecedorNome,
+      erro: null,
+      nome: nomeCombinado,
+      data: l.data,
+      custo,
     },
-    fornecedorNome, erro: null, nome: nomeCombinado, data: l.data, custo,
-  }];
+  ];
 }
 
-function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
-  open: boolean; onOpenChange: (o: boolean) => void; hoteis: HotelFornecedor[];
+function ImportCustosHospedagemDialog({
+  open,
+  onOpenChange,
+  hoteis,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  hoteis: HotelFornecedor[];
 }) {
   const qc = useQueryClient();
   const registrarLog = useRegistrarLog("hospedagem");
@@ -483,7 +840,10 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
   const onFile = async (file: File) => {
     const buf = await file.arrayBuffer();
     const linhas = parsePlanilhaCustos(buf, "Hospedagem");
-    if (linhas.length === 0) { notify.error('Nenhuma linha encontrada na aba "Hospedagem" da planilha.'); return; }
+    if (linhas.length === 0) {
+      notify.error('Nenhuma linha encontrada na aba "Hospedagem" da planilha.');
+      return;
+    }
     setPreview(linhas.flatMap((l) => buildHospedagemRows(l)));
   };
 
@@ -491,20 +851,28 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
   const invalidas = preview?.filter((p) => p.erro) ?? [];
   const fornecedoresNovos = useMemo(() => {
     const existentes = new Set(hoteis.map((h) => h.nome.trim().toUpperCase()));
-    return Array.from(new Set(validas.map((p) => p.fornecedorNome))).filter((n) => !existentes.has(n.trim().toUpperCase()));
+    return Array.from(new Set(validas.map((p) => p.fornecedorNome))).filter(
+      (n) => !existentes.has(n.trim().toUpperCase()),
+    );
   }, [validas, hoteis]);
 
   const importar = useMutation({
     mutationFn: async () => {
       // 1) Garante um hoteis_fornecedores pra cada Fornecedor visto (cria os que faltam) —
       // hotel_id é obrigatório em hospedagens, não dá pra deixar em branco.
-      const { data: hoteisAtuais, error: he } = await supabase.from("hoteis_fornecedores").select("id, nome");
+      const { data: hoteisAtuais, error: he } = await supabase
+        .from("hoteis_fornecedores")
+        .select("id, nome");
       if (he) throw he;
-      const hotelIdByNome = new Map<string, string>((hoteisAtuais ?? []).map((h: any) => [h.nome.trim().toUpperCase(), h.id]));
-      const faltando = Array.from(new Set(validas.map((p) => p.fornecedorNome)))
-        .filter((n) => !hotelIdByNome.has(n.trim().toUpperCase()));
+      const hotelIdByNome = new Map<string, string>(
+        (hoteisAtuais ?? []).map((h: any) => [h.nome.trim().toUpperCase(), h.id]),
+      );
+      const faltando = Array.from(new Set(validas.map((p) => p.fornecedorNome))).filter(
+        (n) => !hotelIdByNome.has(n.trim().toUpperCase()),
+      );
       if (faltando.length) {
-        const { data: criados, error: ce } = await supabase.from("hoteis_fornecedores")
+        const { data: criados, error: ce } = await supabase
+          .from("hoteis_fornecedores")
           .insert(faltando.map((nome) => ({ nome, cidade: "Não informado", estado: "NA" })))
           .select("id, nome");
         if (ce) throw ce;
@@ -528,46 +896,95 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
       qc.invalidateQueries({ queryKey: ["hoteis-fornecedores"] });
       notify.success(`${validas.length} hospedagem(ns) importada(s).`);
       registrarLog(`Importou ${validas.length} hospedagem(ns) da planilha de custos`);
-      setPreview(null); setProgress(null); onOpenChange(false);
+      setPreview(null);
+      setProgress(null);
+      onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
   });
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!importar.isPending) { onOpenChange(o); if (!o) { setPreview(null); setProgress(null); } } }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!importar.isPending) {
+          onOpenChange(o);
+          if (!o) {
+            setPreview(null);
+            setProgress(null);
+          }
+        }
+      }}
+    >
       <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Importar planilha de custos — Hospedagem</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>Importar planilha de custos — Hospedagem</DialogTitle>
+        </DialogHeader>
         {!preview ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Selecione o arquivo "Relatorio_Custos_Stepup..." — cada linha da aba "Hospedagem" vira um único lançamento, mesmo quando houver vários hóspedes.
+              Selecione o arquivo "Relatorio_Custos_Stepup..." — cada linha da aba "Hospedagem" vira
+              um único lançamento, mesmo quando houver vários hóspedes.
             </p>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-            <Button variant="outline" onClick={() => fileRef.current?.click()}><Plus className="mr-2 h-4 w-4" />Escolher arquivo</Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+            />
+            <Button variant="outline" onClick={() => fileRef.current?.click()}>
+              <Plus className="mr-2 h-4 w-4" />
+              Escolher arquivo
+            </Button>
           </div>
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Linhas geradas</p><p className="text-xl font-semibold">{preview.length}</p></Card>
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Válidas</p><p className="text-xl font-semibold text-success">{validas.length}</p></Card>
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Com erro</p><p className="text-xl font-semibold text-destructive">{invalidas.length}</p></Card>
-              <Card className="p-3"><p className="text-xs text-muted-foreground">Custo total</p><p className="text-xl font-semibold">{fmtMoney(validas.reduce((a, p) => a + (p.custo ?? 0), 0))}</p></Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Linhas geradas</p>
+                <p className="text-xl font-semibold">{preview.length}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Válidas</p>
+                <p className="text-xl font-semibold text-success">{validas.length}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Com erro</p>
+                <p className="text-xl font-semibold text-destructive">{invalidas.length}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground">Custo total</p>
+                <p className="text-xl font-semibold">
+                  {fmtMoney(validas.reduce((a, p) => a + (p.custo ?? 0), 0))}
+                </p>
+              </Card>
             </div>
             {fornecedoresNovos.length > 0 && (
               <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
-                <p className="mb-1 font-medium text-warning-foreground">{fornecedoresNovos.length} fornecedor(es) novo(s) serão cadastrados em Hotéis (sem cidade/estado — edite depois se precisar)</p>
+                <p className="mb-1 font-medium text-warning-foreground">
+                  {fornecedoresNovos.length} fornecedor(es) novo(s) serão cadastrados em Hotéis (sem
+                  cidade/estado — edite depois se precisar)
+                </p>
                 <p className="text-muted-foreground">{fornecedoresNovos.join(", ")}</p>
               </div>
             )}
             {invalidas.length > 0 && (
               <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                {invalidas.length} linha(s) não serão importadas — revise a planilha se o número parecer alto.
+                {invalidas.length} linha(s) não serão importadas — revise a planilha se o número
+                parecer alto.
               </div>
             )}
             <div className="max-h-[40vh] overflow-auto rounded-md border">
               <Table>
                 <TableHeader>
-                  <TableRow><TableHead>Data</TableHead><TableHead>Nome</TableHead><TableHead>Fornecedor</TableHead><TableHead>Custo</TableHead><TableHead>Situação</TableHead></TableRow>
+                  <TableRow>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Fornecedor</TableHead>
+                    <TableHead>Custo</TableHead>
+                    <TableHead>Situação</TableHead>
+                  </TableRow>
                 </TableHeader>
                 <TableBody>
                   {preview.slice(0, 200).map((p, i) => (
@@ -575,18 +992,41 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
                       <TableCell className="text-xs">{p.data}</TableCell>
                       <TableCell className="text-xs">{p.nome}</TableCell>
                       <TableCell className="text-xs">{p.fornecedorNome}</TableCell>
-                      <TableCell className="text-xs">{p.custo != null ? fmtMoney(p.custo) : "—"}</TableCell>
-                      <TableCell className="text-xs">{p.erro ? <span className="text-destructive">{p.erro}</span> : "OK"}</TableCell>
+                      <TableCell className="text-xs">
+                        {p.custo != null ? fmtMoney(p.custo) : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {p.erro ? <span className="text-destructive">{p.erro}</span> : "OK"}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              {preview.length > 200 && <p className="p-2 text-center text-xs text-muted-foreground">Mostrando as primeiras 200 de {preview.length} linhas — a importação processa todas.</p>}
+              {preview.length > 200 && (
+                <p className="p-2 text-center text-xs text-muted-foreground">
+                  Mostrando as primeiras 200 de {preview.length} linhas — a importação processa
+                  todas.
+                </p>
+              )}
             </div>
-            {progress && <p className="text-xs text-muted-foreground">Importando {progress.done}/{progress.total}...</p>}
+            {progress && (
+              <p className="text-xs text-muted-foreground">
+                Importando {progress.done}/{progress.total}...
+              </p>
+            )}
             <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setPreview(null)} disabled={importar.isPending}>Escolher outro arquivo</Button>
-              <Button onClick={() => importar.mutate()} loading={importar.isPending} disabled={validas.length === 0}>
+              <Button
+                variant="outline"
+                onClick={() => setPreview(null)}
+                disabled={importar.isPending}
+              >
+                Escolher outro arquivo
+              </Button>
+              <Button
+                onClick={() => importar.mutate()}
+                loading={importar.isPending}
+                disabled={validas.length === 0}
+              >
                 Confirmar importação ({validas.length})
               </Button>
             </DialogFooter>
@@ -599,12 +1039,33 @@ function ImportCustosHospedagemDialog({ open, onOpenChange, hoteis }: {
 
 // ─── Aba Lançamentos ────────────────────────────────────────────────────────
 type HospedagensSortColumn =
-  | "unidade" | "bsp" | "nome_usuario" | "hotel" | "check_in" | "check_out" | "diarias" | "valor_diaria" | "valor_total" | "motivo";
+  | "unidade"
+  | "bsp"
+  | "nome_usuario"
+  | "hotel"
+  | "check_in"
+  | "check_out"
+  | "diarias"
+  | "valor_diaria"
+  | "valor_total"
+  | "motivo";
 
-function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidadeOptions, prefill, onPrefillConsumed }: {
-  hoteis: HotelFornecedor[]; hospedagens: Hospedagem[]; periodosE: HistNovoPeriodo[];
-  colaboradores: { id: string; nome: string }[]; unidadeOptions: string[];
-  prefill?: Partial<typeof FORM_VAZIO> | null; onPrefillConsumed?: () => void;
+function LancamentosTab({
+  hoteis,
+  hospedagens,
+  periodosE,
+  colaboradores,
+  unidadeOptions,
+  prefill,
+  onPrefillConsumed,
+}: {
+  hoteis: HotelFornecedor[];
+  hospedagens: Hospedagem[];
+  periodosE: HistNovoPeriodo[];
+  colaboradores: { id: string; nome: string }[];
+  unidadeOptions: string[];
+  prefill?: Partial<typeof FORM_VAZIO> | null;
+  onPrefillConsumed?: () => void;
 }) {
   const qc = useQueryClient();
   // Nasce sempre no mês atual até hoje (recalculado a cada carregamento da tela, não fica
@@ -623,11 +1084,18 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
   const { sortColumn, sortDirection, toggleSort } = useTableSort<HospedagensSortColumn>();
 
   useEffect(() => {
-    if (prefill) { setEditing(null); setDialogOpen(true); onPrefillConsumed?.(); }
+    if (prefill) {
+      setEditing(null);
+      setDialogOpen(true);
+      onPrefillConsumed?.();
+    }
   }, [prefill]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hotelById = useMemo(() => new Map(hoteis.map((h) => [h.id, h])), [hoteis]);
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
+  const bspOptions = useMemo(
+    () => bspOptionsForUnidade(periodosE, filterUnidade),
+    [periodosE, filterUnidade],
+  );
 
   const registrarLog = useRegistrarLog("hospedagem");
   const excluir = useMutation({
@@ -639,59 +1107,91 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
     onSuccess: (h) => {
       qc.invalidateQueries({ queryKey: ["hospedagens"] });
       notify.success("Hospedagem excluída");
-      registrarLog(`Excluiu hospedagem de ${h.nome_usuario} (${h.unidade}/${h.bsp}, ${fmt(h.check_in)} a ${fmt(h.check_out)})`);
+      registrarLog(
+        `Excluiu hospedagem de ${h.nome_usuario} (${h.unidade}/${h.bsp}, ${fmt(h.check_in)} a ${fmt(h.check_out)})`,
+      );
     },
     onError: (e: any) => notify.error(e.message),
   });
 
-  const filtradas = useMemo(() => hospedagens.filter((h) =>
-    // Sobreposição de período — basta a estadia cruzar algum dia do intervalo filtrado.
-    (!periodoDe || h.check_out >= periodoDe) &&
-    (!periodoAte || h.check_in <= periodoAte) &&
-    // Comparação por chave normalizada (não texto exato) — do contrário, lançamentos antigos
-    // gravados com uma grafia diferente da mesma unidade (ex.: "Safe Zephyrus" antes de existir
-    // a lista fixa "SAFE ZEPHYRUS") sumiriam do filtro mesmo sendo a unidade certa.
-    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase())) &&
-    (filterBsp === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
-    (filterHotel === "all" || h.hotel_id === filterHotel) &&
-    (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
-    (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
-  ).sort((a, b) => {
-    // Sem coluna escolhida, organiza por lançamento (BSP) — não mais por nome do usuário, que
-    // hoje pode ser uma lista combinada de hóspedes do mesmo boleto — usando o dia (check-in)
-    // como critério dentro de cada BSP.
-    if (!sortColumn) {
-      return a.bsp.localeCompare(b.bsp) || a.check_in.localeCompare(b.check_in);
-    }
-    const dir = sortDirection === "asc" ? 1 : -1;
-    switch (sortColumn) {
-      case "unidade":
-        return dir * a.unidade.localeCompare(b.unidade);
-      case "bsp":
-        return dir * a.bsp.localeCompare(b.bsp);
-      case "nome_usuario":
-        return dir * a.nome_usuario.localeCompare(b.nome_usuario);
-      case "hotel":
-        return dir * (hotelById.get(a.hotel_id)?.nome ?? "").localeCompare(hotelById.get(b.hotel_id)?.nome ?? "");
-      case "check_in":
-        return dir * a.check_in.localeCompare(b.check_in);
-      case "check_out":
-        return dir * a.check_out.localeCompare(b.check_out);
-      case "diarias":
-        return dir * (a.diarias - b.diarias);
-      case "valor_diaria":
-        return dir * (a.valor_diaria - b.valor_diaria);
-      case "valor_total":
-        return dir * (a.valor_total - b.valor_total);
-      case "motivo":
-        return dir * (a.motivo ?? "").localeCompare(b.motivo ?? "");
-      default:
-        return 0;
-    }
-  }), [hospedagens, periodoDe, periodoAte, filterUnidade, filterBsp, filterHotel, filterMotivo, filterNome, sortColumn, sortDirection, hotelById]);
+  const filtradas = useMemo(
+    () =>
+      hospedagens
+        .filter(
+          (h) =>
+            // Sobreposição de período — basta a estadia cruzar algum dia do intervalo filtrado.
+            (!periodoDe || h.check_out >= periodoDe) &&
+            (!periodoAte || h.check_in <= periodoAte) &&
+            // Comparação por chave normalizada (não texto exato) — do contrário, lançamentos antigos
+            // gravados com uma grafia diferente da mesma unidade (ex.: "Safe Zephyrus" antes de existir
+            // a lista fixa "SAFE ZEPHYRUS") sumiriam do filtro mesmo sendo a unidade certa.
+            (filterUnidade === "all" ||
+              rateiosDaHospedagem(h).some(
+                (rateio) =>
+                  rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase(),
+              )) &&
+            (filterBsp === "all" ||
+              rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
+            (filterHotel === "all" || h.hotel_id === filterHotel) &&
+            (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
+            (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
+        )
+        .sort((a, b) => {
+          // Sem coluna escolhida, organiza por lançamento (BSP) — não mais por nome do usuário, que
+          // hoje pode ser uma lista combinada de hóspedes do mesmo boleto — usando o dia (check-in)
+          // como critério dentro de cada BSP.
+          if (!sortColumn) {
+            return a.bsp.localeCompare(b.bsp) || a.check_in.localeCompare(b.check_in);
+          }
+          const dir = sortDirection === "asc" ? 1 : -1;
+          switch (sortColumn) {
+            case "unidade":
+              return dir * a.unidade.localeCompare(b.unidade);
+            case "bsp":
+              return dir * a.bsp.localeCompare(b.bsp);
+            case "nome_usuario":
+              return dir * a.nome_usuario.localeCompare(b.nome_usuario);
+            case "hotel":
+              return (
+                dir *
+                (hotelById.get(a.hotel_id)?.nome ?? "").localeCompare(
+                  hotelById.get(b.hotel_id)?.nome ?? "",
+                )
+              );
+            case "check_in":
+              return dir * a.check_in.localeCompare(b.check_in);
+            case "check_out":
+              return dir * a.check_out.localeCompare(b.check_out);
+            case "diarias":
+              return dir * (a.diarias - b.diarias);
+            case "valor_diaria":
+              return dir * (a.valor_diaria - b.valor_diaria);
+            case "valor_total":
+              return dir * (a.valor_total - b.valor_total);
+            case "motivo":
+              return dir * (a.motivo ?? "").localeCompare(b.motivo ?? "");
+            default:
+              return 0;
+          }
+        }),
+    [
+      hospedagens,
+      periodoDe,
+      periodoAte,
+      filterUnidade,
+      filterBsp,
+      filterHotel,
+      filterMotivo,
+      filterNome,
+      sortColumn,
+      sortDirection,
+      hotelById,
+    ],
+  );
 
   const motivosVistos = useMemo(
-    () => Array.from(new Set(hospedagens.map((h) => h.motivo).filter((m): m is string => !!m))).sort(),
+    () =>
+      Array.from(new Set(hospedagens.map((h) => h.motivo).filter((m): m is string => !!m))).sort(),
     [hospedagens],
   );
 
@@ -722,8 +1222,11 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
         "Data Faturamento": h.data_faturamento ? fmt(h.data_faturamento) : "—",
       };
     });
-    if (rows.length === 0) { notify.error("Nenhuma hospedagem pra exportar com os filtros atuais."); return; }
-    const ws = XLSX.utils.json_to_sheet(rows);
+    if (rows.length === 0) {
+      notify.error("Nenhuma hospedagem pra exportar com os filtros atuais.");
+      return;
+    }
+    const ws = planilhaComCabecalho(rows, "Relatório de Hospedagem");
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Hospedagem");
     XLSX.writeFile(wb, `hospedagem_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -734,67 +1237,143 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
-            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Período - de
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              value={periodoDe}
+              onChange={(e) => setPeriodoDe(e.target.value)}
+            />
           </div>
           <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
-            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Período - até
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              min={periodoDe || undefined}
+              value={periodoAte}
+              onChange={(e) => setPeriodoAte(e.target.value)}
+            />
           </div>
           <div className="space-y-0.5 w-44">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
-            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Unidade
+            </Label>
+            <Select
+              value={filterUnidade}
+              onValueChange={(v) => {
+                setFilterUnidade(v);
+                setFilterBsp("all");
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todas
+                </SelectItem>
+                {unidadeOptions.map((u) => (
+                  <SelectItem key={u} value={u} className="text-xs">
+                    {u}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              BSP
+            </Label>
             <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todos
+                </SelectItem>
+                {bspOptions.map((b) => (
+                  <SelectItem key={b} value={b} className="text-xs">
+                    {b}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-48">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Hotel</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Hotel
+            </Label>
             <Select value={filterHotel} onValueChange={setFilterHotel}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {hoteis.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.nome}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todos
+                </SelectItem>
+                {hoteis.map((h) => (
+                  <SelectItem key={h.id} value={h.id} className="text-xs">
+                    {h.nome}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Motivo</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Motivo
+            </Label>
             <Select value={filterMotivo} onValueChange={setFilterMotivo}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {motivosVistos.map((m) => <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todos
+                </SelectItem>
+                {motivosVistos.map((m) => (
+                  <SelectItem key={m} value={m} className="text-xs">
+                    {m}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-52">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
-            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Nome do usuário
+            </Label>
+            <Input
+              className="h-8 text-xs"
+              placeholder="Buscar por nome..."
+              value={filterNome}
+              onChange={(e) => setFilterNome(e.target.value)}
+            />
           </div>
           <div className="ml-auto flex items-center gap-2">
             <HistoricoAlteracoesButton modulo="hospedagem" titulo="Hospedagem" />
             <Button variant="outline" onClick={exportarRelatorio}>
-              <Download className="mr-1.5 h-4 w-4" />Exportar relatório
+              <Download className="mr-1.5 h-4 w-4" />
+              Exportar relatório
             </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
-              <Upload className="mr-1.5 h-4 w-4" />Importar planilha de custos
+              <Upload className="mr-1.5 h-4 w-4" />
+              Importar planilha de custos
             </Button>
-            <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
-              <Plus className="mr-1.5 h-4 w-4" />Nova hospedagem
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              Nova hospedagem
             </Button>
           </div>
         </div>
@@ -804,16 +1383,79 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Nome do usuário" column="nome_usuario" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Hotel" column="hotel" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Check-in" column="check_in" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Check-out" column="check_out" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Diárias" column="diarias" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-              <SortableHead label="Valor diária" column="valor_diaria" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-              <SortableHead label="Valor total" column="valor_total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-              <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead
+                label="Unidade"
+                column="unidade"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="BSP"
+                column="bsp"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Nome do usuário"
+                column="nome_usuario"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Hotel"
+                column="hotel"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Check-in"
+                column="check_in"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Check-out"
+                column="check_out"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Diárias"
+                column="diarias"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="text-right"
+              />
+              <SortableHead
+                label="Valor diária"
+                column="valor_diaria"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="text-right"
+              />
+              <SortableHead
+                label="Valor total"
+                column="valor_total"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="text-right"
+              />
+              <SortableHead
+                label="Motivo"
+                column="motivo"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
               <TableHead>NF</TableHead>
               <TableHead className="w-20" />
             </TableRow>
@@ -821,60 +1463,95 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
           <TableBody>
             {filtradas.length === 0 ? (
               <EmptyStateRow colSpan={12} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
-            ) : filtradas.map((h) => {
-              const hotel = hotelById.get(h.hotel_id);
-              const rateios = rateiosDaHospedagem(h);
-              return (
-                <TableRow key={h.id}>
-                  <TableCell>{Array.from(new Set(rateios.map((rateio) => rateio.unidade))).join(" · ")}</TableCell>
-                  <TableCell>{rateios.map((rateio) => rateio.bsp).join(" · ")}</TableCell>
-                  <TableCell>{h.nome_usuario}</TableCell>
-                  <TableCell>{hotel ? `${hotel.nome} — ${localizacaoHotel(hotel)}` : "—"}</TableCell>
-                  <TableCell>{fmt(h.check_in)}</TableCell>
-                  <TableCell>{fmt(h.check_out)}</TableCell>
-                  <TableCell className="text-right">{h.diarias}</TableCell>
-                  <TableCell className="text-right">{fmtMoney(h.valor_diaria)}</TableCell>
-                  <TableCell className="text-right font-medium">{fmtMoney(h.valor_total)}</TableCell>
-                  <TableCell>{h.motivo ?? "—"}</TableCell>
-                  <TableCell>{h.nf ?? "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditing(h); setDialogOpen(true); }}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Excluir hospedagem?</AlertDialogTitle>
-                            <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(h)}>
-                              Excluir
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            ) : (
+              filtradas.map((h) => {
+                const hotel = hotelById.get(h.hotel_id);
+                const rateios = rateiosDaHospedagem(h);
+                return (
+                  <TableRow key={h.id}>
+                    <TableCell>
+                      {Array.from(new Set(rateios.map((rateio) => rateio.unidade))).join(" · ")}
+                    </TableCell>
+                    <TableCell>{rateios.map((rateio) => rateio.bsp).join(" · ")}</TableCell>
+                    <TableCell>{h.nome_usuario}</TableCell>
+                    <TableCell>
+                      {hotel ? `${hotel.nome} — ${localizacaoHotel(hotel)}` : "—"}
+                    </TableCell>
+                    <TableCell>{fmt(h.check_in)}</TableCell>
+                    <TableCell>{fmt(h.check_out)}</TableCell>
+                    <TableCell className="text-right">{h.diarias}</TableCell>
+                    <TableCell className="text-right">{fmtMoney(h.valor_diaria)}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {fmtMoney(h.valor_total)}
+                    </TableCell>
+                    <TableCell>{h.motivo ?? "—"}</TableCell>
+                    <TableCell>{h.nf ?? "—"}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setEditing(h);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir hospedagem?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Essa ação não pode ser desfeita.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => excluir.mutate(h)}
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
           </TableBody>
         </Table>
       </Card>
 
       <HospedagemDialog
-        open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} prefill={editing ? null : prefill}
-        hoteis={hoteis} periodosE={periodosE} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editing={editing}
+        prefill={editing ? null : prefill}
+        hoteis={hoteis}
+        periodosE={periodosE}
+        colaboradores={colaboradores}
+        unidadeOptions={unidadeOptions}
       />
-      <ImportCustosHospedagemDialog open={importOpen} onOpenChange={setImportOpen} hoteis={hoteis} />
+      <ImportCustosHospedagemDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        hoteis={hoteis}
+      />
     </div>
   );
 }
@@ -882,8 +1559,16 @@ function LancamentosTab({ hoteis, hospedagens, periodosE, colaboradores, unidade
 // ─── Aba Consolidado (cascata Cliente → Unidade → BSP) ──────────────────────
 // Extraído da aba Lançamentos (pedido dela, 2026-09-29) — mesmos filtros e mesma árvore de
 // antes, só que numa aba própria, sem disputar espaço com a tabela de lançamentos/edição.
-function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
-  hoteis: HotelFornecedor[]; hospedagens: Hospedagem[]; periodosE: HistNovoPeriodo[]; unidadeOptions: string[];
+function ConsolidadoTab({
+  hoteis,
+  hospedagens,
+  periodosE,
+  unidadeOptions,
+}: {
+  hoteis: HotelFornecedor[];
+  hospedagens: Hospedagem[];
+  periodosE: HistNovoPeriodo[];
+  unidadeOptions: string[];
 }) {
   const [periodoDe, setPeriodoDe] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
   const [periodoAte, setPeriodoAte] = useState(() => new Date().toISOString().slice(0, 10));
@@ -893,21 +1578,44 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
   const [filterMotivo, setFilterMotivo] = useState("all");
   const [filterNome, setFilterNome] = useState("");
 
-  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
+  const bspOptions = useMemo(
+    () => bspOptionsForUnidade(periodosE, filterUnidade),
+    [periodosE, filterUnidade],
+  );
   const motivosVistos = useMemo(
-    () => Array.from(new Set(hospedagens.map((h) => h.motivo).filter((m): m is string => !!m))).sort(),
+    () =>
+      Array.from(new Set(hospedagens.map((h) => h.motivo).filter((m): m is string => !!m))).sort(),
     [hospedagens],
   );
 
-  const filtradas = useMemo(() => hospedagens.filter((h) =>
-    (!periodoDe || h.check_out >= periodoDe) &&
-    (!periodoAte || h.check_in <= periodoAte) &&
-    (filterUnidade === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase())) &&
-    (filterBsp === "all" || rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
-    (filterHotel === "all" || h.hotel_id === filterHotel) &&
-    (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
-    (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
-  ), [hospedagens, periodoDe, periodoAte, filterUnidade, filterBsp, filterHotel, filterMotivo, filterNome]);
+  const filtradas = useMemo(
+    () =>
+      hospedagens.filter(
+        (h) =>
+          (!periodoDe || h.check_out >= periodoDe) &&
+          (!periodoAte || h.check_in <= periodoAte) &&
+          (filterUnidade === "all" ||
+            rateiosDaHospedagem(h).some(
+              (rateio) =>
+                rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase(),
+            )) &&
+          (filterBsp === "all" ||
+            rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
+          (filterHotel === "all" || h.hotel_id === filterHotel) &&
+          (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
+          (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
+      ),
+    [
+      hospedagens,
+      periodoDe,
+      periodoAte,
+      filterUnidade,
+      filterBsp,
+      filterHotel,
+      filterMotivo,
+      filterNome,
+    ],
+  );
 
   const hotelById = useMemo(() => new Map(hoteis.map((h) => [h.id, h])), [hoteis]);
 
@@ -922,7 +1630,8 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
       rateiosDaHospedagem(h).forEach((rateio) => {
         // Sem BSP, "unidade" é na verdade um setor interno da empresa (Comercial, RH, SGI...),
         // não uma operação offshore — nesse caso o próprio setor vira o rótulo do topo da árvore.
-        const cliente = clienteDaUnidade(rateio.unidade) ?? (rateio.bsp?.trim() ? "Base" : rateio.unidade);
+        const cliente =
+          clienteDaUnidade(rateio.unidade) ?? (rateio.bsp?.trim() ? "Base" : rateio.unidade);
         if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
         const porUnidade = porCliente.get(cliente)!;
         if (!porUnidade.has(rateio.unidade)) porUnidade.set(rateio.unidade, new Map());
@@ -939,7 +1648,9 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
               .map(([bsp, itens]) => ({
                 bsp,
                 total: itens.reduce((a, item) => a + item.valor, 0),
-                itens: [...itens].sort((a, b) => b.hospedagem.check_in.localeCompare(a.hospedagem.check_in)),
+                itens: [...itens].sort((a, b) =>
+                  b.hospedagem.check_in.localeCompare(a.hospedagem.check_in),
+                ),
               }))
               .sort((a, b) => b.total - a.total);
             return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
@@ -955,7 +1666,8 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
     setter((current) => {
       const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -965,74 +1677,158 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
-            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Período - de
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              value={periodoDe}
+              onChange={(e) => setPeriodoDe(e.target.value)}
+            />
           </div>
           <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
-            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Período - até
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              min={periodoDe || undefined}
+              value={periodoAte}
+              onChange={(e) => setPeriodoAte(e.target.value)}
+            />
           </div>
           <div className="space-y-0.5 w-44">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Unidade</Label>
-            <Select value={filterUnidade} onValueChange={(v) => { setFilterUnidade(v); setFilterBsp("all"); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Unidade
+            </Label>
+            <Select
+              value={filterUnidade}
+              onValueChange={(v) => {
+                setFilterUnidade(v);
+                setFilterBsp("all");
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todas</SelectItem>
-                {unidadeOptions.map((u) => <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todas
+                </SelectItem>
+                {unidadeOptions.map((u) => (
+                  <SelectItem key={u} value={u} className="text-xs">
+                    {u}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">BSP</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              BSP
+            </Label>
             <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todos
+                </SelectItem>
+                {bspOptions.map((b) => (
+                  <SelectItem key={b} value={b} className="text-xs">
+                    {b}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-48">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Hotel</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Hotel
+            </Label>
             <Select value={filterHotel} onValueChange={setFilterHotel}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {hoteis.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.nome}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todos
+                </SelectItem>
+                {hoteis.map((h) => (
+                  <SelectItem key={h.id} value={h.id} className="text-xs">
+                    {h.nome}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-40">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Motivo</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Motivo
+            </Label>
             <Select value={filterMotivo} onValueChange={setFilterMotivo}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {motivosVistos.map((m) => <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>)}
+                <SelectItem value="all" className="text-xs">
+                  Todos
+                </SelectItem>
+                {motivosVistos.map((m) => (
+                  <SelectItem key={m} value={m} className="text-xs">
+                    {m}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-0.5 w-52">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
-            <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Nome do usuário
+            </Label>
+            <Input
+              className="h-8 text-xs"
+              placeholder="Buscar por nome..."
+              value={filterNome}
+              onChange={(e) => setFilterNome(e.target.value)}
+            />
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button
-              type="button" size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground"
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground"
               onClick={() => {
                 const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
                 if (tudoAberto) {
                   setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
-                  setCollapsedUnidades(new Set(consolidado.flatMap((c) => c.unidades.map((u) => `${c.cliente}::${u.unidade}`))));
+                  setCollapsedUnidades(
+                    new Set(
+                      consolidado.flatMap((c) =>
+                        c.unidades.map((u) => `${c.cliente}::${u.unidade}`),
+                      ),
+                    ),
+                  );
                 } else {
-                  setCollapsedClientes(new Set()); setCollapsedUnidades(new Set());
+                  setCollapsedClientes(new Set());
+                  setCollapsedUnidades(new Set());
                 }
               }}
             >
               {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
-                <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+                <>
+                  <ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />
+                  Recolher tudo
+                </>
               ) : (
-                <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+                <>
+                  <ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />
+                  Expandir tudo
+                </>
               )}
             </Button>
           </div>
@@ -1046,93 +1842,143 @@ function ConsolidadoTab({ hoteis, hospedagens, periodosE, unidadeOptions }: {
             return (
               <div key={c.cliente} className="border-b last:border-b-0">
                 <button
-                  type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                  aria-expanded={clienteAberto} onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                  aria-expanded={clienteAberto}
+                  onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
                 >
                   <span className="flex min-w-0 items-center gap-2 font-semibold">
-                    {clienteAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                    <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{c.cliente}</span>
+                    {clienteAberto ? (
+                      <ChevronDown className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0" />
+                    )}
+                    <Building2 className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="truncate">{c.cliente}</span>
                   </span>
                   <span className="shrink-0 text-sm font-semibold">{fmtMoney(c.total)}</span>
                 </button>
-                {clienteAberto && c.unidades.map((u) => {
-                  const unidadeKey = `${c.cliente}::${u.unidade}`;
-                  const unidadeAberta = !collapsedUnidades.has(unidadeKey);
-                  return (
-                    <div key={unidadeKey}>
-                      <button
-                        type="button" className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
-                        aria-expanded={unidadeAberta} onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
-                      >
-                        <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
-                          {unidadeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                          <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{u.unidade}</span>
-                          {u.bsps.some((b) => b.bsp !== "Não informado") && (
-                            <span className="text-xs font-normal text-muted-foreground">({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)</span>
-                          )}
-                        </span>
-                        <span className="shrink-0 text-sm font-medium">{fmtMoney(u.total)}</span>
-                      </button>
-                      {unidadeAberta && u.bsps.map((b) => {
-                        // Setor interno (Comercial, RH, SGI...) não tem BSP de verdade — pula o
-                        // nível de BSP na árvore, os lançamentos aparecem direto sob a unidade.
-                        if (b.bsp === "Não informado") {
-                          return (
-                            <div key={`${unidadeKey}::sem-bsp`} className="divide-y border-t bg-emerald-50/40 pl-16">
-                              {b.itens.map((item) => {
-                                const h = item.hospedagem;
-                                const hotel = hotelById.get(h.hotel_id);
-                                return (
-                                  <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
-                                    <div className="min-w-0">
-                                      <p className="truncate font-medium">{h.nome_usuario}</p>
-                                      <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
-                                    </div>
-                                    <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        }
-                        const bspKey = `${unidadeKey}::${b.bsp}`;
-                        const bspAberto = expandedBsps.has(bspKey);
-                        return (
-                          <div key={bspKey}>
-                            <button
-                              type="button" className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
-                              aria-expanded={bspAberto} onClick={() => toggleSet(setExpandedBsps, bspKey)}
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                {bspAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                                <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{b.bsp}</span>
-                                <span className="text-xs font-normal text-muted-foreground">({b.itens.length})</span>
-                              </span>
-                              <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
-                            </button>
-                            {bspAberto && (
-                              <div className="divide-y border-t bg-emerald-50/40 pl-20">
-                                {b.itens.map((item) => {
-                                  const h = item.hospedagem;
-                                  const hotel = hotelById.get(h.hotel_id);
-                                  return (
-                                    <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
-                                      <div className="min-w-0">
-                                        <p className="truncate font-medium">{h.nome_usuario}</p>
-                                        <p className="text-muted-foreground">{hotel?.nome ?? "—"} · {fmt(h.check_in)} – {fmt(h.check_out)} · {h.diarias}d{h.motivo ? ` · ${h.motivo}` : ""}{h.nf ? ` · NF ${h.nf}` : ""}</p>
-                                      </div>
-                                      <span className="shrink-0 font-semibold">{fmtMoney(item.valor)}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                {clienteAberto &&
+                  c.unidades.map((u) => {
+                    const unidadeKey = `${c.cliente}::${u.unidade}`;
+                    const unidadeAberta = !collapsedUnidades.has(unidadeKey);
+                    return (
+                      <div key={unidadeKey}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
+                          aria-expanded={unidadeAberta}
+                          onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
+                        >
+                          <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
+                            {unidadeAberta ? (
+                              <ChevronDown className="h-4 w-4 shrink-0" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0" />
                             )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                            <Ship className="h-4 w-4 shrink-0 text-sky-700" />
+                            <span className="truncate">{u.unidade}</span>
+                            {u.bsps.some((b) => b.bsp !== "Não informado") && (
+                              <span className="text-xs font-normal text-muted-foreground">
+                                ({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)
+                              </span>
+                            )}
+                          </span>
+                          <span className="shrink-0 text-sm font-medium">{fmtMoney(u.total)}</span>
+                        </button>
+                        {unidadeAberta &&
+                          u.bsps.map((b) => {
+                            // Setor interno (Comercial, RH, SGI...) não tem BSP de verdade — pula o
+                            // nível de BSP na árvore, os lançamentos aparecem direto sob a unidade.
+                            if (b.bsp === "Não informado") {
+                              return (
+                                <div
+                                  key={`${unidadeKey}::sem-bsp`}
+                                  className="divide-y border-t bg-emerald-50/40 pl-16"
+                                >
+                                  {b.itens.map((item) => {
+                                    const h = item.hospedagem;
+                                    const hotel = hotelById.get(h.hotel_id);
+                                    return (
+                                      <div
+                                        key={item.key}
+                                        className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs"
+                                      >
+                                        <div className="min-w-0">
+                                          <p className="truncate font-medium">{h.nome_usuario}</p>
+                                          <p className="text-muted-foreground">
+                                            {hotel?.nome ?? "—"} · {fmt(h.check_in)} –{" "}
+                                            {fmt(h.check_out)} · {h.diarias}d
+                                            {h.motivo ? ` · ${h.motivo}` : ""}
+                                            {h.nf ? ` · NF ${h.nf}` : ""}
+                                          </p>
+                                        </div>
+                                        <span className="shrink-0 font-semibold">
+                                          {fmtMoney(item.valor)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            }
+                            const bspKey = `${unidadeKey}::${b.bsp}`;
+                            const bspAberto = expandedBsps.has(bspKey);
+                            return (
+                              <div key={bspKey}>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
+                                  aria-expanded={bspAberto}
+                                  onClick={() => toggleSet(setExpandedBsps, bspKey)}
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    {bspAberto ? (
+                                      <ChevronDown className="h-4 w-4 shrink-0" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4 shrink-0" />
+                                    )}
+                                    <Layers3 className="h-4 w-4 shrink-0 text-sky-600" />
+                                    <span className="truncate">{b.bsp}</span>
+                                    <span className="text-xs font-normal text-muted-foreground">
+                                      ({b.itens.length})
+                                    </span>
+                                  </span>
+                                  <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
+                                </button>
+                                {bspAberto && (
+                                  <div className="divide-y border-t bg-emerald-50/40 pl-20">
+                                    {b.itens.map((item) => {
+                                      const h = item.hospedagem;
+                                      const hotel = hotelById.get(h.hotel_id);
+                                      return (
+                                        <div
+                                          key={item.key}
+                                          className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs"
+                                        >
+                                          <div className="min-w-0">
+                                            <p className="truncate font-medium">{h.nome_usuario}</p>
+                                            <p className="text-muted-foreground">
+                                              {hotel?.nome ?? "—"} · {fmt(h.check_in)} –{" "}
+                                              {fmt(h.check_out)} · {h.diarias}d
+                                              {h.motivo ? ` · ${h.motivo}` : ""}
+                                              {h.nf ? ` · NF ${h.nf}` : ""}
+                                            </p>
+                                          </div>
+                                          <span className="shrink-0 font-semibold">
+                                            {fmtMoney(item.valor)}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    );
+                  })}
               </div>
             );
           })}
@@ -1154,19 +2000,34 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
   const { sortColumn, sortDirection, toggleSort } = useTableSort<HoteisSortColumn>();
 
   if (editing && bound !== editing.id) {
-    setF({ nome: editing.nome, cidade: editing.cidade, estado: editing.estado, endereco: editing.endereco ?? "", telefone: editing.telefone ?? "" });
+    setF({
+      nome: editing.nome,
+      cidade: editing.cidade,
+      estado: editing.estado,
+      endereco: editing.endereco ?? "",
+      telefone: editing.telefone ?? "",
+    });
     setBound(editing.id);
   }
-  if (creating && bound !== "novo") { setF({ nome: "", cidade: "", estado: "", endereco: "", telefone: "" }); setBound("novo"); }
+  if (creating && bound !== "novo") {
+    setF({ nome: "", cidade: "", estado: "", endereco: "", telefone: "" });
+    setBound("novo");
+  }
 
   const salvar = useMutation({
     mutationFn: async () => {
       const payload = {
-        nome: f.nome.trim(), cidade: f.cidade.trim(), estado: f.estado.trim().toUpperCase(),
-        endereco: f.endereco.trim() || null, telefone: f.telefone.trim() || null,
+        nome: f.nome.trim(),
+        cidade: f.cidade.trim(),
+        estado: f.estado.trim().toUpperCase(),
+        endereco: f.endereco.trim() || null,
+        telefone: f.telefone.trim() || null,
       };
       if (editing) {
-        const { error } = await supabase.from("hoteis_fornecedores").update(payload).eq("id", editing.id);
+        const { error } = await supabase
+          .from("hoteis_fornecedores")
+          .update(payload)
+          .eq("id", editing.id);
         if (error) throw error;
       } else {
         const { error } = await supabase.from("hoteis_fornecedores").insert(payload);
@@ -1176,7 +2037,9 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hoteis-fornecedores"] });
       notify.success(editing ? "Hotel atualizado" : "Hotel cadastrado");
-      setEditing(null); setCreating(false); setBound(null);
+      setEditing(null);
+      setCreating(false);
+      setBound(null);
     },
     onError: (e: any) => notify.error(e.message),
   });
@@ -1194,38 +2057,65 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
   });
 
   const dialogOpen = editing !== null || creating;
-  const closeDialog = () => { setEditing(null); setCreating(false); setBound(null); };
+  const closeDialog = () => {
+    setEditing(null);
+    setCreating(false);
+    setBound(null);
+  };
 
-  const ordenados = useMemo(() => [...hoteis].sort((a, b) => {
-    // Sem coluna escolhida, mantém a ordem que já vem da consulta (nome asc — ver useHoteisQuery).
-    if (!sortColumn) return 0;
-    const dir = sortDirection === "asc" ? 1 : -1;
-    switch (sortColumn) {
-      case "nome":
-        return dir * a.nome.localeCompare(b.nome);
-      case "cidade":
-        return dir * a.cidade.localeCompare(b.cidade);
-      case "estado":
-        return dir * a.estado.localeCompare(b.estado);
-      default:
-        return 0;
-    }
-  }), [hoteis, sortColumn, sortDirection]);
+  const ordenados = useMemo(
+    () =>
+      [...hoteis].sort((a, b) => {
+        // Sem coluna escolhida, mantém a ordem que já vem da consulta (nome asc — ver useHoteisQuery).
+        if (!sortColumn) return 0;
+        const dir = sortDirection === "asc" ? 1 : -1;
+        switch (sortColumn) {
+          case "nome":
+            return dir * a.nome.localeCompare(b.nome);
+          case "cidade":
+            return dir * a.cidade.localeCompare(b.cidade);
+          case "estado":
+            return dir * a.estado.localeCompare(b.estado);
+          default:
+            return 0;
+        }
+      }),
+    [hoteis, sortColumn, sortDirection],
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
         <Button onClick={() => setCreating(true)}>
-          <Plus className="mr-1.5 h-4 w-4" />Novo hotel
+          <Plus className="mr-1.5 h-4 w-4" />
+          Novo hotel
         </Button>
       </div>
       <Card>
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Nome" column="nome" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Cidade" column="cidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
-              <SortableHead label="Estado" column="estado" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableHead
+                label="Nome"
+                column="nome"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Cidade"
+                column="cidade"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Estado"
+                column="estado"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
               <TableHead>Endereço</TableHead>
               <TableHead>Telefone</TableHead>
               <TableHead className="w-20" />
@@ -1234,59 +2124,109 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
           <TableBody>
             {ordenados.length === 0 ? (
               <EmptyStateRow colSpan={6} icon={Hotel} title="Nenhum hotel cadastrado" />
-            ) : ordenados.map((h) => (
-              <TableRow key={h.id}>
-                <TableCell>{h.nome}</TableCell>
-                <TableCell>{h.cidade}</TableCell>
-                <TableCell>{h.estado}</TableCell>
-                <TableCell className="max-w-64 truncate text-muted-foreground">{h.endereco ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{h.telefone ?? "—"}</TableCell>
-                <TableCell>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditing(h)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Excluir hotel?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Hospedagens já lançadas com esse hotel não podem ser excluídas junto — se houver alguma vinculada, a exclusão vai falhar.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(h.id)}>
-                            Excluir
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+            ) : (
+              ordenados.map((h) => (
+                <TableRow key={h.id}>
+                  <TableCell>{h.nome}</TableCell>
+                  <TableCell>{h.cidade}</TableCell>
+                  <TableCell>{h.estado}</TableCell>
+                  <TableCell className="max-w-64 truncate text-muted-foreground">
+                    {h.endereco ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{h.telefone ?? "—"}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setEditing(h)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Excluir hotel?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Hospedagens já lançadas com esse hotel não podem ser excluídas junto —
+                              se houver alguma vinculada, a exclusão vai falhar.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => excluir.mutate(h.id)}
+                            >
+                              Excluir
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={(o) => !o && closeDialog()}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Editar hotel" : "Novo hotel"}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar hotel" : "Novo hotel"}</DialogTitle>
+          </DialogHeader>
           <div className="grid gap-3">
-            <div><Label className="text-xs">Nome</Label><Input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} /></div>
-            <div><Label className="text-xs">Cidade</Label><Input value={f.cidade} onChange={(e) => setF({ ...f, cidade: e.target.value })} /></div>
-            <div><Label className="text-xs">Estado (UF)</Label><Input maxLength={2} value={f.estado} onChange={(e) => setF({ ...f, estado: e.target.value.toUpperCase() })} /></div>
-            <div><Label className="text-xs">Endereço</Label><Input value={f.endereco} onChange={(e) => setF({ ...f, endereco: e.target.value })} /></div>
-            <div><Label className="text-xs">Telefone</Label><Input value={f.telefone} onChange={(e) => setF({ ...f, telefone: e.target.value })} /></div>
+            <div>
+              <Label className="text-xs">Nome</Label>
+              <Input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Cidade</Label>
+              <Input value={f.cidade} onChange={(e) => setF({ ...f, cidade: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Estado (UF)</Label>
+              <Input
+                maxLength={2}
+                value={f.estado}
+                onChange={(e) => setF({ ...f, estado: e.target.value.toUpperCase() })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Endereço</Label>
+              <Input
+                value={f.endereco}
+                onChange={(e) => setF({ ...f, endereco: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Telefone</Label>
+              <Input
+                value={f.telefone}
+                onChange={(e) => setF({ ...f, telefone: e.target.value })}
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button disabled={!f.nome.trim() || !f.cidade.trim() || !f.estado.trim()} loading={salvar.isPending} onClick={() => salvar.mutate()}>Salvar</Button>
+            <Button
+              disabled={!f.nome.trim() || !f.cidade.trim() || !f.estado.trim()}
+              loading={salvar.isPending}
+              onClick={() => salvar.mutate()}
+            >
+              Salvar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1306,10 +2246,18 @@ function HospedagemPage() {
   const search = useSearch({ from: "/admin/hospedagem" });
   const navigate = useNavigate();
   const prefill = useMemo(() => {
-    if (!search.prefillUnidade && !search.prefillBsp && !search.prefillNome && !search.prefillMotivo) return null;
+    if (
+      !search.prefillUnidade &&
+      !search.prefillBsp &&
+      !search.prefillNome &&
+      !search.prefillMotivo
+    )
+      return null;
     return {
-      unidade: search.prefillUnidade ?? "", bsp: search.prefillBsp ?? "",
-      nomeUsuario: search.prefillNome ?? "", motivo: search.prefillMotivo ?? "",
+      unidade: search.prefillUnidade ?? "",
+      bsp: search.prefillBsp ?? "",
+      nomeUsuario: search.prefillNome ?? "",
+      motivo: search.prefillMotivo ?? "",
     };
   }, [search]);
   const limparPrefill = () => navigate({ to: "/admin/hospedagem", search: {} });
@@ -1342,15 +2290,21 @@ function HospedagemPage() {
         </div>
         <Card className="p-3">
           <div className="flex gap-2">
-            <Skeleton className="h-8 w-44" /><Skeleton className="h-8 w-40" /><Skeleton className="h-8 w-48" />
+            <Skeleton className="h-8 w-44" />
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="h-8 w-48" />
           </div>
         </Card>
         <Card>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Nome</TableHead>
-                <TableHead>Hotel</TableHead><TableHead>Check-in</TableHead><TableHead>Check-out</TableHead>
+                <TableHead>Unidade</TableHead>
+                <TableHead>BSP</TableHead>
+                <TableHead>Nome</TableHead>
+                <TableHead>Hotel</TableHead>
+                <TableHead>Check-in</TableHead>
+                <TableHead>Check-out</TableHead>
               </TableRow>
             </TableHeader>
             <TableSkeleton rows={6} cols={6} />
@@ -1375,12 +2329,22 @@ function HospedagemPage() {
         </TabsList>
         <TabsContent value="lancamentos" className="mt-4">
           <LancamentosTab
-            hoteis={hoteis} hospedagens={hospedagens} periodosE={periodosE} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
-            prefill={prefill} onPrefillConsumed={limparPrefill}
+            hoteis={hoteis}
+            hospedagens={hospedagens}
+            periodosE={periodosE}
+            colaboradores={colaboradores}
+            unidadeOptions={unidadeOptions}
+            prefill={prefill}
+            onPrefillConsumed={limparPrefill}
           />
         </TabsContent>
         <TabsContent value="consolidado" className="mt-4">
-          <ConsolidadoTab hoteis={hoteis} hospedagens={hospedagens} periodosE={periodosE} unidadeOptions={unidadeOptions} />
+          <ConsolidadoTab
+            hoteis={hoteis}
+            hospedagens={hospedagens}
+            periodosE={periodosE}
+            unidadeOptions={unidadeOptions}
+          />
         </TabsContent>
         <TabsContent value="hoteis" className="mt-4">
           <HoteisTab hoteis={hoteis} />
