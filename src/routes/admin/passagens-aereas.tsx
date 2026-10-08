@@ -998,6 +998,8 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
   const [filterMotivo, setFilterMotivo] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  const [filterDe, setFilterDe] = useState("");
+  const [filterAte, setFilterAte] = useState("");
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
   const motivosVistos = useMemo(
@@ -1010,8 +1012,10 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
     (filterBsp === "all" || p.bsp === filterBsp) &&
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
-    (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)),
-  ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome]);
+    (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
+    (!filterDe || (p.data_ida ?? "") >= filterDe) &&
+    (!filterAte || (!!p.data_ida && p.data_ida <= filterAte)),
+  ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte]);
 
   // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
   // (Custos). Passagens Aéreas não tem campo Cliente próprio, usa o mesmo vínculo Unidade→Cliente
@@ -1102,6 +1106,14 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
           <div className="space-y-0.5 w-52">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Data ida de</Label>
+            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button
@@ -1256,6 +1268,8 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
   const [filterMotivo, setFilterMotivo] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  const [filterDe, setFilterDe] = useState("");
+  const [filterAte, setFilterAte] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PassagemAerea | null>(null);
   const [gerenciando, setGerenciando] = useState<PassagemAerea | null>(null);
@@ -1292,7 +1306,9 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
     (filterBsp === "all" || p.bsp === filterBsp) &&
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
-    (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)),
+    (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
+    (!filterDe || (p.data_ida ?? "") >= filterDe) &&
+    (!filterAte || (!!p.data_ida && p.data_ida <= filterAte)),
   ).sort((a, b) => {
     if (!sortColumn) return 0;
     const dir = sortDirection === "asc" ? 1 : -1;
@@ -1322,7 +1338,7 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
       default:
         return 0;
     }
-  }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, sortColumn, sortDirection]);
+  }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
@@ -1463,6 +1479,14 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
           <div className="space-y-0.5 w-52">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Nome do usuário</Label>
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Data ida de</Label>
+            <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Até</Label>
+            <Input type="date" className="h-8 text-xs" value={filterAte} onChange={(e) => setFilterAte(e.target.value)} />
           </div>
           <div className="ml-auto flex items-center gap-2">
             <HistoricoAlteracoesButton modulo="passagens_aereas" titulo="Passagens Aéreas" />
