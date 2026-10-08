@@ -210,6 +210,12 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
+              <Label className="text-xs">Data de lançamento</Label>
+              <Input type="date" value={f.dataLancamento} onChange={(e) => setF({ ...f, dataLancamento: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
               <Label className="text-xs">Motivo</Label>
               <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
             </div>
@@ -218,14 +224,10 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
               <FormaPagamentoField value={f.formaPagamento} onChange={(v) => setF({ ...f, formaPagamento: v })} />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <Label className="text-xs">Solicitante</Label>
               <Input value={f.solicitante} onChange={(e) => setF({ ...f, solicitante: e.target.value })} placeholder="Quem está pedindo" />
-            </div>
-            <div>
-              <Label className="text-xs">E-mail do solicitante (opcional)</Label>
-              <Input type="email" value={f.solicitanteEmail} onChange={(e) => setF({ ...f, solicitanteEmail: e.target.value })} placeholder="Pra avisar a cada etapa" />
             </div>
           </div>
           <NomeUsuarioMultiField
@@ -253,10 +255,6 @@ function PassagemDialog({ open, onOpenChange, editing, periodosE, colaboradores,
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label className="text-xs">Data de lançamento</Label>
-              <Input type="date" value={f.dataLancamento} onChange={(e) => setF({ ...f, dataLancamento: e.target.value })} />
-            </div>
             <div className="space-y-1">
               <Label className="text-xs">Data de ida</Label>
               <Input type="date" value={f.dataIda} onChange={(e) => setF({ ...f, dataIda: e.target.value })} />
