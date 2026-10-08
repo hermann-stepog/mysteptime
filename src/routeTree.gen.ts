@@ -9,58 +9,50 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminRouteRouteImport } from './routes/admin/route'
-import { Route as AppRouteRouteImport } from './routes/app/route'
-import { Route as AuthRouteImport } from './routes/auth'
 import { Route as PendingRouteImport } from './routes/pending'
-import { Route as PmRouteRouteImport } from './routes/pm/route'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as RhSmsRouteRouteImport } from './routes/rh-sms/route'
-import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
-import { Route as AdminBmRouteImport } from './routes/admin/bm'
-import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
-import { Route as AdminCostsRouteImport } from './routes/admin/costs'
-import { Route as AdminFlowTrackRouteImport } from './routes/admin/flow-track'
-import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
-import { Route as AdminHospedagemRouteImport } from './routes/admin/hospedagem'
-import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
-import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
-import { Route as AdminPassagensAereasRouteImport } from './routes/admin/passagens-aereas'
-import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
-import { Route as AdminPlanejamentoEmbarqueHistoricoRouteImport } from './routes/admin/planejamento-embarque-historico'
-import { Route as AdminRatesRouteImport } from './routes/admin/rates'
-import { Route as AdminReembolsosRouteImport } from './routes/admin/reembolsos'
-import { Route as AdminReportsRouteImport } from './routes/admin/reports'
-import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
-import { Route as AdminTimesheetOffshoreRouteImport } from './routes/admin/timesheet-offshore'
-import { Route as AdminTransportRouteImport } from './routes/admin/transport'
-import { Route as AppIndexRouteImport } from './routes/app/index'
-import { Route as AppDocumentsRouteImport } from './routes/app/documents'
-import { Route as AppFinancialRouteImport } from './routes/app/financial'
-import { Route as AppScheduleRouteImport } from './routes/app/schedule'
-import { Route as AppTimesheetRouteImport } from './routes/app/timesheet'
-import { Route as AppTransportRouteImport } from './routes/app/transport'
-import { Route as PmIndexRouteImport } from './routes/pm/index'
-import { Route as PmBmsRouteImport } from './routes/pm/bms'
+import { Route as PmRouteRouteImport } from './routes/pm/route'
+import { Route as AppRouteRouteImport } from './routes/app/route'
+import { Route as AdminRouteRouteImport } from './routes/admin/route'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as RhSmsIndexRouteImport } from './routes/rh-sms/index'
+import { Route as PmIndexRouteImport } from './routes/pm/index'
+import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as PmBmsRouteImport } from './routes/pm/bms'
+import { Route as AppTransportRouteImport } from './routes/app/transport'
+import { Route as AppTimesheetRouteImport } from './routes/app/timesheet'
+import { Route as AppScheduleRouteImport } from './routes/app/schedule'
+import { Route as AppFinancialRouteImport } from './routes/app/financial'
+import { Route as AppDocumentsRouteImport } from './routes/app/documents'
+import { Route as AdminTransportRouteImport } from './routes/admin/transport'
+import { Route as AdminTimesheetOffshoreRouteImport } from './routes/admin/timesheet-offshore'
+import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminReportsRouteImport } from './routes/admin/reports'
+import { Route as AdminReembolsosRouteImport } from './routes/admin/reembolsos'
+import { Route as AdminRatesRouteImport } from './routes/admin/rates'
+import { Route as AdminPlanejamentoEmbarqueHistoricoRouteImport } from './routes/admin/planejamento-embarque-historico'
+import { Route as AdminPayrollRouteImport } from './routes/admin/payroll'
+import { Route as AdminPassagensAereasRouteImport } from './routes/admin/passagens-aereas'
+import { Route as AdminNominationsRouteImport } from './routes/admin/nominations'
+import { Route as AdminMaterialsRouteImport } from './routes/admin/materials'
+import { Route as AdminHospedagemRouteImport } from './routes/admin/hospedagem'
+import { Route as AdminHistogramaNovoRouteImport } from './routes/admin/histograma-novo'
+import { Route as AdminFlowTrackRouteImport } from './routes/admin/flow-track'
+import { Route as AdminCostsRouteImport } from './routes/admin/costs'
+import { Route as AdminCostSimulatorRouteImport } from './routes/admin/cost-simulator'
+import { Route as AdminCollaboratorsRouteImport } from './routes/admin/collaborators'
+import { Route as AdminBmRouteImport } from './routes/admin/bm'
+import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
 import { Route as ApiPublicLgpFlowMonitoringRouteImport } from './routes/api/public/lgp-flow-monitoring'
-import { Route as ApiIntegrationsDrakeQualificationEligibilityRouteImport } from './routes/api/integrations/drake/qualification-eligibility'
-import { Route as ApiIntegrationsDrakeQualificationUpdateRouteImport } from './routes/api/integrations/drake/qualification-update'
+import { Route as ApiPublicFlowTrackDemandasSyncRouteImport } from './routes/api/public/flow-track-demandas-sync'
 import { Route as ApiIntegrationsDrakeUpdateRouteImport } from './routes/api/integrations/drake/update'
+import { Route as ApiIntegrationsDrakeQualificationUpdateRouteImport } from './routes/api/integrations/drake/qualification-update'
+import { Route as ApiIntegrationsDrakeQualificationEligibilityRouteImport } from './routes/api/integrations/drake/qualification-eligibility'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminRouteRoute = AdminRouteRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppRouteRoute = AppRouteRouteImport.update({
-  id: '/app',
-  path: '/app',
+const PendingRoute = PendingRouteImport.update({
+  id: '/pending',
+  path: '/pending',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -68,9 +60,9 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PendingRoute = PendingRouteImport.update({
-  id: '/pending',
-  path: '/pending',
+const RhSmsRouteRoute = RhSmsRouteRouteImport.update({
+  id: '/rh-sms',
+  path: '/rh-sms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PmRouteRoute = PmRouteRouteImport.update({
@@ -78,64 +70,94 @@ const PmRouteRoute = PmRouteRouteImport.update({
   path: '/pm',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RhSmsRouteRoute = RhSmsRouteRouteImport.update({
-  id: '/rh-sms',
-  path: '/rh-sms',
+const AppRouteRoute = AppRouteRouteImport.update({
+  id: '/app',
+  path: '/app',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
-  id: '/approvals',
-  path: '/approvals',
+const AdminRouteRoute = AdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RhSmsIndexRoute = RhSmsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RhSmsRouteRoute,
+} as any)
+const PmIndexRoute = PmIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PmRouteRoute,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const PmBmsRoute = PmBmsRouteImport.update({
+  id: '/bms',
+  path: '/bms',
+  getParentRoute: () => PmRouteRoute,
+} as any)
+const AppTransportRoute = AppTransportRouteImport.update({
+  id: '/transport',
+  path: '/transport',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppTimesheetRoute = AppTimesheetRouteImport.update({
+  id: '/timesheet',
+  path: '/timesheet',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppScheduleRoute = AppScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppFinancialRoute = AppFinancialRouteImport.update({
+  id: '/financial',
+  path: '/financial',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppDocumentsRoute = AppDocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AdminTransportRoute = AdminTransportRouteImport.update({
+  id: '/transport',
+  path: '/transport',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminBmRoute = AdminBmRouteImport.update({
-  id: '/bm',
-  path: '/bm',
+const AdminTimesheetOffshoreRoute = AdminTimesheetOffshoreRouteImport.update({
+  id: '/timesheet-offshore',
+  path: '/timesheet-offshore',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminCollaboratorsRoute = AdminCollaboratorsRouteImport.update({
-  id: '/collaborators',
-  path: '/collaborators',
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminCostsRoute = AdminCostsRouteImport.update({
-  id: '/costs',
-  path: '/costs',
+const AdminReportsRoute = AdminReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminFlowTrackRoute = AdminFlowTrackRouteImport.update({
-  id: '/flow-track',
-  path: '/flow-track',
+const AdminReembolsosRoute = AdminReembolsosRouteImport.update({
+  id: '/reembolsos',
+  path: '/reembolsos',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminHistogramaNovoRoute = AdminHistogramaNovoRouteImport.update({
-  id: '/histograma-novo',
-  path: '/histograma-novo',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
-const AdminHospedagemRoute = AdminHospedagemRouteImport.update({
-  id: '/hospedagem',
-  path: '/hospedagem',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
-const AdminMaterialsRoute = AdminMaterialsRouteImport.update({
-  id: '/materials',
-  path: '/materials',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
-const AdminNominationsRoute = AdminNominationsRouteImport.update({
-  id: '/nominations',
-  path: '/nominations',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
-const AdminPassagensAereasRoute = AdminPassagensAereasRouteImport.update({
-  id: '/passagens-aereas',
-  path: '/passagens-aereas',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
-const AdminPayrollRoute = AdminPayrollRouteImport.update({
-  id: '/payroll',
-  path: '/payroll',
+const AdminRatesRoute = AdminRatesRouteImport.update({
+  id: '/rates',
+  path: '/rates',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminPlanejamentoEmbarqueHistoricoRoute =
@@ -144,80 +166,65 @@ const AdminPlanejamentoEmbarqueHistoricoRoute =
     path: '/planejamento-embarque-historico',
     getParentRoute: () => AdminRouteRoute,
   } as any)
-const AdminRatesRoute = AdminRatesRouteImport.update({
-  id: '/rates',
-  path: '/rates',
+const AdminPayrollRoute = AdminPayrollRouteImport.update({
+  id: '/payroll',
+  path: '/payroll',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminReembolsosRoute = AdminReembolsosRouteImport.update({
-  id: '/reembolsos',
-  path: '/reembolsos',
+const AdminPassagensAereasRoute = AdminPassagensAereasRouteImport.update({
+  id: '/passagens-aereas',
+  path: '/passagens-aereas',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminReportsRoute = AdminReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
+const AdminNominationsRoute = AdminNominationsRouteImport.update({
+  id: '/nominations',
+  path: '/nominations',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminSettingsRoute = AdminSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+const AdminMaterialsRoute = AdminMaterialsRouteImport.update({
+  id: '/materials',
+  path: '/materials',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminTimesheetOffshoreRoute = AdminTimesheetOffshoreRouteImport.update({
-  id: '/timesheet-offshore',
-  path: '/timesheet-offshore',
+const AdminHospedagemRoute = AdminHospedagemRouteImport.update({
+  id: '/hospedagem',
+  path: '/hospedagem',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminTransportRoute = AdminTransportRouteImport.update({
-  id: '/transport',
-  path: '/transport',
+const AdminHistogramaNovoRoute = AdminHistogramaNovoRouteImport.update({
+  id: '/histograma-novo',
+  path: '/histograma-novo',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AppIndexRoute = AppIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppRouteRoute,
+const AdminFlowTrackRoute = AdminFlowTrackRouteImport.update({
+  id: '/flow-track',
+  path: '/flow-track',
+  getParentRoute: () => AdminRouteRoute,
 } as any)
-const AppDocumentsRoute = AppDocumentsRouteImport.update({
-  id: '/documents',
-  path: '/documents',
-  getParentRoute: () => AppRouteRoute,
+const AdminCostsRoute = AdminCostsRouteImport.update({
+  id: '/costs',
+  path: '/costs',
+  getParentRoute: () => AdminRouteRoute,
 } as any)
-const AppFinancialRoute = AppFinancialRouteImport.update({
-  id: '/financial',
-  path: '/financial',
-  getParentRoute: () => AppRouteRoute,
+const AdminCostSimulatorRoute = AdminCostSimulatorRouteImport.update({
+  id: '/cost-simulator',
+  path: '/cost-simulator',
+  getParentRoute: () => AdminRouteRoute,
 } as any)
-const AppScheduleRoute = AppScheduleRouteImport.update({
-  id: '/schedule',
-  path: '/schedule',
-  getParentRoute: () => AppRouteRoute,
+const AdminCollaboratorsRoute = AdminCollaboratorsRouteImport.update({
+  id: '/collaborators',
+  path: '/collaborators',
+  getParentRoute: () => AdminRouteRoute,
 } as any)
-const AppTimesheetRoute = AppTimesheetRouteImport.update({
-  id: '/timesheet',
-  path: '/timesheet',
-  getParentRoute: () => AppRouteRoute,
+const AdminBmRoute = AdminBmRouteImport.update({
+  id: '/bm',
+  path: '/bm',
+  getParentRoute: () => AdminRouteRoute,
 } as any)
-const AppTransportRoute = AppTransportRouteImport.update({
-  id: '/transport',
-  path: '/transport',
-  getParentRoute: () => AppRouteRoute,
-} as any)
-const PmIndexRoute = PmIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => PmRouteRoute,
-} as any)
-const PmBmsRoute = PmBmsRouteImport.update({
-  id: '/bms',
-  path: '/bms',
-  getParentRoute: () => PmRouteRoute,
-} as any)
-const RhSmsIndexRoute = RhSmsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => RhSmsRouteRoute,
+const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
+  id: '/approvals',
+  path: '/approvals',
+  getParentRoute: () => AdminRouteRoute,
 } as any)
 const ApiPublicLgpFlowMonitoringRoute =
   ApiPublicLgpFlowMonitoringRouteImport.update({
@@ -225,10 +232,16 @@ const ApiPublicLgpFlowMonitoringRoute =
     path: '/api/public/lgp-flow-monitoring',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiIntegrationsDrakeQualificationEligibilityRoute =
-  ApiIntegrationsDrakeQualificationEligibilityRouteImport.update({
-    id: '/api/integrations/drake/qualification-eligibility',
-    path: '/api/integrations/drake/qualification-eligibility',
+const ApiPublicFlowTrackDemandasSyncRoute =
+  ApiPublicFlowTrackDemandasSyncRouteImport.update({
+    id: '/api/public/flow-track-demandas-sync',
+    path: '/api/public/flow-track-demandas-sync',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiIntegrationsDrakeUpdateRoute =
+  ApiIntegrationsDrakeUpdateRouteImport.update({
+    id: '/api/integrations/drake/update',
+    path: '/api/integrations/drake/update',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiIntegrationsDrakeQualificationUpdateRoute =
@@ -237,10 +250,10 @@ const ApiIntegrationsDrakeQualificationUpdateRoute =
     path: '/api/integrations/drake/qualification-update',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiIntegrationsDrakeUpdateRoute =
-  ApiIntegrationsDrakeUpdateRouteImport.update({
-    id: '/api/integrations/drake/update',
-    path: '/api/integrations/drake/update',
+const ApiIntegrationsDrakeQualificationEligibilityRoute =
+  ApiIntegrationsDrakeQualificationEligibilityRouteImport.update({
+    id: '/api/integrations/drake/qualification-eligibility',
+    path: '/api/integrations/drake/qualification-eligibility',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -255,6 +268,7 @@ export interface FileRoutesByFullPath {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
+  '/admin/cost-simulator': typeof AdminCostSimulatorRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
@@ -279,6 +293,7 @@ export interface FileRoutesByFullPath {
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
   '/rh-sms/': typeof RhSmsIndexRoute
+  '/api/public/flow-track-demandas-sync': typeof ApiPublicFlowTrackDemandasSyncRoute
   '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
@@ -292,6 +307,7 @@ export interface FileRoutesByTo {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
+  '/admin/cost-simulator': typeof AdminCostSimulatorRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
@@ -316,6 +332,7 @@ export interface FileRoutesByTo {
   '/app': typeof AppIndexRoute
   '/pm': typeof PmIndexRoute
   '/rh-sms': typeof RhSmsIndexRoute
+  '/api/public/flow-track-demandas-sync': typeof ApiPublicFlowTrackDemandasSyncRoute
   '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
@@ -333,6 +350,7 @@ export interface FileRoutesById {
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/bm': typeof AdminBmRoute
   '/admin/collaborators': typeof AdminCollaboratorsRoute
+  '/admin/cost-simulator': typeof AdminCostSimulatorRoute
   '/admin/costs': typeof AdminCostsRoute
   '/admin/flow-track': typeof AdminFlowTrackRoute
   '/admin/histograma-novo': typeof AdminHistogramaNovoRoute
@@ -357,6 +375,7 @@ export interface FileRoutesById {
   '/app/': typeof AppIndexRoute
   '/pm/': typeof PmIndexRoute
   '/rh-sms/': typeof RhSmsIndexRoute
+  '/api/public/flow-track-demandas-sync': typeof ApiPublicFlowTrackDemandasSyncRoute
   '/api/public/lgp-flow-monitoring': typeof ApiPublicLgpFlowMonitoringRoute
   '/api/integrations/drake/qualification-eligibility': typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   '/api/integrations/drake/qualification-update': typeof ApiIntegrationsDrakeQualificationUpdateRoute
@@ -375,6 +394,7 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/bm'
     | '/admin/collaborators'
+    | '/admin/cost-simulator'
     | '/admin/costs'
     | '/admin/flow-track'
     | '/admin/histograma-novo'
@@ -399,6 +419,7 @@ export interface FileRouteTypes {
     | '/app/'
     | '/pm/'
     | '/rh-sms/'
+    | '/api/public/flow-track-demandas-sync'
     | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
@@ -412,6 +433,7 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/bm'
     | '/admin/collaborators'
+    | '/admin/cost-simulator'
     | '/admin/costs'
     | '/admin/flow-track'
     | '/admin/histograma-novo'
@@ -436,6 +458,7 @@ export interface FileRouteTypes {
     | '/app'
     | '/pm'
     | '/rh-sms'
+    | '/api/public/flow-track-demandas-sync'
     | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
@@ -452,6 +475,7 @@ export interface FileRouteTypes {
     | '/admin/approvals'
     | '/admin/bm'
     | '/admin/collaborators'
+    | '/admin/cost-simulator'
     | '/admin/costs'
     | '/admin/flow-track'
     | '/admin/histograma-novo'
@@ -476,6 +500,7 @@ export interface FileRouteTypes {
     | '/app/'
     | '/pm/'
     | '/rh-sms/'
+    | '/api/public/flow-track-demandas-sync'
     | '/api/public/lgp-flow-monitoring'
     | '/api/integrations/drake/qualification-eligibility'
     | '/api/integrations/drake/qualification-update'
@@ -490,6 +515,7 @@ export interface RootRouteChildren {
   RhSmsRouteRoute: typeof RhSmsRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
+  ApiPublicFlowTrackDemandasSyncRoute: typeof ApiPublicFlowTrackDemandasSyncRoute
   ApiPublicLgpFlowMonitoringRoute: typeof ApiPublicLgpFlowMonitoringRoute
   ApiIntegrationsDrakeQualificationEligibilityRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRoute
   ApiIntegrationsDrakeQualificationUpdateRoute: typeof ApiIntegrationsDrakeQualificationUpdateRoute
@@ -498,25 +524,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/app': {
-      id: '/app'
-      path: '/app'
-      fullPath: '/app'
-      preLoaderRoute: typeof AppRouteRouteImport
+    '/pending': {
+      id: '/pending'
+      path: '/pending'
+      fullPath: '/pending'
+      preLoaderRoute: typeof PendingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -526,11 +538,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/pending': {
-      id: '/pending'
-      path: '/pending'
-      fullPath: '/pending'
-      preLoaderRoute: typeof PendingRouteImport
+    '/rh-sms': {
+      id: '/rh-sms'
+      path: '/rh-sms'
+      fullPath: '/rh-sms'
+      preLoaderRoute: typeof RhSmsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pm': {
@@ -540,138 +552,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PmRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/rh-sms': {
-      id: '/rh-sms'
-      path: '/rh-sms'
-      fullPath: '/rh-sms'
-      preLoaderRoute: typeof RhSmsRouteRouteImport
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/approvals': {
-      id: '/admin/approvals'
-      path: '/approvals'
-      fullPath: '/admin/approvals'
-      preLoaderRoute: typeof AdminApprovalsRouteImport
-      parentRoute: typeof AdminRouteRoute
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/admin/bm': {
-      id: '/admin/bm'
-      path: '/bm'
-      fullPath: '/admin/bm'
-      preLoaderRoute: typeof AdminBmRouteImport
-      parentRoute: typeof AdminRouteRoute
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/admin/collaborators': {
-      id: '/admin/collaborators'
-      path: '/collaborators'
-      fullPath: '/admin/collaborators'
-      preLoaderRoute: typeof AdminCollaboratorsRouteImport
-      parentRoute: typeof AdminRouteRoute
+    '/rh-sms/': {
+      id: '/rh-sms/'
+      path: '/'
+      fullPath: '/rh-sms/'
+      preLoaderRoute: typeof RhSmsIndexRouteImport
+      parentRoute: typeof RhSmsRouteRoute
     }
-    '/admin/costs': {
-      id: '/admin/costs'
-      path: '/costs'
-      fullPath: '/admin/costs'
-      preLoaderRoute: typeof AdminCostsRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/flow-track': {
-      id: '/admin/flow-track'
-      path: '/flow-track'
-      fullPath: '/admin/flow-track'
-      preLoaderRoute: typeof AdminFlowTrackRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/histograma-novo': {
-      id: '/admin/histograma-novo'
-      path: '/histograma-novo'
-      fullPath: '/admin/histograma-novo'
-      preLoaderRoute: typeof AdminHistogramaNovoRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/hospedagem': {
-      id: '/admin/hospedagem'
-      path: '/hospedagem'
-      fullPath: '/admin/hospedagem'
-      preLoaderRoute: typeof AdminHospedagemRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/materials': {
-      id: '/admin/materials'
-      path: '/materials'
-      fullPath: '/admin/materials'
-      preLoaderRoute: typeof AdminMaterialsRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/nominations': {
-      id: '/admin/nominations'
-      path: '/nominations'
-      fullPath: '/admin/nominations'
-      preLoaderRoute: typeof AdminNominationsRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/passagens-aereas': {
-      id: '/admin/passagens-aereas'
-      path: '/passagens-aereas'
-      fullPath: '/admin/passagens-aereas'
-      preLoaderRoute: typeof AdminPassagensAereasRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/payroll': {
-      id: '/admin/payroll'
-      path: '/payroll'
-      fullPath: '/admin/payroll'
-      preLoaderRoute: typeof AdminPayrollRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/planejamento-embarque-historico': {
-      id: '/admin/planejamento-embarque-historico'
-      path: '/planejamento-embarque-historico'
-      fullPath: '/admin/planejamento-embarque-historico'
-      preLoaderRoute: typeof AdminPlanejamentoEmbarqueHistoricoRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/rates': {
-      id: '/admin/rates'
-      path: '/rates'
-      fullPath: '/admin/rates'
-      preLoaderRoute: typeof AdminRatesRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/reembolsos': {
-      id: '/admin/reembolsos'
-      path: '/reembolsos'
-      fullPath: '/admin/reembolsos'
-      preLoaderRoute: typeof AdminReembolsosRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/reports': {
-      id: '/admin/reports'
-      path: '/reports'
-      fullPath: '/admin/reports'
-      preLoaderRoute: typeof AdminReportsRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/settings': {
-      id: '/admin/settings'
-      path: '/settings'
-      fullPath: '/admin/settings'
-      preLoaderRoute: typeof AdminSettingsRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/timesheet-offshore': {
-      id: '/admin/timesheet-offshore'
-      path: '/timesheet-offshore'
-      fullPath: '/admin/timesheet-offshore'
-      preLoaderRoute: typeof AdminTimesheetOffshoreRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
-    '/admin/transport': {
-      id: '/admin/transport'
-      path: '/transport'
-      fullPath: '/admin/transport'
-      preLoaderRoute: typeof AdminTransportRouteImport
-      parentRoute: typeof AdminRouteRoute
+    '/pm/': {
+      id: '/pm/'
+      path: '/'
+      fullPath: '/pm/'
+      preLoaderRoute: typeof PmIndexRouteImport
+      parentRoute: typeof PmRouteRoute
     }
     '/app/': {
       id: '/app/'
@@ -680,25 +594,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/documents': {
-      id: '/app/documents'
-      path: '/documents'
-      fullPath: '/app/documents'
-      preLoaderRoute: typeof AppDocumentsRouteImport
-      parentRoute: typeof AppRouteRoute
+    '/pm/bms': {
+      id: '/pm/bms'
+      path: '/bms'
+      fullPath: '/pm/bms'
+      preLoaderRoute: typeof PmBmsRouteImport
+      parentRoute: typeof PmRouteRoute
     }
-    '/app/financial': {
-      id: '/app/financial'
-      path: '/financial'
-      fullPath: '/app/financial'
-      preLoaderRoute: typeof AppFinancialRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
-    '/app/schedule': {
-      id: '/app/schedule'
-      path: '/schedule'
-      fullPath: '/app/schedule'
-      preLoaderRoute: typeof AppScheduleRouteImport
+    '/app/transport': {
+      id: '/app/transport'
+      path: '/transport'
+      fullPath: '/app/transport'
+      preLoaderRoute: typeof AppTransportRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/timesheet': {
@@ -708,33 +615,159 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTimesheetRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/transport': {
-      id: '/app/transport'
-      path: '/transport'
-      fullPath: '/app/transport'
-      preLoaderRoute: typeof AppTransportRouteImport
+    '/app/schedule': {
+      id: '/app/schedule'
+      path: '/schedule'
+      fullPath: '/app/schedule'
+      preLoaderRoute: typeof AppScheduleRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/pm/': {
-      id: '/pm/'
-      path: '/'
-      fullPath: '/pm/'
-      preLoaderRoute: typeof PmIndexRouteImport
-      parentRoute: typeof PmRouteRoute
+    '/app/financial': {
+      id: '/app/financial'
+      path: '/financial'
+      fullPath: '/app/financial'
+      preLoaderRoute: typeof AppFinancialRouteImport
+      parentRoute: typeof AppRouteRoute
     }
-    '/pm/bms': {
-      id: '/pm/bms'
-      path: '/bms'
-      fullPath: '/pm/bms'
-      preLoaderRoute: typeof PmBmsRouteImport
-      parentRoute: typeof PmRouteRoute
+    '/app/documents': {
+      id: '/app/documents'
+      path: '/documents'
+      fullPath: '/app/documents'
+      preLoaderRoute: typeof AppDocumentsRouteImport
+      parentRoute: typeof AppRouteRoute
     }
-    '/rh-sms/': {
-      id: '/rh-sms/'
-      path: '/'
-      fullPath: '/rh-sms/'
-      preLoaderRoute: typeof RhSmsIndexRouteImport
-      parentRoute: typeof RhSmsRouteRoute
+    '/admin/transport': {
+      id: '/admin/transport'
+      path: '/transport'
+      fullPath: '/admin/transport'
+      preLoaderRoute: typeof AdminTransportRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/timesheet-offshore': {
+      id: '/admin/timesheet-offshore'
+      path: '/timesheet-offshore'
+      fullPath: '/admin/timesheet-offshore'
+      preLoaderRoute: typeof AdminTimesheetOffshoreRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/reports': {
+      id: '/admin/reports'
+      path: '/reports'
+      fullPath: '/admin/reports'
+      preLoaderRoute: typeof AdminReportsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/reembolsos': {
+      id: '/admin/reembolsos'
+      path: '/reembolsos'
+      fullPath: '/admin/reembolsos'
+      preLoaderRoute: typeof AdminReembolsosRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/rates': {
+      id: '/admin/rates'
+      path: '/rates'
+      fullPath: '/admin/rates'
+      preLoaderRoute: typeof AdminRatesRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/planejamento-embarque-historico': {
+      id: '/admin/planejamento-embarque-historico'
+      path: '/planejamento-embarque-historico'
+      fullPath: '/admin/planejamento-embarque-historico'
+      preLoaderRoute: typeof AdminPlanejamentoEmbarqueHistoricoRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/payroll': {
+      id: '/admin/payroll'
+      path: '/payroll'
+      fullPath: '/admin/payroll'
+      preLoaderRoute: typeof AdminPayrollRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/passagens-aereas': {
+      id: '/admin/passagens-aereas'
+      path: '/passagens-aereas'
+      fullPath: '/admin/passagens-aereas'
+      preLoaderRoute: typeof AdminPassagensAereasRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/nominations': {
+      id: '/admin/nominations'
+      path: '/nominations'
+      fullPath: '/admin/nominations'
+      preLoaderRoute: typeof AdminNominationsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/materials': {
+      id: '/admin/materials'
+      path: '/materials'
+      fullPath: '/admin/materials'
+      preLoaderRoute: typeof AdminMaterialsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/hospedagem': {
+      id: '/admin/hospedagem'
+      path: '/hospedagem'
+      fullPath: '/admin/hospedagem'
+      preLoaderRoute: typeof AdminHospedagemRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/histograma-novo': {
+      id: '/admin/histograma-novo'
+      path: '/histograma-novo'
+      fullPath: '/admin/histograma-novo'
+      preLoaderRoute: typeof AdminHistogramaNovoRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/flow-track': {
+      id: '/admin/flow-track'
+      path: '/flow-track'
+      fullPath: '/admin/flow-track'
+      preLoaderRoute: typeof AdminFlowTrackRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/costs': {
+      id: '/admin/costs'
+      path: '/costs'
+      fullPath: '/admin/costs'
+      preLoaderRoute: typeof AdminCostsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/cost-simulator': {
+      id: '/admin/cost-simulator'
+      path: '/cost-simulator'
+      fullPath: '/admin/cost-simulator'
+      preLoaderRoute: typeof AdminCostSimulatorRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/collaborators': {
+      id: '/admin/collaborators'
+      path: '/collaborators'
+      fullPath: '/admin/collaborators'
+      preLoaderRoute: typeof AdminCollaboratorsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/bm': {
+      id: '/admin/bm'
+      path: '/bm'
+      fullPath: '/admin/bm'
+      preLoaderRoute: typeof AdminBmRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/approvals': {
+      id: '/admin/approvals'
+      path: '/approvals'
+      fullPath: '/admin/approvals'
+      preLoaderRoute: typeof AdminApprovalsRouteImport
+      parentRoute: typeof AdminRouteRoute
     }
     '/api/public/lgp-flow-monitoring': {
       id: '/api/public/lgp-flow-monitoring'
@@ -743,18 +776,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicLgpFlowMonitoringRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/integrations/drake/qualification-eligibility': {
-      id: '/api/integrations/drake/qualification-eligibility'
-      path: '/api/integrations/drake/qualification-eligibility'
-      fullPath: '/api/integrations/drake/qualification-eligibility'
-      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/integrations/drake/qualification-update': {
-      id: '/api/integrations/drake/qualification-update'
-      path: '/api/integrations/drake/qualification-update'
-      fullPath: '/api/integrations/drake/qualification-update'
-      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationUpdateRouteImport
+    '/api/public/flow-track-demandas-sync': {
+      id: '/api/public/flow-track-demandas-sync'
+      path: '/api/public/flow-track-demandas-sync'
+      fullPath: '/api/public/flow-track-demandas-sync'
+      preLoaderRoute: typeof ApiPublicFlowTrackDemandasSyncRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/integrations/drake/update': {
@@ -764,6 +790,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIntegrationsDrakeUpdateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/integrations/drake/qualification-update': {
+      id: '/api/integrations/drake/qualification-update'
+      path: '/api/integrations/drake/qualification-update'
+      fullPath: '/api/integrations/drake/qualification-update'
+      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationUpdateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/integrations/drake/qualification-eligibility': {
+      id: '/api/integrations/drake/qualification-eligibility'
+      path: '/api/integrations/drake/qualification-eligibility'
+      fullPath: '/api/integrations/drake/qualification-eligibility'
+      preLoaderRoute: typeof ApiIntegrationsDrakeQualificationEligibilityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -771,6 +811,7 @@ interface AdminRouteRouteChildren {
   AdminApprovalsRoute: typeof AdminApprovalsRoute
   AdminBmRoute: typeof AdminBmRoute
   AdminCollaboratorsRoute: typeof AdminCollaboratorsRoute
+  AdminCostSimulatorRoute: typeof AdminCostSimulatorRoute
   AdminCostsRoute: typeof AdminCostsRoute
   AdminFlowTrackRoute: typeof AdminFlowTrackRoute
   AdminHistogramaNovoRoute: typeof AdminHistogramaNovoRoute
@@ -792,6 +833,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminApprovalsRoute: AdminApprovalsRoute,
   AdminBmRoute: AdminBmRoute,
   AdminCollaboratorsRoute: AdminCollaboratorsRoute,
+  AdminCostSimulatorRoute: AdminCostSimulatorRoute,
   AdminCostsRoute: AdminCostsRoute,
   AdminFlowTrackRoute: AdminFlowTrackRoute,
   AdminHistogramaNovoRoute: AdminHistogramaNovoRoute,
@@ -869,6 +911,7 @@ const rootRouteChildren: RootRouteChildren = {
   RhSmsRouteRoute: RhSmsRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
+  ApiPublicFlowTrackDemandasSyncRoute: ApiPublicFlowTrackDemandasSyncRoute,
   ApiPublicLgpFlowMonitoringRoute: ApiPublicLgpFlowMonitoringRoute,
   ApiIntegrationsDrakeQualificationEligibilityRoute:
     ApiIntegrationsDrakeQualificationEligibilityRoute,
