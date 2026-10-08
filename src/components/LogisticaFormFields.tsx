@@ -405,7 +405,7 @@ export function PessoasAdicionaisPanel({ estado, colaboradores, unidadeOptions, 
 
 // Nome do usuário + colaboradores extras (cada um vira um lançamento próprio ao salvar).
 export function NomeUsuarioMultiField({
-  label = "Nome do usuário", value, onChange, colaboradores, extras, permiteAdicionar = true,
+  label = "Nome do usuário", value, onChange, colaboradores, extras, permiteAdicionar = true, modoLista = false,
   helpText = "Cada colaborador adicionado gera um lançamento próprio com os mesmos dados.",
 }: {
   label?: string;
