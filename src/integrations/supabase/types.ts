@@ -1034,6 +1034,7 @@ export type Database = {
           doc_type: string
           expires_at: string
           file_url: string | null
+          hist_colaborador_id: string | null
           id: string
           issued_at: string | null
         }
@@ -1044,6 +1045,7 @@ export type Database = {
           doc_type: string
           expires_at: string
           file_url?: string | null
+          hist_colaborador_id?: string | null
           id?: string
           issued_at?: string | null
         }
@@ -1054,6 +1056,7 @@ export type Database = {
           doc_type?: string
           expires_at?: string
           file_url?: string | null
+          hist_colaborador_id?: string | null
           id?: string
           issued_at?: string | null
         }
@@ -1063,6 +1066,13 @@ export type Database = {
             columns: ["collaborator_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_hist_colaborador_id_fkey"
+            columns: ["hist_colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "hist_novo_colaboradores"
             referencedColumns: ["id"]
           },
         ]
@@ -1444,6 +1454,68 @@ export type Database = {
           },
         ]
       }
+      flow_track_demandas: {
+        Row: {
+          cobranca_em: string | null
+          cobranca_texto: string | null
+          concluido_em: string | null
+          criado_em: string
+          descricao: string | null
+          id: string
+          lida_em: string | null
+          link_destino: string | null
+          modulo: string
+          prazo_em: string
+          registro_id: string
+          regra_id: string
+          responsavel_user_id: string | null
+          status: string
+          titulo: string
+        }
+        Insert: {
+          cobranca_em?: string | null
+          cobranca_texto?: string | null
+          concluido_em?: string | null
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          lida_em?: string | null
+          link_destino?: string | null
+          modulo: string
+          prazo_em: string
+          registro_id: string
+          regra_id: string
+          responsavel_user_id?: string | null
+          status?: string
+          titulo: string
+        }
+        Update: {
+          cobranca_em?: string | null
+          cobranca_texto?: string | null
+          concluido_em?: string | null
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          lida_em?: string | null
+          link_destino?: string | null
+          modulo?: string
+          prazo_em?: string
+          registro_id?: string
+          regra_id?: string
+          responsavel_user_id?: string | null
+          status?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_track_demandas_regra_id_fkey"
+            columns: ["regra_id"]
+            isOneToOne: false
+            referencedRelation: "flow_track_regras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       flow_track_events: {
         Row: {
           acao: string
@@ -1531,6 +1603,65 @@ export type Database = {
           user_id?: string
           user_name?: string | null
           user_role?: string | null
+        }
+        Relationships: []
+      }
+      flow_track_regra_responsaveis: {
+        Row: {
+          regra_id: string
+          user_id: string
+        }
+        Insert: {
+          regra_id: string
+          user_id: string
+        }
+        Update: {
+          regra_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_track_regra_responsaveis_regra_id_fkey"
+            columns: ["regra_id"]
+            isOneToOne: false
+            referencedRelation: "flow_track_regras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_track_regras: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          codigo: string
+          criado_em: string
+          descricao: string | null
+          id: string
+          modulo: string
+          nome: string
+          prazo_horas: number
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          codigo: string
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          modulo: string
+          nome: string
+          prazo_horas: number
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          codigo?: string
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          modulo?: string
+          nome?: string
+          prazo_horas?: number
         }
         Relationships: []
       }
@@ -2102,6 +2233,7 @@ export type Database = {
           period_end: string | null
           period_start: string | null
           pm_name: string | null
+          pm_responsavel: string | null
           pm_user_id: string | null
           project: string | null
           quality_rejection_reason: string | null
@@ -2143,6 +2275,7 @@ export type Database = {
           period_end?: string | null
           period_start?: string | null
           pm_name?: string | null
+          pm_responsavel?: string | null
           pm_user_id?: string | null
           project?: string | null
           quality_rejection_reason?: string | null
@@ -2184,6 +2317,7 @@ export type Database = {
           period_end?: string | null
           period_start?: string | null
           pm_name?: string | null
+          pm_responsavel?: string | null
           pm_user_id?: string | null
           project?: string | null
           quality_rejection_reason?: string | null
@@ -3754,7 +3888,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _cost_sim_aprox: { Args: { a: string; b: string }; Returns: boolean }
       _cost_sim_stats: { Args: { valores: number[] }; Returns: Json }
+      cost_simulator_hoteis_regiao: {
+        Args: { p_cidade: string }
+        Returns: Json
+      }
+      cost_simulator_local_stats: { Args: { p_filters: Json }; Returns: Json }
+      cost_simulator_transport_locais: { Args: never; Returns: Json }
+      cost_simulator_transport_trajetos: {
+        Args: { p_filters: Json }
+        Returns: Json
+      }
       cost_simulator_unit_stats: { Args: { p_filters: Json }; Returns: Json }
       flow_track_modulo_label: { Args: { t: string }; Returns: string }
       get_email_send_config: {

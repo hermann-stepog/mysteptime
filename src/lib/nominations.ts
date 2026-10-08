@@ -34,6 +34,7 @@ export type NominationStatus =
   | "equipe_formada";
 
 export interface Nomination {
+  pm_responsavel?: string | null;
   id: string;
   created_at: string;
   updated_at: string;
@@ -402,3 +403,10 @@ export const STAGE_ROLE: Partial<Record<NominationStatus, string | string[]>> = 
 };
 
 export const QUALIDADE_ROLE = "qualidade";
+
+// Inspetores não entram no fluxo de Nomeações (pedido dela, 2026-10-07): nem na solicitação
+// nem no painel de simulação.
+export function isInspetor(fn: string | null | undefined) {
+  const f = (fn ?? "").toUpperCase();
+  return f.includes("INSPETOR") || f.includes("INSPECTOR");
+}

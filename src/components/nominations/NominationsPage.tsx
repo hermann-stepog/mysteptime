@@ -16,7 +16,8 @@ import {
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE,
   columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador, requestTitle,
 } from "@/lib/nominations";
-import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyQualityRejection } from "@/lib/nominationEmails";
+import { isInspetor } from "@/lib/nominations";
+import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyRefusal, notifyQualityRejection } from "@/lib/nominationEmails";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
@@ -1049,6 +1050,55 @@ function ManageDialog({
     onError: (err: Error) => notify.error(err.message || "Erro ao cancelar."),
   });
 
+  const [pmDraft, setPmDraft] = useState(nomination.pm_responsavel ?? "");
+  const savePm = useMutation({
+    mutationFn: async () => {
+      const valor = pmDraft.trim() || null;
+      // Aplica a todas as funções da mesma solicitação (mesmo cartão).
+      const q = supabase.from("nominations").update({ pm_responsavel: valor });
+      const { error } = nomination.request_group_id
+        ? await q.eq("request_group_id", nomination.request_group_id)
+        : await q.eq("id", nomination.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      notify.success("PM responsável salvo.");
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao salvar PM."),
+  });
+
+  const [showRefuse, setShowRefuse] = useState(false);
+  const [refuseReason, setRefuseReason] = useState("");
+  const refuse = useMutation({
+    mutationFn: async () => {
+      const motivo = refuseReason.trim() || null;
+      const quem = profile?.full_name ?? profile?.email ?? "Projetos ADM";
+      const { error } = await supabase.from("nominations").update({
+        current_status: "equipe_formada",
+        outcome: "cancelada",
+        cancel_reason: `Recusada por Projetos ADM${motivo ? `: ${motivo}` : ""}`,
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: quem,
+      }).eq("id", nomination.id);
+      if (error) throw error;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id, status: "equipe_formada",
+        changed_by_name: quem,
+        notes: motivo ? `Recusada por Projetos ADM: ${motivo}` : "Recusada por Projetos ADM",
+      });
+      await notifyRefusal(nomination, motivo);
+    },
+    onSuccess: () => {
+      notify.success("Solicitação recusada e descartada. PM e Logística avisados.");
+      registrarLog(`Recusou ${nomination.funcao} (${nomination.unidade ?? "—"})`);
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      setShowRefuse(false);
+      onClose();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao recusar."),
+  });
+
   const remove = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.from("nominations").delete().eq("id", nomination.id);
@@ -1175,6 +1225,28 @@ function ManageDialog({
             )}
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
+              {canOperate ? (
+                <div className="col-span-2 flex items-center gap-2">
+                  <span className="shrink-0 text-muted-foreground">PM responsável:</span>
+                  <Input
+                    className="h-7 text-xs"
+                    placeholder="Inserir nome do PM"
+                    value={pmDraft}
+                    onChange={(e) => setPmDraft(e.target.value)}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-7"
+                    disabled={pmDraft.trim() === (nomination.pm_responsavel ?? "")}
+                    loading={savePm.isPending}
+                    onClick={() => savePm.mutate()}
+                  >
+                    Salvar
+                  </Button>
+                </div>
+              ) : nomination.pm_responsavel && (
+                <div><span className="text-muted-foreground">PM responsável:</span> <span className="font-medium">{nomination.pm_responsavel}</span></div>
+              )}
               {nomination.pm_name && (
                 <div><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{nomination.pm_name}</span></div>
               )}
@@ -1335,6 +1407,28 @@ function ManageDialog({
                   </div>
                 </>
               )}
+              {role === "solicitante_master" && !nomination.outcome && nomination.current_status !== "equipe_formada" && (
+                <>
+                  <Separator />
+                  {!showRefuse ? (
+                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setShowRefuse(true)}>
+                      Recusar solicitação
+                    </Button>
+                  ) : (
+                    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                      <Label className="text-xs">Motivo da recusa</Label>
+                      <Textarea rows={2} value={refuseReason} onChange={(e) => setRefuseReason(e.target.value)} />
+                      <p className="text-[11px] text-muted-foreground">O PM e a Logística serão avisados por e-mail e a solicitação será descartada.</p>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="destructive" loading={refuse.isPending} onClick={() => refuse.mutate()}>
+                          Confirmar recusa
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setShowRefuse(false)}>Voltar</Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
               {canOperate && nomination.current_status !== "equipe_formada" && (
                 <>
                   <Separator />
@@ -1474,6 +1568,8 @@ function NominationCard({
             </p>
           ))}
         </div>
+        {first.pm_name && <p className="mt-1 text-xs"><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{first.pm_name}</span></p>}
+        {first.pm_responsavel && <p className="mt-1 text-xs"><span className="text-muted-foreground">PM:</span> <span className="font-medium">{first.pm_responsavel}</span></p>}
         {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
         {first.period_start && first.period_end && (
           <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(first.period_start)} – {fmtDate(first.period_end)}</p>
@@ -1953,7 +2049,8 @@ function SimulacaoTab({
   // nominees.colaborador_id é uma FK obrigatória pra hist_novo_colaboradores — sem esse
   // vínculo não tem como gravar o nomeado no banco); quem não tem correspondência no Drake
   // ainda aparece na lista, só não pode ser adicionado ainda (ver "Adicionar" desabilitado).
-  const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
+  const { data: planejamentoSimTodos = [] } = usePlanejamentoEmbarqueQuery();
+  const planejamentoSim = useMemo(() => planejamentoSimTodos.filter((r) => !isInspetor(r.funcao)), [planejamentoSimTodos]);
   const { data: colaboradoresDrake = [] } = useQuery<{ id: string; nome: string }[]>({
     queryKey: ["sim-colaboradores-drake-ids"],
     queryFn: () =>
@@ -1990,7 +2087,9 @@ function SimulacaoTab({
           emFolga: doPlanejamento?.emFolga ?? false,
         };
       })
-      .filter((l) => funcaoMatchesFilter(l.funcao, [], filterFuncao))
+      // Função exatamente igual à do Planejamento de Embarque (sem agrupar "SOLDADOR" com
+      // "SOLDADOR IRATA N1" etc.) — pedido dela, 2026-10-07.
+      .filter((l) => filterFuncao === "all" || l.funcao.trim().toUpperCase() === filterFuncao.trim().toUpperCase())
       .filter((l) => matchesNameSearch(l.nome, searchNome))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   }, [planejamentoSim, colaboradorIdPorNome, filterFuncao, searchNome]);
@@ -2129,12 +2228,38 @@ function SimulacaoTab({
                 </button>
                 {aberto && (
                   <div className="grid grid-cols-1 gap-x-4 gap-y-2 divide-y border-t px-2.5 py-2 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
-                    {pessoas.map((l) => (
-                      <div key={l.nome} className="pt-2 first:pt-0 sm:pt-0">
-                        <p className="font-medium text-foreground">{l.nome}</p>
-                        <p className="text-muted-foreground">{l.funcao}</p>
-                      </div>
-                    ))}
+                    {pessoas.map((l) => {
+                      const adicionado = focusNomineeIds.has(identidadeNominee({ colaborador_id: l.colaboradorId, colaborador_nome: l.nome }));
+                      return (
+                        <div key={l.nome} className="flex items-start gap-2 pt-2 first:pt-0 sm:pt-0">
+                          {activeFocus && (
+                            adicionado ? (
+                              <Button
+                                size="icon" variant="ghost" title="Adicionado — clique para desfazer"
+                                className="h-6 w-6 shrink-0 text-green-700 hover:bg-red-50 hover:text-red-700"
+                                loading={undoAddNominee.isPending && undoAddNominee.variables?.nome === l.nome}
+                                onClick={() => undoAddNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="icon" variant="outline" title={`Adicionar a ${activeFocus.funcao}`}
+                                className="h-6 w-6 shrink-0"
+                                loading={addNominee.isPending && addNominee.variables?.nome === l.nome}
+                                onClick={() => addNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </Button>
+                            )
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">{l.nome}</p>
+                            <p className="text-muted-foreground">{l.funcao}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

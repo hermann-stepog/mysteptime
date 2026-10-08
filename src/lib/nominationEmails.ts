@@ -160,6 +160,8 @@ const STAGE_RECIPIENT_ROLES: Partial<Record<NominationStatus, string[]>> = {
   briefing_sms: ["sms"],
 };
 const STAGES_WITH_PM: NominationStatus[] = ["validacao_sms_aso", "aprovacao_pm"];
+// Contas que nunca recebem alertas de Nomeações (pedido da usuária).
+const NUNCA_RECEBEM = ["gabriel.sales@sttep-og.com", "fernando.v.junger@gmail.com"];
 
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus, observacao?: string): Promise<void> {
   try {
@@ -173,7 +175,8 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
       incluiPm ? pmEmail(nomination) : Promise.resolve(null),
       stageAnswers(nomination),
     ]);
-    const todos = Array.from(new Set([...roleLists.flat(), ...(pm ? [pm] : [])]));
+    const todos = Array.from(new Set([...roleLists.flat(), ...(pm ? [pm] : [])]))
+      .filter((e) => !NUNCA_RECEBEM.includes(e.toLowerCase()));
     if (todos.length === 0) return;
     const toFinal = todos;
     const cc: string[] = [];
@@ -248,6 +251,28 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
     });
   } catch (err) {
     console.warn("Falha ao enviar e-mail de cancelamento (aviso, não bloqueia):", err);
+  }
+}
+
+// Recusa por Projetos ADM (Paulo Nunes): avisa o solicitante (PM) e a Logística.
+export async function notifyRefusal(nomination: Nomination, reason: string | null): Promise<void> {
+  try {
+    const [pm, logistica] = await Promise.all([pmEmail(nomination), emailsForRole("logistics_operator")]);
+    const todos = Array.from(new Set([...(pm ? [pm] : []), ...logistica]))
+      .filter((e) => !NUNCA_RECEBEM.includes(e.toLowerCase()));
+    if (todos.length === 0) return;
+    await sendAlert({
+      to: todos[0],
+      cc: todos.slice(1),
+      tituloAlerta: `Solicitação recusada por Projetos ADM — ${nomination.funcao}`,
+      colaboradorNome: await nomineeNames(nomination),
+      nomination,
+      detalhesLabel: "Motivo da recusa",
+      detalhes: reason ?? "Não informado",
+      rodapeTexto: "A solicitação foi descartada automaticamente. Este é um alerta automático do My Step Time.",
+    });
+  } catch (err) {
+    console.warn("Falha ao enviar e-mail de recusa (aviso, não bloqueia):", err);
   }
 }
 
