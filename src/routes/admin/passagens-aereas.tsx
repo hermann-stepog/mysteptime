@@ -1556,13 +1556,14 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
               <SortableHead label="Valor" column="valor" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
               <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
               <SortableHead label="Motivo" column="motivo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
+              <TableHead>Forma de pagamento</TableHead>
               <TableHead>Etapa</TableHead>
               <TableHead className="w-32" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtradas.length === 0 ? (
-              <EmptyStateRow colSpan={13} icon={Plane} title="Nenhuma passagem encontrada" />
+              <EmptyStateRow colSpan={14} icon={Plane} title="Nenhuma passagem encontrada" />
             ) : filtradas.map((p) => (
               <TableRow key={p.id}>
                 <TableCell>{p.unidade}</TableCell>
@@ -1576,6 +1577,7 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
                 <TableCell className="text-right font-medium">{fmtMoney(p.valor)}</TableCell>
                 <TableCell><Badge variant={STATUS_BADGE[p.status] ?? "secondary"}>{p.status}</Badge></TableCell>
                 <TableCell>{p.motivo ?? "—"}</TableCell>
+                <TableCell>{p.forma_pagamento ?? "—"}</TableCell>
                 <TableCell>
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_FLUXO_COLOR[p.status_fluxo].bg} ${STATUS_FLUXO_COLOR[p.status_fluxo].text}`}>
                     {STATUS_FLUXO_LABEL[p.status_fluxo]}
