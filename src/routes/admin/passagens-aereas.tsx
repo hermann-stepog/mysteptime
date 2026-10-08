@@ -1004,6 +1004,7 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
   const [filterNome, setFilterNome] = useState("");
   const [filterDe, setFilterDe] = useState("");
   const [filterAte, setFilterAte] = useState("");
+  const [filterDataTipo, setFilterDataTipo] = useState<"lancamento" | "ida">("lancamento");
 
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
   const motivosVistos = useMemo(
@@ -1017,9 +1018,9 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
     (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
-    (!filterDe || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) >= filterDe) &&
-    (!filterAte || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) <= filterAte),
-  ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte]);
+    (!filterDe || (filterDataTipo === "ida" ? (p.data_ida ?? "") : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) >= filterDe) &&
+    (!filterAte || (filterDataTipo === "ida" ? (p.data_ida ?? "") : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) <= filterAte),
+  ), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte, filterDataTipo]);
 
   // Cascata Cliente → Unidade → BSP — mesmo formato em árvore já usado em Hospedagem/Transporte
   // (Custos). Passagens Aéreas não tem campo Cliente próprio, usa o mesmo vínculo Unidade→Cliente
@@ -1112,7 +1113,17 @@ function ConsolidadoTab({ passagens, periodosE, unidadeOptions, onEdit }: {
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Lançamento de</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Filtrar data por</Label>
+            <Select value={filterDataTipo} onValueChange={(v) => setFilterDataTipo(v as "lancamento" | "ida")}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="lancamento">Lançamento</SelectItem>
+                <SelectItem value="ida">Data de ida</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{filterDataTipo === "ida" ? "Ida de" : "Lançamento de"}</Label>
             <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
@@ -1274,6 +1285,7 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
   const [filterNome, setFilterNome] = useState("");
   const [filterDe, setFilterDe] = useState("");
   const [filterAte, setFilterAte] = useState("");
+  const [filterDataTipo, setFilterDataTipo] = useState<"lancamento" | "ida">("lancamento");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PassagemAerea | null>(null);
   const [gerenciando, setGerenciando] = useState<PassagemAerea | null>(null);
@@ -1311,8 +1323,8 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
     (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
     (filterStatus === "all" || p.status === filterStatus) &&
     (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
-    (!filterDe || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) >= filterDe) &&
-    (!filterAte || (p.data_lancamento ?? dataLancamentoSp(p.created_at)) <= filterAte),
+    (!filterDe || (filterDataTipo === "ida" ? (p.data_ida ?? "") : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) >= filterDe) &&
+    (!filterAte || (filterDataTipo === "ida" ? (p.data_ida ?? "") : (p.data_lancamento ?? dataLancamentoSp(p.created_at))) <= filterAte),
   ).sort((a, b) => {
     if (!sortColumn) return 0;
     const dir = sortDirection === "asc" ? 1 : -1;
@@ -1342,7 +1354,7 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
       default:
         return 0;
     }
-  }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte, sortColumn, sortDirection]);
+  }), [passagens, filterUnidade, filterBsp, filterMotivo, filterStatus, filterNome, filterDe, filterAte, filterDataTipo, sortColumn, sortDirection]);
 
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
@@ -1485,7 +1497,17 @@ export function PassagensAereasPage({ onlyInternational = false }: { onlyInterna
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Lançamento de</Label>
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Filtrar data por</Label>
+            <Select value={filterDataTipo} onValueChange={(v) => setFilterDataTipo(v as "lancamento" | "ida")}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="lancamento">Lançamento</SelectItem>
+                <SelectItem value="ida">Data de ida</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-0.5 w-36">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{filterDataTipo === "ida" ? "Ida de" : "Lançamento de"}</Label>
             <Input type="date" className="h-8 text-xs" value={filterDe} onChange={(e) => setFilterDe(e.target.value)} />
           </div>
           <div className="space-y-0.5 w-36">
