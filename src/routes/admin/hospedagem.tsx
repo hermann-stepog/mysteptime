@@ -1456,13 +1456,14 @@ function LancamentosTab({
                 sortDirection={sortDirection}
                 onSort={toggleSort}
               />
+              <TableHead>Forma de pagamento</TableHead>
               <TableHead>NF</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtradas.length === 0 ? (
-              <EmptyStateRow colSpan={12} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
+              <EmptyStateRow colSpan={13} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
             ) : (
               filtradas.map((h) => {
                 const hotel = hotelById.get(h.hotel_id);
@@ -1485,6 +1486,7 @@ function LancamentosTab({
                       {fmtMoney(h.valor_total)}
                     </TableCell>
                     <TableCell>{h.motivo ?? "—"}</TableCell>
+                    <TableCell>{h.forma_pagamento ?? "—"}</TableCell>
                     <TableCell>{h.nf ?? "—"}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
