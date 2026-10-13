@@ -14,13 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import {
   Table,
   TableBody,
@@ -513,18 +507,11 @@ function PassagemDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label className="text-xs">Tipo</Label>
-              <Select value={f.tipo} onValueChange={(v) => setF({ ...f, tipo: v })}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIPOS_PASSAGEM.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={f.tipo}
+                onValueChange={(v) => setF({ ...f, tipo: v })}
+                options={[...TIPOS_PASSAGEM]}
+              />
             </div>
             <div>
               <Label className="text-xs">Valor</Label>
@@ -538,18 +525,11 @@ function PassagemDialog({
             </div>
             <div>
               <Label className="text-xs">Status</Label>
-              <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v })}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_PASSAGEM.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={f.status}
+                onValueChange={(v) => setF({ ...f, status: v })}
+                options={[...STATUS_PASSAGEM]}
+              />
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1802,87 +1782,48 @@ function ConsolidadoTab({
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Unidade
             </Label>
-            <Select
+            <SearchableSelect
               value={filterUnidade}
               onValueChange={(v) => {
                 setFilterUnidade(v);
                 setFilterBsp("all");
               }}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  Todas
-                </SelectItem>
-                {unidadeOptions.map((u) => (
-                  <SelectItem key={u} value={u} className="text-xs">
-                    {u}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={[{ value: "all", label: "Todas" }, ...unidadeOptions]}
+              placeholder="Todas"
+            />
           </div>
           <div className="space-y-0.5 w-40">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               BSP
             </Label>
-            <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  Todos
-                </SelectItem>
-                {bspOptions.map((b) => (
-                  <SelectItem key={b} value={b} className="text-xs">
-                    {b}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={filterBsp}
+              onValueChange={setFilterBsp}
+              options={[{ value: "all", label: "Todos" }, ...bspOptions]}
+              placeholder="Todos"
+            />
           </div>
           <div className="space-y-0.5 w-40">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Motivo
             </Label>
-            <Select value={filterMotivo} onValueChange={setFilterMotivo}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  Todos
-                </SelectItem>
-                {motivosVistos.map((m) => (
-                  <SelectItem key={m} value={m} className="text-xs">
-                    {m}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={filterMotivo}
+              onValueChange={setFilterMotivo}
+              options={[{ value: "all", label: "Todos" }, ...motivosVistos]}
+              placeholder="Todos"
+            />
           </div>
           <div className="space-y-0.5 w-36">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Status
             </Label>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  Todos
-                </SelectItem>
-                {STATUS_PASSAGEM.map((s) => (
-                  <SelectItem key={s} value={s} className="text-xs">
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={filterStatus}
+              onValueChange={setFilterStatus}
+              options={[{ value: "all", label: "Todos" }, ...STATUS_PASSAGEM]}
+              placeholder="Todos"
+            />
           </div>
           <div className="space-y-0.5 w-52">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
@@ -1899,18 +1840,14 @@ function ConsolidadoTab({
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Filtrar data por
             </Label>
-            <Select
+            <SearchableSelect
               value={filterDataTipo}
               onValueChange={(v) => setFilterDataTipo(v as "lancamento" | "ida")}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="lancamento">Lançamento</SelectItem>
-                <SelectItem value="ida">Data de ida</SelectItem>
-              </SelectContent>
-            </Select>
+              options={[
+                { value: "lancamento", label: "Lançamento" },
+                { value: "ida", label: "Data de ida" },
+              ]}
+            />
           </div>
           <div className="space-y-0.5 w-36">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
@@ -2386,87 +2323,48 @@ export function PassagensAereasPage({
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
                     Unidade
                   </Label>
-                  <Select
+                  <SearchableSelect
                     value={filterUnidade}
                     onValueChange={(v) => {
                       setFilterUnidade(v);
                       setFilterBsp("all");
                     }}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all" className="text-xs">
-                        Todas
-                      </SelectItem>
-                      {unidadeOptions.map((u) => (
-                        <SelectItem key={u} value={u} className="text-xs">
-                          {u}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={[{ value: "all", label: "Todas" }, ...unidadeOptions]}
+                    placeholder="Todas"
+                  />
                 </div>
                 <div className="space-y-0.5 w-40">
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
                     BSP
                   </Label>
-                  <Select value={filterBsp} onValueChange={setFilterBsp}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all" className="text-xs">
-                        Todos
-                      </SelectItem>
-                      {bspOptions.map((b) => (
-                        <SelectItem key={b} value={b} className="text-xs">
-                          {b}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={filterBsp}
+                    onValueChange={setFilterBsp}
+                    options={[{ value: "all", label: "Todos" }, ...bspOptions]}
+                    placeholder="Todos"
+                  />
                 </div>
                 <div className="space-y-0.5 w-40">
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
                     Motivo
                   </Label>
-                  <Select value={filterMotivo} onValueChange={setFilterMotivo}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all" className="text-xs">
-                        Todos
-                      </SelectItem>
-                      {motivosVistos.map((m) => (
-                        <SelectItem key={m} value={m} className="text-xs">
-                          {m}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={filterMotivo}
+                    onValueChange={setFilterMotivo}
+                    options={[{ value: "all", label: "Todos" }, ...motivosVistos]}
+                    placeholder="Todos"
+                  />
                 </div>
                 <div className="space-y-0.5 w-36">
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
                     Status
                   </Label>
-                  <Select value={filterStatus} onValueChange={setFilterStatus}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all" className="text-xs">
-                        Todos
-                      </SelectItem>
-                      {STATUS_PASSAGEM.map((s) => (
-                        <SelectItem key={s} value={s} className="text-xs">
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={filterStatus}
+                    onValueChange={setFilterStatus}
+                    options={[{ value: "all", label: "Todos" }, ...STATUS_PASSAGEM]}
+                    placeholder="Todos"
+                  />
                 </div>
                 <div className="space-y-0.5 w-52">
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
@@ -2483,18 +2381,14 @@ export function PassagensAereasPage({
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
                     Filtrar data por
                   </Label>
-                  <Select
+                  <SearchableSelect
                     value={filterDataTipo}
                     onValueChange={(v) => setFilterDataTipo(v as "lancamento" | "ida")}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="lancamento">Lançamento</SelectItem>
-                      <SelectItem value="ida">Data de ida</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    options={[
+                      { value: "lancamento", label: "Lançamento" },
+                      { value: "ida", label: "Data de ida" },
+                    ]}
+                  />
                 </div>
                 <div className="space-y-0.5 w-36">
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">

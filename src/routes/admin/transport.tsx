@@ -26,13 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -554,17 +548,13 @@ function TripCard({
       )}
 
       <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-        <Select value={trip.status} onValueChange={(v) => onStatus(v as TripStatus)}>
-          <SelectTrigger className="h-7 text-xs flex-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="em_andamento">Em Andamento</SelectItem>
-            <SelectItem value="realizado">Realizado</SelectItem>
-            <SelectItem value="faturado">Faturado</SelectItem>
-            <SelectItem value="cancelado">Cancelado</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex-1">
+          <SearchableSelect
+            value={trip.status}
+            onValueChange={(v) => onStatus(v as TripStatus)}
+            options={STATUS_TRIP_OPTIONS}
+          />
+        </div>
         {onDuplicate && (
           <Button
             type="button"
@@ -710,28 +700,17 @@ function ClientSelect({
           </Button>
         </div>
       ) : (
-        <Select
-          value={value || "__none__"}
+        <SearchableSelect
+          value={value || "—"}
           onValueChange={(v) => {
-            if (v === "__custom__") {
+            if (v === "Outro (digitar)...") {
               setManual(true);
               onChange("");
-            } else onChange(v === "__none__" ? "" : v);
+            } else onChange(v === "—" ? "" : v);
           }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="—" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">—</SelectItem>
-            {CLIENTES.map((c) => (
-              <SelectItem key={c} value={c}>
-                {c}
-              </SelectItem>
-            ))}
-            <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
-          </SelectContent>
-        </Select>
+          options={["—", ...CLIENTES, "Outro (digitar)..."]}
+          placeholder="—"
+        />
       )}
     </div>
   );
@@ -808,30 +787,19 @@ function LocationSelect({
           </Button>
         </div>
       ) : (
-        <Select
-          value={value ? (isKnown(value) ? toDisplayCase(value) : value) : "__vazio__"}
+        <SearchableSelect
+          value={value ? (isKnown(value) ? toDisplayCase(value) : value) : "—"}
           onValueChange={(v) => {
-            if (v === "__outro__") {
+            if (v === "Outro (digitar)...") {
               setManual(true);
               onChange("");
               return;
             }
-            onChange(v === "__vazio__" ? "" : v);
+            onChange(v === "—" ? "" : v);
           }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="—" />
-          </SelectTrigger>
-          <SelectContent className="max-h-72">
-            <SelectItem value="__vazio__">—</SelectItem>
-            {options.map((o) => (
-              <SelectItem key={o} value={o}>
-                {o}
-              </SelectItem>
-            ))}
-            <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
-          </SelectContent>
-        </Select>
+          options={["—", ...options, "Outro (digitar)..."]}
+          placeholder="—"
+        />
       )}
     </div>
   );
@@ -898,29 +866,22 @@ function BspSelect({
         {label}
         {opcional ? " (opcional)" : ""}
       </Label>
-      <Select
-        value={value || "__none__"}
+      <SearchableSelect
+        value={value || "—"}
         onValueChange={(v) => {
-          if (v === "__custom__") {
+          if (v === "Outro (digitar)...") {
             setManual(true);
             onChange("");
-          } else onChange(v === "__none__" ? "" : v);
+          } else onChange(v === "—" ? "" : v);
         }}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder="Selecione o BSP" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__none__">—</SelectItem>
-          {options.map((b) => (
-            <SelectItem key={b} value={b}>
-              {b}
-            </SelectItem>
-          ))}
-          {value && !options.includes(value) && <SelectItem value={value}>{value}</SelectItem>}
-          <SelectItem value="__custom__">Outro (digitar)...</SelectItem>
-        </SelectContent>
-      </Select>
+        options={[
+          "—",
+          ...options,
+          ...(value && !options.includes(value) ? [value] : []),
+          "Outro (digitar)...",
+        ]}
+        placeholder="Selecione o BSP"
+      />
     </div>
   );
 }
@@ -939,6 +900,13 @@ const MOTIVOS_TRANSPORTE = [
 
 const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
+
+const STATUS_TRIP_OPTIONS = [
+  { value: "em_andamento", label: "Em Andamento" },
+  { value: "realizado", label: "Realizado" },
+  { value: "faturado", label: "Faturado" },
+  { value: "cancelado", label: "Cancelado" },
+];
 
 function parseCarro(car_number: string): {
   carro_opcao: string;
@@ -1356,34 +1324,22 @@ function TripDialog({
               <div className="flex gap-2">
                 <div className="flex-1">
                   <Label>Transporte</Label>
-                  <Select value={f.carro_opcao} onValueChange={setCarroOpcao}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CARRO_OPCOES.map((o) => (
-                        <SelectItem key={o} value={o}>
-                          {o}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={f.carro_opcao}
+                    onValueChange={setCarroOpcao}
+                    options={[...CARRO_OPCOES]}
+                    placeholder="Selecione"
+                  />
                 </div>
                 {f.carro_opcao === "Future" && (
                   <div className="w-20">
                     <Label>Número</Label>
-                    <Select value={f.carro_future_num} onValueChange={setCarroFutureNum}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Nº" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => (
-                          <SelectItem key={n} value={n}>
-                            {n}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      value={f.carro_future_num}
+                      onValueChange={setCarroFutureNum}
+                      options={Array.from({ length: 20 }, (_, i) => String(i + 1))}
+                      placeholder="Nº"
+                    />
                   </div>
                 )}
               </div>
@@ -1407,10 +1363,10 @@ function TripDialog({
             </div>
             <div>
               <Label>Motivo</Label>
-              <Select
-                value={f.motivo || "__none__"}
+              <SearchableSelect
+                value={f.motivo || "—"}
                 onValueChange={(v) => {
-                  const motivo = v === "__none__" ? "" : v;
+                  const motivo = v === "—" ? "" : v;
                   // A coluna do Kanban continua existindo por baixo (ver KanbanView) — só deixa
                   // de ser escolhida à parte aqui; casa sozinha com a coluna de mesmo nome do
                   // Motivo quando existir uma, senão mantém a coluna que já estava.
@@ -1419,22 +1375,15 @@ function TripDialog({
                   );
                   setF({ ...f, motivo, column_id: colunaCorrespondente?.id ?? f.column_id });
                 }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o motivo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">—</SelectItem>
-                  {MOTIVOS_TRANSPORTE.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
-                    </SelectItem>
-                  ))}
-                  {f.motivo && !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo) && (
-                    <SelectItem value={f.motivo}>{f.motivo}</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+                options={[
+                  "—",
+                  ...MOTIVOS_TRANSPORTE,
+                  ...(f.motivo && !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo)
+                    ? [f.motivo]
+                    : []),
+                ]}
+                placeholder="Selecione o motivo"
+              />
             </div>
           </div>
 
@@ -1724,17 +1673,11 @@ function TripDialog({
 
           <div>
             <Label>Status</Label>
-            <Select value={f.status} onValueChange={(v) => setF({ ...f, status: v as TripStatus })}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                <SelectItem value="realizado">Realizado</SelectItem>
-                <SelectItem value="faturado">Faturado</SelectItem>
-                <SelectItem value="cancelado">Cancelado</SelectItem>
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={f.status}
+              onValueChange={(v) => setF({ ...f, status: v as TripStatus })}
+              options={STATUS_TRIP_OPTIONS}
+            />
           </div>
         </div>
         <DialogFooter className="gap-2">
@@ -2338,41 +2281,23 @@ function CustosTab({ trips }: { trips: Trip[] }) {
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Unidade
             </Label>
-            <Select value={filterUnidade} onValueChange={setFilterUnidade}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  Todas
-                </SelectItem>
-                {unidadeOptions.map((u) => (
-                  <SelectItem key={u} value={u} className="text-xs">
-                    {u}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={filterUnidade}
+              onValueChange={setFilterUnidade}
+              options={[{ value: "all", label: "Todas" }, ...unidadeOptions]}
+              placeholder="Todas"
+            />
           </div>
           <div className="space-y-0.5 w-40">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               BSP
             </Label>
-            <Select value={filterBsp} onValueChange={setFilterBsp}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  Todos
-                </SelectItem>
-                {bspOptions.map((b) => (
-                  <SelectItem key={b} value={b} className="text-xs">
-                    {b}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={filterBsp}
+              onValueChange={setFilterBsp}
+              options={[{ value: "all", label: "Todos" }, ...bspOptions]}
+              placeholder="Todos"
+            />
           </div>
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
@@ -3919,79 +3844,50 @@ function DetailView({
         </div>
         <div>
           <Label className="text-xs">Transporte</Label>
-          <Select value={carro} onValueChange={setCarro}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {carroOptions.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={carro}
+            onValueChange={setCarro}
+            options={[{ value: "all", label: "Todos" }, ...carroOptions]}
+          />
         </div>
         <div>
           <Label className="text-xs">Tipo</Label>
-          <Select value={tipo} onValueChange={setTipo}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="pessoas">Pessoas</SelectItem>
-              <SelectItem value="material">Material</SelectItem>
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={tipo}
+            onValueChange={setTipo}
+            options={[
+              { value: "all", label: "Todos" },
+              { value: "pessoas", label: "Pessoas" },
+              { value: "material", label: "Material" },
+            ]}
+          />
         </div>
         <div>
           <Label className="text-xs">Etiqueta</Label>
-          <Select value={tagId} onValueChange={setTagId}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {(tags as Tag[]).map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={tagId}
+            onValueChange={setTagId}
+            options={[
+              { value: "all", label: "Todas" },
+              ...(tags as Tag[]).map((t) => ({ value: t.id, label: t.name })),
+            ]}
+          />
         </div>
         <div>
           <Label className="text-xs">Cliente</Label>
-          <Select value={cliente} onValueChange={setCliente}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {CLIENTES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={cliente}
+            onValueChange={setCliente}
+            options={[{ value: "all", label: "Todos" }, ...CLIENTES]}
+          />
         </div>
         <div>
           <Label className="text-xs">Status</Label>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="em_andamento">Em Andamento</SelectItem>
-              <SelectItem value="realizado">Realizado</SelectItem>
-              <SelectItem value="faturado">Faturado</SelectItem>
-              <SelectItem value="cancelado">Cancelado</SelectItem>
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={status}
+            onValueChange={setStatus}
+            options={[{ value: "all", label: "Todos" }, ...STATUS_TRIP_OPTIONS]}
+          />
         </div>
         <div>
           <Label className="text-xs">Colaborador</Label>
@@ -4485,32 +4381,26 @@ function KpiDashboard({
           </div>
           <div>
             <Label className="text-xs">Etiqueta</Label>
-            <Select value={tagId} onValueChange={setTagId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                {tags.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={tagId}
+              onValueChange={setTagId}
+              options={[
+                { value: "all", label: "Todas" },
+                ...tags.map((t) => ({ value: t.id, label: t.name })),
+              ]}
+            />
           </div>
           <div>
             <Label className="text-xs">Tipo</Label>
-            <Select value={tipo} onValueChange={setTipo}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="pessoas">Pessoas</SelectItem>
-                <SelectItem value="material">Material</SelectItem>
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={tipo}
+              onValueChange={setTipo}
+              options={[
+                { value: "all", label: "Todos" },
+                { value: "pessoas", label: "Pessoas" },
+                { value: "material", label: "Material" },
+              ]}
+            />
           </div>
         </div>
       </Card>
