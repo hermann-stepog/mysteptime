@@ -160,17 +160,17 @@ export interface WeldMaterialConfig {
 // dessas duas etapas em canMoveToColumn checam TODOS os nomeados ativos (não só quem o PM já
 // aprovou — isso só existe mais adiante no fluxo agora).
 export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; text: string }[] = [
-  { id: "solicitacao",         label: "Solicitação",              bg: "#F1EFE8", text: "#2C2C2A" },
-  { id: "recebido_logistica",  label: "Recebido pela Logística",  bg: "#EFEDE3", text: "#4A4636" },
-  { id: "simulacao",           label: "Nomeação (Simulação)",     bg: "#E6F1FB", text: "#0C447C" },
-  { id: "validacao_sms_aso",   label: "Validação SMS (ASO)",      bg: "#D6F3EF", text: "#0B4A46" },
-  { id: "validacao_rh",        label: "Validação - DP",           bg: "#E8F5E9", text: "#1B5E20" },
-  { id: "aprovacao_tecnica",   label: "Aprovação Técnica",        bg: "#EEEDFE", text: "#3C3489" },
-  { id: "validacao_qualidade", label: "Validação de Qualidade",   bg: "#F0E7FC", text: "#5B21B6" },
-  { id: "nomeados",            label: "Nomeados",                 bg: "#F3E8FD", text: "#5B2A8C" },
-  { id: "aprovacao_pm",        label: "Validação PM",             bg: "#FAEEDA", text: "#633806" },
-  { id: "briefing_sms",        label: "Briefing",                 bg: "#E0F7F5", text: "#0F5E59" },
-  { id: "equipe_formada",      label: "Equipe Formada",           bg: "#DCFCE7", text: "#166534" },
+  { id: "solicitacao", label: "Solicitação", bg: "#F1EFE8", text: "#2C2C2A" },
+  { id: "recebido_logistica", label: "Recebido pela Logística", bg: "#EFEDE3", text: "#4A4636" },
+  { id: "simulacao", label: "Nomeação (Simulação)", bg: "#E6F1FB", text: "#0C447C" },
+  { id: "validacao_sms_aso", label: "Validação SMS (ASO)", bg: "#D6F3EF", text: "#0B4A46" },
+  { id: "validacao_rh", label: "Validação - DP", bg: "#E8F5E9", text: "#1B5E20" },
+  { id: "aprovacao_tecnica", label: "Aprovação Técnica", bg: "#EEEDFE", text: "#3C3489" },
+  { id: "validacao_qualidade", label: "Validação de Qualidade", bg: "#F0E7FC", text: "#5B21B6" },
+  { id: "nomeados", label: "Nomeados", bg: "#F3E8FD", text: "#5B2A8C" },
+  { id: "aprovacao_pm", label: "Validação PM", bg: "#FAEEDA", text: "#633806" },
+  { id: "briefing_sms", label: "Briefing", bg: "#E0F7F5", text: "#0F5E59" },
+  { id: "equipe_formada", label: "Equipe Formada", bg: "#DCFCE7", text: "#166534" },
 ];
 
 const COLUMN_ORDER: NominationStatus[] = KANBAN_COLUMNS.map((c) => c.id);
@@ -179,13 +179,19 @@ const COLUMN_ORDER: NominationStatus[] = KANBAN_COLUMNS.map((c) => c.id);
 // guarda linhas antigas com esses status — mantém o rótulo/cor de exibição pra elas não
 // quebrarem no histórico, sem entrar em ALL_STATUSES nem em nenhum filtro/seleção do kanban.
 export const STATUS_LABELS: Record<NominationStatus, string> = {
-  ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, c.label])) as Record<NominationStatus, string>),
+  ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, c.label])) as Record<
+    NominationStatus,
+    string
+  >),
   aptidao: "Aptidão",
   aptidao_rh: "Aptidão (DP)",
 };
 
 export const STATUS_BADGE: Record<NominationStatus, { bg: string; text: string }> = {
-  ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, { bg: c.bg, text: c.text }])) as Record<NominationStatus, { bg: string; text: string }>),
+  ...(Object.fromEntries(KANBAN_COLUMNS.map((c) => [c.id, { bg: c.bg, text: c.text }])) as Record<
+    NominationStatus,
+    { bg: string; text: string }
+  >),
   aptidao: { bg: "#FDEBEA", text: "#8C2F26" },
   aptidao_rh: { bg: "#FDEBEA", text: "#8C2F26" },
 };
@@ -215,14 +221,16 @@ export function canMoveToColumn(
   if (currentIdx === -1 || targetIdx === -1 || targetIdx <= currentIdx) return { ok: true };
 
   const validacaoQualidadeIdx = COLUMN_ORDER.indexOf("validacao_qualidade");
-  const saiDeValidacaoQualidade = currentIdx <= validacaoQualidadeIdx && targetIdx > validacaoQualidadeIdx;
+  const saiDeValidacaoQualidade =
+    currentIdx <= validacaoQualidadeIdx && targetIdx > validacaoQualidadeIdx;
   if (saiDeValidacaoQualidade && nom.requires_quality_validation) {
     if (nom.quality_status !== "aprovado") {
       return {
         ok: false,
-        reason: nom.quality_status === "reprovado"
-          ? "A Qualidade reprovou esta solicitação — não é possível avançar."
-          : "Aguardando aprovação da Qualidade antes de avançar.",
+        reason:
+          nom.quality_status === "reprovado"
+            ? "A Qualidade reprovou esta solicitação — não é possível avançar."
+            : "Aguardando aprovação da Qualidade antes de avançar.",
       };
     }
     // Pedido dela, 2026-10-05: soldador pode seguir sem o escopo do serviço anexado, desde que
@@ -231,7 +239,8 @@ export function canMoveToColumn(
     if (!nom.scope_document_path && !nom.notes?.trim()) {
       return {
         ok: false,
-        reason: "Sem escopo do serviço anexado — descreva em Observações o tipo de obra/serviço a ser executado a bordo antes de avançar.",
+        reason:
+          "Sem escopo do serviço anexado — descreva em Observações o tipo de obra/serviço a ser executado a bordo antes de avançar.",
       };
     }
   }
@@ -244,10 +253,16 @@ export function canMoveToColumn(
     // candidato. Quem escolhe quem "concorre" é a Técnica; o PM só aprova ou reprova.
     const ativos = activeNominees(nominees).filter((n) => n.technical_selected_at);
     if (ativos.length === 0) {
-      return { ok: false, reason: "Nenhum colaborador selecionado pela Aprovação Técnica nesta solicitação." };
+      return {
+        ok: false,
+        reason: "Nenhum colaborador selecionado pela Aprovação Técnica nesta solicitação.",
+      };
     }
     if (ativos.some((n) => n.pm_decision === "pendente")) {
-      return { ok: false, reason: "Aguardando o PM decidir todos os selecionados antes de avançar." };
+      return {
+        ok: false,
+        reason: "Aguardando o PM decidir todos os selecionados antes de avançar.",
+      };
     }
     if (!ativos.some((n) => n.pm_decision === "aprovado")) {
       return { ok: false, reason: "Nenhum selecionado foi aprovado pelo PM." };
@@ -271,7 +286,10 @@ export function canMoveToColumn(
   if (saiDeValidacaoRh) {
     const simulados = activeNominees(nominees);
     if (simulados.some((n) => n.aptidao_divergence)) {
-      return { ok: false, reason: "Há divergência de aptidão pendente — resolva antes de avançar." };
+      return {
+        ok: false,
+        reason: "Há divergência de aptidão pendente — resolva antes de avançar.",
+      };
     }
     if (simulados.length > 0 && !simulados.every((n) => n.rh_validated)) {
       return { ok: false, reason: "Valide o RH de todos os nomeados simulados antes de avançar." };
@@ -289,11 +307,19 @@ function nominationFieldsMarkedAt(stage: NominationStatus): Record<string, unkno
   switch (stage) {
     case "validacao_qualidade":
       return {
-        quality_status: "pendente", quality_rejection_reason: null,
-        quality_validated: false, quality_validated_at: null, quality_validated_by: null,
+        quality_status: "pendente",
+        quality_rejection_reason: null,
+        quality_validated: false,
+        quality_validated_at: null,
+        quality_validated_by: null,
       };
     case "briefing_sms":
-      return { briefing_sms_realizado: false, briefing_sms_realizado_at: null, briefing_sms_realizado_by: null, outcome: null };
+      return {
+        briefing_sms_realizado: false,
+        briefing_sms_realizado_at: null,
+        briefing_sms_realizado_by: null,
+        outcome: null,
+      };
     default:
       return null;
   }
@@ -313,8 +339,12 @@ function nomineeFieldsMarkedAt(stage: NominationStatus): Record<string, unknown>
       return { sms_aso_checked: false, sms_aso_checked_at: null, sms_aso_checked_by: null };
     case "validacao_rh":
       return {
-        rh_validated: false, rh_validated_at: null, rh_validated_by: null,
-        aptidao_divergence: false, aptidao_divergence_text: null, aptidao_divergence_flagged_at: null,
+        rh_validated: false,
+        rh_validated_at: null,
+        rh_validated_by: null,
+        aptidao_divergence: false,
+        aptidao_divergence_text: null,
+        aptidao_divergence_flagged_at: null,
       };
     default:
       return null;
@@ -332,7 +362,10 @@ export interface RevertClearing {
 // adicionados na Simulação, seleção da Aprovação Técnica, decisão do PM etc.) — só o que
 // pertence à própria etapa de destino fica intacto (ela precisa ser refeita, não o que vem
 // antes dela). Null quando não é um retrocesso de verdade (mesmo lugar ou avanço).
-export function computeRevertClearing(fromStatus: NominationStatus, toStatus: NominationStatus): RevertClearing | null {
+export function computeRevertClearing(
+  fromStatus: NominationStatus,
+  toStatus: NominationStatus,
+): RevertClearing | null {
   const fromIdx = COLUMN_ORDER.indexOf(fromStatus);
   const toIdx = COLUMN_ORDER.indexOf(toStatus);
   if (fromIdx === -1 || toIdx === -1 || toIdx >= fromIdx) return null;
@@ -373,9 +406,12 @@ export function fmtDatetime(iso: string) {
 // solicitação nasceu, nunca muda depois). Usado como título em todo lugar que representa a
 // solicitação como um todo (card do kanban, Minhas Solicitações, dialogs) — mesmo texto tanto
 // pro operador quanto pro solicitante.
-export function requestTitle(n: Pick<Nomination, "bsp" | "bsp_request_number" | "created_at">): string {
+export function requestTitle(
+  n: Pick<Nomination, "bsp" | "bsp_request_number" | "created_at">,
+): string {
   if (!n.bsp) return "—";
-  const numero = n.bsp_request_number != null ? String(n.bsp_request_number).padStart(3, "0") : "???";
+  const numero =
+    n.bsp_request_number != null ? String(n.bsp_request_number).padStart(3, "0") : "???";
   const anoCurto = String(new Date(n.created_at).getFullYear()).slice(-2);
   return `${n.bsp} - ${numero}/${anoCurto}`;
 }
@@ -385,7 +421,9 @@ export function requestTitle(n: Pick<Nomination, "bsp" | "bsp_request_number" | 
 // função aqui pode vir de qualquer uma das duas fontes.
 export function isSoldador(fn: string) {
   const f = fn.toLowerCase();
-  return f.includes("soldador") || f.includes("welder") || f.includes("weld.") || f.includes("welding");
+  return (
+    f.includes("soldador") || f.includes("welder") || f.includes("weld.") || f.includes("welding")
+  );
 }
 
 // Papéis com acesso restrito a uma etapa específica do fluxo — usado pra decidir o que
@@ -393,6 +431,14 @@ export function isSoldador(fn: string) {
 // continua com acesso total em qualquer etapa (não entra neste mapa). Um valor pode ser um
 // array quando mais de um papel pode agir na mesma etapa (ex.: Simulação, pedido dela
 // 2026-10-05: além de Projetos ADM, Produção/Aprovação Técnica também pode simular).
+//
+// "solicitacao" e "recebido_logistica" ficam de fora deste mapa DE PROPÓSITO, não por
+// esquecimento: é assim que NominationsPage.tsx restringe quem marca "Recebido pela Logística"
+// e quem inicia a Simulação a só FULL_NOMINATIONS_ACCESS_ROLES (logistics_operator,
+// administrador, adm_master) — tanto nos botões do dialog quanto no drag-and-drop do kanban
+// (useCanActOnStage/handleDragEnd caem no "sem permissão" quando STAGE_ROLE[status] é
+// undefined). Se um dia outro papel (ex. solicitante) precisar agir nessas duas etapas, a forma
+// certa é adicionar uma entrada aqui, não mexer na checagem de FULL_NOMINATIONS_ACCESS_ROLES.
 export const STAGE_ROLE: Partial<Record<NominationStatus, string | string[]>> = {
   simulacao: ["solicitante_master", "aprovacao_tecnica"],
   aprovacao_tecnica: "aprovacao_tecnica",
