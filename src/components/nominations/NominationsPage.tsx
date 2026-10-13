@@ -2,7 +2,12 @@ import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from "recharts";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // Tabelas nominations/nomination_nominees/weld_type_config/weld_material_config/
 // nomination_status_history/colaborador_funcoes_historico ainda não estão nos tipos gerados;
@@ -11,13 +16,33 @@ const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import {
-  type Nomination, type NominationNominee, type NominationStatusHistory,
-  type NominationStatus, type PmDecision, type QualityStatus,
-  STATUS_LABELS, STATUS_BADGE, ALL_STATUSES, KANBAN_COLUMNS, STAGE_ROLE,
-  columnIdForStatus, canMoveToColumn, computeRevertClearing, fmtDate, fmtDatetime, isSoldador, requestTitle,
+  type Nomination,
+  type NominationNominee,
+  type NominationStatusHistory,
+  type NominationStatus,
+  type PmDecision,
+  type QualityStatus,
+  STATUS_LABELS,
+  STATUS_BADGE,
+  ALL_STATUSES,
+  KANBAN_COLUMNS,
+  STAGE_ROLE,
+  columnIdForStatus,
+  canMoveToColumn,
+  computeRevertClearing,
+  fmtDate,
+  fmtDatetime,
+  isSoldador,
+  requestTitle,
 } from "@/lib/nominations";
 import { isInspetor } from "@/lib/nominations";
-import { notifyStageAdvance, notifyAptitudeDivergence, notifyCancellation, notifyRefusal, notifyQualityRejection } from "@/lib/nominationEmails";
+import {
+  notifyStageAdvance,
+  notifyAptitudeDivergence,
+  notifyCancellation,
+  notifyRefusal,
+  notifyQualityRejection,
+} from "@/lib/nominationEmails";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
@@ -35,34 +60,105 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Plus, ChevronRight, CheckCircle2, Clock, User, CalendarDays, Loader2,
-  Trash2, AlertTriangle, ArrowRight, ArrowLeft, Stethoscope, X, UserPlus, Check, MoreVertical,
-  ChevronDown, Building2, Layers3, Ship, ChevronsDownUp, ChevronsUpDown, Eye, FileText,
-  Grid3x3, RefreshCw, Upload, ClipboardList, Users, Scale, Info, ExternalLink,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Plus,
+  ChevronRight,
+  CheckCircle2,
+  Clock,
+  User,
+  CalendarDays,
+  Loader2,
+  Trash2,
+  AlertTriangle,
+  ArrowRight,
+  ArrowLeft,
+  Stethoscope,
+  X,
+  UserPlus,
+  Check,
+  MoreVertical,
+  ChevronDown,
+  Building2,
+  Layers3,
+  Ship,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Eye,
+  FileText,
+  Grid3x3,
+  RefreshCw,
+  Upload,
+  ClipboardList,
+  Users,
+  Scale,
+  Info,
+  ExternalLink,
 } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
-  DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
 } from "@dnd-kit/core";
 import { notify } from "@/lib/notify";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import {
-  generateDateRange, todayStr, weekdayAbbr, addDays, computeDayStatus, getComputedColor, getComputedLabel,
-  displayAbbr, getContrastText, STATUS_COLOR, STATUS_LABEL, DRAKE_DATA_CUTOFF, bspOptionsForUnidade,
-  type ComputedStatus, type HistNovoPeriodo,
+  generateDateRange,
+  todayStr,
+  weekdayAbbr,
+  addDays,
+  computeDayStatus,
+  getComputedColor,
+  getComputedLabel,
+  displayAbbr,
+  getContrastText,
+  STATUS_COLOR,
+  STATUS_LABEL,
+  DRAKE_DATA_CUTOFF,
+  bspOptionsForUnidade,
+  type ComputedStatus,
+  type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { clienteDaUnidade } from "@/lib/clientes";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
-import { usePlanejamentoEmbarqueQuery, isStatusProgramado, isStatusEmbarcado, type PlanejamentoEmbarqueRow } from "@/components/histograma/PlanejamentoEmbarqueTab";
+import {
+  usePlanejamentoEmbarqueQuery,
+  isStatusProgramado,
+  isStatusEmbarcado,
+  type PlanejamentoEmbarqueRow,
+} from "@/components/histograma/PlanejamentoEmbarqueTab";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -89,7 +185,8 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
           <StatusBadge status={h.status} />
           <p className="mt-1 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{h.changed_by_name}</span>
-            {" — "}{fmtDatetime(h.changed_at)}
+            {" — "}
+            {fmtDatetime(h.changed_at)}
           </p>
           {h.notes && <p className="mt-0.5 text-xs text-muted-foreground italic">"{h.notes}"</p>}
         </li>
@@ -124,7 +221,10 @@ function useAdvanceStage() {
   const registrarLog = useRegistrarLog("nomeacoes");
   return useMutation({
     mutationFn: async ({
-      nomination, target, extraPatch, note,
+      nomination,
+      target,
+      extraPatch,
+      note,
     }: {
       nomination: Nomination;
       target: NominationStatus;
@@ -136,14 +236,24 @@ function useAdvanceStage() {
       // se nada tivesse mudado (colaboradores da Simulação, seleção da Aprovação Técnica,
       // decisão do PM etc.).
       const clearing = computeRevertClearing(nomination.current_status, target);
-      const patch: Record<string, unknown> = { current_status: target, ...clearing?.nominationPatch, ...extraPatch };
+      const patch: Record<string, unknown> = {
+        current_status: target,
+        ...clearing?.nominationPatch,
+        ...extraPatch,
+      };
       const { error } = await supabase.from("nominations").update(patch).eq("id", nomination.id);
       if (error) throw error;
       if (clearing?.deleteNominees) {
-        const { error: delErr } = await supabase.from("nomination_nominees").delete().eq("nomination_id", nomination.id);
+        const { error: delErr } = await supabase
+          .from("nomination_nominees")
+          .delete()
+          .eq("nomination_id", nomination.id);
         if (delErr) throw delErr;
       } else if (clearing?.nomineePatch) {
-        const { error: nomErr } = await supabase.from("nomination_nominees").update(clearing.nomineePatch).eq("nomination_id", nomination.id);
+        const { error: nomErr } = await supabase
+          .from("nomination_nominees")
+          .update(clearing.nomineePatch)
+          .eq("nomination_id", nomination.id);
         if (nomErr) throw nomErr;
       }
       await supabase.from("nomination_status_history").insert({
@@ -152,7 +262,9 @@ function useAdvanceStage() {
         changed_by_name: profile?.full_name ?? profile?.email ?? "Sistema",
         notes: note ?? null,
       });
-      registrarLog(`Moveu ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${STATUS_LABELS[target] ?? target}${note ? `: ${note}` : ""}`);
+      registrarLog(
+        `Moveu ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${STATUS_LABELS[target] ?? target}${note ? `: ${note}` : ""}`,
+      );
       // Fire-and-forget: resolver os destinatários (várias consultas) e chamar o Resend pode
       // levar mais de 1s, e notifyStageAdvance já nunca lança (falha de e-mail é só aviso) — sem
       // isso o card ficava "preso" na coluna antiga esperando o e-mail terminar pra só então
@@ -165,8 +277,10 @@ function useAdvanceStage() {
       // invalidateQueries em onSettled, mas isso já roda em background, sem travar a UI.
       await qc.cancelQueries({ queryKey: ["nominations"] });
       const previous = qc.getQueryData<Nomination[]>(["nominations"]);
-      qc.setQueryData<Nomination[]>(["nominations"], (old) =>
-        old?.map((n) => (n.id === nomination.id ? { ...n, current_status: target } : n)) ?? old,
+      qc.setQueryData<Nomination[]>(
+        ["nominations"],
+        (old) =>
+          old?.map((n) => (n.id === nomination.id ? { ...n, current_status: target } : n)) ?? old,
       );
       return { previous };
     },
@@ -224,7 +338,9 @@ function useNomineesForGroup(nominationIds: string[]) {
 // aqui é só um resumo de quem já foi adicionado + o atalho que leva pra lá em "modo
 // recrutamento" pro grupo inteiro da solicitação (ver SimulacaoTab/focusGroupIds).
 function EfetivoDisponivelSection({
-  nomination, nominees, onGoToSimulacao,
+  nomination,
+  nominees,
+  onGoToSimulacao,
 }: {
   nomination: Nomination;
   nominees: NominationNominee[];
@@ -251,17 +367,29 @@ function EfetivoDisponivelSection({
       )}
       {nominees.filter((n) => n.is_active).length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Já no efetivo desta solicitação:</p>
-          {nominees.filter((n) => n.is_active).map((n) => (
-            <div key={n.id} className="flex items-center justify-between rounded bg-blue-50 px-2 py-1 text-sm text-blue-900">
-              <span>{n.colaborador_nome}</span>
-              {canAct && !n.technical_selected_at && (
-                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-blue-700" onClick={() => removeNominee.mutate(n.id)}>
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              )}
-            </div>
-          ))}
+          <p className="text-xs font-medium text-muted-foreground">
+            Já no efetivo desta solicitação:
+          </p>
+          {nominees
+            .filter((n) => n.is_active)
+            .map((n) => (
+              <div
+                key={n.id}
+                className="flex items-center justify-between rounded bg-blue-50 px-2 py-1 text-sm text-blue-900"
+              >
+                <span>{n.colaborador_nome}</span>
+                {canAct && !n.technical_selected_at && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 text-blue-700"
+                    onClick={() => removeNominee.mutate(n.id)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
         </div>
       )}
     </div>
@@ -273,15 +401,27 @@ function EfetivoDisponivelSection({
 const SCOPE_BUCKET = "nomeacoes-anexos";
 async function baixarEscopoDocumento(path: string, nomeOriginal: string): Promise<void> {
   const { data, error } = await supabase.storage.from(SCOPE_BUCKET).download(path);
-  if (error) { notify.error(error.message); return; }
+  if (error) {
+    notify.error(error.message);
+    return;
+  }
   const url = URL.createObjectURL(data);
   const a = document.createElement("a");
-  a.href = url; a.download = nomeOriginal;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  a.href = url;
+  a.download = nomeOriginal;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+function AprovacaoTecnicaSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
@@ -290,11 +430,20 @@ function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nominat
   const selecionados = ativos.filter((n) => n.technical_selected_at);
 
   const toggleSelect = useMutation({
-    mutationFn: async ({ nominee, selected }: { nominee: NominationNominee; selected: boolean }) => {
-      const { error } = await supabase.from("nomination_nominees").update({
-        technical_selected_at: selected ? new Date().toISOString() : null,
-        technical_selected_by: selected ? (profile?.full_name ?? profile?.email ?? null) : null,
-      }).eq("id", nominee.id);
+    mutationFn: async ({
+      nominee,
+      selected,
+    }: {
+      nominee: NominationNominee;
+      selected: boolean;
+    }) => {
+      const { error } = await supabase
+        .from("nomination_nominees")
+        .update({
+          technical_selected_at: selected ? new Date().toISOString() : null,
+          technical_selected_by: selected ? (profile?.full_name ?? profile?.email ?? null) : null,
+        })
+        .eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
@@ -306,8 +455,15 @@ function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nominat
       return;
     }
     const gate = canMoveToColumn(nomination, "nomeados", nominees);
-    if (!gate.ok) { notify.error(gate.reason ?? "Não é possível avançar."); return; }
-    advance.mutate({ nomination, target: "nomeados", note: `${selecionados.length} nomeado(s) selecionado(s)` });
+    if (!gate.ok) {
+      notify.error(gate.reason ?? "Não é possível avançar.");
+      return;
+    }
+    advance.mutate({
+      nomination,
+      target: "nomeados",
+      note: `${selecionados.length} nomeado(s) selecionado(s)`,
+    });
   };
 
   return (
@@ -315,31 +471,59 @@ function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nominat
       <p className="text-sm font-medium">Aprovação técnica — {nomination.funcao}</p>
       {nomination.scope_document_path ? (
         <button
-          type="button" className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-          onClick={() => baixarEscopoDocumento(nomination.scope_document_path!, nomination.scope_document_name ?? "escopo-do-servico")}
+          type="button"
+          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+          onClick={() =>
+            baixarEscopoDocumento(
+              nomination.scope_document_path!,
+              nomination.scope_document_name ?? "escopo-do-servico",
+            )
+          }
         >
-          <FileText className="h-3.5 w-3.5" /> {nomination.scope_document_name ?? "Baixar documento anexado"}
+          <FileText className="h-3.5 w-3.5" />{" "}
+          {nomination.scope_document_name ?? "Baixar documento anexado"}
         </button>
       ) : (
         <p className="text-xs text-muted-foreground">Nenhum documento anexado pelo solicitante.</p>
       )}
       <p className="text-xs font-medium">
-        Aprovado para o serviço a bordo{nomination.weld_type ? ` (${nomination.weld_type}${nomination.weld_material ? ` — ${nomination.weld_material}` : ""})` : ""}?
+        Aprovado para o serviço a bordo
+        {nomination.weld_type
+          ? ` (${nomination.weld_type}${nomination.weld_material ? ` — ${nomination.weld_material}` : ""})`
+          : ""}
+        ?
       </p>
       <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
-        {ativos.length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">Nenhum candidato no efetivo desta solicitação ainda.</p>}
+        {ativos.length === 0 && (
+          <p className="py-2 text-center text-xs text-muted-foreground">
+            Nenhum candidato no efetivo desta solicitação ainda.
+          </p>
+        )}
         {ativos.map((n) => {
           const aprovado = !!n.technical_selected_at;
           return (
-            <div key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm">
+            <div
+              key={n.id}
+              className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm"
+            >
               <span>{n.colaborador_nome}</span>
               <div className="flex gap-1">
-                <Button size="sm" variant={aprovado ? "default" : "outline"} className="h-7 px-2 text-xs" disabled={!canAct}
-                  onClick={() => toggleSelect.mutate({ nominee: n, selected: true })}>
+                <Button
+                  size="sm"
+                  variant={aprovado ? "default" : "outline"}
+                  className="h-7 px-2 text-xs"
+                  disabled={!canAct}
+                  onClick={() => toggleSelect.mutate({ nominee: n, selected: true })}
+                >
                   <Check className="mr-1 h-3 w-3" /> Aprovado
                 </Button>
-                <Button size="sm" variant={!aprovado ? "destructive" : "outline"} className="h-7 px-2 text-xs" disabled={!canAct}
-                  onClick={() => toggleSelect.mutate({ nominee: n, selected: false })}>
+                <Button
+                  size="sm"
+                  variant={!aprovado ? "destructive" : "outline"}
+                  className="h-7 px-2 text-xs"
+                  disabled={!canAct}
+                  onClick={() => toggleSelect.mutate({ nominee: n, selected: false })}
+                >
                   <X className="mr-1 h-3 w-3" /> Não aprovado
                 </Button>
               </div>
@@ -356,19 +540,31 @@ function AprovacaoTecnicaSection({ nomination, nominees }: { nomination: Nominat
   );
 }
 
-function NomeadosSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+function NomeadosSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
   const { role } = useAuth();
   const canAct = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
   const advance = useAdvanceStage();
   const selecionados = nominees.filter((n) => n.is_active && n.technical_selected_at);
   // Validação de Qualidade só é obrigatória quando a solicitação exige (soldador) — caso
   // contrário pula direto pra Aprovação PM, sem o card nunca parar naquela coluna.
-  const proximaEtapa: NominationStatus = nomination.requires_quality_validation ? "validacao_qualidade" : "aprovacao_pm";
+  const proximaEtapa: NominationStatus = nomination.requires_quality_validation
+    ? "validacao_qualidade"
+    : "aprovacao_pm";
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">Nomeados ({selecionados.length})</p>
       <ul className="space-y-1 text-sm">
-        {selecionados.map((n) => <li key={n.id} className="rounded bg-purple-50 px-2 py-1 text-purple-900">{n.colaborador_nome}</li>)}
+        {selecionados.map((n) => (
+          <li key={n.id} className="rounded bg-purple-50 px-2 py-1 text-purple-900">
+            {n.colaborador_nome}
+          </li>
+        ))}
       </ul>
       {canAct && nomination.current_status === "nomeados" && (
         <Button
@@ -377,7 +573,9 @@ function NomeadosSection({ nomination, nominees }: { nomination: Nomination; nom
           loading={advance.isPending}
         >
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
-          {nomination.requires_quality_validation ? "Enviar para Validação de Qualidade" : "Enviar para Validação PM"}
+          {nomination.requires_quality_validation
+            ? "Enviar para Validação de Qualidade"
+            : "Enviar para Validação PM"}
         </Button>
       )}
     </div>
@@ -387,30 +585,44 @@ function NomeadosSection({ nomination, nominees }: { nomination: Nomination; nom
 // Só chega aqui quando a solicitação exige (soldador) — NomeadosSection já pula direto pra
 // Aprovação PM quando não exige. A Qualidade decide olhando o escopo do serviço anexado pelo
 // solicitante, não um tipo de solda/material escolhido em lista.
-function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+function ValidacaoQualidadeSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
   const advance = useAdvanceStage();
   const [showReject, setShowReject] = useState(false);
   const [reasonDraft, setReasonDraft] = useState("");
-  const QUALITY_STATUS_LABEL: Record<QualityStatus, string> = { pendente: "Pendente", aprovado: "Aprovada", reprovado: "Reprovada" };
+  const QUALITY_STATUS_LABEL: Record<QualityStatus, string> = {
+    pendente: "Pendente",
+    aprovado: "Aprovada",
+    reprovado: "Reprovada",
+  };
   // Igual ao SMS: a Qualidade analisa o documento e responde, por colaborador, se ele está apto
   // para o tipo de solda da solicitação. Só dá pra aprovar depois de responder todos.
   // Qualidade vem antes da Aprovação Técnica: avalia todos os candidatos ativos da simulação.
   const avaliados = nominees.filter((n) => n.is_active);
-  const todosRespondidos = avaliados.length > 0 && avaliados.every((n) => (n as any).quality_apto_solda != null);
+  const todosRespondidos =
+    avaliados.length > 0 && avaliados.every((n) => (n as any).quality_apto_solda != null);
   // Pedido dela, 2026-10-05: sem escopo anexado, só segue se Observações descrever o tipo de
   // obra/serviço a bordo — mesma regra de canMoveToColumn (lib/nominations.ts), reforçada aqui
   // pra avisar antes de aprovar, não só quando a tentativa de mover o card falhar depois.
   const faltaDescricaoObra = !nomination.scope_document_path && !nomination.notes?.trim();
   const setApto = useMutation({
     mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
-      const { error } = await (supabase as any).from("nomination_nominees").update({
-        quality_apto_solda: val,
-        quality_checked_at: new Date().toISOString(),
-        quality_checked_by: profile?.full_name ?? profile?.email ?? null,
-      }).eq("id", nominee.id);
+      const { error } = await (supabase as any)
+        .from("nomination_nominees")
+        .update({
+          quality_apto_solda: val,
+          quality_checked_at: new Date().toISOString(),
+          quality_checked_by: profile?.full_name ?? profile?.email ?? null,
+        })
+        .eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
@@ -420,23 +632,28 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
   const setQualityStatus = useMutation({
     mutationFn: async ({ status, reason }: { status: QualityStatus; reason?: string }) => {
       const aprovado = status === "aprovado";
-      const { error } = await supabase.from("nominations").update({
-        quality_status: status,
-        quality_rejection_reason: status === "reprovado" ? (reason?.trim() || null) : null,
-        quality_validated: aprovado,
-        quality_validated_at: status !== "pendente" ? new Date().toISOString() : null,
-        quality_validated_by: status !== "pendente" ? (profile?.full_name ?? profile?.email ?? null) : null,
-      }).eq("id", nomination.id);
+      const { error } = await supabase
+        .from("nominations")
+        .update({
+          quality_status: status,
+          quality_rejection_reason: status === "reprovado" ? reason?.trim() || null : null,
+          quality_validated: aprovado,
+          quality_validated_at: status !== "pendente" ? new Date().toISOString() : null,
+          quality_validated_by:
+            status !== "pendente" ? (profile?.full_name ?? profile?.email ?? null) : null,
+        })
+        .eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
         nomination_id: nomination.id,
         status: nomination.current_status,
         changed_by_name: profile?.full_name ?? profile?.email ?? "Qualidade",
-        notes: status === "aprovado"
-          ? "Qualidade aprovou"
-          : status === "reprovado"
-            ? `Qualidade reprovou${reason?.trim() ? `: ${reason.trim()}` : ""}`
-            : "Validação de Qualidade desmarcada",
+        notes:
+          status === "aprovado"
+            ? "Qualidade aprovou"
+            : status === "reprovado"
+              ? `Qualidade reprovou${reason?.trim() ? `: ${reason.trim()}` : ""}`
+              : "Validação de Qualidade desmarcada",
       });
       if (status === "reprovado") await notifyQualityRejection(nomination, reason?.trim() || null);
     },
@@ -458,16 +675,25 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
           {canAct ? (
             <div className="flex gap-1.5">
               <Button
-                type="button" size="sm" className="h-7 w-7 p-0"
+                type="button"
+                size="sm"
+                className="h-7 w-7 p-0"
                 variant={nomination.quality_status === "aprovado" ? "default" : "outline"}
                 disabled={!todosRespondidos || faltaDescricaoObra}
-                loading={setQualityStatus.isPending && setQualityStatus.variables?.status === "aprovado"}
-                onClick={() => { setShowReject(false); setQualityStatus.mutate({ status: "aprovado" }); }}
+                loading={
+                  setQualityStatus.isPending && setQualityStatus.variables?.status === "aprovado"
+                }
+                onClick={() => {
+                  setShowReject(false);
+                  setQualityStatus.mutate({ status: "aprovado" });
+                }}
               >
                 <Check className="h-3.5 w-3.5" />
               </Button>
               <Button
-                type="button" size="sm" className="h-7 w-7 p-0"
+                type="button"
+                size="sm"
+                className="h-7 w-7 p-0"
                 variant={nomination.quality_status === "reprovado" ? "destructive" : "outline"}
                 onClick={() => setShowReject(true)}
               >
@@ -490,32 +716,57 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
         </div>
         {nomination.scope_document_path ? (
           <button
-            type="button" className="flex items-center gap-1.5 text-xs text-purple-900 hover:underline"
-            onClick={() => baixarEscopoDocumento(nomination.scope_document_path!, nomination.scope_document_name ?? "escopo-do-servico")}
+            type="button"
+            className="flex items-center gap-1.5 text-xs text-purple-900 hover:underline"
+            onClick={() =>
+              baixarEscopoDocumento(
+                nomination.scope_document_path!,
+                nomination.scope_document_name ?? "escopo-do-servico",
+              )
+            }
           >
-            <FileText className="h-3.5 w-3.5" /> {nomination.scope_document_name ?? "Baixar escopo do serviço"}
+            <FileText className="h-3.5 w-3.5" />{" "}
+            {nomination.scope_document_name ?? "Baixar escopo do serviço"}
           </button>
         ) : (
-          <p className={`text-xs ${faltaDescricaoObra ? "font-medium text-amber-700" : "text-purple-900/70"}`}>
+          <p
+            className={`text-xs ${faltaDescricaoObra ? "font-medium text-amber-700" : "text-purple-900/70"}`}
+          >
             Nenhum escopo do serviço anexado pelo solicitante.
-            {faltaDescricaoObra && " Só dá pra avançar se as Observações descreverem o tipo de obra/serviço a bordo."}
+            {faltaDescricaoObra &&
+              " Só dá pra avançar se as Observações descreverem o tipo de obra/serviço a bordo."}
           </p>
         )}
         <div className="space-y-1.5 pt-1">
           <p className="text-xs font-medium text-purple-900">
-            Apto para o tipo de solda{nomination.weld_type ? ` (${nomination.weld_type}${nomination.weld_material ? ` — ${nomination.weld_material}` : ""})` : ""}?
+            Apto para o tipo de solda
+            {nomination.weld_type
+              ? ` (${nomination.weld_type}${nomination.weld_material ? ` — ${nomination.weld_material}` : ""})`
+              : ""}
+            ?
           </p>
-          {avaliados.length === 0 && <p className="text-xs text-purple-900/70">Nenhum colaborador nomeado.</p>}
+          {avaliados.length === 0 && (
+            <p className="text-xs text-purple-900/70">Nenhum colaborador nomeado.</p>
+          )}
           {avaliados.map((n) => {
             const v = (n as any).quality_apto_solda as boolean | null;
             return (
-              <div key={n.id} className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs">
+              <div
+                key={n.id}
+                className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs"
+              >
                 <span className="font-medium">{n.colaborador_nome}</span>
                 <div className="flex gap-1">
                   {[true, false].map((opt) => (
-                    <Button key={String(opt)} size="sm" type="button" disabled={!canAct}
-                      variant={v === opt ? (opt ? "default" : "destructive") : "outline"} className="h-6 px-2 text-xs"
-                      onClick={() => setApto.mutate({ nominee: n, val: opt })}>
+                    <Button
+                      key={String(opt)}
+                      size="sm"
+                      type="button"
+                      disabled={!canAct}
+                      variant={v === opt ? (opt ? "default" : "destructive") : "outline"}
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setApto.mutate({ nominee: n, val: opt })}
+                    >
                       {opt ? "Apto" : "Não apto"}
                     </Button>
                   ))}
@@ -524,7 +775,9 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
             );
           })}
           {canAct && !todosRespondidos && avaliados.length > 0 && (
-            <p className="text-xs text-purple-900/70">Responda todos os colaboradores para aprovar.</p>
+            <p className="text-xs text-purple-900/70">
+              Responda todos os colaboradores para aprovar.
+            </p>
           )}
         </div>
         {nomination.quality_status === "reprovado" && nomination.quality_rejection_reason && (
@@ -533,36 +786,61 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
         {showReject && (
           <div className="space-y-1.5">
             <Textarea
-              rows={2} className="text-xs" placeholder="Motivo da reprovação (opcional)"
-              value={reasonDraft} onChange={(e) => setReasonDraft(e.target.value)}
+              rows={2}
+              className="text-xs"
+              placeholder="Motivo da reprovação (opcional)"
+              value={reasonDraft}
+              onChange={(e) => setReasonDraft(e.target.value)}
             />
             <div className="flex gap-2">
               <Button
-                type="button" size="sm" variant="destructive"
-                loading={setQualityStatus.isPending && setQualityStatus.variables?.status === "reprovado"}
+                type="button"
+                size="sm"
+                variant="destructive"
+                loading={
+                  setQualityStatus.isPending && setQualityStatus.variables?.status === "reprovado"
+                }
                 onClick={() => {
                   setQualityStatus.mutate(
                     { status: "reprovado", reason: reasonDraft },
-                    { onSuccess: () => { setShowReject(false); setReasonDraft(""); } },
+                    {
+                      onSuccess: () => {
+                        setShowReject(false);
+                        setReasonDraft("");
+                      },
+                    },
                   );
                 }}
               >
                 Confirmar reprovação
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setShowReject(false)}>Voltar</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setShowReject(false)}>
+                Voltar
+              </Button>
             </div>
           </div>
         )}
       </div>
       {canAct && nomination.quality_status === "aprovado" && (
-        <Button size="sm" onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })} loading={advance.isPending}>
+        <Button
+          size="sm"
+          onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })}
+          loading={advance.isPending}
+        >
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação PM
         </Button>
       )}
       {canAct && nomination.quality_status === "reprovado" && (
         <Button
-          size="sm" variant="outline"
-          onClick={() => advance.mutate({ nomination, target: "simulacao", note: "Qualidade reprovou — retrocedido para nova indicação" })}
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            advance.mutate({
+              nomination,
+              target: "simulacao",
+              note: "Qualidade reprovou — retrocedido para nova indicação",
+            })
+          }
           loading={advance.isPending}
         >
           <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Retroceder para Nomeação (Simulação)
@@ -572,7 +850,13 @@ function ValidacaoQualidadeSection({ nomination, nominees }: { nomination: Nomin
   );
 }
 
-function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+function AprovacaoPmSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
   const canOperate = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
@@ -600,11 +884,14 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
         ativos.map(async (n) => {
           const decision = decisionFor(n);
           if (decision === n.pm_decision) return;
-          const { error } = await supabase.from("nomination_nominees").update({
-            pm_decision: decision,
-            pm_decided_at: new Date().toISOString(),
-            pm_decided_by: profile?.full_name ?? profile?.email ?? null,
-          }).eq("id", n.id);
+          const { error } = await supabase
+            .from("nomination_nominees")
+            .update({
+              pm_decision: decision,
+              pm_decided_at: new Date().toISOString(),
+              pm_decided_by: profile?.full_name ?? profile?.email ?? null,
+            })
+            .eq("id", n.id);
           if (error) throw error;
         }),
       );
@@ -612,11 +899,16 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
       const gate = canMoveToColumn(nomination, "briefing_sms", merged);
       if (!gate.ok) throw new Error(gate.reason ?? "Não é possível avançar ainda.");
 
-      const { error } = await supabase.from("nominations").update({ current_status: "briefing_sms" }).eq("id", nomination.id);
+      const { error } = await supabase
+        .from("nominations")
+        .update({ current_status: "briefing_sms" })
+        .eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id, status: "briefing_sms",
-        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística", notes: "Decisões de Validação PM confirmadas pela Logística",
+        nomination_id: nomination.id,
+        status: "briefing_sms",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
+        notes: "Decisões de Validação PM confirmadas pela Logística",
       });
       await notifyStageAdvance({ ...nomination, current_status: "briefing_sms" }, "briefing_sms");
     },
@@ -633,12 +925,18 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
     return (
       <div className="space-y-2">
         <p className="text-sm font-medium">Decisão do Solicitante</p>
-        <p className="text-xs text-muted-foreground">O solicitante decide pelo portal dele (/pm) — aqui é só leitura.</p>
+        <p className="text-xs text-muted-foreground">
+          O solicitante decide pelo portal dele (/pm) — aqui é só leitura.
+        </p>
         <ul className="space-y-1 text-sm">
           {ativos.map((n) => (
             <li key={n.id} className="flex items-center justify-between rounded border px-2 py-1">
               <span>{n.colaborador_nome}</span>
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${label[n.pm_decision].cls}`}>{label[n.pm_decision].text}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${label[n.pm_decision].cls}`}
+              >
+                {label[n.pm_decision].text}
+              </span>
             </li>
           ))}
         </ul>
@@ -653,22 +951,32 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">Decisão do Solicitante</p>
-      <p className="text-xs text-muted-foreground">Normalmente o solicitante decide pelo portal dele (/pm) — a Logística também pode decidir por aqui.</p>
+      <p className="text-xs text-muted-foreground">
+        Normalmente o solicitante decide pelo portal dele (/pm) — a Logística também pode decidir
+        por aqui.
+      </p>
       <div className="space-y-1.5">
         {ativos.map((n) => {
           const d = decisionFor(n);
           return (
-            <div key={n.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+            <div
+              key={n.id}
+              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+            >
               <span>{n.colaborador_nome}</span>
               <div className="flex gap-1.5">
                 <Button
-                  size="sm" variant={d === "aprovado" ? "default" : "outline"} className="h-7 w-7 p-0"
+                  size="sm"
+                  variant={d === "aprovado" ? "default" : "outline"}
+                  className="h-7 w-7 p-0"
                   onClick={() => setDraft((p) => ({ ...p, [n.id]: "aprovado" }))}
                 >
                   <Check className="h-3.5 w-3.5" />
                 </Button>
                 <Button
-                  size="sm" variant={d === "reprovado" ? "destructive" : "outline"} className="h-7 w-7 p-0"
+                  size="sm"
+                  variant={d === "reprovado" ? "destructive" : "outline"}
+                  className="h-7 w-7 p-0"
                   onClick={() => setDraft((p) => ({ ...p, [n.id]: "reprovado" }))}
                 >
                   <X className="h-3.5 w-3.5" />
@@ -678,7 +986,12 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
           );
         })}
       </div>
-      <Button size="sm" disabled={!todosDecididos} loading={confirmar.isPending} onClick={() => confirmar.mutate()}>
+      <Button
+        size="sm"
+        disabled={!todosDecididos}
+        loading={confirmar.isPending}
+        onClick={() => confirmar.mutate()}
+      >
         <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar decisões e avançar para Briefing
       </Button>
     </div>
@@ -688,7 +1001,13 @@ function AprovacaoPmSection({ nomination, nominees }: { nomination: Nomination; 
 // Validação SMS (ASO) — mesmo papel (sms) que já cuida do Briefing mais à frente. Vem logo
 // depois de Simulação agora (pedido dela) — checklist por todo nomeado simulado, ainda antes
 // de qualquer seleção da Aprovação Técnica ou decisão do PM.
-function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+function ValidacaoSmsAsoSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
@@ -700,17 +1019,28 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
   // "Bloqueio de saúde" e "ASO em dia" (Sim/Não). O nomeado conta como checado (sms_aso_checked)
   // quando os dois foram respondidos — é isso que libera o avanço (gate em canMoveToColumn).
   const setCampo = useMutation({
-    mutationFn: async ({ nominee, campo, val }: { nominee: NominationNominee; campo: "sms_bloqueio_saude" | "sms_aso_em_dia"; val: boolean }) => {
+    mutationFn: async ({
+      nominee,
+      campo,
+      val,
+    }: {
+      nominee: NominationNominee;
+      campo: "sms_bloqueio_saude" | "sms_aso_em_dia";
+      val: boolean;
+    }) => {
       const atual: any = nominee;
       const bloqueio = campo === "sms_bloqueio_saude" ? val : atual.sms_bloqueio_saude;
       const aso = campo === "sms_aso_em_dia" ? val : atual.sms_aso_em_dia;
       const completo = bloqueio != null && aso != null;
-      const { error } = await (supabase as any).from("nomination_nominees").update({
-        [campo]: val,
-        sms_aso_checked: completo,
-        sms_aso_checked_at: completo ? new Date().toISOString() : null,
-        sms_aso_checked_by: completo ? (profile?.full_name ?? profile?.email ?? null) : null,
-      }).eq("id", nominee.id);
+      const { error } = await (supabase as any)
+        .from("nomination_nominees")
+        .update({
+          [campo]: val,
+          sms_aso_checked: completo,
+          sms_aso_checked_at: completo ? new Date().toISOString() : null,
+          sms_aso_checked_by: completo ? (profile?.full_name ?? profile?.email ?? null) : null,
+        })
+        .eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
@@ -719,16 +1049,30 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
 
   const todosChecados = aprovados.length > 0 && aprovados.every((n) => n.sms_aso_checked);
 
-  const SimNao = ({ n, campo, label }: { n: NominationNominee; campo: "sms_bloqueio_saude" | "sms_aso_em_dia"; label: string }) => {
+  const SimNao = ({
+    n,
+    campo,
+    label,
+  }: {
+    n: NominationNominee;
+    campo: "sms_bloqueio_saude" | "sms_aso_em_dia";
+    label: string;
+  }) => {
     const v = (n as any)[campo] as boolean | null;
     return (
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="text-muted-foreground">{label}</span>
         <div className="flex gap-1">
           {[true, false].map((opt) => (
-            <Button key={String(opt)} size="sm" type="button" disabled={!canAct}
-              variant={v === opt ? "default" : "outline"} className="h-6 px-2 text-xs"
-              onClick={() => setCampo.mutate({ nominee: n, campo, val: opt })}>
+            <Button
+              key={String(opt)}
+              size="sm"
+              type="button"
+              disabled={!canAct}
+              variant={v === opt ? "default" : "outline"}
+              className="h-6 px-2 text-xs"
+              onClick={() => setCampo.mutate({ nominee: n, campo, val: opt })}
+            >
               {opt ? "Sim" : "Não"}
             </Button>
           ))}
@@ -739,13 +1083,19 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
 
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Validação SMS (ASO)</p>
+      <p className="text-sm font-medium flex items-center gap-1.5">
+        <Stethoscope className="h-4 w-4" /> Validação SMS (ASO)
+      </p>
       <div className="space-y-2">
         {aprovados.map((n) => (
           <div key={n.id} className="space-y-1 rounded-md border p-2 text-sm">
             <div className="flex items-center justify-between">
               <span className="font-medium">{n.colaborador_nome}</span>
-              {n.sms_aso_checked ? <Badge variant="secondary">Respondido</Badge> : <Badge variant="secondary">Pendente</Badge>}
+              {n.sms_aso_checked ? (
+                <Badge variant="secondary">Respondido</Badge>
+              ) : (
+                <Badge variant="secondary">Pendente</Badge>
+              )}
             </div>
             <SimNao n={n} campo="sms_bloqueio_saude" label="Bloqueio de saúde?" />
             <SimNao n={n} campo="sms_aso_em_dia" label="ASO em dia?" />
@@ -753,7 +1103,12 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
         ))}
       </div>
       {canAct && (
-        <Button size="sm" disabled={!todosChecados} onClick={() => advance.mutate({ nomination, target: "validacao_rh" })} loading={advance.isPending}>
+        <Button
+          size="sm"
+          disabled={!todosChecados}
+          onClick={() => advance.mutate({ nomination, target: "validacao_rh" })}
+          loading={advance.isPending}
+        >
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Validação - DP
         </Button>
       )}
@@ -763,7 +1118,13 @@ function ValidacaoSmsAsoSection({ nomination, nominees }: { nomination: Nominati
 
 // Validação RH — inclui a checklist de Aptidão por nomeado (aptidao_checked/aptidao_divergence)
 // além da validação/divergência de RH que já existia.
-function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; nominees: NominationNominee[] }) {
+function ValidacaoRhSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
@@ -775,9 +1136,14 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
 
   const validate = useMutation({
     mutationFn: async (nominee: NominationNominee) => {
-      const { error } = await supabase.from("nomination_nominees").update({
-        rh_validated: true, rh_validated_at: new Date().toISOString(), rh_validated_by: profile?.full_name ?? profile?.email ?? null,
-      }).eq("id", nominee.id);
+      const { error } = await supabase
+        .from("nomination_nominees")
+        .update({
+          rh_validated: true,
+          rh_validated_at: new Date().toISOString(),
+          rh_validated_by: profile?.full_name ?? profile?.email ?? null,
+        })
+        .eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
@@ -785,7 +1151,10 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
 
   const setDoc = useMutation({
     mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
-      const { error } = await (supabase as any).from("nomination_nominees").update({ rh_documentacao_ok: val }).eq("id", nominee.id);
+      const { error } = await (supabase as any)
+        .from("nomination_nominees")
+        .update({ rh_documentacao_ok: val })
+        .eq("id", nominee.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
@@ -796,9 +1165,15 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
     mutationFn: async (nominee: NominationNominee) => {
       const text = divergenceDraft[nominee.id]?.trim();
       if (!text) throw new Error("Descreva a divergência.");
-      const { error } = await supabase.from("nomination_nominees").update({
-        aptidao_divergence: true, aptidao_divergence_text: text, aptidao_divergence_flagged_at: new Date().toISOString(), rh_validated: false,
-      }).eq("id", nominee.id);
+      const { error } = await supabase
+        .from("nomination_nominees")
+        .update({
+          aptidao_divergence: true,
+          aptidao_divergence_text: text,
+          aptidao_divergence_flagged_at: new Date().toISOString(),
+          rh_validated: false,
+        })
+        .eq("id", nominee.id);
       if (error) throw error;
       await notifyAptitudeDivergence(nomination, nominee.colaborador_nome, text, false);
     },
@@ -811,16 +1186,22 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
 
   const resolveDivergence = useMutation({
     mutationFn: async (nominee: NominationNominee) => {
-      const { error } = await supabase.from("nomination_nominees").update({
-        aptidao_divergence: false, aptidao_divergence_text: null, aptidao_divergence_flagged_at: null,
-      }).eq("id", nominee.id);
+      const { error } = await supabase
+        .from("nomination_nominees")
+        .update({
+          aptidao_divergence: false,
+          aptidao_divergence_text: null,
+          aptidao_divergence_flagged_at: null,
+        })
+        .eq("id", nominee.id);
       if (error) throw error;
       await notifyAptitudeDivergence(nomination, nominee.colaborador_nome, "", true);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
   });
 
-  const podeAvancar = aprovados.length > 0 && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
+  const podeAvancar =
+    aprovados.length > 0 && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
 
   return (
     <div className="space-y-3">
@@ -832,7 +1213,9 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
               <div className="flex items-center justify-between">
                 <span className="font-medium">{n.colaborador_nome}</span>
                 {n.rh_validated ? (
-                  <Badge variant="secondary" className="text-emerald-700">Validado</Badge>
+                  <Badge variant="secondary" className="text-emerald-700">
+                    Validado
+                  </Badge>
                 ) : n.aptidao_divergence ? (
                   <Badge variant="destructive">Divergência</Badge>
                 ) : (
@@ -842,10 +1225,17 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
               {n.aptidao_divergence ? (
                 <div className="mt-1.5 space-y-1.5 rounded-md border border-red-200 bg-red-50 p-2">
                   <p className="flex items-start gap-1.5 text-xs text-red-800">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /> {n.aptidao_divergence_text}
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />{" "}
+                    {n.aptidao_divergence_text}
                   </p>
                   {canAct && (
-                    <Button size="sm" variant="outline" className="h-6 text-xs" loading={resolveDivergence.isPending} onClick={() => resolveDivergence.mutate(n)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-xs"
+                      loading={resolveDivergence.isPending}
+                      onClick={() => resolveDivergence.mutate(n)}
+                    >
                       Marcar como corrigido
                     </Button>
                   )}
@@ -856,26 +1246,44 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
                     <span className="text-muted-foreground">Documentação OK para embarque?</span>
                     <div className="flex gap-1">
                       {[true, false].map((opt) => (
-                        <Button key={String(opt)} size="sm" type="button" className="h-6 px-2 text-xs"
+                        <Button
+                          key={String(opt)}
+                          size="sm"
+                          type="button"
+                          className="h-6 px-2 text-xs"
                           variant={(n as any).rh_documentacao_ok === opt ? "default" : "outline"}
-                          onClick={() => setDoc.mutate({ nominee: n, val: opt })}>
+                          onClick={() => setDoc.mutate({ nominee: n, val: opt })}
+                        >
                           {opt ? "Sim" : "Não"}
                         </Button>
                       ))}
                     </div>
                   </div>
-                  <Button size="sm" className="h-6 text-xs" loading={validate.isPending}
+                  <Button
+                    size="sm"
+                    className="h-6 text-xs"
+                    loading={validate.isPending}
                     disabled={(n as any).rh_documentacao_ok == null}
-                    onClick={() => validate.mutate(n)}>
+                    onClick={() => validate.mutate(n)}
+                  >
                     Validar embarque
                   </Button>
                   <div className="flex gap-1.5">
                     <Input
-                      className="h-6 text-xs" placeholder="Descrever divergência..."
+                      className="h-6 text-xs"
+                      placeholder="Descrever divergência..."
                       value={divergenceDraft[n.id] ?? ""}
-                      onChange={(e) => setDivergenceDraft((p) => ({ ...p, [n.id]: e.target.value }))}
+                      onChange={(e) =>
+                        setDivergenceDraft((p) => ({ ...p, [n.id]: e.target.value }))
+                      }
                     />
-                    <Button size="sm" variant="destructive" className="h-6 shrink-0 text-xs" loading={flagDivergence.isPending} onClick={() => flagDivergence.mutate(n)}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-6 shrink-0 text-xs"
+                      loading={flagDivergence.isPending}
+                      onClick={() => flagDivergence.mutate(n)}
+                    >
                       Sinalizar
                     </Button>
                   </div>
@@ -887,7 +1295,12 @@ function ValidacaoRhSection({ nomination, nominees }: { nomination: Nomination; 
       </div>
 
       {canAct && (
-        <Button size="sm" disabled={!podeAvancar} onClick={() => advance.mutate({ nomination, target: "aprovacao_tecnica" })} loading={advance.isPending}>
+        <Button
+          size="sm"
+          disabled={!podeAvancar}
+          onClick={() => advance.mutate({ nomination, target: "aprovacao_tecnica" })}
+          loading={advance.isPending}
+        >
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Aprovação Técnica
         </Button>
       )}
@@ -903,7 +1316,11 @@ function BriefingSection({ nomination }: { nomination: Nomination }) {
   const naoRealizado = async () => {
     setAvisando(true);
     try {
-      await notifyStageAdvance(nomination, "briefing_sms", "Briefing com a equipe ainda NÃO realizado (informado pelo SMS).");
+      await notifyStageAdvance(
+        nomination,
+        "briefing_sms",
+        "Briefing com a equipe ainda NÃO realizado (informado pelo SMS).",
+      );
       notify.success("Aviso de briefing pendente enviado.");
     } finally {
       setAvisando(false);
@@ -913,19 +1330,32 @@ function BriefingSection({ nomination }: { nomination: Nomination }) {
     <div className="space-y-2">
       <p className="text-sm font-medium">O briefing com esta equipe já foi feito?</p>
       <div className="flex gap-2">
-        <Button size="sm" disabled={!canAct || nomination.briefing_sms_realizado} loading={advance.isPending}
-          onClick={() => advance.mutate({
-            nomination, target: "equipe_formada",
-            extraPatch: {
-              briefing_sms_realizado: true,
-              briefing_sms_realizado_at: new Date().toISOString(),
-              briefing_sms_realizado_by: profile?.full_name ?? profile?.email ?? null,
-              outcome: "concluida",
-            },
-          })}>
+        <Button
+          size="sm"
+          disabled={!canAct || nomination.briefing_sms_realizado}
+          loading={advance.isPending}
+          onClick={() =>
+            advance.mutate({
+              nomination,
+              target: "equipe_formada",
+              extraPatch: {
+                briefing_sms_realizado: true,
+                briefing_sms_realizado_at: new Date().toISOString(),
+                briefing_sms_realizado_by: profile?.full_name ?? profile?.email ?? null,
+                outcome: "concluida",
+              },
+            })
+          }
+        >
           <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Sim, briefing realizado
         </Button>
-        <Button size="sm" variant="outline" disabled={!canAct || nomination.briefing_sms_realizado} loading={avisando} onClick={naoRealizado}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!canAct || nomination.briefing_sms_realizado}
+          loading={avisando}
+          onClick={naoRealizado}
+        >
           Não, ainda não
         </Button>
       </div>
@@ -952,7 +1382,8 @@ function ManageDialog({
   // qualquer avanço de etapa feito por ele mesmo (senão os botões ficavam presos na etapa
   // antiga até fechar e reabrir o card).
   const { data: allNominations } = useAllNominations();
-  const nomination = allNominations?.find((n) => n.id === initialNomination.id) ?? initialNomination;
+  const nomination =
+    allNominations?.find((n) => n.id === initialNomination.id) ?? initialNomination;
   const { data: nominees = [] } = useNominees(nomination.id);
   const canOperate = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
   const canActOnCurrentStage = useCanActOnStage(nomination.current_status);
@@ -963,9 +1394,10 @@ function ManageDialog({
   // mesmo agrupamento no KanbanBoard). As etapas com decisão por nomeado (Aprovação Técnica em
   // diante) continuam avançando só esta nomeação, já que cada função tem seu próprio efetivo.
   const groupSiblings = (allNominations ?? []).filter(
-    (n) => n.id !== nomination.id
-      && n.current_status === nomination.current_status
-      && (n.request_group_id ?? n.id) === (nomination.request_group_id ?? nomination.id),
+    (n) =>
+      n.id !== nomination.id &&
+      n.current_status === nomination.current_status &&
+      (n.request_group_id ?? n.id) === (nomination.request_group_id ?? nomination.id),
   );
   const advanceGroupTo = (target: NominationStatus, extraPatch?: Record<string, unknown>) => {
     groupSiblings.forEach((sibling) => advance.mutate({ nomination: sibling, target, extraPatch }));
@@ -987,7 +1419,10 @@ function ManageDialog({
   });
 
   const marcarRecebido = () => {
-    const extraPatch = { logistics_received_at: new Date().toISOString(), logistics_received_by: profile?.full_name ?? profile?.email ?? null };
+    const extraPatch = {
+      logistics_received_at: new Date().toISOString(),
+      logistics_received_by: profile?.full_name ?? profile?.email ?? null,
+    };
     advance.mutate({ nomination, target: "recebido_logistica", extraPatch });
     advanceGroupTo("recebido_logistica", extraPatch);
   };
@@ -1016,8 +1451,18 @@ function ManageDialog({
           }
         : {};
     advance.mutate(
-      { nomination, target: forceAdvanceTarget, extraPatch, note: `Avançada manualmente pela Logística para ${STATUS_LABELS[forceAdvanceTarget]}` },
-      { onSuccess: () => { setShowForceAdvance(false); setForceAdvanceTarget(""); } },
+      {
+        nomination,
+        target: forceAdvanceTarget,
+        extraPatch,
+        note: `Avançada manualmente pela Logística para ${STATUS_LABELS[forceAdvanceTarget]}`,
+      },
+      {
+        onSuccess: () => {
+          setShowForceAdvance(false);
+          setForceAdvanceTarget("");
+        },
+      },
     );
   };
 
@@ -1025,16 +1470,20 @@ function ManageDialog({
   const [cancelReason, setCancelReason] = useState("");
   const cancel = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("nominations").update({
-        current_status: "equipe_formada",
-        outcome: "cancelada",
-        cancel_reason: cancelReason.trim() || null,
-        cancelled_at: new Date().toISOString(),
-        cancelled_by: profile?.full_name ?? profile?.email ?? null,
-      }).eq("id", nomination.id);
+      const { error } = await supabase
+        .from("nominations")
+        .update({
+          current_status: "equipe_formada",
+          outcome: "cancelada",
+          cancel_reason: cancelReason.trim() || null,
+          cancelled_at: new Date().toISOString(),
+          cancelled_by: profile?.full_name ?? profile?.email ?? null,
+        })
+        .eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id, status: "equipe_formada",
+        nomination_id: nomination.id,
+        status: "equipe_formada",
         changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
         notes: cancelReason.trim() ? `Cancelada: ${cancelReason.trim()}` : "Cancelada",
       });
@@ -1042,7 +1491,9 @@ function ManageDialog({
     },
     onSuccess: () => {
       notify.success("Solicitação cancelada.");
-      registrarLog(`Cancelou ${nomination.funcao} (${nomination.unidade ?? "—"})${cancelReason.trim() ? `: ${cancelReason.trim()}` : ""}`);
+      registrarLog(
+        `Cancelou ${nomination.funcao} (${nomination.unidade ?? "—"})${cancelReason.trim() ? `: ${cancelReason.trim()}` : ""}`,
+      );
       qc.invalidateQueries({ queryKey: ["nominations"] });
       setShowCancel(false);
       onClose();
@@ -1074,16 +1525,20 @@ function ManageDialog({
     mutationFn: async () => {
       const motivo = refuseReason.trim() || null;
       const quem = profile?.full_name ?? profile?.email ?? "Projetos ADM";
-      const { error } = await supabase.from("nominations").update({
-        current_status: "equipe_formada",
-        outcome: "cancelada",
-        cancel_reason: `Recusada por Projetos ADM${motivo ? `: ${motivo}` : ""}`,
-        cancelled_at: new Date().toISOString(),
-        cancelled_by: quem,
-      }).eq("id", nomination.id);
+      const { error } = await supabase
+        .from("nominations")
+        .update({
+          current_status: "equipe_formada",
+          outcome: "cancelada",
+          cancel_reason: `Recusada por Projetos ADM${motivo ? `: ${motivo}` : ""}`,
+          cancelled_at: new Date().toISOString(),
+          cancelled_by: quem,
+        })
+        .eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id: nomination.id, status: "equipe_formada",
+        nomination_id: nomination.id,
+        status: "equipe_formada",
         changed_by_name: quem,
         notes: motivo ? `Recusada por Projetos ADM: ${motivo}` : "Recusada por Projetos ADM",
       });
@@ -1115,9 +1570,9 @@ function ManageDialog({
 
   // Datas do período podem mudar a qualquer momento (adiamento de embarque, troca de janela),
   // então a edição fica disponível em todas as etapas do kanban, não só na solicitação.
-  const [editPeriodo, setEditPeriodo]   = useState(false);
+  const [editPeriodo, setEditPeriodo] = useState(false);
   const [periodoStart, setPeriodoStart] = useState(nomination.period_start ?? "");
-  const [periodoEnd, setPeriodoEnd]     = useState(nomination.period_end ?? "");
+  const [periodoEnd, setPeriodoEnd] = useState(nomination.period_end ?? "");
   useEffect(() => {
     setPeriodoStart(nomination.period_start ?? "");
     setPeriodoEnd(nomination.period_end ?? "");
@@ -1128,21 +1583,26 @@ function ManageDialog({
       if (periodoStart && periodoEnd && periodoEnd < periodoStart) {
         throw new Error("A data fim não pode ser anterior à data início.");
       }
-      const { error } = await supabase.from("nominations").update({
-        period_start: periodoStart || null,
-        period_end:   periodoEnd || null,
-      }).eq("id", nomination.id);
+      const { error } = await supabase
+        .from("nominations")
+        .update({
+          period_start: periodoStart || null,
+          period_end: periodoEnd || null,
+        })
+        .eq("id", nomination.id);
       if (error) throw error;
       await supabase.from("nomination_status_history").insert({
-        nomination_id:   nomination.id,
-        status:          nomination.current_status,
+        nomination_id: nomination.id,
+        status: nomination.current_status,
         changed_by_name: profile?.full_name ?? profile?.email ?? "Logística",
-        notes:           `Período alterado para ${periodoStart ? fmtDate(periodoStart) : "—"} – ${periodoEnd ? fmtDate(periodoEnd) : "—"}`,
+        notes: `Período alterado para ${periodoStart ? fmtDate(periodoStart) : "—"} – ${periodoEnd ? fmtDate(periodoEnd) : "—"}`,
       });
     },
     onSuccess: () => {
       notify.success("Datas atualizadas.");
-      registrarLog(`Alterou período de ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${periodoStart || "—"} – ${periodoEnd || "—"}`);
+      registrarLog(
+        `Alterou período de ${nomination.funcao} (${nomination.unidade ?? "—"}) para ${periodoStart || "—"} – ${periodoEnd || "—"}`,
+      );
       qc.invalidateQueries({ queryKey: ["nominations"] });
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });
       setEditPeriodo(false);
@@ -1155,7 +1615,9 @@ function ManageDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start justify-between gap-2 pr-6">
-            <DialogTitle className="text-base">{requestTitle(nomination)} — {nomination.funcao}</DialogTitle>
+            <DialogTitle className="text-base">
+              {requestTitle(nomination)} — {nomination.funcao}
+            </DialogTitle>
             {canOperate && (
               <div className="flex items-center gap-0.5 shrink-0">
                 {(earlierStages.length > 0 || laterStages.length > 0) && (
@@ -1164,16 +1626,25 @@ function ManageDialog({
                   // menu, não expostos como botões na tela, pra não aparecer numa demonstração.
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground"
+                      >
                         <MoreVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       {earlierStages.length > 0 && (
-                        <DropdownMenuItem onClick={() => setShowRevert(true)}>Retroceder etapa</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setShowRevert(true)}>
+                          Retroceder etapa
+                        </DropdownMenuItem>
                       )}
                       {laterStages.length > 0 && (
-                        <DropdownMenuItem onClick={() => setShowForceAdvance(true)}>Avançar etapa (sem aguardar os demais)</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setShowForceAdvance(true)}>
+                          Avançar etapa (sem aguardar os demais)
+                        </DropdownMenuItem>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -1184,7 +1655,11 @@ function ManageDialog({
                   size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-destructive"
                   onClick={() => {
-                    if (confirm("Excluir definitivamente esta nomeação? Esta ação não pode ser desfeita.")) {
+                    if (
+                      confirm(
+                        "Excluir definitivamente esta nomeação? Esta ação não pode ser desfeita.",
+                      )
+                    ) {
                       remove.mutate();
                     }
                   }}
@@ -1198,9 +1673,14 @@ function ManageDialog({
           <div className="flex items-center gap-2 pt-1">
             <StatusBadge status={nomination.current_status} />
             {nomination.current_status === "equipe_formada" && (
-              <span className={`text-xs font-medium ${nomination.outcome === "cancelada" ? "text-red-700" : "text-green-700"}`}>
-                {nomination.sequence_number != null && `#${String(nomination.sequence_number).padStart(3, "0")} — `}
-                {nomination.outcome === "cancelada" ? "Cancelada" : "Equipe formada — processo concluído"}
+              <span
+                className={`text-xs font-medium ${nomination.outcome === "cancelada" ? "text-red-700" : "text-green-700"}`}
+              >
+                {nomination.sequence_number != null &&
+                  `#${String(nomination.sequence_number).padStart(3, "0")} — `}
+                {nomination.outcome === "cancelada"
+                  ? "Cancelada"
+                  : "Equipe formada — processo concluído"}
               </span>
             )}
           </div>
@@ -1219,12 +1699,22 @@ function ManageDialog({
                 "Etapa atual" (Efetivo Disponível), fácil de não achar. Continua existindo lá
                 também, pra quem já estiver naquela aba. */}
             {nomination.current_status === "simulacao" && canActOnCurrentStage && (
-              <Button size="sm" className="w-full" onClick={() => { onGoToSimulacao(grupoCompleto); onClose(); }}>
+              <Button
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  onGoToSimulacao(grupoCompleto);
+                  onClose();
+                }}
+              >
                 <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Simular — selecionar candidatos
               </Button>
             )}
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-              <div><span className="text-muted-foreground">Função:</span> <span className="font-medium">{nomination.funcao}</span></div>
+              <div>
+                <span className="text-muted-foreground">Função:</span>{" "}
+                <span className="font-medium">{nomination.funcao}</span>
+              </div>
               {canOperate ? (
                 <div className="col-span-2 flex items-center gap-2">
                   <span className="shrink-0 text-muted-foreground">PM responsável:</span>
@@ -1244,23 +1734,43 @@ function ManageDialog({
                     Salvar
                   </Button>
                 </div>
-              ) : nomination.pm_responsavel && (
-                <div><span className="text-muted-foreground">PM responsável:</span> <span className="font-medium">{nomination.pm_responsavel}</span></div>
+              ) : (
+                nomination.pm_responsavel && (
+                  <div>
+                    <span className="text-muted-foreground">PM responsável:</span>{" "}
+                    <span className="font-medium">{nomination.pm_responsavel}</span>
+                  </div>
+                )
               )}
               {nomination.pm_name && (
-                <div><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{nomination.pm_name}</span></div>
+                <div>
+                  <span className="text-muted-foreground">Solicitante:</span>{" "}
+                  <span className="font-medium">{nomination.pm_name}</span>
+                </div>
               )}
               {nomination.unidade && (
-                <div><span className="text-muted-foreground">Unidade:</span> <span className="font-medium">{nomination.unidade}</span></div>
+                <div>
+                  <span className="text-muted-foreground">Unidade:</span>{" "}
+                  <span className="font-medium">{nomination.unidade}</span>
+                </div>
               )}
               {nomination.bsp && (
-                <div><span className="text-muted-foreground">BSP:</span> <span className="font-medium">{nomination.bsp}</span></div>
+                <div>
+                  <span className="text-muted-foreground">BSP:</span>{" "}
+                  <span className="font-medium">{nomination.bsp}</span>
+                </div>
               )}
               {nomination.weld_type && (
-                <div><span className="text-muted-foreground">Tipo de solda:</span> <span className="font-medium">{nomination.weld_type}</span></div>
+                <div>
+                  <span className="text-muted-foreground">Tipo de solda:</span>{" "}
+                  <span className="font-medium">{nomination.weld_type}</span>
+                </div>
               )}
               {nomination.weld_material && (
-                <div><span className="text-muted-foreground">Material:</span> <span className="font-medium">{nomination.weld_material}</span></div>
+                <div>
+                  <span className="text-muted-foreground">Material:</span>{" "}
+                  <span className="font-medium">{nomination.weld_material}</span>
+                </div>
               )}
               <div className="col-span-2">
                 <span className="text-muted-foreground">Período:</span>{" "}
@@ -1268,15 +1778,34 @@ function ManageDialog({
                   <div className="mt-1 flex flex-wrap items-end gap-2">
                     <div className="space-y-1">
                       <Label className="text-xs">Início</Label>
-                      <Input type="date" className="h-8 w-[150px] text-xs" value={periodoStart} onChange={(e) => setPeriodoStart(e.target.value)} />
+                      <Input
+                        type="date"
+                        className="h-8 w-[150px] text-xs"
+                        value={periodoStart}
+                        onChange={(e) => setPeriodoStart(e.target.value)}
+                      />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Fim</Label>
-                      <Input type="date" className="h-8 w-[150px] text-xs" value={periodoEnd} onChange={(e) => setPeriodoEnd(e.target.value)} />
+                      <Input
+                        type="date"
+                        className="h-8 w-[150px] text-xs"
+                        value={periodoEnd}
+                        onChange={(e) => setPeriodoEnd(e.target.value)}
+                      />
                     </div>
-                    <Button size="sm" className="h-8" loading={savePeriodo.isPending} onClick={() => savePeriodo.mutate()}>Salvar</Button>
                     <Button
-                      size="sm" variant="ghost" className="h-8"
+                      size="sm"
+                      className="h-8"
+                      loading={savePeriodo.isPending}
+                      onClick={() => savePeriodo.mutate()}
+                    >
+                      Salvar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8"
                       onClick={() => {
                         setPeriodoStart(nomination.period_start ?? "");
                         setPeriodoEnd(nomination.period_end ?? "");
@@ -1294,7 +1823,12 @@ function ManageDialog({
                         : "Sem data"}
                     </span>
                     {canOperate && (
-                      <Button variant="link" size="sm" className="h-auto p-0 pl-2 text-xs" onClick={() => setEditPeriodo(true)}>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 pl-2 text-xs"
+                        onClick={() => setEditPeriodo(true)}
+                      >
                         Alterar datas
                       </Button>
                     )}
@@ -1302,16 +1836,27 @@ function ManageDialog({
                 )}
               </div>
               {nomination.project && (
-                <div><span className="text-muted-foreground">Projeto:</span> <span className="font-medium">{nomination.project}</span></div>
+                <div>
+                  <span className="text-muted-foreground">Projeto:</span>{" "}
+                  <span className="font-medium">{nomination.project}</span>
+                </div>
               )}
               {nomination.client && (
-                <div><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{nomination.client}</span></div>
+                <div>
+                  <span className="text-muted-foreground">Cliente:</span>{" "}
+                  <span className="font-medium">{nomination.client}</span>
+                </div>
               )}
               {nomination.notes && (
-                <div className="col-span-2"><span className="text-muted-foreground">Notas:</span> {nomination.notes}</div>
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Notas:</span> {nomination.notes}
+                </div>
               )}
               {nomination.outcome === "cancelada" && nomination.cancel_reason && (
-                <div className="col-span-2"><span className="text-muted-foreground">Motivo do cancelamento:</span> {nomination.cancel_reason}</div>
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Motivo do cancelamento:</span>{" "}
+                  {nomination.cancel_reason}
+                </div>
               )}
             </div>
 
@@ -1329,7 +1874,12 @@ function ManageDialog({
                   onClick={() => {
                     advance.mutate(
                       { nomination, target: "simulacao" },
-                      { onSuccess: () => { onGoToSimulacao(grupoCompleto); onClose(); } },
+                      {
+                        onSuccess: () => {
+                          onGoToSimulacao(grupoCompleto);
+                          onClose();
+                        },
+                      },
                     );
                     advanceGroupTo("simulacao");
                   }}
@@ -1341,7 +1891,10 @@ function ManageDialog({
               {nomination.current_status === "simulacao" && canOperate && (
                 <Button
                   size="sm"
-                  onClick={() => { advance.mutate({ nomination, target: "validacao_sms_aso" }); advanceGroupTo("validacao_sms_aso"); }}
+                  onClick={() => {
+                    advance.mutate({ nomination, target: "validacao_sms_aso" });
+                    advanceGroupTo("validacao_sms_aso");
+                  }}
                   loading={advance.isPending}
                 >
                   <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação SMS (ASO)
@@ -1352,11 +1905,18 @@ function ManageDialog({
                   <Separator />
                   <div className="space-y-2 rounded-md border p-3">
                     <Label className="text-xs">Voltar para qual etapa?</Label>
-                    <Select value={revertTarget} onValueChange={(v) => setRevertTarget(v as NominationStatus)}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecione a etapa" /></SelectTrigger>
+                    <Select
+                      value={revertTarget}
+                      onValueChange={(v) => setRevertTarget(v as NominationStatus)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Selecione a etapa" />
+                      </SelectTrigger>
                       <SelectContent>
                         {earlierStages.map((s) => (
-                          <SelectItem key={s} value={s} className="text-xs">{STATUS_LABELS[s]}</SelectItem>
+                          <SelectItem key={s} value={s} className="text-xs">
+                            {STATUS_LABELS[s]}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1369,14 +1929,32 @@ function ManageDialog({
                         onClick={() => {
                           if (!revertTarget) return;
                           advance.mutate(
-                            { nomination, target: revertTarget, note: `Retrocedida para ${STATUS_LABELS[revertTarget]}` },
-                            { onSuccess: () => { setShowRevert(false); setRevertTarget(""); } },
+                            {
+                              nomination,
+                              target: revertTarget,
+                              note: `Retrocedida para ${STATUS_LABELS[revertTarget]}`,
+                            },
+                            {
+                              onSuccess: () => {
+                                setShowRevert(false);
+                                setRevertTarget("");
+                              },
+                            },
                           );
                         }}
                       >
                         Confirmar retrocesso
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setShowRevert(false); setRevertTarget(""); }}>Voltar</Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setShowRevert(false);
+                          setRevertTarget("");
+                        }}
+                      >
+                        Voltar
+                      </Button>
                     </div>
                   </div>
                 </>
@@ -1387,64 +1965,122 @@ function ManageDialog({
                   <div className="space-y-2 rounded-md border p-3">
                     <Label className="text-xs">Avançar direto para qual etapa?</Label>
                     <p className="text-xs text-muted-foreground">
-                      Pula a validação/seleção da etapa atual (Qualidade, Solicitante, DP, SMS etc.) — use quando a
-                      Logística já confirmou tudo por fora do sistema.
+                      Pula a validação/seleção da etapa atual (Qualidade, Solicitante, DP, SMS etc.)
+                      — use quando a Logística já confirmou tudo por fora do sistema.
                     </p>
-                    <Select value={forceAdvanceTarget} onValueChange={(v) => setForceAdvanceTarget(v as NominationStatus)}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecione a etapa" /></SelectTrigger>
+                    <Select
+                      value={forceAdvanceTarget}
+                      onValueChange={(v) => setForceAdvanceTarget(v as NominationStatus)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Selecione a etapa" />
+                      </SelectTrigger>
                       <SelectContent>
                         {laterStages.map((s) => (
-                          <SelectItem key={s} value={s} className="text-xs">{STATUS_LABELS[s]}</SelectItem>
+                          <SelectItem key={s} value={s} className="text-xs">
+                            {STATUS_LABELS[s]}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
-                      <Button size="sm" disabled={!forceAdvanceTarget} loading={advance.isPending} onClick={forceAdvance}>
+                      <Button
+                        size="sm"
+                        disabled={!forceAdvanceTarget}
+                        loading={advance.isPending}
+                        onClick={forceAdvance}
+                      >
                         Confirmar avanço
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setShowForceAdvance(false); setForceAdvanceTarget(""); }}>Voltar</Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setShowForceAdvance(false);
+                          setForceAdvanceTarget("");
+                        }}
+                      >
+                        Voltar
+                      </Button>
                     </div>
                   </div>
                 </>
               )}
-              {role === "solicitante_master" && !nomination.outcome && nomination.current_status !== "equipe_formada" && (
-                <>
-                  <Separator />
-                  {!showRefuse ? (
-                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setShowRefuse(true)}>
-                      Recusar solicitação
-                    </Button>
-                  ) : (
-                    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-                      <Label className="text-xs">Motivo da recusa</Label>
-                      <Textarea rows={2} value={refuseReason} onChange={(e) => setRefuseReason(e.target.value)} />
-                      <p className="text-[11px] text-muted-foreground">O PM e a Logística serão avisados por e-mail e a solicitação será descartada.</p>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="destructive" loading={refuse.isPending} onClick={() => refuse.mutate()}>
-                          Confirmar recusa
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setShowRefuse(false)}>Voltar</Button>
+              {role === "solicitante_master" &&
+                !nomination.outcome &&
+                nomination.current_status !== "equipe_formada" && (
+                  <>
+                    <Separator />
+                    {!showRefuse ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setShowRefuse(true)}
+                      >
+                        Recusar solicitação
+                      </Button>
+                    ) : (
+                      <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                        <Label className="text-xs">Motivo da recusa</Label>
+                        <Textarea
+                          rows={2}
+                          value={refuseReason}
+                          onChange={(e) => setRefuseReason(e.target.value)}
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          O PM e a Logística serão avisados por e-mail e a solicitação será
+                          descartada.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            loading={refuse.isPending}
+                            onClick={() => refuse.mutate()}
+                          >
+                            Confirmar recusa
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setShowRefuse(false)}>
+                            Voltar
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </>
-              )}
+                    )}
+                  </>
+                )}
               {canOperate && nomination.current_status !== "equipe_formada" && (
                 <>
                   <Separator />
                   {!showCancel ? (
-                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setShowCancel(true)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setShowCancel(true)}
+                    >
                       Cancelar solicitação
                     </Button>
                   ) : (
                     <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
                       <Label className="text-xs">Motivo do cancelamento (opcional)</Label>
-                      <Textarea rows={2} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+                      <Textarea
+                        rows={2}
+                        value={cancelReason}
+                        onChange={(e) => setCancelReason(e.target.value)}
+                      />
                       <div className="flex gap-2">
-                        <Button size="sm" variant="destructive" loading={cancel.isPending} onClick={() => cancel.mutate()}>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          loading={cancel.isPending}
+                          onClick={() => cancel.mutate()}
+                        >
                           Confirmar cancelamento
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setShowCancel(false)}>Voltar</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setShowCancel(false)}>
+                          Voltar
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -1455,41 +2091,72 @@ function ManageDialog({
 
           {/* ── Etapa atual ── */}
           <TabsContent value="etapa" className="space-y-4 pt-2">
-            {nomination.requires_quality_validation
-              && ALL_STATUSES.indexOf(nomination.current_status) > ALL_STATUSES.indexOf("validacao_qualidade") && (
-              <div
-                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                  nomination.quality_status === "aprovado"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            {nomination.requires_quality_validation &&
+              ALL_STATUSES.indexOf(nomination.current_status) >
+                ALL_STATUSES.indexOf("validacao_qualidade") && (
+                <div
+                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                    nomination.quality_status === "aprovado"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                      : nomination.quality_status === "reprovado"
+                        ? "border-red-200 bg-red-50 text-red-900"
+                        : "border-amber-200 bg-amber-50 text-amber-900"
+                  }`}
+                >
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Qualidade:{" "}
+                  {nomination.quality_status === "aprovado"
+                    ? "Aprovada"
                     : nomination.quality_status === "reprovado"
-                      ? "border-red-200 bg-red-50 text-red-900"
-                      : "border-amber-200 bg-amber-50 text-amber-900"
-                }`}
-              >
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                Qualidade: {nomination.quality_status === "aprovado" ? "Aprovada" : nomination.quality_status === "reprovado" ? "Reprovada" : "Pendente"}
-                {nomination.quality_status === "reprovado" && nomination.quality_rejection_reason && (
-                  <span className="text-xs font-normal opacity-80">— {nomination.quality_rejection_reason}</span>
-                )}
-              </div>
-            )}
+                      ? "Reprovada"
+                      : "Pendente"}
+                  {nomination.quality_status === "reprovado" &&
+                    nomination.quality_rejection_reason && (
+                      <span className="text-xs font-normal opacity-80">
+                        — {nomination.quality_rejection_reason}
+                      </span>
+                    )}
+                </div>
+              )}
             {nomination.current_status === "simulacao" && (
               <EfetivoDisponivelSection
                 nomination={nomination}
                 nominees={nominees}
-                onGoToSimulacao={() => { onGoToSimulacao(grupoCompleto); onClose(); }}
+                onGoToSimulacao={() => {
+                  onGoToSimulacao(grupoCompleto);
+                  onClose();
+                }}
               />
             )}
-            {nomination.current_status === "aprovacao_tecnica" && <AprovacaoTecnicaSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "nomeados" && <NomeadosSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "validacao_qualidade" && <ValidacaoQualidadeSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "aprovacao_pm" && <AprovacaoPmSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "validacao_sms_aso" && <ValidacaoSmsAsoSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "validacao_rh" && <ValidacaoRhSection nomination={nomination} nominees={nominees} />}
-            {nomination.current_status === "briefing_sms" && <BriefingSection nomination={nomination} />}
-            {nomination.current_status === "equipe_formada" && <NomeadosSection nomination={nomination} nominees={nominees} />}
-            {(nomination.current_status === "solicitacao" || nomination.current_status === "recebido_logistica") && (
-              <p className="text-xs text-muted-foreground">Nada a fazer nesta aba ainda — use os botões em Detalhes para avançar.</p>
+            {nomination.current_status === "aprovacao_tecnica" && (
+              <AprovacaoTecnicaSection nomination={nomination} nominees={nominees} />
+            )}
+            {nomination.current_status === "nomeados" && (
+              <NomeadosSection nomination={nomination} nominees={nominees} />
+            )}
+            {nomination.current_status === "validacao_qualidade" && (
+              <ValidacaoQualidadeSection nomination={nomination} nominees={nominees} />
+            )}
+            {nomination.current_status === "aprovacao_pm" && (
+              <AprovacaoPmSection nomination={nomination} nominees={nominees} />
+            )}
+            {nomination.current_status === "validacao_sms_aso" && (
+              <ValidacaoSmsAsoSection nomination={nomination} nominees={nominees} />
+            )}
+            {nomination.current_status === "validacao_rh" && (
+              <ValidacaoRhSection nomination={nomination} nominees={nominees} />
+            )}
+            {nomination.current_status === "briefing_sms" && (
+              <BriefingSection nomination={nomination} />
+            )}
+            {nomination.current_status === "equipe_formada" && (
+              <NomeadosSection nomination={nomination} nominees={nominees} />
+            )}
+            {(nomination.current_status === "solicitacao" ||
+              nomination.current_status === "recebido_logistica") && (
+              <p className="text-xs text-muted-foreground">
+                Nada a fazer nesta aba ainda — use os botões em Detalhes para avançar.
+              </p>
             )}
           </TabsContent>
 
@@ -1529,18 +2196,33 @@ function NominationCard({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const first = items[0];
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: first.id });
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: first.id,
+  });
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
   const isTerminal = first.current_status === "equipe_formada";
   const isGroup = items.length > 1;
 
   const quality = items.filter((n) => n.requires_quality_validation);
-  const qualityBadge = quality.length === 0 ? null
-    : quality.some((n) => n.quality_status === "reprovado")
-      ? { label: `Qualidade reprovada${isGroup ? ` (${quality.filter((n) => n.quality_status === "reprovado").length})` : ""}`, cls: "border-red-200 bg-red-50 text-red-700" }
-      : quality.some((n) => n.quality_status !== "aprovado")
-        ? { label: `Qualidade pendente${isGroup ? ` (${quality.filter((n) => n.quality_status !== "aprovado").length})` : ""}`, cls: "border-amber-200 bg-amber-50 text-amber-700" }
-        : { label: "Qualidade validada", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+  const qualityBadge =
+    quality.length === 0
+      ? null
+      : quality.some((n) => n.quality_status === "reprovado")
+        ? {
+            label: `Qualidade reprovada${isGroup ? ` (${quality.filter((n) => n.quality_status === "reprovado").length})` : ""}`,
+            cls: "border-red-200 bg-red-50 text-red-700",
+          }
+        : quality.some((n) => n.quality_status !== "aprovado")
+          ? {
+              label: `Qualidade pendente${isGroup ? ` (${quality.filter((n) => n.quality_status !== "aprovado").length})` : ""}`,
+              cls: "border-amber-200 bg-amber-50 text-amber-700",
+            }
+          : {
+              label: "Qualidade validada",
+              cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
+            };
 
   return (
     <>
@@ -1564,18 +2246,35 @@ function NominationCard({
         <div className="mt-1 space-y-0.5">
           {items.map((n) => (
             <p key={n.id} className="text-xs font-medium text-foreground/90">
-              {n.funcao}{n.quantidade > 1 && <span className="ml-1 font-normal text-muted-foreground">×{n.quantidade}</span>}
+              {n.funcao}
+              {n.quantidade > 1 && (
+                <span className="ml-1 font-normal text-muted-foreground">×{n.quantidade}</span>
+              )}
             </p>
           ))}
         </div>
-        {first.pm_name && <p className="mt-1 text-xs"><span className="text-muted-foreground">Solicitante:</span> <span className="font-medium">{first.pm_name}</span></p>}
-        {first.pm_responsavel && <p className="mt-1 text-xs"><span className="text-muted-foreground">PM:</span> <span className="font-medium">{first.pm_responsavel}</span></p>}
+        {first.pm_name && (
+          <p className="mt-1 text-xs">
+            <span className="text-muted-foreground">Solicitante:</span>{" "}
+            <span className="font-medium">{first.pm_name}</span>
+          </p>
+        )}
+        {first.pm_responsavel && (
+          <p className="mt-1 text-xs">
+            <span className="text-muted-foreground">PM:</span>{" "}
+            <span className="font-medium">{first.pm_responsavel}</span>
+          </p>
+        )}
         {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
         {first.period_start && first.period_end && (
-          <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(first.period_start)} – {fmtDate(first.period_end)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {fmtDate(first.period_start)} – {fmtDate(first.period_end)}
+          </p>
         )}
         {qualityBadge && (
-          <span className={`mt-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${qualityBadge.cls}`}>
+          <span
+            className={`mt-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${qualityBadge.cls}`}
+          >
             {qualityBadge.label}
           </span>
         )}
@@ -1592,11 +2291,19 @@ function NominationCard({
                 <button
                   key={n.id}
                   type="button"
-                  onClick={() => { setPickerOpen(false); onOpen(n); }}
+                  onClick={() => {
+                    setPickerOpen(false);
+                    onOpen(n);
+                  }}
                   className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/60"
                 >
                   <span className="font-medium">
-                    {n.funcao}{n.quantidade > 1 && <span className="ml-1 font-normal text-muted-foreground">×{n.quantidade}</span>}
+                    {n.funcao}
+                    {n.quantidade > 1 && (
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        ×{n.quantidade}
+                      </span>
+                    )}
                   </span>
                   {n.requires_quality_validation && (
                     <span
@@ -1608,7 +2315,11 @@ function NominationCard({
                             : "border-amber-200 bg-amber-50 text-amber-700"
                       }`}
                     >
-                      {n.quality_status === "aprovado" ? "Qualidade OK" : n.quality_status === "reprovado" ? "Qualidade reprovada" : "Qualidade pendente"}
+                      {n.quality_status === "aprovado"
+                        ? "Qualidade OK"
+                        : n.quality_status === "reprovado"
+                          ? "Qualidade reprovada"
+                          : "Qualidade pendente"}
                     </span>
                   )}
                 </button>
@@ -1626,23 +2337,33 @@ function NominationCard({
 // numerada sequencialmente (sequence_number, atribuído por trigger no banco), mais recente no
 // topo — é o histórico/arquivo de tudo que já foi processado, não um estágio de trabalho ativo.
 function EquipeFormadaColumn({
-  nominations, onOpen, index = 0,
+  nominations,
+  onOpen,
+  index = 0,
 }: {
   nominations: Nomination[];
   onOpen: (n: Nomination) => void;
   index?: number;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: "equipe_formada" });
-  const ordenadas = [...nominations].sort((a, b) => (b.sequence_number ?? 0) - (a.sequence_number ?? 0));
+  const ordenadas = [...nominations].sort(
+    (a, b) => (b.sequence_number ?? 0) - (a.sequence_number ?? 0),
+  );
   return (
     <div
       className="flex min-w-[300px] flex-1 shrink-0 animate-in fade-in slide-in-from-bottom-2 flex-col rounded-lg border bg-muted/20 fill-mode-backwards duration-500 lg:min-w-[320px]"
       style={{ animationDelay: `${index * 50}ms` }}
     >
-      <div className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ backgroundColor: "#DCFCE7", color: "#166534" }}>
+      <div
+        className="rounded-t-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide"
+        style={{ backgroundColor: "#DCFCE7", color: "#166534" }}
+      >
         Equipe Formada <span className="font-normal opacity-70">({ordenadas.length})</span>
       </div>
-      <div ref={setNodeRef} className={`flex-1 space-y-1.5 overflow-y-auto p-2 h-[calc(100dvh-230px)] min-h-[280px] transition-colors ${isOver ? "bg-primary/5" : ""}`}>
+      <div
+        ref={setNodeRef}
+        className={`flex-1 space-y-1.5 overflow-y-auto p-2 h-[calc(100dvh-230px)] min-h-[280px] transition-colors ${isOver ? "bg-primary/5" : ""}`}
+      >
         {ordenadas.map((n) => (
           <div
             key={n.id}
@@ -1655,16 +2376,24 @@ function EquipeFormadaColumn({
               </span>
               <span
                 className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                  n.outcome === "cancelada" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
+                  n.outcome === "cancelada"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-emerald-100 text-emerald-700"
                 }`}
               >
                 {n.outcome === "cancelada" ? "Cancelada" : "Concluída"}
               </span>
             </div>
-            <p className="mt-0.5 truncate text-muted-foreground">{n.funcao} · {n.unidade}</p>
+            <p className="mt-0.5 truncate text-muted-foreground">
+              {n.funcao} · {n.unidade}
+            </p>
           </div>
         ))}
-        {ordenadas.length === 0 && <p className="py-4 text-center text-[11px] text-muted-foreground/60">Nenhuma solicitação processada ainda</p>}
+        {ordenadas.length === 0 && (
+          <p className="py-4 text-center text-[11px] text-muted-foreground/60">
+            Nenhuma solicitação processada ainda
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1755,13 +2484,19 @@ function KanbanBoard({
   }, []);
 
   const handleTopScroll = () => {
-    if (syncingRef.current) { syncingRef.current = false; return; }
+    if (syncingRef.current) {
+      syncingRef.current = false;
+      return;
+    }
     if (!scrollRef.current || !topScrollRef.current) return;
     syncingRef.current = true;
     scrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
   };
   const handleBoardScroll = () => {
-    if (syncingRef.current) { syncingRef.current = false; return; }
+    if (syncingRef.current) {
+      syncingRef.current = false;
+      return;
+    }
     if (!scrollRef.current || !topScrollRef.current) return;
     syncingRef.current = true;
     topScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
@@ -1786,10 +2521,16 @@ function KanbanBoard({
       const byKey = new Map<string, Nomination[]>();
       list.forEach((n) => {
         const key = n.request_group_id ?? n.id;
-        if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
+        if (!byKey.has(key)) {
+          byKey.set(key, []);
+          order.push(key);
+        }
         byKey.get(key)!.push(n);
       });
-      m.set(col, order.map((k) => byKey.get(k)!));
+      m.set(
+        col,
+        order.map((k) => byKey.get(k)!),
+      );
     });
     return m;
   }, [byColumn]);
@@ -1810,7 +2551,9 @@ function KanbanBoard({
     if (current === target) return;
 
     const stageRole = STAGE_ROLE[current];
-    const podeMover = Array.isArray(stageRole) ? stageRole.includes(role ?? "") : stageRole === role;
+    const podeMover = Array.isArray(stageRole)
+      ? stageRole.includes(role ?? "")
+      : stageRole === role;
     if (!FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "") && !podeMover) {
       notify.error("Você não tem permissão para mover este card.");
       return;
@@ -1819,9 +2562,17 @@ function KanbanBoard({
     // Card representa a solicitação inteira: só move se TODAS as funções do grupo puderem
     // avançar — senão o card "quebraria" em dois status diferentes sem o usuário perceber.
     for (const nomination of group) {
-      const gate = canMoveToColumn(nomination, target, nomineesByNomination.get(nomination.id) ?? []);
+      const gate = canMoveToColumn(
+        nomination,
+        target,
+        nomineesByNomination.get(nomination.id) ?? [],
+      );
       if (!gate.ok) {
-        notify.error(group.length > 1 ? `${nomination.funcao}: ${gate.reason ?? "não pode avançar."}` : gate.reason ?? "Não é possível mover este card.");
+        notify.error(
+          group.length > 1
+            ? `${nomination.funcao}: ${gate.reason ?? "não pode avançar."}`
+            : (gate.reason ?? "Não é possível mover este card."),
+        );
         return;
       }
     }
@@ -1833,13 +2584,22 @@ function KanbanBoard({
       {/* Board com N colunas de min-w-[300px]+ facilmente passa de 1500px — sem isso a página
           estourava horizontalmente em telas mais estreitas. Kanban com rolagem horizontal é
           um padrão de UX aceito mesmo em tablet (diferente de uma tabela de dados). */}
-      <div ref={topScrollRef} onScroll={handleTopScroll} className="mb-1 overflow-x-auto overflow-y-hidden">
+      <div
+        ref={topScrollRef}
+        onScroll={handleTopScroll}
+        className="mb-1 overflow-x-auto overflow-y-hidden"
+      >
         <div style={{ width: boardScrollWidth, height: 1 }} />
       </div>
       <div ref={scrollRef} onScroll={handleBoardScroll} className="flex gap-3 overflow-x-auto pb-2">
         {KANBAN_COLUMNS.map((c, i) =>
           c.id === "equipe_formada" ? (
-            <EquipeFormadaColumn key={c.id} nominations={byColumn.get(c.id) ?? []} onOpen={onOpen} index={i} />
+            <EquipeFormadaColumn
+              key={c.id}
+              nominations={byColumn.get(c.id) ?? []}
+              onOpen={onOpen}
+              index={i}
+            />
           ) : (
             <KanbanColumn
               key={c.id}
@@ -1876,19 +2636,78 @@ type SimBucket = "disponivel" | "embarcado" | "desembarca" | "outro";
 // (fonte de verdade pedida pela usuária). O status por dia do Drake continua sendo exibido na
 // grade, mas não define mais sozinho se a pessoa pode ou não ser selecionada.
 function normNomePlanejamento(s: string): string {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
+
+// Dist\u00e2ncia de edi\u00e7\u00e3o (Levenshtein) entre duas strings \u2014 n\u00ba m\u00ednimo de inser\u00e7\u00f5es/remo\u00e7\u00f5es/trocas
+// de caractere pra transformar uma na outra. "SANTO" -> "SANTOS" = 1.
+function distanciaEdicao(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const curr = [i];
+    for (let j = 1; j <= n; j++) {
+      const custo = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + custo);
+    }
+    prev = curr;
+  }
+  return prev[n];
+}
+
+// Resolve o colaborador_id do Drake pro nome do Planejamento de Embarque: primeiro tenta igual-
+// dade exata (r\u00e1pido, cobre a grande maioria); se n\u00e3o achar, procura o nome mais parecido no
+// cadastro, mas s\u00f3 liga automaticamente quando h\u00e1 UM candidato claramente mais pr\u00f3ximo que todos
+// os outros \u2014 em caso de empate ou nome longe demais, fica sem v\u00ednculo (mesmo efeito de hoje),
+// pra nunca arriscar ligar ao colaborador errado (pedido dela, 2026-10-13, depois do caso real
+// "Santo"/"Santos" \u2014 ver migration 20261002110000_nomination_nominees_colaborador_opcional.sql).
+function buscarColaboradorIdAproximado(
+  nomeNormalizado: string,
+  colaboradorIdPorNome: Map<string, string>,
+): string | null {
+  const direto = colaboradorIdPorNome.get(nomeNormalizado);
+  if (direto) return direto;
+  if (!nomeNormalizado) return null;
+
+  // Toler\u00e2ncia pequena e proporcional ao tamanho do nome \u2014 evita confundir nomes curtos (ex.:
+  // "ANA" com "ALA", que j\u00e1 teriam dist\u00e2ncia 1).
+  const limite = nomeNormalizado.length <= 6 ? 1 : 2;
+  let melhorNome: string | null = null;
+  let melhorDistancia = Infinity;
+  let empatou = false;
+  for (const candidato of colaboradorIdPorNome.keys()) {
+    const d = distanciaEdicao(nomeNormalizado, candidato);
+    if (d > limite) continue;
+    if (d < melhorDistancia) {
+      melhorDistancia = d;
+      melhorNome = candidato;
+      empatou = false;
+    } else if (d === melhorDistancia) {
+      empatou = true;
+    }
+  }
+  return melhorNome && !empatou ? (colaboradorIdPorNome.get(melhorNome) ?? null) : null;
 }
 
 // Status livres da planilha (às vezes com sufixo, ex.: "BASE - HENRIQUE") → balde da simulação.
 // Pedido da usuária: TODO mundo que aparece na aba Planejamento de Embarque fica disponível para
 // ser adicionado na simulação, mesmo que o status não seja de disponibilidade (embarcado,
 // programado, atestado etc.). O status só define o aviso mostrado ao lado do nome.
-function bucketFromPlanejamentoStatus(statusRaw: string | null): { bucket: SimBucket; emFolga: boolean } | null {
+function bucketFromPlanejamentoStatus(
+  statusRaw: string | null,
+): { bucket: SimBucket; emFolga: boolean } | null {
   const s = normNomePlanejamento(statusRaw ?? "");
   if (!s) return null;
   return { bucket: "disponivel", emFolga: s.startsWith("FOLGA") };
 }
-
 
 // A função pedida na solicitação (ex.: "SUPERVISOR") quase nunca é idêntica à função cadastral
 // do colaborador (ex.: "SUPERVISOR DE TUBULAÇÃO OFFSHORE", "SUPERVISOR N I") nem à função com
@@ -1896,7 +2715,12 @@ function bucketFromPlanejamentoStatus(statusRaw: string | null): { bucket: SimBu
 // recrutamento — por isso a comparação é normalizada (sem acento/caixa/pontuação) e aceita
 // que uma contenha a outra, olhando também o histórico de funções do ano.
 function normFuncao(s: string): string {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
 }
 
 function funcaoMatchesFilter(funcao: string, funcoesAno: string[], filtro: string): boolean {
@@ -1909,9 +2733,9 @@ function funcaoMatchesFilter(funcao: string, funcoesAno: string[], filtro: strin
   });
 }
 
-
 function SimulacaoTab({
-  focusGroupIds, onExitFocus,
+  focusGroupIds,
+  onExitFocus,
 }: {
   focusGroupIds: string[] | null;
   onExitFocus: () => void;
@@ -1924,7 +2748,8 @@ function SimulacaoTab({
   const toggleFuncaoCollapsed = (funcao: string) => {
     setCollapsedFuncoes((current) => {
       const next = new Set(current);
-      if (next.has(funcao)) next.delete(funcao); else next.add(funcao);
+      if (next.has(funcao)) next.delete(funcao);
+      else next.add(funcao);
       return next;
     });
   };
@@ -1936,7 +2761,8 @@ function SimulacaoTab({
   // sessão de recrutamento, inclusive a quantidade ajustada mais abaixo.
   const { data: allNominationsForFocus = [] } = useAllNominations();
   const focusGroup = useMemo(
-    () => (focusGroupIds ? allNominationsForFocus.filter((n) => focusGroupIds.includes(n.id)) : null),
+    () =>
+      focusGroupIds ? allNominationsForFocus.filter((n) => focusGroupIds.includes(n.id)) : null,
     [allNominationsForFocus, focusGroupIds],
   );
 
@@ -1954,9 +2780,12 @@ function SimulacaoTab({
   const identidadeNominee = (n: { colaborador_id: string | null; colaborador_nome: string }) =>
     n.colaborador_id ?? `nome:${normNomePlanejamento(n.colaborador_nome)}`;
   const focusNomineeIds = useMemo(
-    () => new Set(
-      focusNomineesAll.filter((n) => n.is_active && n.nomination_id === activeFocus?.id).map(identidadeNominee),
-    ),
+    () =>
+      new Set(
+        focusNomineesAll
+          .filter((n) => n.is_active && n.nomination_id === activeFocus?.id)
+          .map(identidadeNominee),
+      ),
     [focusNomineesAll, activeFocus?.id],
   );
 
@@ -1968,7 +2797,11 @@ function SimulacaoTab({
   const focusGroupKey = focusGroupIds?.join(",") ?? "";
   const focusInitializedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!focusGroupKey) { focusInitializedKeyRef.current = null; setActiveFocusId(null); return; }
+    if (!focusGroupKey) {
+      focusInitializedKeyRef.current = null;
+      setActiveFocusId(null);
+      return;
+    }
     if (!focusGroup || focusGroup.length === 0) return;
     if (focusInitializedKeyRef.current === focusGroupKey) return;
     focusInitializedKeyRef.current = focusGroupKey;
@@ -2008,8 +2841,12 @@ function SimulacaoTab({
     mutationFn: async (c: { id: string | null; nome: string }) => {
       const nominee = focusNomineesAll.find(
         (n) =>
-          n.is_active && n.nomination_id === activeFocus?.id &&
-          (c.id ? n.colaborador_id === c.id : !n.colaborador_id && normNomePlanejamento(n.colaborador_nome) === normNomePlanejamento(c.nome)),
+          n.is_active &&
+          n.nomination_id === activeFocus?.id &&
+          (c.id
+            ? n.colaborador_id === c.id
+            : !n.colaborador_id &&
+              normNomePlanejamento(n.colaborador_nome) === normNomePlanejamento(c.nome)),
       );
       if (!nominee) return;
       const { error } = await supabase.from("nomination_nominees").delete().eq("id", nominee.id);
@@ -2039,7 +2876,11 @@ function SimulacaoTab({
     const raw = qtyDraft[n.id];
     if (raw === undefined) return;
     const val = Math.max(1, Number(raw) || n.quantidade);
-    setQtyDraft((d) => { const next = { ...d }; delete next[n.id]; return next; });
+    setQtyDraft((d) => {
+      const next = { ...d };
+      delete next[n.id];
+      return next;
+    });
     if (val !== n.quantidade) updateQuantidade.mutate({ id: n.id, quantidade: val });
   };
 
@@ -2050,12 +2891,20 @@ function SimulacaoTab({
   // vínculo não tem como gravar o nomeado no banco); quem não tem correspondência no Drake
   // ainda aparece na lista, só não pode ser adicionado ainda (ver "Adicionar" desabilitado).
   const { data: planejamentoSimTodos = [] } = usePlanejamentoEmbarqueQuery();
-  const planejamentoSim = useMemo(() => planejamentoSimTodos.filter((r) => !isInspetor(r.funcao)), [planejamentoSimTodos]);
+  const planejamentoSim = useMemo(
+    () => planejamentoSimTodos.filter((r) => !isInspetor(r.funcao)),
+    [planejamentoSimTodos],
+  );
   const { data: colaboradoresDrake = [] } = useQuery<{ id: string; nome: string }[]>({
     queryKey: ["sim-colaboradores-drake-ids"],
     queryFn: () =>
       selectAllPages<{ id: string; nome: string }>((from, to) =>
-        supabase.from("hist_novo_colaboradores").select("id, nome").order("nome").order("id").range(from, to),
+        supabase
+          .from("hist_novo_colaboradores")
+          .select("id, nome")
+          .order("nome")
+          .order("id")
+          .range(from, to),
       ),
   });
   const colaboradorIdPorNome = useMemo(
@@ -2065,7 +2914,9 @@ function SimulacaoTab({
 
   const funcaoOptions = useMemo(() => {
     const s = new Set<string>();
-    planejamentoSim.forEach((r) => { if (r.funcao?.trim()) s.add(r.funcao.trim()); });
+    planejamentoSim.forEach((r) => {
+      if (r.funcao?.trim()) s.add(r.funcao.trim());
+    });
     // A função da solicitação (modo recrutamento) pode não existir na planilha ainda — ainda
     // assim precisa aparecer selecionada no filtro.
     if (filterFuncao !== "all") s.add(filterFuncao);
@@ -2073,25 +2924,34 @@ function SimulacaoTab({
   }, [planejamentoSim, filterFuncao]);
 
   const linhasBase = useMemo(() => {
-    return planejamentoSim
-      .map((row) => {
-        const colaboradorId = colaboradorIdPorNome.get(normNomePlanejamento(row.nome)) ?? null;
-        const funcao = row.funcao?.trim() || "—";
-        const doPlanejamento = bucketFromPlanejamentoStatus(row.status);
-        return {
-          colaboradorId,
-          nome: row.nome,
-          status: row.status?.trim() || "—",
-          funcao,
-          bucket: doPlanejamento?.bucket ?? ("outro" as SimBucket),
-          emFolga: doPlanejamento?.emFolga ?? false,
-        };
-      })
-      // Função exatamente igual à do Planejamento de Embarque (sem agrupar "SOLDADOR" com
-      // "SOLDADOR IRATA N1" etc.) — pedido dela, 2026-10-07.
-      .filter((l) => filterFuncao === "all" || l.funcao.trim().toUpperCase() === filterFuncao.trim().toUpperCase())
-      .filter((l) => matchesNameSearch(l.nome, searchNome))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    return (
+      planejamentoSim
+        .map((row) => {
+          const colaboradorId = buscarColaboradorIdAproximado(
+            normNomePlanejamento(row.nome),
+            colaboradorIdPorNome,
+          );
+          const funcao = row.funcao?.trim() || "—";
+          const doPlanejamento = bucketFromPlanejamentoStatus(row.status);
+          return {
+            colaboradorId,
+            nome: row.nome,
+            status: row.status?.trim() || "—",
+            funcao,
+            bucket: doPlanejamento?.bucket ?? ("outro" as SimBucket),
+            emFolga: doPlanejamento?.emFolga ?? false,
+          };
+        })
+        // Função exatamente igual à do Planejamento de Embarque (sem agrupar "SOLDADOR" com
+        // "SOLDADOR IRATA N1" etc.) — pedido dela, 2026-10-07.
+        .filter(
+          (l) =>
+            filterFuncao === "all" ||
+            l.funcao.trim().toUpperCase() === filterFuncao.trim().toUpperCase(),
+        )
+        .filter((l) => matchesNameSearch(l.nome, searchNome))
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+    );
   }, [planejamentoSim, colaboradorIdPorNome, filterFuncao, searchNome]);
 
   // Cartões por função: quantos disponíveis em cada função, com os nomes — cruza sempre com
@@ -2106,8 +2966,14 @@ function SimulacaoTab({
       if (l.bucket === "disponivel") g.disponiveis.push(l);
     });
     return Array.from(m.entries())
-      .map(([funcao, v]) => ({ funcao, total: v.total, disponiveis: v.disponiveis.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")) }))
-      .sort((a, b) => b.disponiveis.length - a.disponiveis.length || a.funcao.localeCompare(b.funcao));
+      .map(([funcao, v]) => ({
+        funcao,
+        total: v.total,
+        disponiveis: v.disponiveis.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+      }))
+      .sort(
+        (a, b) => b.disponiveis.length - a.disponiveis.length || a.funcao.localeCompare(b.funcao),
+      );
   }, [linhasBase]);
 
   // Quantos por cada Status (texto livre, exatamente como vem do Planejamento de Embarque) —
@@ -2120,7 +2986,10 @@ function SimulacaoTab({
       m.get(l.status)!.push(l);
     });
     return Array.from(m.entries())
-      .map(([status, pessoas]) => ({ status, pessoas: pessoas.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")) }))
+      .map(([status, pessoas]) => ({
+        status,
+        pessoas: pessoas.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+      }))
       .sort((a, b) => b.pessoas.length - a.pessoas.length || a.status.localeCompare(b.status));
   }, [linhasBase]);
   // "Por status" começa recolhido (ao contrário da cascata de função) — status mais comum
@@ -2129,7 +2998,8 @@ function SimulacaoTab({
   const toggleStatusExpanded = (status: string) => {
     setExpandedStatuses((current) => {
       const next = new Set(current);
-      if (next.has(status)) next.delete(status); else next.add(status);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
       return next;
     });
   };
@@ -2141,7 +3011,8 @@ function SimulacaoTab({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
               <UserPlus className="mr-1.5 inline h-3.5 w-3.5" />
-              Selecionando candidatos para: <span className="font-semibold">{requestTitle(focusGroup[0])}</span>
+              Selecionando candidatos para:{" "}
+              <span className="font-semibold">{requestTitle(focusGroup[0])}</span>
               {focusGroup[0].unidade && ` — ${focusGroup[0].unidade}`}
             </span>
             <Button size="sm" variant="outline" className="h-7 bg-white" onClick={onExitFocus}>
@@ -2153,18 +3024,29 @@ function SimulacaoTab({
               do modo recrutamento nem perder a seleção já feita nas outras funções. */}
           <div className="flex flex-wrap gap-1.5">
             {focusGroup.map((n) => {
-              const count = focusNomineesAll.filter((x) => x.nomination_id === n.id && x.is_active).length;
+              const count = focusNomineesAll.filter(
+                (x) => x.nomination_id === n.id && x.is_active,
+              ).length;
               const ativo = n.id === activeFocus?.id;
               return (
                 <button
-                  key={n.id} type="button" onClick={() => selecionarFuncaoAtiva(n)}
+                  key={n.id}
+                  type="button"
+                  onClick={() => selecionarFuncaoAtiva(n)}
                   className={cn(
                     "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                    ativo ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-900 hover:bg-blue-100",
+                    ativo
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-blue-200 bg-white text-blue-900 hover:bg-blue-100",
                   )}
                 >
                   {n.funcao}
-                  <span className={cn("rounded-full px-1.5 text-[10px]", ativo ? "bg-white/20" : "bg-blue-100")}>
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 text-[10px]",
+                      ativo ? "bg-white/20" : "bg-blue-100",
+                    )}
+                  >
                     {count}/{n.quantidade}
                   </span>
                 </button>
@@ -2176,7 +3058,9 @@ function SimulacaoTab({
             <div className="flex items-center gap-2 text-xs">
               <Label className="text-blue-900">Quantidade para {activeFocus.funcao}:</Label>
               <Input
-                type="number" min={1} className="h-7 w-16 bg-white text-xs"
+                type="number"
+                min={1}
+                className="h-7 w-16 bg-white text-xs"
                 value={quantidadeExibida(activeFocus)}
                 onChange={(e) => setQtyDraft((d) => ({ ...d, [activeFocus.id]: e.target.value }))}
                 onBlur={() => confirmarQuantidade(activeFocus)}
@@ -2187,7 +3071,9 @@ function SimulacaoTab({
       )}
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-0.5 w-56">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            Colaborador
+          </Label>
           <Input
             placeholder="Buscar por nome..."
             className="h-8 text-xs"
@@ -2196,12 +3082,22 @@ function SimulacaoTab({
           />
         </div>
         <div className="space-y-0.5 w-56">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Função</Label>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            Função
+          </Label>
           <Select value={filterFuncao} onValueChange={setFilterFuncao}>
-            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="text-xs">Todas</SelectItem>
-              {funcaoOptions.map((f) => <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>)}
+              <SelectItem value="all" className="text-xs">
+                Todas
+              </SelectItem>
+              {funcaoOptions.map((f) => (
+                <SelectItem key={f} value={f} className="text-xs">
+                  {f}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -2217,42 +3113,68 @@ function SimulacaoTab({
             return (
               <div key={status} className={cn("rounded-md border text-xs", aberto && "w-full")}>
                 <button
-                  type="button" className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left"
-                  aria-expanded={aberto} onClick={() => toggleStatusExpanded(status)}
+                  type="button"
+                  className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left"
+                  aria-expanded={aberto}
+                  onClick={() => toggleStatusExpanded(status)}
                 >
                   <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
                     {status}
                   </span>
                   <span className="font-semibold">{pessoas.length}</span>
-                  {aberto ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                  {aberto ? (
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
                 </button>
                 {aberto && (
                   <div className="grid grid-cols-1 gap-x-4 gap-y-2 divide-y border-t px-2.5 py-2 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
                     {pessoas.map((l) => {
-                      const adicionado = focusNomineeIds.has(identidadeNominee({ colaborador_id: l.colaboradorId, colaborador_nome: l.nome }));
+                      const adicionado = focusNomineeIds.has(
+                        identidadeNominee({
+                          colaborador_id: l.colaboradorId,
+                          colaborador_nome: l.nome,
+                        }),
+                      );
                       return (
-                        <div key={l.nome} className="flex items-start gap-2 pt-2 first:pt-0 sm:pt-0">
-                          {activeFocus && (
-                            adicionado ? (
+                        <div
+                          key={l.nome}
+                          className="flex items-start gap-2 pt-2 first:pt-0 sm:pt-0"
+                        >
+                          {activeFocus &&
+                            (adicionado ? (
                               <Button
-                                size="icon" variant="ghost" title="Adicionado — clique para desfazer"
+                                size="icon"
+                                variant="ghost"
+                                title="Adicionado — clique para desfazer"
                                 className="h-6 w-6 shrink-0 text-green-700 hover:bg-red-50 hover:text-red-700"
-                                loading={undoAddNominee.isPending && undoAddNominee.variables?.nome === l.nome}
-                                onClick={() => undoAddNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                                loading={
+                                  undoAddNominee.isPending &&
+                                  undoAddNominee.variables?.nome === l.nome
+                                }
+                                onClick={() =>
+                                  undoAddNominee.mutate({ id: l.colaboradorId, nome: l.nome })
+                                }
                               >
                                 <Check className="h-3.5 w-3.5" />
                               </Button>
                             ) : (
                               <Button
-                                size="icon" variant="outline" title={`Adicionar a ${activeFocus.funcao}`}
+                                size="icon"
+                                variant="outline"
+                                title={`Adicionar a ${activeFocus.funcao}`}
                                 className="h-6 w-6 shrink-0"
-                                loading={addNominee.isPending && addNominee.variables?.nome === l.nome}
-                                onClick={() => addNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                                loading={
+                                  addNominee.isPending && addNominee.variables?.nome === l.nome
+                                }
+                                onClick={() =>
+                                  addNominee.mutate({ id: l.colaboradorId, nome: l.nome })
+                                }
                               >
                                 <Plus className="h-3.5 w-3.5" />
                               </Button>
-                            )
-                          )}
+                            ))}
                           <div className="min-w-0">
                             <p className="font-medium text-foreground">{l.nome}</p>
                             <p className="text-muted-foreground">{l.funcao}</p>
@@ -2265,23 +3187,40 @@ function SimulacaoTab({
               </div>
             );
           })}
-          {statusGroups.length === 0 && <p className="text-xs text-muted-foreground">Nenhum status encontrado.</p>}
+          {statusGroups.length === 0 && (
+            <p className="text-xs text-muted-foreground">Nenhum status encontrado.</p>
+          )}
         </div>
       </div>
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Disponíveis por função</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Disponíveis por função
+          </p>
           <Button
-            type="button" size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-muted-foreground"
-            onClick={() => setCollapsedFuncoes(
-              collapsedFuncoes.size < funcaoCards.length ? new Set(funcaoCards.map((f) => f.funcao)) : new Set(),
-            )}
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[11px] text-muted-foreground"
+            onClick={() =>
+              setCollapsedFuncoes(
+                collapsedFuncoes.size < funcaoCards.length
+                  ? new Set(funcaoCards.map((f) => f.funcao))
+                  : new Set(),
+              )
+            }
           >
             {collapsedFuncoes.size < funcaoCards.length ? (
-              <><ChevronsDownUp className="mr-1 h-3.5 w-3.5" />Recolher tudo</>
+              <>
+                <ChevronsDownUp className="mr-1 h-3.5 w-3.5" />
+                Recolher tudo
+              </>
             ) : (
-              <><ChevronsUpDown className="mr-1 h-3.5 w-3.5" />Expandir tudo</>
+              <>
+                <ChevronsUpDown className="mr-1 h-3.5 w-3.5" />
+                Expandir tudo
+              </>
             )}
           </Button>
         </div>
@@ -2291,59 +3230,97 @@ function SimulacaoTab({
             return (
               <div key={f.funcao} className="border-b last:border-b-0">
                 <button
-                  type="button" className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                  aria-expanded={aberto} onClick={() => toggleFuncaoCollapsed(f.funcao)}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                  aria-expanded={aberto}
+                  onClick={() => toggleFuncaoCollapsed(f.funcao)}
                 >
                   <span className="flex min-w-0 items-center gap-2 font-semibold">
-                    {aberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                    {aberto ? (
+                      <ChevronDown className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0" />
+                    )}
                     <Layers3 className="h-4 w-4 shrink-0 text-primary" />
                     <span className="truncate">{f.funcao}</span>
                   </span>
-                  <Badge variant="secondary" className="shrink-0 text-xs">{f.disponiveis.length} / {f.total}</Badge>
+                  <Badge variant="secondary" className="shrink-0 text-xs">
+                    {f.disponiveis.length} / {f.total}
+                  </Badge>
                 </button>
-                {aberto && (
-                  f.disponiveis.length > 0 ? (
+                {aberto &&
+                  (f.disponiveis.length > 0 ? (
                     <div className="divide-y">
                       {f.disponiveis.map((l) => (
-                        <div key={l.nome} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm">
+                        <div
+                          key={l.nome}
+                          className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-11 pr-4 text-sm"
+                        >
                           <div className="min-w-0">
                             <p className="flex items-center gap-1.5 truncate font-medium">
                               {l.nome}
-                              {l.emFolga && <Badge variant="outline" className="shrink-0 text-[10px] font-normal">Em folga</Badge>}
+                              {l.emFolga && (
+                                <Badge
+                                  variant="outline"
+                                  className="shrink-0 text-[10px] font-normal"
+                                >
+                                  Em folga
+                                </Badge>
+                              )}
                             </p>
                             <p className="text-xs text-muted-foreground">{l.status}</p>
                           </div>
-                          {activeFocus && (
-                            focusNomineeIds.has(identidadeNominee({ colaborador_id: l.colaboradorId, colaborador_nome: l.nome })) ? (
+                          {activeFocus &&
+                            (focusNomineeIds.has(
+                              identidadeNominee({
+                                colaborador_id: l.colaboradorId,
+                                colaborador_nome: l.nome,
+                              }),
+                            ) ? (
                               <Button
-                                size="sm" variant="ghost" title="Clique para desfazer"
+                                size="sm"
+                                variant="ghost"
+                                title="Clique para desfazer"
                                 className="h-7 shrink-0 gap-1 px-2 text-xs text-green-700 hover:bg-red-50 hover:text-red-700"
-                                loading={undoAddNominee.isPending && undoAddNominee.variables?.nome === l.nome}
-                                onClick={() => undoAddNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                                loading={
+                                  undoAddNominee.isPending &&
+                                  undoAddNominee.variables?.nome === l.nome
+                                }
+                                onClick={() =>
+                                  undoAddNominee.mutate({ id: l.colaboradorId, nome: l.nome })
+                                }
                               >
                                 <Check className="h-3 w-3" /> Adicionado
                               </Button>
                             ) : (
                               <Button
-                                size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs"
-                                loading={addNominee.isPending && addNominee.variables?.nome === l.nome}
-                                onClick={() => addNominee.mutate({ id: l.colaboradorId, nome: l.nome })}
+                                size="sm"
+                                variant="outline"
+                                className="h-7 shrink-0 px-2 text-xs"
+                                loading={
+                                  addNominee.isPending && addNominee.variables?.nome === l.nome
+                                }
+                                onClick={() =>
+                                  addNominee.mutate({ id: l.colaboradorId, nome: l.nome })
+                                }
                               >
                                 <UserPlus className="mr-1 h-3 w-3" /> Adicionar
                               </Button>
-                            )
-                          )}
+                            ))}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="py-3 pl-11 pr-4 text-xs text-muted-foreground/70">Nenhum disponível</p>
-                  )
-                )}
+                    <p className="py-3 pl-11 pr-4 text-xs text-muted-foreground/70">
+                      Nenhum disponível
+                    </p>
+                  ))}
               </div>
             );
           })}
-          {funcaoCards.length === 0 && <p className="p-4 text-xs text-muted-foreground">Nenhuma função encontrada.</p>}
+          {funcaoCards.length === 0 && (
+            <p className="p-4 text-xs text-muted-foreground">Nenhuma função encontrada.</p>
+          )}
         </Card>
       </div>
     </div>
@@ -2359,7 +3336,10 @@ function useAllNominations() {
   return useQuery<Nomination[]>({
     queryKey: ["nominations"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("nominations").select("*").order("created_at", { ascending: false });
+      const { data, error } = await supabase
+        .from("nominations")
+        .select("*")
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Nomination[];
     },
@@ -2373,7 +3353,11 @@ function useAllNominations() {
 type EquipeItem = { row: PlanejamentoEmbarqueRow; tipo: "embarcado" | "programado" };
 type PlanejamentoBspGroup = { name: string; items: EquipeItem[] };
 type PlanejamentoUnitGroup = { name: string; bsps: PlanejamentoBspGroup[]; items: EquipeItem[] };
-type PlanejamentoClientGroup = { name: string; units: PlanejamentoUnitGroup[]; items: EquipeItem[] };
+type PlanejamentoClientGroup = {
+  name: string;
+  units: PlanejamentoUnitGroup[];
+  items: EquipeItem[];
+};
 
 // Tira o nível/certificação do fim da função (ex.: "SOLDADOR IV" -> "SOLDADOR", "SUPERVISOR
 // ESCALADOR N3" -> "SUPERVISOR ESCALADOR") pros cartões de quantitativo por função em Equipes
@@ -2389,7 +3373,10 @@ function normalizeFuncaoSemNivel(funcao: string): string {
 
 // Dias entre duas datas YYYY-MM-DD (positivo = "data" ainda não chegou; negativo = já passou).
 function diasAteData(data: string, referencia: string): number {
-  const parse = (s: string) => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
+  const parse = (s: string) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
   return Math.round((parse(data) - parse(referencia)) / 86400000);
 }
 
@@ -2404,10 +3391,14 @@ function ClientCascadeView() {
   const today = todayStr();
   const teamReferenceDate = today;
 
-  const toggleCollapsed = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+  const toggleCollapsed = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    key: string,
+  ) => {
     setter((current) => {
       const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -2419,15 +3410,23 @@ function ClientCascadeView() {
   // o Status desatualizado em relação às datas. "Programado do dia" (pedido dela também) entra
   // à parte: mesmo critério de status já usado em Lançamentos (isStatusProgramado) com Embarque
   // batendo exatamente com a data de referência — sem duplicar quem já conta como embarcado.
-  const { data: planejamentoEmbarque = [], isLoading: isLoadingPlanejamento } = usePlanejamentoEmbarqueQuery();
+  const { data: planejamentoEmbarque = [], isLoading: isLoadingPlanejamento } =
+    usePlanejamentoEmbarqueQuery();
   const equipeNaData = useMemo(() => {
-    const unidadeValida = (row: PlanejamentoEmbarqueRow) => row.unidade?.trim() && row.unidade.trim().toUpperCase() !== "FOLGA";
+    const unidadeValida = (row: PlanejamentoEmbarqueRow) =>
+      row.unidade?.trim() && row.unidade.trim().toUpperCase() !== "FOLGA";
     const embarcados: EquipeItem[] = planejamentoEmbarque
       .filter((row) => unidadeValida(row) && isStatusEmbarcado(row.status))
       .map((row) => ({ row, tipo: "embarcado" as const }));
     const embarcadosIds = new Set(embarcados.map((item) => item.row.id));
     const programados: EquipeItem[] = planejamentoEmbarque
-      .filter((row) => !embarcadosIds.has(row.id) && unidadeValida(row) && isStatusProgramado(row.status) && row.embarque === teamReferenceDate)
+      .filter(
+        (row) =>
+          !embarcadosIds.has(row.id) &&
+          unidadeValida(row) &&
+          isStatusProgramado(row.status) &&
+          row.embarque === teamReferenceDate,
+      )
       .map((row) => ({ row, tipo: "programado" as const }));
     return [...embarcados, ...programados];
   }, [planejamentoEmbarque, teamReferenceDate]);
@@ -2440,11 +3439,15 @@ function ClientCascadeView() {
       const u = row.unidade!.trim();
       porUnidade.set(u, (porUnidade.get(u) ?? 0) + 1);
     });
-    return Array.from(porUnidade.entries()).map(([unidade, total]) => ({ unidade, total })).sort((a, b) => b.total - a.total);
+    return Array.from(porUnidade.entries())
+      .map(([unidade, total]) => ({ unidade, total }))
+      .sort((a, b) => b.total - a.total);
   }, [equipeNaData]);
 
-  const visibleItems = useMemo(() => equipeNaData.filter(({ row }) => !unidadeFiltro || row.unidade!.trim() === unidadeFiltro),
-    [equipeNaData, unidadeFiltro]);
+  const visibleItems = useMemo(
+    () => equipeNaData.filter(({ row }) => !unidadeFiltro || row.unidade!.trim() === unidadeFiltro),
+    [equipeNaData, unidadeFiltro],
+  );
 
   const groups = useMemo<PlanejamentoClientGroup[]>(() => {
     const clients = new Map<string, Map<string, Map<string, EquipeItem[]>>>();
@@ -2459,58 +3462,103 @@ function ClientCascadeView() {
       if (!bsps.has(bsp)) bsps.set(bsp, []);
       bsps.get(bsp)!.push(item);
     });
-    return [...clients.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([name, units]) => {
-      const unitGroups = [...units.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([unitName, bsps]) => {
-        const bspGroups = [...bsps.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([bspName, items]) => ({
-          name: bspName,
-          items: [...items].sort((a, b) => a.row.nome.localeCompare(b.row.nome, "pt-BR")),
-        }));
-        return { name: unitName, bsps: bspGroups, items: bspGroups.flatMap((bsp) => bsp.items) };
+    return [...clients.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+      .map(([name, units]) => {
+        const unitGroups = [...units.entries()]
+          .sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+          .map(([unitName, bsps]) => {
+            const bspGroups = [...bsps.entries()]
+              .sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+              .map(([bspName, items]) => ({
+                name: bspName,
+                items: [...items].sort((a, b) => a.row.nome.localeCompare(b.row.nome, "pt-BR")),
+              }));
+            return {
+              name: unitName,
+              bsps: bspGroups,
+              items: bspGroups.flatMap((bsp) => bsp.items),
+            };
+          });
+        return { name, units: unitGroups, items: unitGroups.flatMap((unit) => unit.items) };
       });
-      return { name, units: unitGroups, items: unitGroups.flatMap((unit) => unit.items) };
-    });
   }, [visibleItems]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          type="button" size="sm" variant="ghost" className="h-8 ml-auto text-muted-foreground"
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-8 ml-auto text-muted-foreground"
           onClick={() => {
-            const tudoAberto = collapsedClients.size === 0 && collapsedUnits.size === 0 && collapsedBsps.size === 0;
+            const tudoAberto =
+              collapsedClients.size === 0 && collapsedUnits.size === 0 && collapsedBsps.size === 0;
             if (tudoAberto) {
               setCollapsedClients(new Set(groups.map((c) => c.name)));
-              setCollapsedUnits(new Set(groups.flatMap((c) => c.units.map((u) => `${c.name}::${u.name}`))));
-              setCollapsedBsps(new Set(groups.flatMap((c) => c.units.flatMap((u) => u.bsps.map((b) => `${c.name}::${u.name}::${b.name}`)))));
+              setCollapsedUnits(
+                new Set(groups.flatMap((c) => c.units.map((u) => `${c.name}::${u.name}`))),
+              );
+              setCollapsedBsps(
+                new Set(
+                  groups.flatMap((c) =>
+                    c.units.flatMap((u) => u.bsps.map((b) => `${c.name}::${u.name}::${b.name}`)),
+                  ),
+                ),
+              );
             } else {
-              setCollapsedClients(new Set()); setCollapsedUnits(new Set()); setCollapsedBsps(new Set());
+              setCollapsedClients(new Set());
+              setCollapsedUnits(new Set());
+              setCollapsedBsps(new Set());
             }
           }}
         >
           {collapsedClients.size === 0 && collapsedUnits.size === 0 && collapsedBsps.size === 0 ? (
-            <><ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />Recolher tudo</>
+            <>
+              <ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />
+              Recolher tudo
+            </>
           ) : (
-            <><ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />Expandir tudo</>
+            <>
+              <ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />
+              Expandir tudo
+            </>
           )}
         </Button>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => setUnidadeFiltro(null)}>
-          <Card className={cn(
-            "min-w-[150px] border-primary/30 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10",
-            !unidadeFiltro && "ring-2 ring-primary",
-          )}>
+          <Card
+            className={cn(
+              "min-w-[150px] border-primary/30 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10",
+              !unidadeFiltro && "ring-2 ring-primary",
+            )}
+          >
             <p className="text-[10px] font-medium uppercase tracking-wide text-primary/80">
-              Total embarcado {teamReferenceDate === today ? "hoje" : `em ${fmtDate(teamReferenceDate)}`}
+              Total embarcado{" "}
+              {teamReferenceDate === today ? "hoje" : `em ${fmtDate(teamReferenceDate)}`}
             </p>
             <p className="text-xl font-semibold text-primary">{equipeNaData.length}</p>
           </Card>
         </button>
         {embarqueSummary.map(({ unidade, total }) => (
-          <button key={unidade} type="button" onClick={() => setUnidadeFiltro(unidadeFiltro === unidade ? null : unidade)}>
-            <Card className={cn("min-w-[120px] px-3 py-2 text-left transition-colors hover:bg-muted", unidadeFiltro === unidade && "ring-2 ring-primary")}>
-              <p className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={unidade}>
+          <button
+            key={unidade}
+            type="button"
+            onClick={() => setUnidadeFiltro(unidadeFiltro === unidade ? null : unidade)}
+          >
+            <Card
+              className={cn(
+                "min-w-[120px] px-3 py-2 text-left transition-colors hover:bg-muted",
+                unidadeFiltro === unidade && "ring-2 ring-primary",
+              )}
+            >
+              <p
+                className="max-w-[160px] truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                title={unidade}
+              >
                 {unidade}
               </p>
               <p className="text-xl font-semibold">{total}</p>
@@ -2521,102 +3569,211 @@ function ClientCascadeView() {
 
       <Card className="overflow-x-auto">
         <div className="min-w-[720px]">
-        {isLoadingPlanejamento ? (
-          <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando Planejamento de Embarque...</div>
-        ) : groups.length === 0 ? (
-          <EmptyState icon={Layers3} title="Nenhum colaborador encontrado" description="Ajuste a busca, o período ou os filtros selecionados." />
-        ) : groups.map((client) => {
-          const clientOpen = !collapsedClients.has(client.name);
-          return <div key={client.name} className="border-b last:border-b-0">
-            <div className="flex w-full items-center justify-between bg-slate-50 px-4 py-3 text-left">
-              <span className="flex min-w-0 items-center gap-2 font-semibold">
-                <button type="button" className="rounded p-0.5 hover:bg-slate-200" aria-label={clientOpen ? `Recolher ${client.name}` : `Abrir ${client.name}`}
-                  aria-expanded={clientOpen} onClick={() => toggleCollapsed(setCollapsedClients, client.name)}>
-                  {clientOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                </button>
-                <Building2 className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{client.name}</span>
-              </span>
-              <span className="text-sm font-medium text-muted-foreground">{client.items.length}</span>
+          {isLoadingPlanejamento ? (
+            <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Carregando Planejamento de Embarque...
             </div>
-            {clientOpen && client.units.map((unit) => {
-              const unitKey = `${client.name}::${unit.name}`;
-              const unitOpen = !collapsedUnits.has(unitKey);
-              return <div key={unitKey}>
-                <div className="flex w-full items-center justify-between border-t bg-sky-50/60 px-4 py-2.5 text-left">
-                  <span className="flex min-w-0 items-center gap-2 pl-7 font-semibold text-sky-950">
-                    <button type="button" className="rounded p-0.5 hover:bg-sky-100" aria-label={unitOpen ? `Recolher ${unit.name}` : `Abrir ${unit.name}`}
-                      aria-expanded={unitOpen} onClick={() => toggleCollapsed(setCollapsedUnits, unitKey)}>
-                      {unitOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </button>
-                    <Ship className="h-4 w-4 shrink-0 text-sky-700" /><span className="truncate">{unit.name}</span>
-                    <span className="text-xs font-normal text-muted-foreground">({unit.bsps.length} BSP)</span>
-                  </span>
-                  <span className="text-sm font-medium text-sky-950">{unit.items.length}</span>
-                </div>
-              {unitOpen && unit.bsps.map((bsp) => {
-              const bspKey = `${unitKey}::${bsp.name}`;
-              const bspOpen = !collapsedBsps.has(bspKey);
-              // Próxima troca de turma do BSP = desembarque mais próximo entre os embarcados —
-              // é o próximo dia em que ALGUÉM daquele BSP precisa ser rendido. Programado ainda
-              // não tem desembarque (nem embarcou de verdade), não conta pra essa conta.
-              const proximaTrocaData = bsp.items.reduce<string | null>(
-                (min, { row, tipo }) => (tipo === "embarcado" && row.desembarque && (!min || row.desembarque < min) ? row.desembarque : min), null,
-              );
-              const diasProximaTroca = proximaTrocaData ? diasAteData(proximaTrocaData, today) : null;
-              const trocaUrgente = diasProximaTroca != null && diasProximaTroca <= 3;
-              const qtdEmbarcados = bsp.items.filter((i) => i.tipo === "embarcado").length;
-              const qtdProgramados = bsp.items.length - qtdEmbarcados;
-              return <div key={bspKey}>
-                <div className="flex w-full items-center justify-between border-t bg-white px-4 py-2.5 text-left">
-                  <span className="flex min-w-0 flex-wrap items-center gap-2 pl-14 font-medium">
-                    <button type="button" className="rounded p-0.5 hover:bg-muted" aria-label={bspOpen ? `Recolher ${bsp.name}` : `Abrir ${bsp.name}`}
-                      aria-expanded={bspOpen} onClick={() => toggleCollapsed(setCollapsedBsps, bspKey)}>
-                      {bspOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </button>
-                    <Layers3 className="h-4 w-4 shrink-0 text-sky-600" /><span className="truncate">{bsp.name}</span>
-                    {qtdEmbarcados > 0 && <Badge className="bg-emerald-100 font-normal text-emerald-800 hover:bg-emerald-100">{qtdEmbarcados} embarcado(s) em {fmtDate(teamReferenceDate)}</Badge>}
-                    {qtdProgramados > 0 && <Badge className="bg-sky-100 font-normal text-sky-800 hover:bg-sky-100">{qtdProgramados} programado(s) pra {fmtDate(teamReferenceDate)}</Badge>}
-                    {proximaTrocaData && (
-                      <Badge
-                        className={cn(
-                          "font-normal",
-                          trocaUrgente ? "bg-amber-100 text-amber-900 hover:bg-amber-100" : "bg-slate-100 text-slate-700 hover:bg-slate-100",
-                        )}
-                        title={trocaUrgente ? `Faltam ${diasProximaTroca} dia(s) — troca de turma próxima` : undefined}
+          ) : groups.length === 0 ? (
+            <EmptyState
+              icon={Layers3}
+              title="Nenhum colaborador encontrado"
+              description="Ajuste a busca, o período ou os filtros selecionados."
+            />
+          ) : (
+            groups.map((client) => {
+              const clientOpen = !collapsedClients.has(client.name);
+              return (
+                <div key={client.name} className="border-b last:border-b-0">
+                  <div className="flex w-full items-center justify-between bg-slate-50 px-4 py-3 text-left">
+                    <span className="flex min-w-0 items-center gap-2 font-semibold">
+                      <button
+                        type="button"
+                        className="rounded p-0.5 hover:bg-slate-200"
+                        aria-label={clientOpen ? `Recolher ${client.name}` : `Abrir ${client.name}`}
+                        aria-expanded={clientOpen}
+                        onClick={() => toggleCollapsed(setCollapsedClients, client.name)}
                       >
-                        {trocaUrgente && <AlertTriangle className="mr-1 h-3 w-3" />}
-                        Próxima Troca de Turma: {fmtDate(proximaTrocaData)}
-                      </Badge>
-                    )}
-                  </span>
-                </div>
-                {bspOpen && <div className="border-t bg-emerald-50/40 px-4 py-3 pl-[4.5rem]">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                    <User className="h-3.5 w-3.5" /> Equipe em {fmtDate(teamReferenceDate)}
+                        {clientOpen ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </button>
+                      <Building2 className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="truncate">{client.name}</span>
+                    </span>
+                    <span className="text-sm font-medium text-muted-foreground">
+                      {client.items.length}
+                    </span>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {bsp.items.map(({ row, tipo }) => (
-                      <div key={row.id} className={cn("rounded-md border bg-white px-3 py-2", tipo === "embarcado" ? "border-emerald-200" : "border-sky-200")}>
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium">{row.nome}</p>
-                          {tipo === "programado" && <Badge className="bg-sky-100 font-normal text-sky-800 hover:bg-sky-100">Programado</Badge>}
+                  {clientOpen &&
+                    client.units.map((unit) => {
+                      const unitKey = `${client.name}::${unit.name}`;
+                      const unitOpen = !collapsedUnits.has(unitKey);
+                      return (
+                        <div key={unitKey}>
+                          <div className="flex w-full items-center justify-between border-t bg-sky-50/60 px-4 py-2.5 text-left">
+                            <span className="flex min-w-0 items-center gap-2 pl-7 font-semibold text-sky-950">
+                              <button
+                                type="button"
+                                className="rounded p-0.5 hover:bg-sky-100"
+                                aria-label={
+                                  unitOpen ? `Recolher ${unit.name}` : `Abrir ${unit.name}`
+                                }
+                                aria-expanded={unitOpen}
+                                onClick={() => toggleCollapsed(setCollapsedUnits, unitKey)}
+                              >
+                                {unitOpen ? (
+                                  <ChevronDown className="h-4 w-4" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4" />
+                                )}
+                              </button>
+                              <Ship className="h-4 w-4 shrink-0 text-sky-700" />
+                              <span className="truncate">{unit.name}</span>
+                              <span className="text-xs font-normal text-muted-foreground">
+                                ({unit.bsps.length} BSP)
+                              </span>
+                            </span>
+                            <span className="text-sm font-medium text-sky-950">
+                              {unit.items.length}
+                            </span>
+                          </div>
+                          {unitOpen &&
+                            unit.bsps.map((bsp) => {
+                              const bspKey = `${unitKey}::${bsp.name}`;
+                              const bspOpen = !collapsedBsps.has(bspKey);
+                              // Próxima troca de turma do BSP = desembarque mais próximo entre os embarcados —
+                              // é o próximo dia em que ALGUÉM daquele BSP precisa ser rendido. Programado ainda
+                              // não tem desembarque (nem embarcou de verdade), não conta pra essa conta.
+                              const proximaTrocaData = bsp.items.reduce<string | null>(
+                                (min, { row, tipo }) =>
+                                  tipo === "embarcado" &&
+                                  row.desembarque &&
+                                  (!min || row.desembarque < min)
+                                    ? row.desembarque
+                                    : min,
+                                null,
+                              );
+                              const diasProximaTroca = proximaTrocaData
+                                ? diasAteData(proximaTrocaData, today)
+                                : null;
+                              const trocaUrgente =
+                                diasProximaTroca != null && diasProximaTroca <= 3;
+                              const qtdEmbarcados = bsp.items.filter(
+                                (i) => i.tipo === "embarcado",
+                              ).length;
+                              const qtdProgramados = bsp.items.length - qtdEmbarcados;
+                              return (
+                                <div key={bspKey}>
+                                  <div className="flex w-full items-center justify-between border-t bg-white px-4 py-2.5 text-left">
+                                    <span className="flex min-w-0 flex-wrap items-center gap-2 pl-14 font-medium">
+                                      <button
+                                        type="button"
+                                        className="rounded p-0.5 hover:bg-muted"
+                                        aria-label={
+                                          bspOpen ? `Recolher ${bsp.name}` : `Abrir ${bsp.name}`
+                                        }
+                                        aria-expanded={bspOpen}
+                                        onClick={() => toggleCollapsed(setCollapsedBsps, bspKey)}
+                                      >
+                                        {bspOpen ? (
+                                          <ChevronDown className="h-4 w-4" />
+                                        ) : (
+                                          <ChevronRight className="h-4 w-4" />
+                                        )}
+                                      </button>
+                                      <Layers3 className="h-4 w-4 shrink-0 text-sky-600" />
+                                      <span className="truncate">{bsp.name}</span>
+                                      {qtdEmbarcados > 0 && (
+                                        <Badge className="bg-emerald-100 font-normal text-emerald-800 hover:bg-emerald-100">
+                                          {qtdEmbarcados} embarcado(s) em{" "}
+                                          {fmtDate(teamReferenceDate)}
+                                        </Badge>
+                                      )}
+                                      {qtdProgramados > 0 && (
+                                        <Badge className="bg-sky-100 font-normal text-sky-800 hover:bg-sky-100">
+                                          {qtdProgramados} programado(s) pra{" "}
+                                          {fmtDate(teamReferenceDate)}
+                                        </Badge>
+                                      )}
+                                      {proximaTrocaData && (
+                                        <Badge
+                                          className={cn(
+                                            "font-normal",
+                                            trocaUrgente
+                                              ? "bg-amber-100 text-amber-900 hover:bg-amber-100"
+                                              : "bg-slate-100 text-slate-700 hover:bg-slate-100",
+                                          )}
+                                          title={
+                                            trocaUrgente
+                                              ? `Faltam ${diasProximaTroca} dia(s) — troca de turma próxima`
+                                              : undefined
+                                          }
+                                        >
+                                          {trocaUrgente && (
+                                            <AlertTriangle className="mr-1 h-3 w-3" />
+                                          )}
+                                          Próxima Troca de Turma: {fmtDate(proximaTrocaData)}
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  </div>
+                                  {bspOpen && (
+                                    <div className="border-t bg-emerald-50/40 px-4 py-3 pl-[4.5rem]">
+                                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                                        <User className="h-3.5 w-3.5" /> Equipe em{" "}
+                                        {fmtDate(teamReferenceDate)}
+                                      </div>
+                                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                                        {bsp.items.map(({ row, tipo }) => (
+                                          <div
+                                            key={row.id}
+                                            className={cn(
+                                              "rounded-md border bg-white px-3 py-2",
+                                              tipo === "embarcado"
+                                                ? "border-emerald-200"
+                                                : "border-sky-200",
+                                            )}
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <p className="text-sm font-medium">{row.nome}</p>
+                                              {tipo === "programado" && (
+                                                <Badge className="bg-sky-100 font-normal text-sky-800 hover:bg-sky-100">
+                                                  Programado
+                                                </Badge>
+                                              )}
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">
+                                              {row.funcao || "Função não informada"}
+                                            </p>
+                                            <p
+                                              className={cn(
+                                                "mt-1 text-xs",
+                                                tipo === "embarcado"
+                                                  ? "text-emerald-700"
+                                                  : "text-sky-700",
+                                              )}
+                                            >
+                                              {tipo === "embarcado"
+                                                ? `Embarcado desde ${fmtDate(row.embarque!)} · previsto até ${row.desembarque ? fmtDate(row.desembarque) : "—"}`
+                                                : `Programado para embarcar em ${fmtDate(row.embarque!)}`}
+                                            </p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                         </div>
-                        <p className="text-xs text-muted-foreground">{row.funcao || "Função não informada"}</p>
-                        <p className={cn("mt-1 text-xs", tipo === "embarcado" ? "text-emerald-700" : "text-sky-700")}>
-                          {tipo === "embarcado"
-                            ? `Embarcado desde ${fmtDate(row.embarque!)} · previsto até ${row.desembarque ? fmtDate(row.desembarque) : "—"}`
-                            : `Programado para embarcar em ${fmtDate(row.embarque!)}`}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>}
-              </div>;
-            })}
-              </div>;
-            })}
-          </div>;
-        })}
+                      );
+                    })}
+                </div>
+              );
+            })
+          )}
         </div>
       </Card>
     </div>
@@ -2637,10 +3794,20 @@ type MapaColuna = { key: string; label: string; match: (n: Nomination) => boolea
 
 const MAPA_COLUNAS: MapaColuna[] = [
   ...KANBAN_COLUMNS.filter((c) => c.id !== "equipe_formada").map((c): MapaColuna => ({
-    key: c.id, label: c.label, match: (n) => n.current_status === c.id,
+    key: c.id,
+    label: c.label,
+    match: (n) => n.current_status === c.id,
   })),
-  { key: "equipe_formada", label: "Equipe Formada", match: (n) => n.current_status === "equipe_formada" && n.outcome !== "cancelada" },
-  { key: "cancelado", label: "Cancelado", match: (n) => n.current_status === "equipe_formada" && n.outcome === "cancelada" },
+  {
+    key: "equipe_formada",
+    label: "Equipe Formada",
+    match: (n) => n.current_status === "equipe_formada" && n.outcome !== "cancelada",
+  },
+  {
+    key: "cancelado",
+    label: "Cancelado",
+    match: (n) => n.current_status === "equipe_formada" && n.outcome === "cancelada",
+  },
 ];
 
 // Escala de calor azul — de quase transparente (0 ou pouquíssimas) até azul forte (a célula
@@ -2673,29 +3840,33 @@ interface SolicitacaoImportRow {
 }
 
 const SOLICITACAO_HEADER_MAP: Record<string, keyof Omit<SolicitacaoImportRow, "rowNumber">> = {
-  "funcao": "funcao",
-  "quantidade": "quantidade",
-  "qtd": "quantidade",
-  "unidade": "unidade",
-  "bsp": "bsp",
+  funcao: "funcao",
+  quantidade: "quantidade",
+  qtd: "quantidade",
+  unidade: "unidade",
+  bsp: "bsp",
   "data inicio": "periodStart",
-  "inicio": "periodStart",
+  inicio: "periodStart",
   "data de inicio": "periodStart",
   "data fim": "periodEnd",
-  "fim": "periodEnd",
+  fim: "periodEnd",
   "data de fim": "periodEnd",
-  "termino": "periodEnd",
-  "cliente": "client",
-  "solicitante": "pmName",
-  "pm": "pmName",
-  "observacoes": "notes",
-  "notas": "notes",
+  termino: "periodEnd",
+  cliente: "client",
+  solicitante: "pmName",
+  pm: "pmName",
+  observacoes: "notes",
+  notas: "notes",
 };
 
 function parseSolicitacoesWorkbook(buf: ArrayBuffer): SolicitacaoImportRow[] {
   const wb = XLSX.read(buf, { cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false });
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, {
+    header: 1,
+    defval: "",
+    blankrows: false,
+  });
   if (rows.length < 2) throw new Error("Planilha vazia.");
 
   const headerRow = rows[0].map(normalizeHeader);
@@ -2706,7 +3877,8 @@ function parseSolicitacoesWorkbook(buf: ArrayBuffer): SolicitacaoImportRow[] {
   });
   const required = ["funcao", "unidade", "bsp"] as const;
   const missing = required.filter((k) => colIndex[k] === undefined);
-  if (missing.length) throw new Error(`Colunas não encontradas na planilha: ${missing.join(", ")}.`);
+  if (missing.length)
+    throw new Error(`Colunas não encontradas na planilha: ${missing.join(", ")}.`);
 
   const get = (r: unknown[], k: string): string => {
     const i = colIndex[k];
@@ -2735,9 +3907,15 @@ function parseSolicitacoesWorkbook(buf: ArrayBuffer): SolicitacaoImportRow[] {
     }));
 }
 
-interface SolicitacaoImportRejection { rowNumber: number; motivo: string }
+interface SolicitacaoImportRejection {
+  rowNumber: number;
+  motivo: string;
+}
 
-function validateSolicitacoesRows(rows: SolicitacaoImportRow[]): { aceitas: SolicitacaoImportRow[]; rejeitadas: SolicitacaoImportRejection[] } {
+function validateSolicitacoesRows(rows: SolicitacaoImportRow[]): {
+  aceitas: SolicitacaoImportRow[];
+  rejeitadas: SolicitacaoImportRejection[];
+} {
   const aceitas: SolicitacaoImportRow[] = [];
   const rejeitadas: SolicitacaoImportRejection[] = [];
   rows.forEach((row) => {
@@ -2789,23 +3967,30 @@ function ImportarSolicitacoesDialog({ onClose }: { onClose: () => void }) {
         const isWelder = isSoldador(funcao);
         const pmName = row.pmName?.trim() || pmNamePadrao;
 
-        const { data, error } = await supabase.from("nominations").insert({
-          pm_name: pmName,
-          funcao,
-          quantidade: Math.max(1, Number(row.quantidade) || 1),
-          unidade: row.unidade.trim(),
-          bsp: row.bsp.trim(),
-          weld_type: null,
-          weld_material: null,
-          period_start: row.periodStart,
-          period_end: row.periodEnd,
-          project: null,
-          client: row.client,
-          notes: row.notes,
-          requires_quality_validation: isWelder,
-          current_status: "solicitacao",
-        }).select().single();
-        if (error || !data) { falhas++; continue; }
+        const { data, error } = await supabase
+          .from("nominations")
+          .insert({
+            pm_name: pmName,
+            funcao,
+            quantidade: Math.max(1, Number(row.quantidade) || 1),
+            unidade: row.unidade.trim(),
+            bsp: row.bsp.trim(),
+            weld_type: null,
+            weld_material: null,
+            period_start: row.periodStart,
+            period_end: row.periodEnd,
+            project: null,
+            client: row.client,
+            notes: row.notes,
+            requires_quality_validation: isWelder,
+            current_status: "solicitacao",
+          })
+          .select()
+          .single();
+        if (error || !data) {
+          falhas++;
+          continue;
+        }
 
         await supabase.from("nomination_status_history").insert({
           nomination_id: data.id,
@@ -2830,18 +4015,27 @@ function ImportarSolicitacoesDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl">
-        <DialogHeader><DialogTitle>Importar Solicitações de Nomeação</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>Importar Solicitações de Nomeação</DialogTitle>
+        </DialogHeader>
 
         {step === "escolher" && (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Colunas esperadas: Função, Quantidade (opcional, padrão 1), Unidade, BSP, Data Início (opcional),
-              Data Fim (opcional), Cliente (opcional), Solicitante (opcional — se vazio, usa quem está importando),
-              Observações (opcional). Cada linha entra como uma nova solicitação, na etapa "Solicitação".
+              Colunas esperadas: Função, Quantidade (opcional, padrão 1), Unidade, BSP, Data Início
+              (opcional), Data Fim (opcional), Cliente (opcional), Solicitante (opcional — se vazio,
+              usa quem está importando), Observações (opcional). Cada linha entra como uma nova
+              solicitação, na etapa "Solicitação".
             </p>
             <input
-              ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleFile(f);
+              }}
             />
             <Button onClick={() => fileRef.current?.click()} loading={lendoArquivo}>
               <Upload className="mr-1.5 h-3.5 w-3.5" /> Escolher arquivo
@@ -2852,14 +4046,23 @@ function ImportarSolicitacoesDialog({ onClose }: { onClose: () => void }) {
         {step === "conferindo" && (
           <div className="space-y-3">
             <div className="flex gap-4 text-sm">
-              <span className="font-medium text-emerald-700">{aceitas.length} linha(s) pronta(s) pra importar</span>
-              {rejeitadas.length > 0 && <span className="font-medium text-destructive">{rejeitadas.length} linha(s) rejeitada(s)</span>}
+              <span className="font-medium text-emerald-700">
+                {aceitas.length} linha(s) pronta(s) pra importar
+              </span>
+              {rejeitadas.length > 0 && (
+                <span className="font-medium text-destructive">
+                  {rejeitadas.length} linha(s) rejeitada(s)
+                </span>
+              )}
             </div>
             {rejeitadas.length > 0 && (
               <div className="max-h-56 overflow-y-auto rounded-md border">
                 <Table>
                   <TableHeader>
-                    <TableRow><TableHead>Linha</TableHead><TableHead>Motivo</TableHead></TableRow>
+                    <TableRow>
+                      <TableHead>Linha</TableHead>
+                      <TableHead>Motivo</TableHead>
+                    </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rejeitadas.map((r) => (
@@ -2876,7 +4079,13 @@ function ImportarSolicitacoesDialog({ onClose }: { onClose: () => void }) {
               <div className="max-h-56 overflow-y-auto rounded-md border">
                 <Table>
                   <TableHeader>
-                    <TableRow><TableHead>Função</TableHead><TableHead>Qtd.</TableHead><TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Solicitante</TableHead></TableRow>
+                    <TableRow>
+                      <TableHead>Função</TableHead>
+                      <TableHead>Qtd.</TableHead>
+                      <TableHead>Unidade</TableHead>
+                      <TableHead>BSP</TableHead>
+                      <TableHead>Solicitante</TableHead>
+                    </TableRow>
                   </TableHeader>
                   <TableBody>
                     {aceitas.map((row) => (
@@ -2897,28 +4106,47 @@ function ImportarSolicitacoesDialog({ onClose }: { onClose: () => void }) {
 
         {step === "confirmado" && resultado && (
           <div className="space-y-2 text-sm">
-            <p className="font-medium text-emerald-700">{resultado.criadas} solicitação(ões) criada(s) com sucesso.</p>
-            {resultado.falhas > 0 && <p className="font-medium text-destructive">{resultado.falhas} linha(s) falharam ao gravar — tente novamente só com elas.</p>}
+            <p className="font-medium text-emerald-700">
+              {resultado.criadas} solicitação(ões) criada(s) com sucesso.
+            </p>
+            {resultado.falhas > 0 && (
+              <p className="font-medium text-destructive">
+                {resultado.falhas} linha(s) falharam ao gravar — tente novamente só com elas.
+              </p>
+            )}
           </div>
         )}
 
         <DialogFooter>
           {step === "conferindo" && (
             <>
-              <Button variant="outline" onClick={onClose}>Cancelar</Button>
-              <Button onClick={() => importar.mutate()} loading={importar.isPending} disabled={aceitas.length === 0}>
+              <Button variant="outline" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => importar.mutate()}
+                loading={importar.isPending}
+                disabled={aceitas.length === 0}
+              >
                 Confirmar importação ({aceitas.length})
               </Button>
             </>
           )}
-          {(step === "escolher" || step === "confirmado") && <Button variant="outline" onClick={onClose}>Fechar</Button>}
+          {(step === "escolher" || step === "confirmado") && (
+            <Button variant="outline" onClick={onClose}>
+              Fechar
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
+function MapaNomeacoesTab({
+  nominations,
+  nomineesByNomination,
+}: {
   nominations: Nomination[];
   nomineesByNomination: Map<string, NominationNominee[]>;
 }) {
@@ -2965,7 +4193,11 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   // sincronização — evita duplicar quem já está sendo acompanhado pelo fluxo.
   const colaboradoresComNomeacao = useMemo(() => {
     const ids = new Set<string>();
-    nominations.forEach((n) => (nomineesByNomination.get(n.id) ?? []).forEach((nn) => { if (nn.is_active && nn.colaborador_id) ids.add(nn.colaborador_id); }));
+    nominations.forEach((n) =>
+      (nomineesByNomination.get(n.id) ?? []).forEach((nn) => {
+        if (nn.is_active && nn.colaborador_id) ids.add(nn.colaborador_id);
+      }),
+    );
     return ids;
   }, [nominations, nomineesByNomination]);
 
@@ -2977,24 +4209,40 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const sincronizarProgramados = useMutation({
     mutationFn: async () => {
       const periodosP = await selectAllPages<HistNovoPeriodo>((from, to) =>
-        supabase.from("hist_novo_periodos").select("*").eq("tipo", "P").order("data_inicio", { ascending: false }).range(from, to),
+        supabase
+          .from("hist_novo_periodos")
+          .select("*")
+          .eq("tipo", "P")
+          .order("data_inicio", { ascending: false })
+          .range(from, to),
       );
       const { data: colaboradoresData, error: cErr } = await supabase
         .from("hist_novo_colaboradores")
         .select("id, nome, funcao, funcao_operacao");
       if (cErr) throw cErr;
-      const colaboradorById = new Map<string, { id: string; nome: string; funcao: string | null; funcao_operacao: string | null }>(
-        (colaboradoresData ?? []).map((c: any) => [c.id, c]),
-      );
+      const colaboradorById = new Map<
+        string,
+        { id: string; nome: string; funcao: string | null; funcao_operacao: string | null }
+      >((colaboradoresData ?? []).map((c: any) => [c.id, c]));
 
       // Um período por colaborador — o mais recente (periodosP já vem ordenado por
       // data_inicio desc, então o primeiro encontrado de cada um já é o certo).
       const periodoPorColaborador = new Map<string, HistNovoPeriodo>();
-      periodosP.forEach((p) => { if (!periodoPorColaborador.has(p.colaborador_id)) periodoPorColaborador.set(p.colaborador_id, p); });
+      periodosP.forEach((p) => {
+        if (!periodoPorColaborador.has(p.colaborador_id))
+          periodoPorColaborador.set(p.colaborador_id, p);
+      });
 
-      const pendentes = Array.from(periodoPorColaborador.entries()).filter(([colaboradorId]) => !colaboradoresComNomeacao.has(colaboradorId));
-      if (pendentes.length === 0) return { sincronizados: 0, ignorados: periodoPorColaborador.size, cancelado: false };
-      if (!confirm(`${pendentes.length} colaborador(es) programado(s) sem nomeação serão criados direto em "Equipe Formada". Confirmar?`)) {
+      const pendentes = Array.from(periodoPorColaborador.entries()).filter(
+        ([colaboradorId]) => !colaboradoresComNomeacao.has(colaboradorId),
+      );
+      if (pendentes.length === 0)
+        return { sincronizados: 0, ignorados: periodoPorColaborador.size, cancelado: false };
+      if (
+        !confirm(
+          `${pendentes.length} colaborador(es) programado(s) sem nomeação serão criados direto em "Equipe Formada". Confirmar?`,
+        )
+      ) {
         return { sincronizados: 0, ignorados: 0, cancelado: true };
       }
 
@@ -3011,58 +4259,96 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         const isWelder = isSoldador(funcao);
         const bsp = periodo.bsp || periodo.centro_de_custo;
 
-        const { data: nomInserted, error: nomErr } = await supabase.from("nominations").insert({
-          funcao, quantidade: 1,
-          unidade: periodo.unidade_operacional, bsp,
-          period_start: periodo.data_inicio,
-          current_status: "nomeados",
-          requires_quality_validation: isWelder,
-          logistics_received_at: agoraIso, logistics_received_by: autorCampo,
-        }).select("id").single();
+        const { data: nomInserted, error: nomErr } = await supabase
+          .from("nominations")
+          .insert({
+            funcao,
+            quantidade: 1,
+            unidade: periodo.unidade_operacional,
+            bsp,
+            period_start: periodo.data_inicio,
+            current_status: "nomeados",
+            requires_quality_validation: isWelder,
+            logistics_received_at: agoraIso,
+            logistics_received_by: autorCampo,
+          })
+          .select("id")
+          .single();
         if (nomErr || !nomInserted) continue;
         const nominationId = nomInserted.id as string;
 
         await supabase.from("nomination_nominees").insert({
-          nomination_id: nominationId, colaborador_id: colaboradorId, colaborador_nome: colaborador.nome,
+          nomination_id: nominationId,
+          colaborador_id: colaboradorId,
+          colaborador_nome: colaborador.nome,
           is_active: true,
-          technical_selected_at: agoraIso, technical_selected_by: autorCampo,
-          pm_decision: "aprovado", pm_decided_at: agoraIso, pm_decided_by: autorCampo,
-          sms_aso_checked: true, sms_aso_checked_at: agoraIso, sms_aso_checked_by: autorCampo,
-          rh_validated: true, rh_validated_at: agoraIso, rh_validated_by: autorCampo,
+          technical_selected_at: agoraIso,
+          technical_selected_by: autorCampo,
+          pm_decision: "aprovado",
+          pm_decided_at: agoraIso,
+          pm_decided_by: autorCampo,
+          sms_aso_checked: true,
+          sms_aso_checked_at: agoraIso,
+          sms_aso_checked_by: autorCampo,
+          rh_validated: true,
+          rh_validated_at: agoraIso,
+          rh_validated_by: autorCampo,
         });
 
         const caminho: NominationStatus[] = [
-          ...(isWelder ? (["validacao_qualidade"] as NominationStatus[]) : []), "nomeados",
-          "aprovacao_pm", "validacao_sms_aso", "validacao_rh", "briefing_sms", "equipe_formada",
+          ...(isWelder ? (["validacao_qualidade"] as NominationStatus[]) : []),
+          "nomeados",
+          "aprovacao_pm",
+          "validacao_sms_aso",
+          "validacao_rh",
+          "briefing_sms",
+          "equipe_formada",
         ];
         for (const stage of caminho) {
           await supabase.from("nomination_status_history").insert({
-            nomination_id: nominationId, status: stage, changed_by_name: autorAcao, notes: notaHistorico,
+            nomination_id: nominationId,
+            status: stage,
+            changed_by_name: autorAcao,
+            notes: notaHistorico,
           });
         }
 
         const nominationPatch: Record<string, unknown> = {
-          current_status: "equipe_formada", outcome: "concluida",
-          briefing_sms_realizado: true, briefing_sms_realizado_at: agoraIso, briefing_sms_realizado_by: autorCampo,
+          current_status: "equipe_formada",
+          outcome: "concluida",
+          briefing_sms_realizado: true,
+          briefing_sms_realizado_at: agoraIso,
+          briefing_sms_realizado_by: autorCampo,
         };
         if (isWelder) {
           Object.assign(nominationPatch, {
-            quality_status: "aprovado", quality_validated: true,
-            quality_validated_at: agoraIso, quality_validated_by: autorCampo,
+            quality_status: "aprovado",
+            quality_validated: true,
+            quality_validated_at: agoraIso,
+            quality_validated_by: autorCampo,
           });
         }
         await supabase.from("nominations").update(nominationPatch).eq("id", nominationId);
         sincronizados++;
       }
 
-      return { sincronizados, ignorados: periodoPorColaborador.size - pendentes.length, cancelado: false };
+      return {
+        sincronizados,
+        ignorados: periodoPorColaborador.size - pendentes.length,
+        cancelado: false,
+      };
     },
     onSuccess: (r) => {
       if (r.cancelado) return;
-      if (r.sincronizados === 0 && r.ignorados === 0) { notify.success("Nenhum colaborador programado pra sincronizar."); return; }
+      if (r.sincronizados === 0 && r.ignorados === 0) {
+        notify.success("Nenhum colaborador programado pra sincronizar.");
+        return;
+      }
       qc.invalidateQueries({ queryKey: ["nominations"] });
       qc.invalidateQueries({ queryKey: ["nomination-nominees-all"] });
-      notify.success(`${r.sincronizados} nomeação(ões) criada(s) em Equipe Formada${r.ignorados ? ` — ${r.ignorados} já tinham nomeação` : ""}.`);
+      notify.success(
+        `${r.sincronizados} nomeação(ões) criada(s) em Equipe Formada${r.ignorados ? ` — ${r.ignorados} já tinham nomeação` : ""}.`,
+      );
     },
     onError: (e: any) => notify.error(e.message),
   });
@@ -3073,20 +4359,25 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   const nominationsVisiveis = useMemo(() => {
     const hoje = todayStr();
     return nominations.filter((n) => {
-      const dentroPrazoEquipeFormada = n.current_status !== "equipe_formada" || n.outcome === "cancelada" || !n.period_start
-        || diasAteData(n.period_start, hoje) >= -5;
+      const dentroPrazoEquipeFormada =
+        n.current_status !== "equipe_formada" ||
+        n.outcome === "cancelada" ||
+        !n.period_start ||
+        diasAteData(n.period_start, hoje) >= -5;
       if (!dentroPrazoEquipeFormada) return false;
       // Filtro de período (De/Até acima) — só se aplica a quem já tem data de embarque
       // programada; sem period_start, continua passando (não some do mapa por falta de data).
-      if (n.period_start && (n.period_start < periodoDe || n.period_start > periodoAte)) return false;
+      if (n.period_start && (n.period_start < periodoDe || n.period_start > periodoAte))
+        return false;
       return true;
     });
   }, [nominations, periodoDe, periodoAte]);
 
   const bsps = useMemo(
-    () => Array.from(new Set(nominationsVisiveis.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort((a, b) =>
-      a === MAPA_SEM_BSP ? 1 : b === MAPA_SEM_BSP ? -1 : a.localeCompare(b),
-    ),
+    () =>
+      Array.from(new Set(nominationsVisiveis.map((n) => n.bsp?.trim() || MAPA_SEM_BSP))).sort(
+        (a, b) => (a === MAPA_SEM_BSP ? 1 : b === MAPA_SEM_BSP ? -1 : a.localeCompare(b)),
+      ),
     [nominationsVisiveis],
   );
 
@@ -3113,13 +4404,25 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
 
   const maxCount = useMemo(() => {
     let max = 0;
-    matriz.forEach((porColuna) => porColuna.forEach((rows) => { if (rows.length > max) max = rows.length; }));
+    matriz.forEach((porColuna) =>
+      porColuna.forEach((rows) => {
+        if (rows.length > max) max = rows.length;
+      }),
+    );
     return max;
   }, [matriz]);
 
   const totalPorColuna = useMemo(() => {
     const m = new Map<string, number>();
-    MAPA_COLUNAS.forEach((col) => m.set(col.key, Array.from(matriz.values()).reduce((sum, porColuna) => sum + (porColuna.get(col.key)?.length ?? 0), 0)));
+    MAPA_COLUNAS.forEach((col) =>
+      m.set(
+        col.key,
+        Array.from(matriz.values()).reduce(
+          (sum, porColuna) => sum + (porColuna.get(col.key)?.length ?? 0),
+          0,
+        ),
+      ),
+    );
     return m;
   }, [matriz]);
 
@@ -3145,10 +4448,14 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
   // começa tudo aberto), aqui começa tudo FECHADO — os Sets guardam o que foi expandido.
   const [expandedClientes, setExpandedClientes] = useState<Set<string>>(new Set());
   const [expandedUnidades, setExpandedUnidades] = useState<Set<string>>(new Set());
-  const toggleCollapsedMapa = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+  const toggleCollapsedMapa = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    key: string,
+  ) => {
     setter((current) => {
       const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -3157,7 +4464,10 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
     const porCliente = new Map<string, Map<string, string[]>>();
     bsps.forEach((b) => {
       const unidade = unidadePorBsp.get(b) ?? "Sem unidade";
-      const cliente = unidade !== "Sem unidade" ? (clienteDaUnidade(unidade) ?? "Cliente não identificado") : "Cliente não identificado";
+      const cliente =
+        unidade !== "Sem unidade"
+          ? (clienteDaUnidade(unidade) ?? "Cliente não identificado")
+          : "Cliente não identificado";
       if (!porCliente.has(cliente)) porCliente.set(cliente, new Map());
       const porUnidade = porCliente.get(cliente)!;
       if (!porUnidade.has(unidade)) porUnidade.set(unidade, []);
@@ -3182,157 +4492,271 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
         </TabsList>
 
         <TabsContent value="calor" className="space-y-3 pt-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo. Equipe Formada some daqui automaticamente 5 dias após a data programada de embarque.
-        </p>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex items-center gap-1.5">
-            <Label htmlFor="mapa-periodo-de" className="text-xs text-muted-foreground">De</Label>
-            <Input id="mapa-periodo-de" type="date" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} className="h-8 w-auto text-sm" />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Quantas nomeações existem hoje em cada BSP x Etapa — quanto mais forte a cor, mais
+              nomeações ali. Passe o mouse pra ver a equipe; clique pra ver o detalhe completo.
+              Equipe Formada some daqui automaticamente 5 dias após a data programada de embarque.
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="mapa-periodo-de" className="text-xs text-muted-foreground">
+                  De
+                </Label>
+                <Input
+                  id="mapa-periodo-de"
+                  type="date"
+                  value={periodoDe}
+                  onChange={(e) => setPeriodoDe(e.target.value)}
+                  className="h-8 w-auto text-sm"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="mapa-periodo-ate" className="text-xs text-muted-foreground">
+                  Até
+                </Label>
+                <Input
+                  id="mapa-periodo-ate"
+                  type="date"
+                  min={periodoDe || undefined}
+                  value={periodoAte}
+                  onChange={(e) => setPeriodoAte(e.target.value)}
+                  className="h-8 w-auto text-sm"
+                />
+              </div>
+              {!isPm && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowImportarSolicitacoes(true)}
+                  >
+                    <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar Solicitações
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => sincronizarProgramados.mutate()}
+                    loading={sincronizarProgramados.isPending}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do
+                    Histograma
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <Label htmlFor="mapa-periodo-ate" className="text-xs text-muted-foreground">Até</Label>
-            <Input id="mapa-periodo-ate" type="date" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} className="h-8 w-auto text-sm" />
-          </div>
-          {!isPm && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => setShowImportarSolicitacoes(true)}>
-                <Upload className="mr-1.5 h-3.5 w-3.5" /> Importar Solicitações
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => sincronizarProgramados.mutate()} loading={sincronizarProgramados.isPending}>
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sincronizar Programados do Histograma
-              </Button>
-            </>
+          {!isPm && showImportarSolicitacoes && (
+            <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />
           )}
-        </div>
-      </div>
-      {!isPm && showImportarSolicitacoes && <ImportarSolicitacoesDialog onClose={() => setShowImportarSolicitacoes(false)} />}
 
-      <TooltipProvider delayDuration={150}>
-        <Card className="overflow-x-auto p-2">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr>
-                <th className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">Cliente</th>
-                {MAPA_COLUNAS.map((col) => (
-                  <th key={col.key} className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap">{col.label}</th>
-                ))}
-                <th className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cascataClienteUnidadeBsp.map(({ cliente, unidades }) => {
-                const clienteOpen = expandedClientes.has(cliente);
-                // Total de nomeações do cliente inteiro, mesmo recolhido — sem isso, um grupo
-                // novo (ex.: "Cliente não identificado" na primeira importação de uma unidade
-                // ainda não cadastrada) fica sem nenhuma pista visual de que tem algo dentro.
-                const totalCliente = unidades.reduce((sum, [, bspList]) => sum + bspList.reduce((s, b) => s + (porBsp.get(b)?.length ?? 0), 0), 0);
-                return (
-                  <Fragment key={cliente}>
-                    <tr>
-                      <td colSpan={totalColunas} className="sticky left-0 z-10 border border-dashed border-border/70 bg-slate-50 px-2 py-1.5 text-left">
-                        <button
-                          type="button" className="flex items-center gap-2 rounded p-0.5 font-semibold hover:bg-slate-200"
-                          aria-expanded={clienteOpen} onClick={() => toggleCollapsedMapa(setExpandedClientes, cliente)}
-                        >
-                          {clienteOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                          <Building2 className="h-4 w-4 shrink-0 text-primary" /> {cliente}
-                          <span className="text-xs font-normal text-muted-foreground">({totalCliente} nomeaç{totalCliente === 1 ? "ão" : "ões"})</span>
-                        </button>
-                      </td>
-                    </tr>
-                    {clienteOpen && unidades.map(([unidade, bspList]) => {
-                      const unidadeKey = `${cliente}::${unidade}`;
-                      const unidadeOpen = expandedUnidades.has(unidadeKey);
-                      const totalUnidade = bspList.reduce((s, b) => s + (porBsp.get(b)?.length ?? 0), 0);
-                      return (
-                        <Fragment key={unidadeKey}>
-                          <tr>
-                            <td colSpan={totalColunas} className="sticky left-0 z-10 border border-dashed border-border/70 bg-sky-50/60 px-2 py-1.5 text-left">
-                              <button
-                                type="button" className="flex items-center gap-2 rounded p-0.5 pl-6 font-semibold text-sky-950 hover:bg-sky-100"
-                                aria-expanded={unidadeOpen} onClick={() => toggleCollapsedMapa(setExpandedUnidades, unidadeKey)}
-                              >
-                                {unidadeOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                <Ship className="h-4 w-4 shrink-0 text-sky-700" /> {unidade}
-                                <span className="text-xs font-normal text-muted-foreground">({bspList.length} BSP · {totalUnidade} nomeaç{totalUnidade === 1 ? "ão" : "ões"})</span>
-                              </button>
-                            </td>
-                          </tr>
-                          {unidadeOpen && bspList.map((b) => {
-                            const porColuna = matriz.get(b)!;
-                            const totalLinha = Array.from(porColuna.values()).reduce((sum, rows) => sum + rows.length, 0);
+          <TooltipProvider delayDuration={150}>
+            <Card className="overflow-x-auto p-2">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-left text-xs font-medium text-muted-foreground">
+                      Cliente
+                    </th>
+                    {MAPA_COLUNAS.map((col) => (
+                      <th
+                        key={col.key}
+                        className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap"
+                      >
+                        {col.label}
+                      </th>
+                    ))}
+                    <th className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">
+                      Total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cascataClienteUnidadeBsp.map(({ cliente, unidades }) => {
+                    const clienteOpen = expandedClientes.has(cliente);
+                    // Total de nomeações do cliente inteiro, mesmo recolhido — sem isso, um grupo
+                    // novo (ex.: "Cliente não identificado" na primeira importação de uma unidade
+                    // ainda não cadastrada) fica sem nenhuma pista visual de que tem algo dentro.
+                    const totalCliente = unidades.reduce(
+                      (sum, [, bspList]) =>
+                        sum + bspList.reduce((s, b) => s + (porBsp.get(b)?.length ?? 0), 0),
+                      0,
+                    );
+                    return (
+                      <Fragment key={cliente}>
+                        <tr>
+                          <td
+                            colSpan={totalColunas}
+                            className="sticky left-0 z-10 border border-dashed border-border/70 bg-slate-50 px-2 py-1.5 text-left"
+                          >
+                            <button
+                              type="button"
+                              className="flex items-center gap-2 rounded p-0.5 font-semibold hover:bg-slate-200"
+                              aria-expanded={clienteOpen}
+                              onClick={() => toggleCollapsedMapa(setExpandedClientes, cliente)}
+                            >
+                              {clienteOpen ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                              <Building2 className="h-4 w-4 shrink-0 text-primary" /> {cliente}
+                              <span className="text-xs font-normal text-muted-foreground">
+                                ({totalCliente} nomeaç{totalCliente === 1 ? "ão" : "ões"})
+                              </span>
+                            </button>
+                          </td>
+                        </tr>
+                        {clienteOpen &&
+                          unidades.map(([unidade, bspList]) => {
+                            const unidadeKey = `${cliente}::${unidade}`;
+                            const unidadeOpen = expandedUnidades.has(unidadeKey);
+                            const totalUnidade = bspList.reduce(
+                              (s, b) => s + (porBsp.get(b)?.length ?? 0),
+                              0,
+                            );
                             return (
-                              <tr key={b}>
-                                <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 pl-9 align-top">
-                                  <div className="font-medium">{b}</div>
-                                </td>
-                                {MAPA_COLUNAS.map((col) => {
-                                  const rows = porColuna.get(col.key) ?? [];
-                                  const { bg, text } = mapaHeatColor(rows.length, maxCount);
-                                  const equipe = rows.flatMap((n) => (nomineesByNomination.get(n.id) ?? []).filter((nn) => nn.is_active).map((nn) => nn.colaborador_nome));
-                                  // Data de embarque mais próxima entre as nomeações da célula — quando há mais
-                                  // de uma, mostra a que vem primeiro (a que mais importa pra logística agora).
-                                  const proximaData = rows.map((n) => n.period_start).filter((d): d is string => !!d).sort()[0] ?? null;
-                                  const celula = (
+                              <Fragment key={unidadeKey}>
+                                <tr>
+                                  <td
+                                    colSpan={totalColunas}
+                                    className="sticky left-0 z-10 border border-dashed border-border/70 bg-sky-50/60 px-2 py-1.5 text-left"
+                                  >
                                     <button
                                       type="button"
-                                      disabled={rows.length === 0}
-                                      onClick={() => setDrill({ bsp: b, coluna: col })}
-                                      className="h-12 w-full min-w-16 rounded font-semibold disabled:cursor-default"
-                                      style={{ backgroundColor: bg, color: text }}
+                                      className="flex items-center gap-2 rounded p-0.5 pl-6 font-semibold text-sky-950 hover:bg-sky-100"
+                                      aria-expanded={unidadeOpen}
+                                      onClick={() =>
+                                        toggleCollapsedMapa(setExpandedUnidades, unidadeKey)
+                                      }
                                     >
-                                      {rows.length > 0 && (
-                                        <span className="flex flex-col items-center leading-tight">
-                                          <span>{rows.length}</span>
-                                          {proximaData && <span className="text-[9px] font-normal opacity-80">{fmtDate(proximaData).slice(0, 5)}</span>}
-                                        </span>
+                                      {unidadeOpen ? (
+                                        <ChevronDown className="h-4 w-4" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4" />
                                       )}
+                                      <Ship className="h-4 w-4 shrink-0 text-sky-700" /> {unidade}
+                                      <span className="text-xs font-normal text-muted-foreground">
+                                        ({bspList.length} BSP · {totalUnidade} nomeaç
+                                        {totalUnidade === 1 ? "ão" : "ões"})
+                                      </span>
                                     </button>
-                                  );
-                                  return (
-                                    <td key={col.key} className="border border-dashed border-border/70 p-0 text-center">
-                                      {rows.length === 0 ? celula : (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>{celula}</TooltipTrigger>
-                                          <TooltipContent className="max-w-xs">
-                                            {equipe.length > 0 ? equipe.join(", ") : "Equipe ainda não definida"}
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                    </td>
-                                  );
-                                })}
-                                <td className="border border-dashed border-border/70 px-2 py-1.5 text-center font-semibold">{totalLinha}</td>
-                              </tr>
+                                  </td>
+                                </tr>
+                                {unidadeOpen &&
+                                  bspList.map((b) => {
+                                    const porColuna = matriz.get(b)!;
+                                    const totalLinha = Array.from(porColuna.values()).reduce(
+                                      (sum, rows) => sum + rows.length,
+                                      0,
+                                    );
+                                    return (
+                                      <tr key={b}>
+                                        <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 pl-9 align-top">
+                                          <div className="font-medium">{b}</div>
+                                        </td>
+                                        {MAPA_COLUNAS.map((col) => {
+                                          const rows = porColuna.get(col.key) ?? [];
+                                          const { bg, text } = mapaHeatColor(rows.length, maxCount);
+                                          const equipe = rows.flatMap((n) =>
+                                            (nomineesByNomination.get(n.id) ?? [])
+                                              .filter((nn) => nn.is_active)
+                                              .map((nn) => nn.colaborador_nome),
+                                          );
+                                          // Data de embarque mais próxima entre as nomeações da célula — quando há mais
+                                          // de uma, mostra a que vem primeiro (a que mais importa pra logística agora).
+                                          const proximaData =
+                                            rows
+                                              .map((n) => n.period_start)
+                                              .filter((d): d is string => !!d)
+                                              .sort()[0] ?? null;
+                                          const celula = (
+                                            <button
+                                              type="button"
+                                              disabled={rows.length === 0}
+                                              onClick={() => setDrill({ bsp: b, coluna: col })}
+                                              className="h-12 w-full min-w-16 rounded font-semibold disabled:cursor-default"
+                                              style={{ backgroundColor: bg, color: text }}
+                                            >
+                                              {rows.length > 0 && (
+                                                <span className="flex flex-col items-center leading-tight">
+                                                  <span>{rows.length}</span>
+                                                  {proximaData && (
+                                                    <span className="text-[9px] font-normal opacity-80">
+                                                      {fmtDate(proximaData).slice(0, 5)}
+                                                    </span>
+                                                  )}
+                                                </span>
+                                              )}
+                                            </button>
+                                          );
+                                          return (
+                                            <td
+                                              key={col.key}
+                                              className="border border-dashed border-border/70 p-0 text-center"
+                                            >
+                                              {rows.length === 0 ? (
+                                                celula
+                                              ) : (
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>{celula}</TooltipTrigger>
+                                                  <TooltipContent className="max-w-xs">
+                                                    {equipe.length > 0
+                                                      ? equipe.join(", ")
+                                                      : "Equipe ainda não definida"}
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              )}
+                                            </td>
+                                          );
+                                        })}
+                                        <td className="border border-dashed border-border/70 px-2 py-1.5 text-center font-semibold">
+                                          {totalLinha}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </Fragment>
                             );
                           })}
-                        </Fragment>
-                      );
-                    })}
-                  </Fragment>
-                );
-              })}
-              {bsps.length === 0 && (
-                <tr><td colSpan={totalColunas}><EmptyStateRow colSpan={totalColunas} icon={Layers3} title="Nenhuma nomeação encontrada" /></td></tr>
-              )}
-            </tbody>
-            {bsps.length > 0 && (
-              <tfoot>
-                <tr>
-                  <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">Total</td>
-                  {MAPA_COLUNAS.map((col) => (
-                    <td key={col.key} className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{totalPorColuna.get(col.key) || ""}</td>
-                  ))}
-                  <td className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{nominationsVisiveis.length}</td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </Card>
-      </TooltipProvider>
-
+                      </Fragment>
+                    );
+                  })}
+                  {bsps.length === 0 && (
+                    <tr>
+                      <td colSpan={totalColunas}>
+                        <EmptyStateRow
+                          colSpan={totalColunas}
+                          icon={Layers3}
+                          title="Nenhuma nomeação encontrada"
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {bsps.length > 0 && (
+                  <tfoot>
+                    <tr>
+                      <td className="sticky left-0 z-10 border border-dashed border-border/70 bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                        Total
+                      </td>
+                      {MAPA_COLUNAS.map((col) => (
+                        <td
+                          key={col.key}
+                          className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground"
+                        >
+                          {totalPorColuna.get(col.key) || ""}
+                        </td>
+                      ))}
+                      <td className="border border-dashed border-border/70 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">
+                        {nominationsVisiveis.length}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </Card>
+          </TooltipProvider>
         </TabsContent>
 
         <TabsContent value="linha-tempo" className="pt-3">
@@ -3343,7 +4767,9 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
       <Dialog open={!!drill} onOpenChange={(o) => !o && setDrill(null)}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{drill?.bsp} — {drill?.coluna.label}</DialogTitle>
+            <DialogTitle>
+              {drill?.bsp} — {drill?.coluna.label}
+            </DialogTitle>
           </DialogHeader>
           {drill && (
             <div className="max-h-96 space-y-1.5 overflow-y-auto">
@@ -3353,15 +4779,23 @@ function MapaNomeacoesTab({ nominations, nomineesByNomination }: {
                 return (
                   <div key={n.id} className="rounded-md border p-2.5 text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="font-medium">{requestTitle(n)} — {n.funcao}</span>
-                      <span className="text-xs text-muted-foreground">{n.period_start ? fmtDate(n.period_start) : "Sem data"}</span>
+                      <span className="font-medium">
+                        {requestTitle(n)} — {n.funcao}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {n.period_start ? fmtDate(n.period_start) : "Sem data"}
+                      </span>
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {equipe.length > 0 ? equipe.map((e) => e.colaborador_nome).join(", ") : "Equipe ainda não definida"}
+                      {equipe.length > 0
+                        ? equipe.map((e) => e.colaborador_nome).join(", ")
+                        : "Equipe ainda não definida"}
                     </div>
                     {historico.length > 0 && (
                       <div className="mt-2 border-t pt-2">
-                        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Cronograma</p>
+                        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Cronograma
+                        </p>
                         <HistoryTimeline items={historico} />
                       </div>
                     )}
@@ -3393,7 +4827,12 @@ interface LinhaDemanda {
 // Caldeireiro, Tubista e Mecânico contam numa linha só na Linha do Tempo (pedido dela,
 // 2026-10-01) — só nessa aba (Provisão/Disponibilidade por Função), não mexe em
 // normalizeFuncaoSemNivel nem em nenhum outro painel que o reaproveita (Equipes Embarcadas etc.).
-const FAMILIA_CALDEIREIRO_TUBISTA_MECANICO = new Set(["CALDEIREIRO", "TUBISTA", "MECANICO", "MECÂNICO"]);
+const FAMILIA_CALDEIREIRO_TUBISTA_MECANICO = new Set([
+  "CALDEIREIRO",
+  "TUBISTA",
+  "MECANICO",
+  "MECÂNICO",
+]);
 function agruparFamiliaFuncaoLinhaTempo(funcaoNormalizada: string): string {
   return FAMILIA_CALDEIREIRO_TUBISTA_MECANICO.has(funcaoNormalizada)
     ? "CALDEIREIRO / TUBISTA / MECÂNICO"
@@ -3406,7 +4845,13 @@ function agruparFamiliaFuncaoLinhaTempo(funcaoNormalizada: string): string {
 // Nomeações nesta aba específica (Provisão) — Disponibilidade continua vindo do Planejamento de
 // Embarque, sem mudança. "unidade" aqui é o nome do projeto, só para não duplicar linhas da
 // mesma função+projeto+período; a grade final agrupa só por Função, como já era.
-const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: string; end: string }[] = [
+const PROVISAO_REAL: {
+  unidade: string;
+  funcao: string;
+  qtd: number;
+  start: string;
+  end: string;
+}[] = [
   { unidade: "MSI/CDV", funcao: "IRATA N3", qtd: 1, start: "2026-07-28", end: "2026-08-01" },
   { unidade: "MSI/CDV", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-07-28", end: "2026-08-01" },
   { unidade: "MSI/CDV", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-07-28", end: "2026-08-01" },
@@ -3414,13 +4859,43 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
   { unidade: "MSI/CDV", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-03-01", end: "2026-12-31" },
   { unidade: "ATLANTA", funcao: "SUPERVISOR", qtd: 1, start: "2026-08-08", end: "2026-09-10" },
   { unidade: "ATLANTA", funcao: "FITTER", qtd: 2, start: "2026-08-08", end: "2026-09-10" },
-  { unidade: "ATLANTA", funcao: "MONTADOR DE ANDAIME", qtd: 0, start: "2026-08-08", end: "2026-09-10" },
+  {
+    unidade: "ATLANTA",
+    funcao: "MONTADOR DE ANDAIME",
+    qtd: 0,
+    start: "2026-08-08",
+    end: "2026-09-10",
+  },
   { unidade: "ATLANTA", funcao: "WELDER", qtd: 2, start: "2026-08-08", end: "2026-09-10" },
   { unidade: "ATLANTA", funcao: "INSPETOR", qtd: 1, start: "2026-08-08", end: "2026-09-10" },
-  { unidade: "ATLANTA", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-08-08", end: "2026-09-10" },
-  { unidade: "PERENCO (PCH-2)", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-04-01", end: "2026-10-30" },
-  { unidade: "PERENCO (PCH-2)", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-04-01", end: "2026-10-30" },
-  { unidade: "PERENCO (PCH-2)", funcao: "IRATA N3", qtd: 1, start: "2026-04-01", end: "2026-10-30" },
+  {
+    unidade: "ATLANTA",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 1,
+    start: "2026-08-08",
+    end: "2026-09-10",
+  },
+  {
+    unidade: "PERENCO (PCH-2)",
+    funcao: "FITTER IRATA N1",
+    qtd: 2,
+    start: "2026-04-01",
+    end: "2026-10-30",
+  },
+  {
+    unidade: "PERENCO (PCH-2)",
+    funcao: "WELDER IRATA N1",
+    qtd: 1,
+    start: "2026-04-01",
+    end: "2026-10-30",
+  },
+  {
+    unidade: "PERENCO (PCH-2)",
+    funcao: "IRATA N3",
+    qtd: 1,
+    start: "2026-04-01",
+    end: "2026-10-30",
+  },
   { unidade: "FORTE", funcao: "INSPETOR", qtd: 1, start: "2026-08-15", end: "2026-12-31" },
   { unidade: "FORTE", funcao: "WELDER", qtd: 10, start: "2026-07-01", end: "2026-12-31" },
   { unidade: "FORTE", funcao: "SUPERVISOR", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
@@ -3431,13 +4906,55 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
   { unidade: "ADG", funcao: "IRATA N3", qtd: 1, start: "2026-05-07", end: "2026-10-30" },
   { unidade: "ADG", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-05-07", end: "2026-10-30" },
   { unidade: "ADG", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-05-07", end: "2026-10-30" },
-  { unidade: "ILHA BELLA CONTRATO", funcao: "IRATA N3", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
-  { unidade: "ILHA BELLA CONTRATO", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-07-01", end: "2026-12-31" },
-  { unidade: "ILHA BELLA CONTRATO", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-07-01", end: "2026-12-31" },
-  { unidade: "ILHA BELLA CONTRATO", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
-  { unidade: "PARATY CONTRATO", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-06-01", end: "2026-12-31" },
-  { unidade: "PARATY CONTRATO", funcao: "IRATA N3", qtd: 1, start: "2026-06-01", end: "2026-12-31" },
-  { unidade: "PARATY CONTRATO", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-06-01", end: "2026-12-31" },
+  {
+    unidade: "ILHA BELLA CONTRATO",
+    funcao: "IRATA N3",
+    qtd: 1,
+    start: "2026-07-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "ILHA BELLA CONTRATO",
+    funcao: "FITTER IRATA N1",
+    qtd: 2,
+    start: "2026-07-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "ILHA BELLA CONTRATO",
+    funcao: "WELDER IRATA N1",
+    qtd: 2,
+    start: "2026-07-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "ILHA BELLA CONTRATO",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 1,
+    start: "2026-07-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PARATY CONTRATO",
+    funcao: "FITTER IRATA N1",
+    qtd: 2,
+    start: "2026-06-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PARATY CONTRATO",
+    funcao: "IRATA N3",
+    qtd: 1,
+    start: "2026-06-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PARATY CONTRATO",
+    funcao: "WELDER IRATA N1",
+    qtd: 2,
+    start: "2026-06-01",
+    end: "2026-12-31",
+  },
   { unidade: "ADG", funcao: "SUPERVISOR", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
   { unidade: "ADG", funcao: "DECK FOREMAN", qtd: 1, start: "2026-07-01", end: "2026-12-31" },
   { unidade: "ADG", funcao: "RIGGER", qtd: 3, start: "2026-07-01", end: "2026-12-31" },
@@ -3445,20 +4962,56 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
   { unidade: "SD SAQUAREMA", funcao: "FITTER", qtd: 25, start: "2026-07-21", end: "2026-07-30" },
   { unidade: "SD SAQUAREMA", funcao: "WELDER", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
   { unidade: "SD SAQUAREMA", funcao: "IRATA N3", qtd: 1, start: "2026-07-21", end: "2026-07-30" },
-  { unidade: "SD SAQUAREMA", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
+  {
+    unidade: "SD SAQUAREMA",
+    funcao: "FITTER IRATA N1",
+    qtd: 2,
+    start: "2026-07-21",
+    end: "2026-07-30",
+  },
   { unidade: "SD SAQUAREMA", funcao: "INSPETOR", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
-  { unidade: "SD SAQUAREMA", funcao: "OPERADOR DE HABITAT", qtd: 2, start: "2026-07-21", end: "2026-07-30" },
+  {
+    unidade: "SD SAQUAREMA",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 2,
+    start: "2026-07-21",
+    end: "2026-07-30",
+  },
   { unidade: "SD SEPETIBA", funcao: "SUPERVISOR", qtd: 2, start: "2026-09-21", end: "2026-10-02" },
   { unidade: "SD SEPETIBA", funcao: "FITTER", qtd: 20, start: "2026-09-21", end: "2026-10-02" },
   { unidade: "SD SEPETIBA", funcao: "WELDER", qtd: 2, start: "2026-09-21", end: "2026-10-02" },
   { unidade: "SD SEPETIBA", funcao: "IRATA N3", qtd: 3, start: "2026-09-21", end: "2026-10-02" },
-  { unidade: "SD SEPETIBA", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-09-21", end: "2026-10-02" },
-  { unidade: "SD SEPETIBA", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-09-21", end: "2026-10-02" },
-  { unidade: "SD SEPETIBA", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-09-21", end: "2026-10-02" },
+  {
+    unidade: "SD SEPETIBA",
+    funcao: "FITTER IRATA N1",
+    qtd: 4,
+    start: "2026-09-21",
+    end: "2026-10-02",
+  },
+  {
+    unidade: "SD SEPETIBA",
+    funcao: "WELDER IRATA N1",
+    qtd: 2,
+    start: "2026-09-21",
+    end: "2026-10-02",
+  },
+  {
+    unidade: "SD SEPETIBA",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 1,
+    start: "2026-09-21",
+    end: "2026-10-02",
+  },
   { unidade: "SD ANA NERY", funcao: "SUPERVISOR", qtd: 2, start: "2026-07-01", end: "2026-07-10" },
   { unidade: "SD ANA NERY", funcao: "FITTER", qtd: 8, start: "2026-07-01", end: "2026-07-10" },
   { unidade: "SD ANA NERY", funcao: "WELDER", qtd: 4, start: "2026-07-01", end: "2026-07-10" },
-  { unidade: "SD ANA NERY", funcao: "OPERADOR DE HABITAT", qtd: 4, start: "2026-07-01", end: "2026-07-10" },
+  {
+    unidade: "SD ANA NERY",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 4,
+    start: "2026-07-01",
+    end: "2026-07-10",
+  },
   { unidade: "SD ANA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-07-01", end: "2026-07-10" },
   { unidade: "POB INCREASE", funcao: "SUPERVISOR", qtd: 1, start: "2026-04-01", end: "2026-09-30" },
   { unidade: "POB INCREASE", funcao: "FITTER", qtd: 3, start: "2026-04-01", end: "2026-09-30" },
@@ -3467,7 +5020,13 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
   { unidade: "SD ADG", funcao: "WELDER", qtd: 3, start: "2026-10-20", end: "2026-10-30" },
   { unidade: "SD ADG", funcao: "FITTER", qtd: 22, start: "2026-10-20", end: "2026-10-30" },
   { unidade: "SD ADG", funcao: "INSPETOR", qtd: 1, start: "2026-10-20", end: "2026-10-30" },
-  { unidade: "SD ADG", funcao: "OPERADOR DE HABITAT", qtd: 3, start: "2026-10-20", end: "2026-10-30" },
+  {
+    unidade: "SD ADG",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 3,
+    start: "2026-10-20",
+    end: "2026-10-30",
+  },
   { unidade: "SD ADG", funcao: "IRATA N3", qtd: 1, start: "2026-10-20", end: "2026-10-30" },
   { unidade: "SD ADG", funcao: "FITTER IRATA N1", qtd: 6, start: "2026-10-20", end: "2026-10-30" },
   { unidade: "SD ADG", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-10-20", end: "2026-10-30" },
@@ -3475,42 +5034,180 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
   { unidade: "BW", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-07-28", end: "2026-08-01" },
   { unidade: "ATD", funcao: "SUPERVISOR MECANICA", qtd: 1, start: "2026-05-17", end: "2026-08-30" },
   { unidade: "ATD", funcao: "MECANICO", qtd: 2, start: "2026-05-21", end: "2026-08-30" },
-  { unidade: "ATD", funcao: "SUPERVISOR INSTRUMENTAÇÃO", qtd: 1, start: "2026-05-22", end: "2026-08-30" },
+  {
+    unidade: "ATD",
+    funcao: "SUPERVISOR INSTRUMENTAÇÃO",
+    qtd: 1,
+    start: "2026-05-22",
+    end: "2026-08-30",
+  },
   { unidade: "ATD", funcao: "INSTRUMENTISTA", qtd: 2, start: "2026-05-29", end: "2026-08-30" },
   { unidade: "SD ILHA BELA", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-15", end: "2026-11-30" },
-  { unidade: "SD ILHA BELA", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-11-15", end: "2026-11-30" },
+  {
+    unidade: "SD ILHA BELA",
+    funcao: "TECNICO MATERIAL",
+    qtd: 1,
+    start: "2026-11-15",
+    end: "2026-11-30",
+  },
   { unidade: "SD ILHA BELA", funcao: "IRATA N3", qtd: 2, start: "2026-11-15", end: "2026-11-30" },
-  { unidade: "SD ILHA BELA", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-11-15", end: "2026-11-30" },
-  { unidade: "SD ILHA BELA", funcao: "WELDER IRATA N1", qtd: 4, start: "2026-11-15", end: "2026-11-30" },
+  {
+    unidade: "SD ILHA BELA",
+    funcao: "FITTER IRATA N1",
+    qtd: 4,
+    start: "2026-11-15",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "SD ILHA BELA",
+    funcao: "WELDER IRATA N1",
+    qtd: 4,
+    start: "2026-11-15",
+    end: "2026-11-30",
+  },
   { unidade: "SD ILHA BELA", funcao: "FITTER", qtd: 20, start: "2026-11-15", end: "2026-11-30" },
   { unidade: "SD ILHA BELA", funcao: "INSPETOR", qtd: 2, start: "2026-11-15", end: "2026-11-30" },
-  { unidade: "SD ILHA BELA", funcao: "OPERADOR DE HABITAT", qtd: 2, start: "2026-11-15", end: "2026-11-30" },
+  {
+    unidade: "SD ILHA BELA",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 2,
+    start: "2026-11-15",
+    end: "2026-11-30",
+  },
   { unidade: "SD ANCHIETA", funcao: "SUPERVISOR", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
-  { unidade: "SD ANCHIETA", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
+  {
+    unidade: "SD ANCHIETA",
+    funcao: "TECNICO MATERIAL",
+    qtd: 1,
+    start: "2026-09-18",
+    end: "2026-10-05",
+  },
   { unidade: "SD ANCHIETA", funcao: "IRATA N3", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
-  { unidade: "SD ANCHIETA", funcao: "FITTER IRATA N1", qtd: 2, start: "2026-09-18", end: "2026-10-05" },
-  { unidade: "SD ANCHIETA", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
+  {
+    unidade: "SD ANCHIETA",
+    funcao: "FITTER IRATA N1",
+    qtd: 2,
+    start: "2026-09-18",
+    end: "2026-10-05",
+  },
+  {
+    unidade: "SD ANCHIETA",
+    funcao: "WELDER IRATA N1",
+    qtd: 1,
+    start: "2026-09-18",
+    end: "2026-10-05",
+  },
   { unidade: "SD ANCHIETA", funcao: "FITTER", qtd: 16, start: "2026-09-18", end: "2026-10-05" },
   { unidade: "SD ANCHIETA", funcao: "INSPETOR", qtd: 1, start: "2026-09-18", end: "2026-10-05" },
-  { unidade: "SD ANCHIETA", funcao: "OPERADOR DE HABITAT", qtd: 3, start: "2026-09-18", end: "2026-10-05" },
-  { unidade: "SD ESPIRITO SANTO", funcao: "SUPERVISOR", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
-  { unidade: "SD ESPIRITO SANTO", funcao: "TECNICO MATERIAL", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
-  { unidade: "SD ESPIRITO SANTO", funcao: "IRATA N3", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
-  { unidade: "SD ESPIRITO SANTO", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-09-15", end: "2026-10-05" },
-  { unidade: "SD ESPIRITO SANTO", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-09-15", end: "2026-10-05" },
-  { unidade: "SD ESPIRITO SANTO", funcao: "FITTER", qtd: 8, start: "2026-09-15", end: "2026-10-05" },
+  {
+    unidade: "SD ANCHIETA",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 3,
+    start: "2026-09-18",
+    end: "2026-10-05",
+  },
+  {
+    unidade: "SD ESPIRITO SANTO",
+    funcao: "SUPERVISOR",
+    qtd: 1,
+    start: "2026-09-15",
+    end: "2026-10-05",
+  },
+  {
+    unidade: "SD ESPIRITO SANTO",
+    funcao: "TECNICO MATERIAL",
+    qtd: 1,
+    start: "2026-09-15",
+    end: "2026-10-05",
+  },
+  {
+    unidade: "SD ESPIRITO SANTO",
+    funcao: "IRATA N3",
+    qtd: 1,
+    start: "2026-09-15",
+    end: "2026-10-05",
+  },
+  {
+    unidade: "SD ESPIRITO SANTO",
+    funcao: "FITTER IRATA N1",
+    qtd: 4,
+    start: "2026-09-15",
+    end: "2026-10-05",
+  },
+  {
+    unidade: "SD ESPIRITO SANTO",
+    funcao: "WELDER IRATA N1",
+    qtd: 1,
+    start: "2026-09-15",
+    end: "2026-10-05",
+  },
+  {
+    unidade: "SD ESPIRITO SANTO",
+    funcao: "FITTER",
+    qtd: 8,
+    start: "2026-09-15",
+    end: "2026-10-05",
+  },
   { unidade: "SD PARATY", funcao: "SUPERVISOR", qtd: 2, start: "2027-03-01", end: "2027-03-15" },
   { unidade: "SD PARATY", funcao: "FITTER", qtd: 20, start: "2027-03-01", end: "2027-03-15" },
   { unidade: "SD PARATY", funcao: "WELDER", qtd: 2, start: "2027-03-01", end: "2027-03-15" },
   { unidade: "SD PARATY", funcao: "IRATA N3", qtd: 3, start: "2027-03-01", end: "2027-03-15" },
-  { unidade: "SD PARATY", funcao: "FITTER IRATA N1", qtd: 4, start: "2027-03-01", end: "2027-03-15" },
-  { unidade: "SD PARATY", funcao: "WELDER IRATA N1", qtd: 2, start: "2027-03-01", end: "2027-03-15" },
-  { unidade: "SD PARATY", funcao: "OPERADOR DE HABITAT", qtd: 3, start: "2027-03-01", end: "2027-03-15" },
-  { unidade: "SD MARIA QUITÉRIA", funcao: "SUPERVISOR", qtd: 2, start: "2026-11-13", end: "2026-11-30" },
-  { unidade: "SD MARIA QUITÉRIA", funcao: "FITTER", qtd: 8, start: "2026-11-13", end: "2026-11-30" },
-  { unidade: "SD MARIA QUITÉRIA", funcao: "WELDER", qtd: 4, start: "2026-11-13", end: "2026-11-30" },
-  { unidade: "SD MARIA QUITÉRIA", funcao: "OPERADOR DE HABITAT", qtd: 4, start: "2026-11-13", end: "2026-11-30" },
-  { unidade: "SD MARIA QUITÉRIA", funcao: "INSPETOR", qtd: 1, start: "2026-11-13", end: "2026-11-30" },
+  {
+    unidade: "SD PARATY",
+    funcao: "FITTER IRATA N1",
+    qtd: 4,
+    start: "2027-03-01",
+    end: "2027-03-15",
+  },
+  {
+    unidade: "SD PARATY",
+    funcao: "WELDER IRATA N1",
+    qtd: 2,
+    start: "2027-03-01",
+    end: "2027-03-15",
+  },
+  {
+    unidade: "SD PARATY",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 3,
+    start: "2027-03-01",
+    end: "2027-03-15",
+  },
+  {
+    unidade: "SD MARIA QUITÉRIA",
+    funcao: "SUPERVISOR",
+    qtd: 2,
+    start: "2026-11-13",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "SD MARIA QUITÉRIA",
+    funcao: "FITTER",
+    qtd: 8,
+    start: "2026-11-13",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "SD MARIA QUITÉRIA",
+    funcao: "WELDER",
+    qtd: 4,
+    start: "2026-11-13",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "SD MARIA QUITÉRIA",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 4,
+    start: "2026-11-13",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "SD MARIA QUITÉRIA",
+    funcao: "INSPETOR",
+    qtd: 1,
+    start: "2026-11-13",
+    end: "2026-11-30",
+  },
   { unidade: "ANNA NERY", funcao: "SUPERVISOR", qtd: 1, start: "2026-08-18", end: "2026-08-30" },
   { unidade: "ANNA NERY", funcao: "FITTER", qtd: 1, start: "2026-08-18", end: "2026-08-30" },
   { unidade: "ANNA NERY", funcao: "WELDER", qtd: 1, start: "2026-08-18", end: "2026-08-30" },
@@ -3531,24 +5228,132 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
   { unidade: "ANNA NERY", funcao: "FITTER", qtd: 1, start: "2026-12-10", end: "2026-12-20" },
   { unidade: "ANNA NERY", funcao: "WELDER", qtd: 1, start: "2026-12-10", end: "2026-12-20" },
   { unidade: "ANNA NERY", funcao: "INSPETOR", qtd: 1, start: "2026-12-10", end: "2026-12-20" },
-  { unidade: "CDI - EQUIPAMENTOS", funcao: "SUPERVISOR", qtd: 2, start: "2026-08-12", end: "2026-08-30" },
-  { unidade: "CDI - EQUIPAMENTOS", funcao: "FITTER", qtd: 6, start: "2026-08-12", end: "2026-08-30" },
-  { unidade: "POB INCREASE (flotel)", funcao: "SUPERVISOR", qtd: 4, start: "2026-10-15", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "WELDER", qtd: 5, start: "2026-10-15", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "FITTER", qtd: 10, start: "2026-10-15", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "IRATA N3", qtd: 2, start: "2026-10-15", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "FITTER IRATA N1", qtd: 4, start: "2026-10-15", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "WELDER IRATA N1", qtd: 2, start: "2026-10-15", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "INSPETOR", qtd: 2, start: "2026-10-15", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "DELINEADOR 3D", qtd: 1, start: "2026-10-14", end: "2026-12-24" },
-  { unidade: "POB INCREASE (flotel)", funcao: "PINTORES", qtd: 2, start: "2026-10-10", end: "2026-10-20" },
-  { unidade: "PERENCO - EQUIPE 2 (PCH1)", funcao: "IRATA N3", qtd: 1, start: "2026-10-15", end: "2026-12-31" },
-  { unidade: "PERENCO - EQUIPE 2 (PCH1)", funcao: "FITTER IRATA N1", qtd: 3, start: "2026-10-15", end: "2026-12-31" },
-  { unidade: "PERENCO - EQUIPE 2 (PCH1)", funcao: "WELDER IRATA N1", qtd: 3, start: "2026-10-15", end: "2026-12-31" },
-  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-01", end: "2026-12-31" },
-  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "FITTER", qtd: 3, start: "2026-11-01", end: "2026-12-31" },
-  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "WELDER", qtd: 3, start: "2026-11-01", end: "2026-12-31" },
-  { unidade: "PERENCO - EQUIPE 3 (SG'S)", funcao: "INSPETOR", qtd: 1, start: "2026-11-01", end: "2026-12-31" },
+  {
+    unidade: "CDI - EQUIPAMENTOS",
+    funcao: "SUPERVISOR",
+    qtd: 2,
+    start: "2026-08-12",
+    end: "2026-08-30",
+  },
+  {
+    unidade: "CDI - EQUIPAMENTOS",
+    funcao: "FITTER",
+    qtd: 6,
+    start: "2026-08-12",
+    end: "2026-08-30",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "SUPERVISOR",
+    qtd: 4,
+    start: "2026-10-15",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "WELDER",
+    qtd: 5,
+    start: "2026-10-15",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "FITTER",
+    qtd: 10,
+    start: "2026-10-15",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "IRATA N3",
+    qtd: 2,
+    start: "2026-10-15",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "FITTER IRATA N1",
+    qtd: 4,
+    start: "2026-10-15",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "WELDER IRATA N1",
+    qtd: 2,
+    start: "2026-10-15",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "INSPETOR",
+    qtd: 2,
+    start: "2026-10-15",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "DELINEADOR 3D",
+    qtd: 1,
+    start: "2026-10-14",
+    end: "2026-12-24",
+  },
+  {
+    unidade: "POB INCREASE (flotel)",
+    funcao: "PINTORES",
+    qtd: 2,
+    start: "2026-10-10",
+    end: "2026-10-20",
+  },
+  {
+    unidade: "PERENCO - EQUIPE 2 (PCH1)",
+    funcao: "IRATA N3",
+    qtd: 1,
+    start: "2026-10-15",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PERENCO - EQUIPE 2 (PCH1)",
+    funcao: "FITTER IRATA N1",
+    qtd: 3,
+    start: "2026-10-15",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PERENCO - EQUIPE 2 (PCH1)",
+    funcao: "WELDER IRATA N1",
+    qtd: 3,
+    start: "2026-10-15",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PERENCO - EQUIPE 3 (SG'S)",
+    funcao: "SUPERVISOR",
+    qtd: 1,
+    start: "2026-11-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PERENCO - EQUIPE 3 (SG'S)",
+    funcao: "FITTER",
+    qtd: 3,
+    start: "2026-11-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PERENCO - EQUIPE 3 (SG'S)",
+    funcao: "WELDER",
+    qtd: 3,
+    start: "2026-11-01",
+    end: "2026-12-31",
+  },
+  {
+    unidade: "PERENCO - EQUIPE 3 (SG'S)",
+    funcao: "INSPETOR",
+    qtd: 1,
+    start: "2026-11-01",
+    end: "2026-12-31",
+  },
   { unidade: "CVIT", funcao: "IRATA N3", qtd: 1, start: "2026-08-21", end: "2026-09-01" },
   { unidade: "CVIT", funcao: "FITTER IRATA N1", qtd: 1, start: "2026-08-21", end: "2026-09-01" },
   { unidade: "CVIT", funcao: "WELDER IRATA N1", qtd: 1, start: "2026-08-21", end: "2026-09-01" },
@@ -3556,34 +5361,142 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
   { unidade: "BW MAGNA", funcao: "FITTER", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
   { unidade: "BW MAGNA", funcao: "WELDER", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
   { unidade: "BW MAGNA", funcao: "INSPETOR", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
-  { unidade: "BW MAGNA", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-08-20", end: "2026-08-25" },
-  { unidade: "FORTE - MOB EXTRA", funcao: "SUPERVISOR", qtd: 1, start: "2026-08-31", end: "2026-09-07" },
-  { unidade: "FORTE - MOB EXTRA", funcao: "FITTER", qtd: 7, start: "2026-08-31", end: "2026-09-07" },
-  { unidade: "FORTE - MOB EXTRA", funcao: "WELDER", qtd: 7, start: "2026-08-31", end: "2026-09-07" },
-  { unidade: "FORTE - MOB EXTRA", funcao: "INSPETOR", qtd: 1, start: "2026-08-31", end: "2026-09-07" },
-  { unidade: "PARATY - TANQUE", funcao: "OPERADOR DE HABITAT", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
-  { unidade: "PARATY - TANQUE", funcao: "IRATA N3", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
+  {
+    unidade: "BW MAGNA",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 1,
+    start: "2026-08-20",
+    end: "2026-08-25",
+  },
+  {
+    unidade: "FORTE - MOB EXTRA",
+    funcao: "SUPERVISOR",
+    qtd: 1,
+    start: "2026-08-31",
+    end: "2026-09-07",
+  },
+  {
+    unidade: "FORTE - MOB EXTRA",
+    funcao: "FITTER",
+    qtd: 7,
+    start: "2026-08-31",
+    end: "2026-09-07",
+  },
+  {
+    unidade: "FORTE - MOB EXTRA",
+    funcao: "WELDER",
+    qtd: 7,
+    start: "2026-08-31",
+    end: "2026-09-07",
+  },
+  {
+    unidade: "FORTE - MOB EXTRA",
+    funcao: "INSPETOR",
+    qtd: 1,
+    start: "2026-08-31",
+    end: "2026-09-07",
+  },
+  {
+    unidade: "PARATY - TANQUE",
+    funcao: "OPERADOR DE HABITAT",
+    qtd: 1,
+    start: "2026-09-15",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "PARATY - TANQUE",
+    funcao: "IRATA N3",
+    qtd: 1,
+    start: "2026-09-15",
+    end: "2026-11-30",
+  },
   { unidade: "PARATY - TANQUE", funcao: "FITTER", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
   { unidade: "PARATY - TANQUE", funcao: "WELDER", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
-  { unidade: "PARATY - TANQUE", funcao: "INSPETOR", qtd: 1, start: "2026-09-15", end: "2026-11-30" },
-  { unidade: "PERENCO - PPG1", funcao: "SUPERVISOR", qtd: 1, start: "2026-10-30", end: "2026-11-30" },
-  { unidade: "PERENCO - PPG1", funcao: "MONTADOR ANDAIME", qtd: 2, start: "2026-10-30", end: "2026-11-15" },
+  {
+    unidade: "PARATY - TANQUE",
+    funcao: "INSPETOR",
+    qtd: 1,
+    start: "2026-09-15",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "PERENCO - PPG1",
+    funcao: "SUPERVISOR",
+    qtd: 1,
+    start: "2026-10-30",
+    end: "2026-11-30",
+  },
+  {
+    unidade: "PERENCO - PPG1",
+    funcao: "MONTADOR ANDAIME",
+    qtd: 2,
+    start: "2026-10-30",
+    end: "2026-11-15",
+  },
   { unidade: "PERENCO - PPG1", funcao: "FITTER", qtd: 3, start: "2026-10-30", end: "2026-11-30" },
   { unidade: "PERENCO - PPG1", funcao: "WELDER", qtd: 1, start: "2026-10-30", end: "2026-11-30" },
   { unidade: "PERENCO - PPG1", funcao: "INSPETOR", qtd: 1, start: "2026-10-30", end: "2026-11-30" },
-  { unidade: "PERENCO - PPG1", funcao: "SUPERVISOR ELÉTRICA", qtd: 1, start: "2026-11-10", end: "2026-12-10" },
-  { unidade: "PERENCO - PPG1", funcao: "ELETRICISTA", qtd: 1, start: "2026-11-10", end: "2026-12-10" },
-  { unidade: "P-55 ATLAS COPCO", funcao: "SUPERVISOR", qtd: 1, start: "2026-10-02", end: "2026-10-16" },
-  { unidade: "P-55 ATLAS COPCO", funcao: "INSPETOR", qtd: 1, start: "2026-10-02", end: "2026-10-16" },
+  {
+    unidade: "PERENCO - PPG1",
+    funcao: "SUPERVISOR ELÉTRICA",
+    qtd: 1,
+    start: "2026-11-10",
+    end: "2026-12-10",
+  },
+  {
+    unidade: "PERENCO - PPG1",
+    funcao: "ELETRICISTA",
+    qtd: 1,
+    start: "2026-11-10",
+    end: "2026-12-10",
+  },
+  {
+    unidade: "P-55 ATLAS COPCO",
+    funcao: "SUPERVISOR",
+    qtd: 1,
+    start: "2026-10-02",
+    end: "2026-10-16",
+  },
+  {
+    unidade: "P-55 ATLAS COPCO",
+    funcao: "INSPETOR",
+    qtd: 1,
+    start: "2026-10-02",
+    end: "2026-10-16",
+  },
   { unidade: "P-55 ATLAS COPCO", funcao: "FITTER", qtd: 6, start: "2026-10-02", end: "2026-10-16" },
   { unidade: "P-55 ATLAS COPCO", funcao: "WELDER", qtd: 2, start: "2026-10-02", end: "2026-10-16" },
   { unidade: "ATLANTA", funcao: "IRATA N3", qtd: 1, start: "2026-10-05", end: "2026-12-31" },
   { unidade: "ATLANTA", funcao: "FITTER", qtd: 6, start: "2026-10-05", end: "2026-12-31" },
   { unidade: "ATLANTA", funcao: "WELDER", qtd: 1, start: "2026-10-05", end: "2026-12-31" },
-  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "SUPERVISOR", qtd: 1, start: "2026-11-10", end: "2026-11-20" },
-  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "FITTER", qtd: 2, start: "2026-11-10", end: "2026-11-20" },
-  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "WELDER", qtd: 2, start: "2026-11-10", end: "2026-11-20" },
-  { unidade: "SEMCO - DEEPBLUE (Porto Açú)", funcao: "INSPETOR", qtd: 1, start: "2026-11-10", end: "2026-11-20" },
+  {
+    unidade: "SEMCO - DEEPBLUE (Porto Açú)",
+    funcao: "SUPERVISOR",
+    qtd: 1,
+    start: "2026-11-10",
+    end: "2026-11-20",
+  },
+  {
+    unidade: "SEMCO - DEEPBLUE (Porto Açú)",
+    funcao: "FITTER",
+    qtd: 2,
+    start: "2026-11-10",
+    end: "2026-11-20",
+  },
+  {
+    unidade: "SEMCO - DEEPBLUE (Porto Açú)",
+    funcao: "WELDER",
+    qtd: 2,
+    start: "2026-11-10",
+    end: "2026-11-20",
+  },
+  {
+    unidade: "SEMCO - DEEPBLUE (Porto Açú)",
+    funcao: "INSPETOR",
+    qtd: 1,
+    start: "2026-11-10",
+    end: "2026-11-20",
+  },
   { unidade: "FABRICA", funcao: "FITTER", qtd: 14, start: "2026-09-01", end: "2026-12-31" },
   { unidade: "FABRICA", funcao: "WELDER", qtd: 22, start: "2026-09-01", end: "2026-12-31" },
   { unidade: "FABRICA", funcao: "FITTER", qtd: 4, start: "2026-09-01", end: "2026-12-31" },
@@ -3603,10 +5516,10 @@ const PROVISAO_REAL: { unidade: string; funcao: string; qtd: number; start: stri
 // "FITTER IRATA" -> "CALDEIREIRO IRATA"). "PINTORES" é só diferença de plural dentro do
 // próprio arquivo em inglês, não tradução.
 const TRADUCAO_FUNCAO_PROVISAO: Record<string, string> = {
-  "WELDER": "SOLDADOR",
-  "FITTER": "CALDEIREIRO",
-  "PINTORES": "PINTOR",
-  "IRATA": "SUPERVISOR ESCALADOR",
+  WELDER: "SOLDADOR",
+  FITTER: "CALDEIREIRO",
+  PINTORES: "PINTOR",
+  IRATA: "SUPERVISOR ESCALADOR",
   "MONTADOR ANDAIME": "MONTADOR DE ANDAIMES / HABITAT",
   "MONTADOR DE ANDAIME": "MONTADOR DE ANDAIMES / HABITAT",
   "OPERADOR DE HABITAT": "MONTADOR DE ANDAIMES / HABITAT",
@@ -3630,17 +5543,30 @@ function LinhaDoTempoNomeacoesTab() {
     PROVISAO_REAL.forEach((r) => {
       // Junta linhas da MESMA Unidade(projeto)+função normalizada e MESMO período exato numa só
       // linha, somando a quantidade — mesma convenção de dedupe já usada antes com Nomeações.
-      const funcaoNormalizada = agruparFamiliaFuncaoLinhaTempo(traduzirFuncaoProvisao(normalizeFuncaoSemNivel(r.funcao)));
+      const funcaoNormalizada = agruparFamiliaFuncaoLinhaTempo(
+        traduzirFuncaoProvisao(normalizeFuncaoSemNivel(r.funcao)),
+      );
       const key = `${r.unidade}::${funcaoNormalizada}::${r.start}::${r.end}`;
-      if (!m.has(key)) m.set(key, { unidade: r.unidade, funcao: funcaoNormalizada, qtd: 0, start: r.start, end: r.end });
+      if (!m.has(key))
+        m.set(key, {
+          unidade: r.unidade,
+          funcao: funcaoNormalizada,
+          qtd: 0,
+          start: r.start,
+          end: r.end,
+        });
       m.get(key)!.qtd += r.qtd;
     });
-    return Array.from(m.values()).sort((a, b) => a.unidade.localeCompare(b.unidade, "pt-BR") || a.funcao.localeCompare(b.funcao, "pt-BR"));
+    return Array.from(m.values()).sort(
+      (a, b) =>
+        a.unidade.localeCompare(b.unidade, "pt-BR") || a.funcao.localeCompare(b.funcao, "pt-BR"),
+    );
   }, []);
 
   const horizonte = useMemo(() => {
     if (linhasDemanda.length === 0) return null;
-    let inicio = linhasDemanda[0].start, fim = linhasDemanda[0].end;
+    let inicio = linhasDemanda[0].start,
+      fim = linhasDemanda[0].end;
     linhasDemanda.forEach((l) => {
       if (l.start < inicio) inicio = l.start;
       if (l.end > fim) fim = l.end;
@@ -3648,7 +5574,10 @@ function LinhaDoTempoNomeacoesTab() {
     return { inicio, fim };
   }, [linhasDemanda]);
 
-  const dias = useMemo(() => (horizonte ? generateDateRange(horizonte.inicio, horizonte.fim) : []), [horizonte]);
+  const dias = useMemo(
+    () => (horizonte ? generateDateRange(horizonte.inicio, horizonte.fim) : []),
+    [horizonte],
+  );
 
   // Com o ano incluso (pedido dela, 2026-10-02) — a Provisão real cobre de 2026 até 2028, então
   // "17/10" sozinho (sem ano) ficava ambíguo entre os anos no cabeçalho de Dia/Semana.
@@ -3658,7 +5587,8 @@ function LinhaDoTempoNomeacoesTab() {
     // Granularidade "Dia" começa sempre em hoje (pedido dela, 2026-10-01) — dias passados não
     // interessam pra visualizar provisão/disponibilidade dia a dia; Semana/Mês continuam
     // mostrando o horizonte inteiro.
-    if (gran === "dia") return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDiaComAno(d), dias: [d] }));
+    if (gran === "dia")
+      return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDiaComAno(d), dias: [d] }));
     if (gran === "mes") {
       const m = new Map<string, string[]>();
       dias.forEach((d) => {
@@ -3667,7 +5597,10 @@ function LinhaDoTempoNomeacoesTab() {
         m.get(chave)!.push(d);
       });
       return Array.from(m.entries()).map(([chave, ds]) => ({
-        label: new Date(`${chave}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
+        label: new Date(`${chave}-01T12:00:00`).toLocaleDateString("pt-BR", {
+          month: "short",
+          year: "2-digit",
+        }),
         dias: ds,
       }));
     }
@@ -3712,7 +5645,9 @@ function LinhaDoTempoNomeacoesTab() {
       .map(([funcao, rows]) => ({
         funcao,
         total: rows.length,
-        porPeriodo: periodos.map((p) => rows.filter((r) => p.dias.some((d) => livreNoDia(r, d))).length),
+        porPeriodo: periodos.map(
+          (p) => rows.filter((r) => p.dias.some((d) => livreNoDia(r, d))).length,
+        ),
       }))
       .sort((a, b) => b.total - a.total);
   }, [planejamentoEmbarque, periodos]);
@@ -3722,7 +5657,11 @@ function LinhaDoTempoNomeacoesTab() {
   const demandaPorFuncaoPeriodo = useMemo(() => {
     const m = new Map<string, number[]>();
     linhasDemanda.forEach((l) => {
-      if (!m.has(l.funcao)) m.set(l.funcao, periodos.map(() => 0));
+      if (!m.has(l.funcao))
+        m.set(
+          l.funcao,
+          periodos.map(() => 0),
+        );
       const arr = m.get(l.funcao)!;
       periodos.forEach((p, i) => {
         if (ativoNoPeriodo(l.start, l.end, p.dias)) arr[i] += l.qtd;
@@ -3740,7 +5679,10 @@ function LinhaDoTempoNomeacoesTab() {
     const ordem = disponivelPorFuncaoPeriodo.map((r) => r.funcao);
     const vistas = new Set(ordem);
     demandaPorFuncaoPeriodo.forEach((_, funcao) => {
-      if (!vistas.has(funcao)) { ordem.push(funcao); vistas.add(funcao); }
+      if (!vistas.has(funcao)) {
+        ordem.push(funcao);
+        vistas.add(funcao);
+      }
     });
     return ordem;
   }, [disponivelPorFuncaoPeriodo, demandaPorFuncaoPeriodo]);
@@ -3754,9 +5696,15 @@ function LinhaDoTempoNomeacoesTab() {
   const demandaPorFuncaoDia = useMemo(() => {
     const m = new Map<string, number[]>();
     linhasDemanda.forEach((l) => {
-      if (!m.has(l.funcao)) m.set(l.funcao, diasComoPeriodos.map(() => 0));
+      if (!m.has(l.funcao))
+        m.set(
+          l.funcao,
+          diasComoPeriodos.map(() => 0),
+        );
       const arr = m.get(l.funcao)!;
-      diasComoPeriodos.forEach((p, i) => { if (ativoNoPeriodo(l.start, l.end, p.dias)) arr[i] += l.qtd; });
+      diasComoPeriodos.forEach((p, i) => {
+        if (ativoNoPeriodo(l.start, l.end, p.dias)) arr[i] += l.qtd;
+      });
     });
     return m;
   }, [linhasDemanda, diasComoPeriodos]);
@@ -3768,10 +5716,14 @@ function LinhaDoTempoNomeacoesTab() {
       if (!porFuncao.has(f)) porFuncao.set(f, []);
       porFuncao.get(f)!.push(r);
     });
-    return new Map(Array.from(porFuncao.entries()).map(([funcao, rows]) => [
-      funcao,
-      diasComoPeriodos.map((p) => rows.filter((r) => p.dias.some((d) => livreNoDia(r, d))).length),
-    ]));
+    return new Map(
+      Array.from(porFuncao.entries()).map(([funcao, rows]) => [
+        funcao,
+        diasComoPeriodos.map(
+          (p) => rows.filter((r) => p.dias.some((d) => livreNoDia(r, d))).length,
+        ),
+      ]),
+    );
   }, [planejamentoEmbarque, diasComoPeriodos]);
   const deficitPorFuncao = useMemo(() => {
     return funcoesUnificadas
@@ -3788,8 +5740,13 @@ function LinhaDoTempoNomeacoesTab() {
       .filter((r) => r.pico > 0)
       .sort((a, b) => b.pico - a.pico);
   }, [funcoesUnificadas, demandaPorFuncaoDia, disponivelPorFuncaoDia]);
-  const totalPessoasContratar = useMemo(() => deficitPorFuncao.reduce((s, r) => s + r.pico, 0), [deficitPorFuncao]);
-  const contratacaoChartConfig: ChartConfig = { pico: { label: "Pessoas a contratar", color: "#3B5068" } };
+  const totalPessoasContratar = useMemo(
+    () => deficitPorFuncao.reduce((s, r) => s + r.pico, 0),
+    [deficitPorFuncao],
+  );
+  const contratacaoChartConfig: ChartConfig = {
+    pico: { label: "Pessoas a contratar", color: "#3B5068" },
+  };
 
   // Cor da célula de Disponibilidade: vermelho quando o disponível não cobre a provisão daquele
   // período, amarelo quando cobre só por uma margem pequena (perto de não atender) e verde
@@ -3798,14 +5755,36 @@ function LinhaDoTempoNomeacoesTab() {
   const celulaDisponibilidade = (qtd: number, demanda: number) => {
     if (demanda <= 0) {
       return qtd > 0
-        ? { backgroundColor: "#12A277", color: "white", fontWeight: 700 as const, label: String(qtd) }
+        ? {
+            backgroundColor: "#12A277",
+            color: "white",
+            fontWeight: 700 as const,
+            label: String(qtd),
+          }
         : { label: "" };
     }
     const folga = qtd - demanda;
-    if (folga < 0) return { backgroundColor: "#DC2626", color: "white", fontWeight: 700 as const, label: String(qtd) };
+    if (folga < 0)
+      return {
+        backgroundColor: "#DC2626",
+        color: "white",
+        fontWeight: 700 as const,
+        label: String(qtd),
+      };
     const margem = Math.max(1, Math.ceil(demanda * 0.1));
-    if (folga <= margem) return { backgroundColor: "#D97706", color: "white", fontWeight: 700 as const, label: String(qtd) };
-    return { backgroundColor: "#12A277", color: "white", fontWeight: 700 as const, label: String(qtd) };
+    if (folga <= margem)
+      return {
+        backgroundColor: "#D97706",
+        color: "white",
+        fontWeight: 700 as const,
+        label: String(qtd),
+      };
+    return {
+      backgroundColor: "#12A277",
+      color: "white",
+      fontWeight: 700 as const,
+      label: String(qtd),
+    };
   };
 
   // Visual emprestado do mockup de referência dela ("Planejamento de Mão de Obra", 2026-10-01):
@@ -3816,10 +5795,12 @@ function LinhaDoTempoNomeacoesTab() {
   const HOJE_ACCENT = "#D85A30";
   const ZEBRA_BG = "#F3F8FD";
   const headerCellStyle = (isHoje: boolean) => ({
-    backgroundColor: HEADER_BG, color: "#fff",
+    backgroundColor: HEADER_BG,
+    color: "#fff",
     ...(isHoje ? { boxShadow: `inset 0 -3px 0 ${HOJE_ACCENT}` } : {}),
   });
-  const hojeShadow = (isHoje: boolean) => (isHoje ? { boxShadow: `inset 2px 0 0 ${HOJE_ACCENT}` } : {});
+  const hojeShadow = (isHoje: boolean) =>
+    isHoje ? { boxShadow: `inset 2px 0 0 ${HOJE_ACCENT}` } : {};
 
   return (
     <div className="space-y-3">
@@ -3828,10 +5809,13 @@ function LinhaDoTempoNomeacoesTab() {
           pra quem precisar conferir/editar a fonte original. */}
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900">
         <Info className="h-3.5 w-3.5 shrink-0" />
-        <span>Fonte da Provisão: <b>Planejamento</b></span>
+        <span>
+          Fonte da Provisão: <b>Planejamento</b>
+        </span>
         <a
           href="https://stepoilg-my.sharepoint.com/personal/douglas_jacinto_step-og_com/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fdouglas%5Fjacinto%5Fstep%2Dog%5Fcom%2FDocuments%2FArquivos%20de%20Chat%20do%20Microsoft%20Teams%2Fplanejamento%5Fmo%5Fstep%5Fv31%2Ehtml&parent=%2Fpersonal%2Fdouglas%5Fjacinto%5Fstep%2Dog%5Fcom%2FDocuments%2FArquivos%20de%20Chat%20do%20Microsoft%20Teams"
-          target="_blank" rel="noopener noreferrer"
+          target="_blank"
+          rel="noopener noreferrer"
           className="ml-auto flex items-center gap-1 font-medium text-sky-700 underline hover:text-sky-900"
         >
           Abrir planilha de planejamento <ExternalLink className="h-3 w-3" />
@@ -3841,8 +5825,13 @@ function LinhaDoTempoNomeacoesTab() {
         <div className="inline-flex rounded-md border bg-muted p-0.5">
           {(["dia", "semana", "mes"] as const).map((g) => (
             <button
-              key={g} type="button" onClick={() => setGran(g)}
-              className={cn("px-3 py-1 text-xs rounded transition capitalize font-medium", gran !== g && "text-muted-foreground")}
+              key={g}
+              type="button"
+              onClick={() => setGran(g)}
+              className={cn(
+                "px-3 py-1 text-xs rounded transition capitalize font-medium",
+                gran !== g && "text-muted-foreground",
+              )}
               style={gran === g ? { backgroundColor: HEADER_BG, color: "#fff" } : undefined}
             >
               {g === "mes" ? "Mês" : g}
@@ -3850,32 +5839,81 @@ function LinhaDoTempoNomeacoesTab() {
           ))}
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#2E75C7" }} />Provisão</span>
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#12A277" }} />Disponível — atende</span>
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#D97706" }} />Perto do limite</span>
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#DC2626" }} />Não atende</span>
-          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: "#000000" }} />Falta</span>
-          <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-0.5" style={{ backgroundColor: HOJE_ACCENT }} />Hoje</span>
+          <span className="flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-3.5 rounded-sm"
+              style={{ backgroundColor: "#2E75C7" }}
+            />
+            Provisão
+          </span>
+          <span className="flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-3.5 rounded-sm"
+              style={{ backgroundColor: "#12A277" }}
+            />
+            Disponível — atende
+          </span>
+          <span className="flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-3.5 rounded-sm"
+              style={{ backgroundColor: "#D97706" }}
+            />
+            Perto do limite
+          </span>
+          <span className="flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-3.5 rounded-sm"
+              style={{ backgroundColor: "#DC2626" }}
+            />
+            Não atende
+          </span>
+          <span className="flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-3.5 rounded-sm"
+              style={{ backgroundColor: "#000000" }}
+            />
+            Falta
+          </span>
+          <span className="flex items-center gap-1.5">
+            <i className="inline-block h-3 w-0.5" style={{ backgroundColor: HOJE_ACCENT }} />
+            Hoje
+          </span>
           <span>número = pessoas</span>
         </div>
       </div>
 
       {funcoesUnificadas.length === 0 || !horizonte ? (
-        <EmptyState icon={ClipboardList} title="Nenhuma nomeação com período programado encontrada" />
+        <EmptyState
+          icon={ClipboardList}
+          title="Nenhuma nomeação com período programado encontrada"
+        />
       ) : (
         <Card className="overflow-auto p-0" style={{ maxHeight: 620 }}>
           <div className="sticky top-0 z-20 border-b bg-background p-3">
             <h3 className="text-sm font-semibold">Provisão × Disponibilidade × Falta de POB</h3>
-            <p className="text-xs text-muted-foreground">Cada período mostra, lado a lado: Provisão (demanda planejada nas nomeações), Disponibilidade (quem está livre fora da janela Embarque→Desembarque) e Falta (quantas pessoas estão faltando pra cobrir a demanda), por Função.</p>
+            <p className="text-xs text-muted-foreground">
+              Cada período mostra, lado a lado: Provisão (demanda planejada nas nomeações),
+              Disponibilidade (quem está livre fora da janela Embarque→Desembarque) e Falta (quantas
+              pessoas estão faltando pra cobrir a demanda), por Função.
+            </p>
           </div>
           <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
             <thead className="sticky top-[57px] z-10">
               <tr>
-                <th className="sticky left-0 z-20 min-w-[160px] border border-border px-2 py-1.5 text-left font-semibold uppercase tracking-wide" style={headerCellStyle(false)}>Função</th>
+                <th
+                  className="sticky left-0 z-20 min-w-[160px] border border-border px-2 py-1.5 text-left font-semibold uppercase tracking-wide"
+                  style={headerCellStyle(false)}
+                >
+                  Função
+                </th>
                 {periodos.map((p, i) => {
                   const isHoje = p.dias.includes(hoje);
                   return (
-                    <th key={i} className="min-w-[108px] border border-border px-1 py-1 text-center font-semibold uppercase tracking-wide" style={headerCellStyle(isHoje)}>
+                    <th
+                      key={i}
+                      className="min-w-[108px] border border-border px-1 py-1 text-center font-semibold uppercase tracking-wide"
+                      style={headerCellStyle(isHoje)}
+                    >
                       {p.label}
                     </th>
                   );
@@ -3885,28 +5923,62 @@ function LinhaDoTempoNomeacoesTab() {
             <tbody>
               {funcoesUnificadas.map((funcao, idx) => {
                 const provisao = demandaPorFuncaoPeriodo.get(funcao) ?? periodos.map(() => 0);
-                const disponivel = disponivelPorFuncaoPeriodo.find((r) => r.funcao === funcao)?.porPeriodo ?? periodos.map(() => 0);
+                const disponivel =
+                  disponivelPorFuncaoPeriodo.find((r) => r.funcao === funcao)?.porPeriodo ??
+                  periodos.map(() => 0);
                 const zebra = idx % 2 === 1;
                 const zebraBg = zebra ? ZEBRA_BG : "#fff";
                 return (
                   <tr key={funcao}>
-                    <td className="sticky left-0 z-10 border border-border px-2 py-1" style={{ backgroundColor: zebraBg }}>{funcao}</td>
+                    <td
+                      className="sticky left-0 z-10 border border-border px-2 py-1"
+                      style={{ backgroundColor: zebraBg }}
+                    >
+                      {funcao}
+                    </td>
                     {periodos.map((p, i) => {
                       const isHoje = p.dias.includes(hoje);
                       const tot = provisao[i] ?? 0;
                       const qtd = disponivel[i] ?? 0;
                       const falta = Math.max(tot - qtd, 0);
-                      const { label: dispLabel, backgroundColor: dispBg, ...dispResto } = celulaDisponibilidade(qtd, tot);
+                      const {
+                        label: dispLabel,
+                        backgroundColor: dispBg,
+                        ...dispResto
+                      } = celulaDisponibilidade(qtd, tot);
                       return (
                         <td key={i} className="border border-border p-0" style={hojeShadow(isHoje)}>
-                          <div className="flex items-stretch divide-x divide-border/70" style={{ backgroundColor: zebraBg }}>
-                            <div className="flex-1 py-1 text-center" title="Provisão" style={tot > 0 ? { backgroundColor: "#2E75C7", color: "white", fontWeight: 700 } : undefined}>
+                          <div
+                            className="flex items-stretch divide-x divide-border/70"
+                            style={{ backgroundColor: zebraBg }}
+                          >
+                            <div
+                              className="flex-1 py-1 text-center"
+                              title="Provisão"
+                              style={
+                                tot > 0
+                                  ? { backgroundColor: "#2E75C7", color: "white", fontWeight: 700 }
+                                  : undefined
+                              }
+                            >
                               {tot > 0 ? tot : ""}
                             </div>
-                            <div className="flex-1 py-1 text-center" title="Disponibilidade" style={{ backgroundColor: dispBg, ...dispResto }}>
+                            <div
+                              className="flex-1 py-1 text-center"
+                              title="Disponibilidade"
+                              style={{ backgroundColor: dispBg, ...dispResto }}
+                            >
                               {dispLabel}
                             </div>
-                            <div className="flex-1 py-1 text-center" title="Falta" style={falta > 0 ? { backgroundColor: "#000000", color: "white", fontWeight: 700 } : undefined}>
+                            <div
+                              className="flex-1 py-1 text-center"
+                              title="Falta"
+                              style={
+                                falta > 0
+                                  ? { backgroundColor: "#000000", color: "white", fontWeight: 700 }
+                                  : undefined
+                              }
+                            >
                               {falta > 0 ? falta : ""}
                             </div>
                           </div>
@@ -3926,17 +5998,27 @@ function LinhaDoTempoNomeacoesTab() {
           <div>
             <h3 className="text-sm font-semibold">Necessidade de Contratação</h3>
             <p className="text-xs text-muted-foreground">
-              Quantas pessoas faltam, por Função, no pico de demanda (Provisão − Disponibilidade) em todo o horizonte planejado — contratando esse tanto, a função fica coberta em qualquer dia, não só no período em tela acima.
+              Quantas pessoas faltam, por Função, no pico de demanda (Provisão − Disponibilidade) em
+              todo o horizonte planejado — contratando esse tanto, a função fica coberta em qualquer
+              dia, não só no período em tela acima.
             </p>
           </div>
           <div className="grid max-w-md grid-cols-2 gap-3">
             <div className="rounded-md border p-3">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Funções a contratar</p>
-              <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>{deficitPorFuncao.length}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Funções a contratar
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>
+                {deficitPorFuncao.length}
+              </p>
             </div>
             <div className="rounded-md border p-3">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pessoas a contratar</p>
-              <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>{totalPessoasContratar}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Pessoas a contratar
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>
+                {totalPessoasContratar}
+              </p>
             </div>
           </div>
           <ChartContainer config={contratacaoChartConfig} className="aspect-auto h-[260px] w-full">
@@ -3948,19 +6030,38 @@ function LinhaDoTempoNomeacoesTab() {
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="funcao" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
+              <XAxis
+                dataKey="funcao"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 10 }}
+                angle={-35}
+                textAnchor="end"
+                interval={0}
+                height={70}
+              />
               <YAxis hide />
-              <ChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent indicator="dot" />} />
+              <ChartTooltip
+                cursor={{ fill: "var(--color-muted)" }}
+                content={<ChartTooltipContent indicator="dot" />}
+              />
               <Bar dataKey="pico" fill="url(#contratacao-gradient)" radius={[6, 6, 0, 0]}>
-                <LabelList dataKey="pico" position="top" style={{ fontSize: 11, fontWeight: 700 }} />
+                <LabelList
+                  dataKey="pico"
+                  position="top"
+                  style={{ fontSize: 11, fontWeight: 700 }}
+                />
               </Bar>
             </BarChart>
           </ChartContainer>
         </Card>
-      ) : funcoesUnificadas.length > 0 && (
-        <Card className="p-4 text-sm text-muted-foreground">
-          Nenhuma função precisa de contratação — a disponibilidade cobre o pico da provisão em todo o horizonte planejado.
-        </Card>
+      ) : (
+        funcoesUnificadas.length > 0 && (
+          <Card className="p-4 text-sm text-muted-foreground">
+            Nenhuma função precisa de contratação — a disponibilidade cobre o pico da provisão em
+            todo o horizonte planejado.
+          </Card>
+        )
       )}
     </div>
   );
@@ -3985,12 +6086,20 @@ function LinhaDoTempoNomeacoesTab() {
 // (aprovacao_tecnica) em /admin/nominations (pedido dela, 2026-10-05: todas as abas, mas criar
 // solicitação não é papel dela).
 export function NominationsPage({
-  onlyKanban = false, solicitanteArea = false, hideAptidao = false, hideCreate = false,
-}: { onlyKanban?: boolean; solicitanteArea?: boolean; hideAptidao?: boolean; hideCreate?: boolean } = {}) {
-  const [selected, setSelected]       = useState<Nomination | null>(null);
-  const [showCreate, setShowCreate]   = useState(false);
+  onlyKanban = false,
+  solicitanteArea = false,
+  hideAptidao = false,
+  hideCreate = false,
+}: {
+  onlyKanban?: boolean;
+  solicitanteArea?: boolean;
+  hideAptidao?: boolean;
+  hideCreate?: boolean;
+} = {}) {
+  const [selected, setSelected] = useState<Nomination | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("todos");
-  const [search, setSearch]           = useState("");
+  const [search, setSearch] = useState("");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   // Guarda só os ids do grupo (não os objetos) — o SimulacaoTab relê da mesma query cacheada
   // de nominations, assim quantidade/status editados durante a Simulação aparecem na hora, sem
@@ -4087,17 +6196,31 @@ export function NominationsPage({
         {canViewAs && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Ver como outro papel">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                title="Ver como outro papel"
+              >
                 <Eye className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setViewAsRole(null)} className={!viewAsRole ? "font-medium" : undefined}>
-                {!viewAsRole && <Check className="mr-2 h-3.5 w-3.5" />}Meu acesso (Operador Logístico)
+              <DropdownMenuItem
+                onClick={() => setViewAsRole(null)}
+                className={!viewAsRole ? "font-medium" : undefined}
+              >
+                {!viewAsRole && <Check className="mr-2 h-3.5 w-3.5" />}Meu acesso (Operador
+                Logístico)
               </DropdownMenuItem>
               {VIEW_AS_ROLES.map((r) => (
-                <DropdownMenuItem key={r.value} onClick={() => setViewAsRole(r.value)} className={viewAsRole === r.value ? "font-medium" : undefined}>
-                  {viewAsRole === r.value && <Check className="mr-2 h-3.5 w-3.5" />}{r.label}
+                <DropdownMenuItem
+                  key={r.value}
+                  onClick={() => setViewAsRole(r.value)}
+                  className={viewAsRole === r.value ? "font-medium" : undefined}
+                >
+                  {viewAsRole === r.value && <Check className="mr-2 h-3.5 w-3.5" />}
+                  {r.label}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -4129,7 +6252,10 @@ export function NominationsPage({
           <TabsContent value="simulacao" className="pt-4">
             <SimulacaoTab
               focusGroupIds={simulacaoFocusIds}
-              onExitFocus={() => { setSimulacaoFocusIds(null); setTab("nomeacoes"); }}
+              onExitFocus={() => {
+                setSimulacaoFocusIds(null);
+                setTab("nomeacoes");
+              }}
             />
           </TabsContent>
         )}
@@ -4150,7 +6276,9 @@ export function NominationsPage({
             >
               <option value="todos">Todos os status</option>
               {ALL_STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                <option key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </option>
               ))}
             </select>
             <div className="ml-auto flex items-center gap-2">
@@ -4163,7 +6291,9 @@ export function NominationsPage({
             </div>
           </div>
 
-          {!onlyKanban && !solicitanteArea && showCreate && <CreateNominationDialog onClose={() => setShowCreate(false)} />}
+          {!onlyKanban && !solicitanteArea && showCreate && (
+            <CreateNominationDialog onClose={() => setShowCreate(false)} />
+          )}
 
           {isLoading ? (
             <div className="flex justify-center py-12">
@@ -4186,7 +6316,10 @@ export function NominationsPage({
         {/* ── Mapa das Nomeações (matriz Unidade x Etapa) ── */}
         {!onlyKanban && (
           <TabsContent value="mapa" className="pt-4">
-            <MapaNomeacoesTab nominations={nominations} nomineesByNomination={nomineesByNomination} />
+            <MapaNomeacoesTab
+              nominations={nominations}
+              nomineesByNomination={nomineesByNomination}
+            />
           </TabsContent>
         )}
 
