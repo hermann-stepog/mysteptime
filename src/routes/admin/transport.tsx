@@ -283,6 +283,17 @@ function compareCarNumber(a: string, b: string) {
   return a.localeCompare(b);
 }
 
+// Mesma regra do formulário (TripDialog): Cartão de Crédito mostra só mês/ano ("Mês de
+// referência"); Faturado (ou vazio) mostra a data cheia — ver data_faturamento no payload.
+function fmtFaturamento(t: Trip): string {
+  if (!t.data_faturamento) return "—";
+  if (t.forma_pagamento === "Cartão de Crédito") {
+    const [ano, mes] = t.data_faturamento.split("-");
+    return `${mes}/${ano}`;
+  }
+  return fmtDate(t.data_faturamento);
+}
+
 // Monta a linha de planilha de uma viagem — compartilhado entre o export do módulo de
 // Relatórios (generateRelatorioTransporte, busca tudo do zero) e o botão de exportar do
 // Quadro Detalhado (exporta só o que já está filtrado na tela, sem nova consulta).
@@ -304,6 +315,7 @@ function tripToRelatorioRow(
     "BSP 2": t.bsp_2 ?? "",
     "BSP 3": t.bsp_3 ?? "",
     "Forma de pagamento": t.forma_pagamento ?? "",
+    "Mês de Referência / Data Faturamento": fmtFaturamento(t),
     Unidade: (t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ?? "",
     Etiquetas: t.tags
       .map((x) => tagsById.get(x.tag_id)?.name)
@@ -3710,6 +3722,7 @@ type DetailSortColumn =
   | "cliente"
   | "bsp"
   | "forma_pagamento"
+  | "faturamento"
   | "nf"
   | "etiquetas"
   | "horario"
@@ -3808,6 +3821,8 @@ function DetailView({
           return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
         case "forma_pagamento":
           return t.forma_pagamento ?? "";
+        case "faturamento":
+          return t.data_faturamento ?? "";
         case "nf":
           return t.nf ?? "";
         case "etiquetas":
@@ -4046,6 +4061,14 @@ function DetailView({
                 className="hidden md:table-cell"
               />
               <SortableHead
+                label="Mês Ref. / Data Fat."
+                column="faturamento"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden md:table-cell"
+              />
+              <SortableHead
                 label="NF"
                 column="nf"
                 sortColumn={sortColumn}
@@ -4130,6 +4153,7 @@ function DetailView({
                 <TableCell className="hidden md:table-cell">
                   {t.forma_pagamento ?? "—"}
                 </TableCell>
+                <TableCell className="hidden md:table-cell">{fmtFaturamento(t)}</TableCell>
                 <TableCell className="hidden md:table-cell">{t.nf ?? "—"}</TableCell>
                 <TableCell className="hidden xl:table-cell">
                   <div className="flex flex-wrap gap-1">
@@ -4204,7 +4228,7 @@ function DetailView({
             ))}
             {filtered.length === 0 && (
               <EmptyStateRow
-                colSpan={15}
+                colSpan={16}
                 icon={Package}
                 title="Sem viagens"
                 description="Ajuste os filtros ou cadastre uma nova viagem."
@@ -4221,6 +4245,7 @@ function DetailView({
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell></TableCell>
+                <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
