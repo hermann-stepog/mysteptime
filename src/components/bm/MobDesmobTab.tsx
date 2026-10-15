@@ -7,6 +7,7 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 // bm_mob_desmob_costs ainda não está no types.ts gerado — mesmo padrão das outras tabelas de BM.
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
+import { parseValorForm } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -450,8 +451,8 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
       if (!novo.bsp.trim()) throw new Error("Informe o BSP.");
       if (!novo.data) throw new Error("Informe a data.");
       const qtd = Number(novo.qtd) || 0;
-      const valor = Number(novo.valor) || 0;
-      const markup = novo.markup.trim() ? Number(novo.markup) : null;
+      const valor = parseValorForm(novo.valor) ?? 0;
+      const markup = novo.markup.trim() ? parseValorForm(novo.markup) : null;
       const { error } = await supabase.from("bm_mob_desmob_costs").insert({
         nome: novo.nome.trim(), bsp: novo.bsp.trim(), data: novo.data, categoria: novo.categoria,
         qtd, valor, markup, total_cost: round2(qtd * valor + (markup ?? 0)), notes: novo.notes.trim() || null,
@@ -778,11 +779,11 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
               </div>
               <div>
                 <Label className="text-xs">Valor unitário</Label>
-                <Input type="number" step="0.01" value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} />
+                <Input type="text" inputMode="decimal" value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} />
               </div>
               <div>
                 <Label className="text-xs">Markup (opcional)</Label>
-                <Input type="number" step="0.01" value={novo.markup} onChange={(e) => setNovo({ ...novo, markup: e.target.value })} />
+                <Input type="text" inputMode="decimal" value={novo.markup} onChange={(e) => setNovo({ ...novo, markup: e.target.value })} />
               </div>
               <div>
                 <Label className="text-xs">Notes</Label>

@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { MOTIVOS_LOGISTICA, FORMAS_PAGAMENTO } from "@/lib/logistica";
 import { matchesNameSearch } from "@/lib/utils";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { parseValorForm } from "@/lib/format";
 
 // Campos de formulário compartilhados entre os módulos de logística (Hospedagem, Passagens
 // Aéreas, e o que mais vier depois) — evita duplicar a mesma lógica de combobox em cada módulo.
@@ -77,6 +78,15 @@ export function NomeUsuarioField({ value, onChange, colaboradores }: {
           value={value}
           onChange={(e) => { onChange(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            // Mesmo comportamento do combobox de Colaborador em Transporte: digitar as
+            // primeiras letras e apertar Enter já escolhe a primeira sugestão da lista.
+            if (e.key === "Enter" && sugestoes.length > 0) {
+              e.preventDefault();
+              onChange(sugestoes[0].nome);
+              setOpen(false);
+            }
+          }}
           placeholder="Nome de quem vai utilizar"
           autoComplete="off"
         />
@@ -194,7 +204,7 @@ export function useRateioPercentual(numLinhas: number) {
   const [valorTotal, setValorTotal] = useState("");
   const [percentuais, setPercentuaisState] = useState<string[]>(["100", "", ""]);
 
-  const total = toNumber(valorTotal);
+  const total = parseValorForm(valorTotal) ?? 0;
   const somaPercentual = round2(percentuais.slice(0, numLinhas).reduce((soma, p) => soma + toNumber(p), 0));
   const valores = percentuais.map((p) => round2(total * toNumber(p) / 100));
 
@@ -228,7 +238,7 @@ export function RateioPercentualPanel({ rateio, labels }: { rateio: UseRateioPer
           <div className="max-w-[220px]">
             <Label className="text-xs">Valor total do lançamento</Label>
             <Input
-              type="number" step="0.01" min="0" inputMode="decimal"
+              type="text" inputMode="decimal"
               value={rateio.valorTotal} onChange={(e) => rateio.setValorTotal(e.target.value)}
               placeholder="R$ 0,00"
             />

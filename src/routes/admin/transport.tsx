@@ -18,6 +18,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -103,7 +114,7 @@ import {
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
-import { fmtDate, fmtDateTime, fmtMoney, toDisplayCase } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtMoney, toDisplayCase, parseValorForm } from "@/lib/format";
 import { cn, matchesNameSearch } from "@/lib/utils";
 import {
   PieChart,
@@ -251,19 +262,6 @@ function fmtTime(iso: string) {
     new Date(iso),
   );
 }
-// Soma o valor rateado entre os até 3 BSPs de uma viagem (null quando nenhum foi preenchido).
-// Valor digitado no formulário — aceita o jeito brasileiro ("R$ 1.234,56", "1234,56") e também
-// o formato com ponto decimal. Sem isso, Number("1.234,56") virava NaN e o salvamento falhava.
-function parseValorForm(raw: string): number | null {
-  const limpo = raw.replace(/[^\d.,-]/g, "").trim();
-  if (!limpo) return null;
-  const temVirgula = limpo.includes(",");
-  // Com vírgula, ela é o separador decimal e o ponto é separador de milhar.
-  const normalizado = temVirgula ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
-  const n = Number(normalizado);
-  return Number.isFinite(n) ? n : null;
-}
-
 // Avisa em vez de gravar nulo quando o que foi digitado não é um número reconhecível.
 function valorOuErro(raw: string, campo: string): number | null {
   if (!raw.trim()) return null;
@@ -922,7 +920,7 @@ const MOTIVOS_TRANSPORTE = [
   "Emergência (SMS)",
 ] as const;
 
-const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
+const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step", "Rodoviário"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
 const UBER_SOLICITADO_VIA_OPCOES = ["Computador", "Celular"];
@@ -1747,9 +1745,28 @@ function TripDialog({
         </div>
         <DialogFooter className="gap-2">
           {f.id && (
-            <Button variant="destructive" onClick={() => del.mutate()} loading={del.isPending}>
-              Excluir
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" loading={del.isPending}>
+                  Excluir
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir viagem?</AlertDialogTitle>
+                  <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => del.mutate()}
+                  >
+                    Excluir
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
           <Button
             onClick={() => save.mutate()}

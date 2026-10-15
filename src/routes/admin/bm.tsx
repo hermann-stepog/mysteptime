@@ -7,6 +7,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // é refeito (mesmo padrão já usado em admin/nominations.tsx e admin/rates.tsx).
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
+import { parseValorForm } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1637,8 +1638,8 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
             <div className="mt-3 border-t pt-3">
               <Label className="text-xs">Valor manual de Logística</Label>
               <Input
-                type="number" step="0.01" value={logisticaManual}
-                onChange={(e) => setLogisticaManual(Number(e.target.value) || 0)}
+                type="text" inputMode="decimal" value={logisticaManual}
+                onChange={(e) => setLogisticaManual(parseValorForm(e.target.value) ?? 0)}
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Lançamento manual, somado ao total acima e enviado pra folha de rosto do BM gerado.
@@ -1773,13 +1774,13 @@ function GerarBmWizard({ reopenBm, onConsumedReopen, onAdicionarCusto }: {
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
                   <Label className="text-xs">Pós Processamento</Label>
-                  <Input type="number" step="0.01" value={posProcessamento}
-                    onChange={(e) => setPosProcessamento(Number(e.target.value) || 0)} />
+                  <Input type="text" inputMode="decimal" value={posProcessamento}
+                    onChange={(e) => setPosProcessamento(parseValorForm(e.target.value) ?? 0)} />
                 </div>
                 <div>
                   <Label className="text-xs">Team Mob/Desmob</Label>
-                  <Input type="number" step="0.01" value={teamMobDesmob}
-                    onChange={(e) => setTeamMobDesmob(Number(e.target.value) || 0)} />
+                  <Input type="text" inputMode="decimal" value={teamMobDesmob}
+                    onChange={(e) => setTeamMobDesmob(parseValorForm(e.target.value) ?? 0)} />
                 </div>
               </div>
               <div>
@@ -2271,8 +2272,8 @@ function LogisticaStep({ lines, setLines }: { lines: Omit<BmLineLogistica, "id" 
               <TableCell>{l.cost_type}{l.is_manual && <span className="ml-1 text-[10px] text-muted-foreground">(manual)</span>}</TableCell>
               <TableCell>{l.vendor_name ?? "—"}</TableCell>
               <TableCell>
-                <Input type="number" step="0.01" className="h-7 w-28 text-xs" value={l.amount}
-                  onChange={(e) => setLines(lines.map((x, xi) => xi === i ? { ...x, amount: Number(e.target.value) || 0 } : x))} />
+                <Input type="text" inputMode="decimal" className="h-7 w-28 text-xs" value={l.amount}
+                  onChange={(e) => setLines(lines.map((x, xi) => xi === i ? { ...x, amount: parseValorForm(e.target.value) ?? 0 } : x))} />
               </TableCell>
               <TableCell><Input className="h-7 text-xs" value={l.notes ?? ""} onChange={(e) => setLines(lines.map((x, xi) => xi === i ? { ...x, notes: e.target.value } : x))} /></TableCell>
               <TableCell><Button size="icon" variant="ghost" onClick={() => setLines(lines.filter((_, xi) => xi !== i))}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button></TableCell>
@@ -2325,9 +2326,9 @@ function MateriaisStep({ lines, setLines, clientAtual, poNumber }: {
                     <TableCell><Input className="h-7 w-24 text-xs" value={l.bsp ?? ""} onChange={(e) => setLines(lines.map((x, xi) => xi === i ? { ...x, bsp: e.target.value } : x))} /></TableCell>
                   )}
                   <TableCell>
-                    <Input type="number" step="0.01" className="h-7 w-24 text-xs" value={l.valor_diario ?? ""}
+                    <Input type="text" inputMode="decimal" className="h-7 w-24 text-xs" value={l.valor_diario ?? ""}
                       onChange={(e) => {
-                        const valorDiario = e.target.value === "" ? null : Number(e.target.value);
+                        const valorDiario = e.target.value === "" ? null : parseValorForm(e.target.value);
                         setLines(lines.map((x, xi) => xi === i ? { ...x, valor_diario: valorDiario, valor_total: round2((valorDiario ?? 0) * x.qtd) } : x));
                       }} />
                   </TableCell>

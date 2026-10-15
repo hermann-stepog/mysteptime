@@ -13,6 +13,7 @@ export interface HotelFornecedor {
 export interface Hospedagem {
   id: string;
   created_at: string;
+  data_lancamento: string | null;
   unidade: string;
   unidade_2: string | null;
   unidade_3: string | null;

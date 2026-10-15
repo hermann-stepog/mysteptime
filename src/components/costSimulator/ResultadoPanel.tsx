@@ -13,6 +13,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import type { ResultadoSimulacao } from "@/lib/costSimulator";
+import { parseValorForm } from "@/lib/format";
 
 // Painel de resultado: KPIs, tabela por categoria (com valor por pessoa e override manual por
 // linha) e o gráfico de ritmo acumulado. Exportação em PDF captura os blocos marcados com
@@ -114,14 +115,14 @@ export function ResultadoPanel({
                 <td className="py-1.5 pr-2 text-muted-foreground">{c.base}</td>
                 <td className="py-1.5 pr-2">
                   <Input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     className="h-8 w-28"
                     value={overrides[c.chaveOverride] ?? ""}
                     placeholder={formatBRL(c.unitario)}
                     onChange={(e) => {
                       const v = e.target.value;
-                      onChangeOverride(c.chaveOverride, v === "" ? null : Number(v) || 0);
+                      onChangeOverride(c.chaveOverride, v === "" ? null : (parseValorForm(v) ?? 0));
                     }}
                   />
                 </td>

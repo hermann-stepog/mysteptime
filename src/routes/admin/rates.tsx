@@ -7,6 +7,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // o build enquanto a migration não roda contra o banco remoto e o codegen não é refeito.
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
+import { parseValorForm } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -538,14 +539,14 @@ function RatesPage() {
               </div>
               <div><Label>Função</Label><Input value={editing.funcao} onChange={(e) => setEditing({ ...editing, funcao: e.target.value })} /></div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div><Label>Rate Embarque (R$/dia)</Label><Input type="number" step="0.01" value={editing.rate_embarque ?? ""} onChange={(e) => setEditing({ ...editing, rate_embarque: e.target.value === "" ? null : Number(e.target.value) })} /></div>
-                <div><Label>Rate Dobra (R$/dia)</Label><Input type="number" step="0.01" value={editing.rate_dobra ?? ""} onChange={(e) => setEditing({ ...editing, rate_dobra: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+                <div><Label>Rate Embarque (R$/dia)</Label><Input type="text" inputMode="decimal" value={editing.rate_embarque ?? ""} onChange={(e) => setEditing({ ...editing, rate_embarque: e.target.value === "" ? null : parseValorForm(e.target.value) })} /></div>
+                <div><Label>Rate Dobra (R$/dia)</Label><Input type="text" inputMode="decimal" value={editing.rate_dobra ?? ""} onChange={(e) => setEditing({ ...editing, rate_dobra: e.target.value === "" ? null : parseValorForm(e.target.value) })} /></div>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div><Label>Rate Hotel (R$/dia)</Label><Input type="number" step="0.01" value={editing.rate_hotel ?? ""} onChange={(e) => setEditing({ ...editing, rate_hotel: e.target.value === "" ? null : Number(e.target.value) })} /></div>
-                <div><Label>Rate Hora Extra (R$/h)</Label><Input type="number" step="0.01" value={editing.rate_hora_extra ?? ""} onChange={(e) => setEditing({ ...editing, rate_hora_extra: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+                <div><Label>Rate Hotel (R$/dia)</Label><Input type="text" inputMode="decimal" value={editing.rate_hotel ?? ""} onChange={(e) => setEditing({ ...editing, rate_hotel: e.target.value === "" ? null : parseValorForm(e.target.value) })} /></div>
+                <div><Label>Rate Hora Extra (R$/h)</Label><Input type="text" inputMode="decimal" value={editing.rate_hora_extra ?? ""} onChange={(e) => setEditing({ ...editing, rate_hora_extra: e.target.value === "" ? null : parseValorForm(e.target.value) })} /></div>
               </div>
-              <div><Label>Rate Adicional Noturno (R$/h)</Label><Input type="number" step="0.01" value={editing.rate_adicional_noturno ?? ""} onChange={(e) => setEditing({ ...editing, rate_adicional_noturno: e.target.value === "" ? null : Number(e.target.value) })} /></div>
+              <div><Label>Rate Adicional Noturno (R$/h)</Label><Input type="text" inputMode="decimal" value={editing.rate_adicional_noturno ?? ""} onChange={(e) => setEditing({ ...editing, rate_adicional_noturno: e.target.value === "" ? null : parseValorForm(e.target.value) })} /></div>
               <p className="text-xs text-muted-foreground">Deixe em branco as rates que não se aplicam a essa função — o BM esconde essas colunas automaticamente.</p>
             </div>
           )}
