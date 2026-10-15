@@ -345,10 +345,17 @@ function PassagemDialog({
   const unidades = useUnidadesAdicionais();
 
   if (open && editing && bound !== editing.id) {
+    // Reabre os colaboradores extras como linhas separadas (mesmo padrão de Hospedagem) — sem
+    // isso, editar uma passagem com mais de um passageiro mostrava os nomes todos juntos num
+    // texto só no campo principal, em vez de um por linha com "+ colaborador" pra adicionar mais.
+    const [primeiroNome, ...outrosNomes] = editing.nome_usuario
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
     setF({
       unidade: editing.unidade,
       bsp: editing.bsp,
-      nomeUsuario: editing.nome_usuario,
+      nomeUsuario: primeiroNome ?? "",
       companhiaAerea: editing.companhia_aerea ?? "",
       origem: editing.origem ?? "",
       destino: editing.destino ?? "",
@@ -367,6 +374,7 @@ function PassagemDialog({
       solicitanteEmail: editing.solicitante_email ?? "",
       internacional: editing.internacional ?? false,
     });
+    pessoas.replace(outrosNomes.map((nome) => ({ nome, unidade: "", bsp: "" })));
     // Reconstrói o percentual a partir do valor já gravado (o que fica salvo é sempre o
     // valor calculado, o percentual é só conveniência de preenchimento — ver useRateioComplementar).
     const totalEditado = editing.valor || 0;
@@ -429,22 +437,23 @@ function PassagemDialog({
         valor_2: rateio.ativo && rateio.bsp2.trim() ? rateio.valor2 : null,
         valor_3: rateio.ativo && rateio.bsp3.trim() ? rateio.valor3 : null,
       };
+      // Colaboradores adicionais (NomeUsuarioMultiField) viajam juntos no MESMO lançamento —
+      // nome combinado, valor único (pedido dela: mesma BSP não duplica o valor, só quando for
+      // BSP diferente é que precisa ratear). Vale tanto pra criar quanto pra editar.
+      const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(
+        Boolean,
+      );
       if (editing) {
         const { error } = await supabase
           .from("passagens_aereas")
-          .update(payload)
+          .update({ ...payload, nome_usuario: nomes.join(", ") })
           .eq("id", editing.id);
         if (error) throw error;
       } else {
         // Solicitação nova sempre entra no início do fluxo — status_fluxo default do banco
         // ("emitida") é só pra registro histórico lançado direto, não pra quem passa por aqui.
-        // Colaboradores adicionais (NomeUsuarioMultiField) viajam juntos no MESMO lançamento —
-        // nome combinado, valor único (pedido dela: mesma BSP não duplica o valor, só quando
-        // for BSP diferente é que precisa ratear). Só unidade/BSP extras (UnidadeMultiField)
-        // continuam virando lançamento à parte, por serem de fato outro centro de custo.
-        const nomes = [f.nomeUsuario.trim(), ...pessoas.validas.map((p) => p.nome.trim())].filter(
-          Boolean,
-        );
+        // Só unidade/BSP extras (UnidadeMultiField) continuam virando lançamento à parte, por
+        // serem de fato outro centro de custo.
         const base = { ...payload, nome_usuario: nomes.join(", "), status_fluxo: "solicitada" };
         const linhas = [
           base,
@@ -542,7 +551,6 @@ function PassagemDialog({
             onChange={(v) => setF({ ...f, nomeUsuario: v })}
             colaboradores={colaboradores}
             extras={pessoas}
-            permiteAdicionar={!editing}
             modoLista
             helpText="Os colaboradores adicionados entram no mesmo lançamento, com nome combinado e valor único."
           />
