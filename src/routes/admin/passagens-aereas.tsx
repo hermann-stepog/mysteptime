@@ -21,6 +21,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -186,12 +187,16 @@ function passagemToRelatorioRow(p: PassagemAerea) {
 // Aéreas (generateRelatorioPassagensAereas) e pelo relatório Consolidado (reports.tsx). Período
 // pela data de ida (quando a viagem acontece), não pela data de lançamento.
 export async function buscarLinhasRelatorioPassagensAereas(dataInicio?: string, dataFim?: string) {
-  let query = supabase.from("passagens_aereas").select("*").order("data_ida");
-  if (dataInicio) query = query.gte("data_ida", dataInicio);
-  if (dataFim) query = query.lte("data_ida", dataFim);
-  const { data, error } = await query;
-  if (error) throw error;
-  return ((data ?? []) as PassagemAerea[]).map((p) => passagemToRelatorioRow(p));
+  // Sem paginação aqui, o PostgREST corta em 1000 linhas e some com o resto silenciosamente
+  // (mesmo motivo de selectAllPages em usePassagensQuery) — o relatório Consolidado (3 módulos
+  // juntos) passa disso com mais facilidade ainda.
+  const data = await selectAllPages<PassagemAerea>((from, to) => {
+    let query = supabase.from("passagens_aereas").select("*").order("data_ida").range(from, to);
+    if (dataInicio) query = query.gte("data_ida", dataInicio);
+    if (dataFim) query = query.lte("data_ida", dataFim);
+    return query;
+  });
+  return data.map((p) => passagemToRelatorioRow(p));
 }
 
 // Exportação standalone usada pelo módulo de Relatórios (card "Passagens Aéreas") — busca os
@@ -2340,6 +2345,10 @@ export function PassagensAereasPage({
     ],
   );
 
+  // Soma o valor de tudo que está filtrado na tela agora — mesmo padrão do "Total" em
+  // Transporte (Quadro Detalhado).
+  const totalValor = useMemo(() => filtradas.reduce((sum, p) => sum + p.valor, 0), [filtradas]);
+
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
   const exportarRelatorio = () => {
@@ -2682,7 +2691,7 @@ export function PassagensAereasPage({
                 </TableHeader>
                 <TableBody>
                   {filtradas.length === 0 ? (
-                    <EmptyStateRow colSpan={17} icon={Plane} title="Nenhuma passagem encontrada" />
+                    <EmptyStateRow colSpan={16} icon={Plane} title="Nenhuma passagem encontrada" />
                   ) : (
                     filtradas.map((p) => (
                       <TableRow key={p.id}>
@@ -2783,6 +2792,33 @@ export function PassagensAereasPage({
                     ))
                   )}
                 </TableBody>
+                {filtradas.length > 0 && (
+                  <TableFooter>
+                    <TableRow>
+                      <TableCell className="font-medium">
+                        Total ({filtradas.length}{" "}
+                        {filtradas.length === 1 ? "passagem" : "passagens"})
+                      </TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {fmtMoney(totalValor)}
+                      </TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                  </TableFooter>
+                )}
               </Table>
             </Card>
           </TabsContent>

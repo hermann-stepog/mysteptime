@@ -19,6 +19,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -185,16 +186,20 @@ function hospedagemToRelatorioRow(h: Hospedagem, hotelById: Map<string, HotelFor
 // sobreposição (igual ao filtro da própria tela de Hospedagem): basta a estadia cruzar algum dia
 // do intervalo.
 export async function buscarLinhasRelatorioHospedagem(dataInicio?: string, dataFim?: string) {
-  let query = supabase.from("hospedagens").select("*").order("check_in");
-  if (dataInicio) query = query.gte("check_out", dataInicio);
-  if (dataFim) query = query.lte("check_in", dataFim);
-  const [{ data: hospedagens, error: hospErr }, { data: hoteis, error: hotelErr }] =
-    await Promise.all([query, supabase.from("hoteis_fornecedores").select("*")]);
-  if (hospErr) throw hospErr;
+  // Sem paginação aqui, o PostgREST corta em 1000 linhas e some com o resto silenciosamente
+  // (mesmo motivo de selectAllPages em useHospedagensQuery) — o relatório Consolidado (3
+  // módulos juntos) passa disso com mais facilidade ainda.
+  const hospedagens = await selectAllPages<Hospedagem>((from, to) => {
+    let query = supabase.from("hospedagens").select("*").order("check_in").range(from, to);
+    if (dataInicio) query = query.gte("check_out", dataInicio);
+    if (dataFim) query = query.lte("check_in", dataFim);
+    return query;
+  });
+  const { data: hoteis, error: hotelErr } = await supabase.from("hoteis_fornecedores").select("*");
   if (hotelErr) throw hotelErr;
 
   const hotelById = new Map(((hoteis ?? []) as HotelFornecedor[]).map((h) => [h.id, h]));
-  return ((hospedagens ?? []) as Hospedagem[]).map((h) => hospedagemToRelatorioRow(h, hotelById));
+  return hospedagens.map((h) => hospedagemToRelatorioRow(h, hotelById));
 }
 
 // Exportação standalone usada pelo módulo de Relatórios (card "Hospedagem") — busca os próprios
@@ -1329,6 +1334,13 @@ function LancamentosTab({
       .map(([rotulo]) => rotulo);
   }, [hospedagens]);
 
+  // Soma o valor total de tudo que está filtrado na tela agora — mesmo padrão do "Total" em
+  // Transporte (Quadro Detalhado).
+  const totalValor = useMemo(
+    () => filtradas.reduce((sum, h) => sum + h.valor_total, 0),
+    [filtradas],
+  );
+
   const motivosVistos = useMemo(
     () =>
       Array.from(new Set(hospedagens.map((h) => h.motivo).filter((m): m is string => !!m))).sort(),
@@ -1695,6 +1707,29 @@ function LancamentosTab({
               })
             )}
           </TableBody>
+          {filtradas.length > 0 && (
+            <TableFooter>
+              <TableRow>
+                <TableCell className="font-medium">
+                  Total ({filtradas.length} {filtradas.length === 1 ? "hospedagem" : "hospedagens"})
+                </TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell className="text-right font-semibold">{fmtMoney(totalValor)}</TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+              </TableRow>
+            </TableFooter>
+          )}
         </Table>
       </Card>
 
