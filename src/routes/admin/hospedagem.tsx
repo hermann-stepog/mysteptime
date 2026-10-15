@@ -138,6 +138,65 @@ function fmt(d: string): string {
   return d.split("-").reverse().join("/");
 }
 
+// Linha de planilha de uma hospedagem — compartilhada entre o botão de exportar da própria tela
+// (já filtrado) e o relatório standalone/consolidado do módulo de Relatórios
+// (generateRelatorioHospedagem, busca tudo do zero).
+function hospedagemToRelatorioRow(h: Hospedagem, hotelById: Map<string, HotelFornecedor>) {
+  const hotel = hotelById.get(h.hotel_id);
+  return {
+    Unidade: h.unidade,
+    BSP: h.bsp,
+    "Nome do usuário": h.nome_usuario,
+    Hotel: hotel?.nome ?? "—",
+    Localização: hotel ? localizacaoHotel(hotel) : "—",
+    "Check-in": fmt(h.check_in),
+    "Check-out": fmt(h.check_out),
+    Diárias: h.diarias,
+    "Valor diária": h.valor_diaria,
+    "Valor total": h.valor_total,
+    Motivo: h.motivo ?? "—",
+    "Forma de pagamento": h.forma_pagamento ?? "—",
+    Fornecedor: h.fornecedor ?? "—",
+    NF: h.nf ?? "—",
+    Cobrado: h.cobrado ? "Sim" : "Não",
+    "Status Lançamento": h.status_lancamento ?? "—",
+    Faturado: h.faturado ? "Sim" : "Não",
+    "Usuário Faturamento": h.usuario_faturamento ?? "—",
+    "Data Faturamento": h.data_faturamento ? fmt(h.data_faturamento) : "—",
+  };
+}
+
+// Busca as linhas já no formato de planilha — usada pelo relatório standalone de Hospedagem
+// (generateRelatorioHospedagem) e pelo relatório Consolidado (reports.tsx). Período por
+// sobreposição (igual ao filtro da própria tela de Hospedagem): basta a estadia cruzar algum dia
+// do intervalo.
+export async function buscarLinhasRelatorioHospedagem(dataInicio?: string, dataFim?: string) {
+  let query = supabase.from("hospedagens").select("*").order("check_in");
+  if (dataInicio) query = query.gte("check_out", dataInicio);
+  if (dataFim) query = query.lte("check_in", dataFim);
+  const [{ data: hospedagens, error: hospErr }, { data: hoteis, error: hotelErr }] =
+    await Promise.all([query, supabase.from("hoteis_fornecedores").select("*")]);
+  if (hospErr) throw hospErr;
+  if (hotelErr) throw hotelErr;
+
+  const hotelById = new Map(((hoteis ?? []) as HotelFornecedor[]).map((h) => [h.id, h]));
+  return ((hospedagens ?? []) as Hospedagem[]).map((h) => hospedagemToRelatorioRow(h, hotelById));
+}
+
+// Exportação standalone usada pelo módulo de Relatórios (card "Hospedagem") — busca os próprios
+// dados (não depende de nenhuma tela já aberta), mesmo padrão de generateRelatorioTransporte em
+// transport.tsx.
+export async function generateRelatorioHospedagem(
+  dataInicio?: string,
+  dataFim?: string,
+): Promise<void> {
+  const rows = await buscarLinhasRelatorioHospedagem(dataInicio, dataFim);
+  const ws = planilhaComCabecalho(rows, "Relatório de Hospedagem");
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Hospedagem");
+  XLSX.writeFile(wb, `hospedagem_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -1192,30 +1251,7 @@ function LancamentosTab({
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
   // os filtros (período, unidade, BSP, hotel, motivo, nome) aplicados.
   const exportarRelatorio = () => {
-    const rows = filtradas.map((h) => {
-      const hotel = hotelById.get(h.hotel_id);
-      return {
-        Unidade: h.unidade,
-        BSP: h.bsp,
-        "Nome do usuário": h.nome_usuario,
-        Hotel: hotel?.nome ?? "—",
-        Localização: hotel ? localizacaoHotel(hotel) : "—",
-        "Check-in": fmt(h.check_in),
-        "Check-out": fmt(h.check_out),
-        Diárias: h.diarias,
-        "Valor diária": h.valor_diaria,
-        "Valor total": h.valor_total,
-        Motivo: h.motivo ?? "—",
-        "Forma de pagamento": h.forma_pagamento ?? "—",
-        Fornecedor: h.fornecedor ?? "—",
-        NF: h.nf ?? "—",
-        Cobrado: h.cobrado ? "Sim" : "Não",
-        "Status Lançamento": h.status_lancamento ?? "—",
-        Faturado: h.faturado ? "Sim" : "Não",
-        "Usuário Faturamento": h.usuario_faturamento ?? "—",
-        "Data Faturamento": h.data_faturamento ? fmt(h.data_faturamento) : "—",
-      };
-    });
+    const rows = filtradas.map((h) => hospedagemToRelatorioRow(h, hotelById));
     if (rows.length === 0) {
       notify.error("Nenhuma hospedagem pra exportar com os filtros atuais.");
       return;
