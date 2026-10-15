@@ -37,7 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { SearchableSelect } from "@/components/SearchableSelect";
+import { SearchableSelect, SearchableMultiSelect } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -3771,14 +3771,14 @@ function DetailView({
 }: any) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [tagId, setTagId] = useState(initialTag ?? "all");
-  const [status, setStatus] = useState(initialStatus ?? "all");
-  const [cliente, setCliente] = useState(initialCliente ?? "all");
-  const [tipo, setTipo] = useState(initialTipo ?? "all");
-  const [carro, setCarro] = useState("all");
-  const [uberVia, setUberVia] = useState("all");
-  const [formaPagamento, setFormaPagamento] = useState("all");
-  const [faturamento, setFaturamento] = useState("all");
+  const [tagId, setTagId] = useState<string[]>(() => (initialTag ? [initialTag] : []));
+  const [status, setStatus] = useState<string[]>(() => (initialStatus ? [initialStatus] : []));
+  const [cliente, setCliente] = useState<string[]>(() => (initialCliente ? [initialCliente] : []));
+  const [tipo, setTipo] = useState<string[]>(() => (initialTipo ? [initialTipo] : []));
+  const [carro, setCarro] = useState<string[]>([]);
+  const [uberVia, setUberVia] = useState<string[]>([]);
+  const [formaPagamento, setFormaPagamento] = useState<string[]>([]);
+  const [faturamento, setFaturamento] = useState<string[]>([]);
   const [colaboradorId, setColaboradorId] = useState("");
   const [nf, setNf] = useState("");
   const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
@@ -3829,16 +3829,23 @@ function DetailView({
     const base = (trips as Trip[]).filter((t) => {
       if (from && t.scheduled_at < from) return false;
       if (to && t.scheduled_at > to + "T23:59:59") return false;
-      if (tagId !== "all" && !t.tags.some((x) => x.tag_id === tagId)) return false;
-      if (status !== "all" && t.status !== status) return false;
-      if (cliente !== "all" && t.cliente !== cliente) return false;
-      if (tipo !== "all" && t.tipo !== tipo) return false;
-      if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
-      if (uberVia === UBER_VIA_FILTRO_VAZIO) {
-        if (nomeTransporte(t.car_number) !== "Uber" || t.uber_solicitado_via?.trim()) return false;
-      } else if (uberVia !== "all" && (t.uber_solicitado_via ?? "") !== uberVia) return false;
-      if (formaPagamento !== "all" && (t.forma_pagamento ?? "") !== formaPagamento) return false;
-      if (faturamento !== "all" && fmtFaturamento(t) !== faturamento) return false;
+      if (tagId.length > 0 && !t.tags.some((x) => tagId.includes(x.tag_id))) return false;
+      if (status.length > 0 && !status.includes(t.status)) return false;
+      if (cliente.length > 0 && !cliente.includes(t.cliente ?? "")) return false;
+      if (tipo.length > 0 && !tipo.includes(t.tipo)) return false;
+      if (carro.length > 0 && !carro.includes(toDisplayCase(nomeTransporte(t.car_number))))
+        return false;
+      if (uberVia.length > 0) {
+        const ehVazioUber =
+          nomeTransporte(t.car_number) === "Uber" && !t.uber_solicitado_via?.trim();
+        const bate =
+          (uberVia.includes(UBER_VIA_FILTRO_VAZIO) && ehVazioUber) ||
+          (!!t.uber_solicitado_via && uberVia.includes(t.uber_solicitado_via));
+        if (!bate) return false;
+      }
+      if (formaPagamento.length > 0 && !formaPagamento.includes(t.forma_pagamento ?? ""))
+        return false;
+      if (faturamento.length > 0 && !faturamento.includes(fmtFaturamento(t))) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId))
         return false;
       if (nf === NF_FILTRO_SEM_NF) {
@@ -3963,47 +3970,38 @@ function DetailView({
         </div>
         <div>
           <Label className="text-xs">Transporte</Label>
-          <SearchableSelect
-            value={carro}
-            onValueChange={setCarro}
-            options={[{ value: "all", label: "Todos" }, ...carroOptions]}
-          />
+          <SearchableMultiSelect value={carro} onValueChange={setCarro} options={carroOptions} />
         </div>
         <div>
           <Label className="text-xs">Uber solicitado via</Label>
-          <SearchableSelect
+          <SearchableMultiSelect
             value={uberVia}
             onValueChange={setUberVia}
-            options={[
-              { value: "all", label: "Todos" },
-              ...UBER_SOLICITADO_VIA_OPCOES,
-              { value: UBER_VIA_FILTRO_VAZIO, label: "" },
-            ]}
+            options={[...UBER_SOLICITADO_VIA_OPCOES, { value: UBER_VIA_FILTRO_VAZIO, label: "" }]}
           />
         </div>
         <div>
           <Label className="text-xs">Forma de pagamento</Label>
-          <SearchableSelect
+          <SearchableMultiSelect
             value={formaPagamento}
             onValueChange={setFormaPagamento}
-            options={[{ value: "all", label: "Todos" }, ...FORMAS_PAGAMENTO]}
+            options={[...FORMAS_PAGAMENTO]}
           />
         </div>
         <div>
           <Label className="text-xs">Mês Ref. / Data Fat.</Label>
-          <SearchableSelect
+          <SearchableMultiSelect
             value={faturamento}
             onValueChange={setFaturamento}
-            options={[{ value: "all", label: "Todos" }, ...faturamentoOptions]}
+            options={faturamentoOptions}
           />
         </div>
         <div>
           <Label className="text-xs">Tipo</Label>
-          <SearchableSelect
+          <SearchableMultiSelect
             value={tipo}
             onValueChange={setTipo}
             options={[
-              { value: "all", label: "Todos" },
               { value: "pessoas", label: "Pessoas" },
               { value: "material", label: "Material" },
             ]}
@@ -4011,29 +4009,22 @@ function DetailView({
         </div>
         <div>
           <Label className="text-xs">Etiqueta</Label>
-          <SearchableSelect
+          <SearchableMultiSelect
             value={tagId}
             onValueChange={setTagId}
-            options={[
-              { value: "all", label: "Todas" },
-              ...(tags as Tag[]).map((t) => ({ value: t.id, label: t.name })),
-            ]}
+            options={(tags as Tag[]).map((t) => ({ value: t.id, label: t.name }))}
           />
         </div>
         <div>
           <Label className="text-xs">Cliente</Label>
-          <SearchableSelect
-            value={cliente}
-            onValueChange={setCliente}
-            options={[{ value: "all", label: "Todos" }, ...CLIENTES]}
-          />
+          <SearchableMultiSelect value={cliente} onValueChange={setCliente} options={[...CLIENTES]} />
         </div>
         <div>
           <Label className="text-xs">Status</Label>
-          <SearchableSelect
+          <SearchableMultiSelect
             value={status}
             onValueChange={setStatus}
-            options={[{ value: "all", label: "Todos" }, ...STATUS_TRIP_OPTIONS]}
+            options={STATUS_TRIP_OPTIONS}
           />
         </div>
         <div>
