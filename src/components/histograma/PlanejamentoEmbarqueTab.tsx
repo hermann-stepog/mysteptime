@@ -225,6 +225,47 @@ export function usePlanejamentoEmbarqueQuery() {
   });
 }
 
+// ─── "Colaborador novo" (sinalização pedida por ela) ────────────────────────────────────────
+// A importação da planilha apaga tudo e reinsere do zero (ver ImportarPlanejamentoDialog), então
+// created_at de planejamento_embarque reseta pra NOW() em todo mundo a cada reimportação — não dá
+// pra usar pra saber quem é realmente novo. planejamento_colaboradores_vistos é gravada por um
+// trigger no banco (ver migração 20261015110000) na primeira vez que cada nome aparece, e nunca é
+// tocada pelo delete+insert da importação.
+export interface PlanejamentoColaboradorVistoRow {
+  nome_normalizado: string;
+  primeira_vez_em: string;
+}
+
+export function usePlanejamentoColaboradoresVistosQuery() {
+  return useQuery<PlanejamentoColaboradorVistoRow[]>({
+    queryKey: ["planejamento-colaboradores-vistos"],
+    queryFn: () =>
+      selectAllPages<PlanejamentoColaboradorVistoRow>((from, to) =>
+        supabase.from("planejamento_colaboradores_vistos").select("*").range(from, to),
+      ),
+  });
+}
+
+// Mesmo critério de normalização usado no banco (função planejamento_normalizar_nome) e em
+// normNomePlanejamento (NominationsPage.tsx) — maiúsculo, sem acento, sem pontuação.
+export function normalizarNomePlanejamento(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
+
+// Sinal some sozinho depois de 2 meses (pedido dela) — comparação por data corrida, sem
+// arredondar pra início/fim de mês.
+export function isColaboradorNovo(primeiraVezEm: string | undefined): boolean {
+  if (!primeiraVezEm) return false;
+  const corte = new Date();
+  corte.setMonth(corte.getMonth() - 2);
+  return new Date(primeiraVezEm) > corte;
+}
+
 // ─── Histórico de alterações (painel lateral) ───────────────────────────────────────────────
 // Gravado explicitamente em cada ação (import/cadastro/edição/exclusão) em vez de gatilho no
 // banco, pra descrição sair legível em português — ver migração
@@ -1373,6 +1414,11 @@ export function PlanejamentoEmbarqueTab() {
   const { role } = useAuth();
   const registrarLog = useRegistrarLogPlanejamento();
   const { data: registros = [], isLoading } = usePlanejamentoEmbarqueQuery();
+  const { data: colaboradoresVistos = [] } = usePlanejamentoColaboradoresVistosQuery();
+  const primeiraVezPorNome = useMemo(
+    () => new Map(colaboradoresVistos.map((v) => [v.nome_normalizado, v.primeira_vez_em])),
+    [colaboradoresVistos],
+  );
 
   const [showImportar, setShowImportar] = useState(false);
   const [criando, setCriando] = useState(false);
@@ -1946,6 +1992,16 @@ export function PlanejamentoEmbarqueTab() {
                       >
                         <Flag className="h-3 w-3" />
                         TEMP
+                      </span>
+                    )}
+                    {isColaboradorNovo(
+                      primeiraVezPorNome.get(normalizarNomePlanejamento(r.nome)),
+                    ) && (
+                      <span
+                        title="Adicionado há menos de 2 meses"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm"
+                      >
+                        Novo
                       </span>
                     )}
                     {r.nome}

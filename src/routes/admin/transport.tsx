@@ -94,6 +94,7 @@ import { FadeInView } from "@/components/FadeInView";
 import { KpiValue } from "@/components/KpiValue";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
+import { FORMAS_PAGAMENTO } from "@/lib/logistica";
 import {
   useRateioPercentual,
   RateioPercentualPanel,
@@ -302,6 +303,7 @@ function tripToRelatorioRow(
     BSP: t.bsp ?? "",
     "BSP 2": t.bsp_2 ?? "",
     "BSP 3": t.bsp_3 ?? "",
+    "Forma de pagamento": t.forma_pagamento ?? "",
     Unidade: (t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ?? "",
     Etiquetas: t.tags
       .map((x) => tagsById.get(x.tag_id)?.name)
@@ -905,6 +907,9 @@ const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
 const UBER_SOLICITADO_VIA_OPCOES = ["Computador", "Celular"];
+// Sentinela do filtro do Quadro Detalhado pra achar as viagens de Uber ainda sem esse campo
+// preenchido (pedido dela, pra facilitar de completar os lançamentos antigos/incompletos).
+const UBER_VIA_FILTRO_VAZIO = "__sem_uber_via__";
 
 const STATUS_TRIP_OPTIONS = [
   { value: "em_andamento", label: "Em Andamento" },
@@ -1688,12 +1693,27 @@ function TripDialog({
               />
             </div>
             <div>
-              <Label>Data Faturamento</Label>
-              <Input
-                type="date"
-                value={f.data_faturamento}
-                onChange={(e) => setF({ ...f, data_faturamento: e.target.value })}
-              />
+              {f.forma_pagamento === "Cartão de Crédito" ? (
+                <>
+                  <Label>Mês de referência</Label>
+                  <Input
+                    type="month"
+                    value={f.data_faturamento.slice(0, 7)}
+                    onChange={(e) =>
+                      setF({ ...f, data_faturamento: e.target.value ? `${e.target.value}-01` : "" })
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <Label>Data Faturamento</Label>
+                  <Input
+                    type="date"
+                    value={f.data_faturamento}
+                    onChange={(e) => setF({ ...f, data_faturamento: e.target.value })}
+                  />
+                </>
+              )}
             </div>
           </div>
 
@@ -3689,6 +3709,7 @@ type DetailSortColumn =
   | "tipo"
   | "cliente"
   | "bsp"
+  | "forma_pagamento"
   | "nf"
   | "etiquetas"
   | "horario"
@@ -3719,6 +3740,7 @@ function DetailView({
   const [tipo, setTipo] = useState(initialTipo ?? "all");
   const [carro, setCarro] = useState("all");
   const [uberVia, setUberVia] = useState("all");
+  const [formaPagamento, setFormaPagamento] = useState("all");
   const [colaboradorId, setColaboradorId] = useState("");
   const [nf, setNf] = useState("");
   const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
@@ -3757,7 +3779,10 @@ function DetailView({
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
-      if (uberVia !== "all" && (t.uber_solicitado_via ?? "") !== uberVia) return false;
+      if (uberVia === UBER_VIA_FILTRO_VAZIO) {
+        if (nomeTransporte(t.car_number) !== "Uber" || t.uber_solicitado_via?.trim()) return false;
+      } else if (uberVia !== "all" && (t.uber_solicitado_via ?? "") !== uberVia) return false;
+      if (formaPagamento !== "all" && (t.forma_pagamento ?? "") !== formaPagamento) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId))
         return false;
       if (nf === NF_FILTRO_SEM_NF) {
@@ -3781,6 +3806,8 @@ function DetailView({
           return [t.cliente, t.cliente_2, t.cliente_3].filter(Boolean).join(", ");
         case "bsp":
           return [t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ");
+        case "forma_pagamento":
+          return t.forma_pagamento ?? "";
         case "nf":
           return t.nf ?? "";
         case "etiquetas":
@@ -3833,6 +3860,7 @@ function DetailView({
     tipo,
     carro,
     uberVia,
+    formaPagamento,
     colaboradorId,
     nf,
     sortColumn,
@@ -3887,7 +3915,19 @@ function DetailView({
           <SearchableSelect
             value={uberVia}
             onValueChange={setUberVia}
-            options={[{ value: "all", label: "Todos" }, ...UBER_SOLICITADO_VIA_OPCOES]}
+            options={[
+              { value: "all", label: "Todos" },
+              ...UBER_SOLICITADO_VIA_OPCOES,
+              { value: UBER_VIA_FILTRO_VAZIO, label: "" },
+            ]}
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Forma de pagamento</Label>
+          <SearchableSelect
+            value={formaPagamento}
+            onValueChange={setFormaPagamento}
+            options={[{ value: "all", label: "Todos" }, ...FORMAS_PAGAMENTO]}
           />
         </div>
         <div>
@@ -3998,6 +4038,14 @@ function DetailView({
                 className="hidden md:table-cell"
               />
               <SortableHead
+                label="Forma de pagamento"
+                column="forma_pagamento"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden md:table-cell"
+              />
+              <SortableHead
                 label="NF"
                 column="nf"
                 sortColumn={sortColumn}
@@ -4079,6 +4127,9 @@ function DetailView({
                 <TableCell className="hidden md:table-cell">
                   {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}
                 </TableCell>
+                <TableCell className="hidden md:table-cell">
+                  {t.forma_pagamento ?? "—"}
+                </TableCell>
                 <TableCell className="hidden md:table-cell">{t.nf ?? "—"}</TableCell>
                 <TableCell className="hidden xl:table-cell">
                   <div className="flex flex-wrap gap-1">
@@ -4153,7 +4204,7 @@ function DetailView({
             ))}
             {filtered.length === 0 && (
               <EmptyStateRow
-                colSpan={14}
+                colSpan={15}
                 icon={Package}
                 title="Sem viagens"
                 description="Ajuste os filtros ou cadastre uma nova viagem."
@@ -4170,6 +4221,7 @@ function DetailView({
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell></TableCell>
+                <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden xl:table-cell"></TableCell>
