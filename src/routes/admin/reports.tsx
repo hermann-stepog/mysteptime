@@ -17,30 +17,25 @@ import { generateRelatorioCustos } from "./costs";
 import { generateRelatorioHospedagem, buscarLinhasRelatorioHospedagem } from "./hospedagem";
 import { generateRelatorioPassagensAereas, buscarLinhasRelatorioPassagensAereas } from "./passagens-aereas";
 
-// Consolida Transporte + Hospedagem + Passagens Aéreas num único arquivo (uma aba por módulo),
-// pedido dela pra não precisar baixar os três separados quando quer ver tudo junto.
+// Consolida Transporte + Hospedagem + Passagens Aéreas numa única planilha (pedido dela: uma
+// aba só, não uma por módulo) — cada linha ganha "Módulo" como 1ª coluna pra identificar de onde
+// veio, já que os três têm colunas diferentes entre si. json_to_sheet/sheet_add_json junta o
+// conjunto de colunas de todas as linhas sozinho (não só da primeira), então o Excel sai com
+// todas as colunas dos três módulos, em branco onde não se aplica.
 async function generateRelatorioConsolidado(dataInicio: string, dataFim: string): Promise<void> {
   const [transporte, hospedagem, passagens] = await Promise.all([
     buscarLinhasRelatorioTransporte(dataInicio, dataFim),
     buscarLinhasRelatorioHospedagem(dataInicio, dataFim),
     buscarLinhasRelatorioPassagensAereas(dataInicio, dataFim),
   ]);
+  const linhas = [
+    ...transporte.map((r) => ({ Módulo: "Transporte", ...r })),
+    ...hospedagem.map((r) => ({ Módulo: "Hospedagem", ...r })),
+    ...passagens.map((r) => ({ Módulo: "Passagens Aéreas", ...r })),
+  ];
+  const ws = planilhaComCabecalho(linhas, "Relatório Consolidado — Transporte, Hospedagem e Passagens Aéreas");
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(
-    wb,
-    planilhaComCabecalho(transporte, "Relatório de Transporte"),
-    "Transporte",
-  );
-  XLSX.utils.book_append_sheet(
-    wb,
-    planilhaComCabecalho(hospedagem, "Relatório de Hospedagem"),
-    "Hospedagem",
-  );
-  XLSX.utils.book_append_sheet(
-    wb,
-    planilhaComCabecalho(passagens, "Relatório de Passagens Aéreas"),
-    "Passagens Aéreas",
-  );
+  XLSX.utils.book_append_sheet(wb, ws, "Consolidado");
   XLSX.writeFile(wb, `consolidado_transporte_hospedagem_passagens_${dataInicio}_a_${dataFim}.xlsx`);
 }
 
