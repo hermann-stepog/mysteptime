@@ -214,6 +214,7 @@ const STATUS_BADGE: Record<string, "default" | "destructive" | "secondary"> = {
 };
 
 type PassagensSortColumn =
+  | "dataLancamento"
   | "unidade"
   | "bsp"
   | "nome"
@@ -2272,6 +2273,13 @@ export function PassagensAereasPage({
           if (!sortColumn) return 0;
           const dir = sortDirection === "asc" ? 1 : -1;
           switch (sortColumn) {
+            case "dataLancamento":
+              return (
+                dir *
+                (a.data_lancamento ?? dataLancamentoSp(a.created_at)).localeCompare(
+                  b.data_lancamento ?? dataLancamentoSp(b.created_at),
+                )
+              );
             case "unidade":
               return dir * a.unidade.localeCompare(b.unidade);
             case "bsp":
@@ -2562,6 +2570,13 @@ export function PassagensAereasPage({
                 <TableHeader>
                   <TableRow>
                     <SortableHead
+                      label="Data de lançamento"
+                      column="dataLancamento"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <SortableHead
                       label="Unidade"
                       column="unidade"
                       sortColumn={sortColumn}
@@ -2659,10 +2674,11 @@ export function PassagensAereasPage({
                 </TableHeader>
                 <TableBody>
                   {filtradas.length === 0 ? (
-                    <EmptyStateRow colSpan={16} icon={Plane} title="Nenhuma passagem encontrada" />
+                    <EmptyStateRow colSpan={17} icon={Plane} title="Nenhuma passagem encontrada" />
                   ) : (
                     filtradas.map((p) => (
                       <TableRow key={p.id}>
+                        <TableCell>{fmt(p.data_lancamento ?? dataLancamentoSp(p.created_at))}</TableCell>
                         <TableCell>{p.unidade}</TableCell>
                         <TableCell>{p.bsp}</TableCell>
                         <TableCell>{p.nome_usuario}</TableCell>
