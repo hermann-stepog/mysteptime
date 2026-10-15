@@ -3761,6 +3761,7 @@ function DetailView({
   const [carro, setCarro] = useState("all");
   const [uberVia, setUberVia] = useState("all");
   const [formaPagamento, setFormaPagamento] = useState("all");
+  const [faturamento, setFaturamento] = useState("all");
   const [colaboradorId, setColaboradorId] = useState("");
   const [nf, setNf] = useState("");
   const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
@@ -3790,6 +3791,23 @@ function DetailView({
     [trips],
   );
 
+  // Opções a partir do que já foi lançado — filtra pelo texto exibido (mês/ano pra Cartão de
+  // Crédito, data cheia pra Faturado), não pela data crua, pra agrupar quem foi faturado no
+  // mesmo mês mesmo com dias diferentes. Ordena pela data crua de um representante de cada
+  // rótulo (não alfabeticamente), senão "01/2026" e "15/03/2026" ficam fora de ordem.
+  const faturamentoOptions = useMemo(() => {
+    const dataPorRotulo = new Map<string, string>();
+    for (const t of trips as Trip[]) {
+      const rotulo = fmtFaturamento(t);
+      if (rotulo !== "—" && !dataPorRotulo.has(rotulo)) {
+        dataPorRotulo.set(rotulo, t.data_faturamento ?? "");
+      }
+    }
+    return Array.from(dataPorRotulo.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([rotulo]) => rotulo);
+  }, [trips]);
+
   const filtered = useMemo(() => {
     const base = (trips as Trip[]).filter((t) => {
       if (from && t.scheduled_at < from) return false;
@@ -3803,6 +3821,7 @@ function DetailView({
         if (nomeTransporte(t.car_number) !== "Uber" || t.uber_solicitado_via?.trim()) return false;
       } else if (uberVia !== "all" && (t.uber_solicitado_via ?? "") !== uberVia) return false;
       if (formaPagamento !== "all" && (t.forma_pagamento ?? "") !== formaPagamento) return false;
+      if (faturamento !== "all" && fmtFaturamento(t) !== faturamento) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId))
         return false;
       if (nf === NF_FILTRO_SEM_NF) {
@@ -3883,6 +3902,7 @@ function DetailView({
     carro,
     uberVia,
     formaPagamento,
+    faturamento,
     colaboradorId,
     nf,
     sortColumn,
@@ -3950,6 +3970,14 @@ function DetailView({
             value={formaPagamento}
             onValueChange={setFormaPagamento}
             options={[{ value: "all", label: "Todos" }, ...FORMAS_PAGAMENTO]}
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Mês Ref. / Data Fat.</Label>
+          <SearchableSelect
+            value={faturamento}
+            onValueChange={setFaturamento}
+            options={[{ value: "all", label: "Todos" }, ...faturamentoOptions]}
           />
         </div>
         <div>
