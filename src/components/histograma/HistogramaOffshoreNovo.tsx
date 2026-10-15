@@ -4118,6 +4118,37 @@ function DashboardTab({
     ],
   );
 
+  // Mesmos filtros de colaboradoresFiltrados acima, mas SEM a exigência de "mais de um
+  // embarque" — usado só pelo "POB por Unidade × Dia" (pedido dela: quem está no primeiro
+  // embarque da carreira também tem que aparecer nessa tabela específica, mesmo continuando de
+  // fora dos cartões/rosquinhas/"Mão de Obra por Semana" de cima, que seguem com a regra
+  // original).
+  const colaboradoresFiltradosPob = useMemo(
+    () =>
+      colaboradores.filter((c) => {
+        if (filterColaborador.length && !filterColaborador.includes(c.id)) return false;
+        if (filterUnidade.length) {
+          const ps = periodosByColaborador.get(c.id) ?? [];
+          if (
+            !ps.some((p) => p.unidade_operacional && filterUnidade.includes(p.unidade_operacional))
+          )
+            return false;
+        }
+        if (filterBsp.length) {
+          const ps = periodosByColaborador.get(c.id) ?? [];
+          if (
+            !ps.some((p) => {
+              const b = bspDoPeriodo(p);
+              return b && filterBsp.includes(b);
+            })
+          )
+            return false;
+        }
+        return true;
+      }),
+    [colaboradores, periodosByColaborador, filterColaborador, filterUnidade, filterBsp],
+  );
+
   const dates = useMemo(
     () =>
       dataInicio && dataFim && dataInicio <= dataFim ? generateDateRange(dataInicio, dataFim) : [],
@@ -4155,6 +4186,14 @@ function DashboardTab({
         return ps.some((p) => p.data_fim >= inicioMesAtual && p.data_inicio <= fimMesAtual);
       }),
     [colaboradoresFiltrados, periodosByColaborador, inicioMesAtual, fimMesAtual],
+  );
+  const activeColaboradoresMesAtualPob = useMemo(
+    () =>
+      colaboradoresFiltradosPob.filter((c) => {
+        const ps = periodosByColaborador.get(c.id) ?? [];
+        return ps.some((p) => p.data_fim >= inicioMesAtual && p.data_inicio <= fimMesAtual);
+      }),
+    [colaboradoresFiltradosPob, periodosByColaborador, inicioMesAtual, fimMesAtual],
   );
 
   // "Taxa de Ocupação por mês" (pedido dela) — estático, de Jan/2026 até hoje, sem depender de
@@ -4629,6 +4668,51 @@ function DashboardTab({
     periodosOrdenadosPorColaborador,
   ]);
 
+  // Mesmo cálculo de dailyRecords acima, só que a partir de activeColaboradoresMesAtualPob (sem
+  // a exigência de "mais de um embarque") — usado só por unidadeBspRows ("POB por Unidade ×
+  // Dia"). Não reaproveita dailyRecords porque ele é compartilhado com "Mão de Obra por Semana"
+  // e "POB por Mês", que continuam de propósito com a regra original.
+  const dailyRecordsPob = useMemo(() => {
+    const recs: {
+      date: string;
+      bucket: OldBucket;
+      unidade: string | null;
+      bsp: string | null;
+      nome: string;
+      bspDoPlanejamento: boolean;
+    }[] = [];
+    datesMesAtual.forEach((d) => {
+      activeColaboradoresMesAtualPob.forEach((c) => {
+        const result = computeStatusParaDashboard(periodosByColaborador.get(c.id) ?? [], d);
+        const bspDrake = result.periodo ? bspDoPeriodo(result.periodo) : null;
+        const bspDrakeLimpo = bspDrake?.trim() || null;
+        const unidade = result.periodo?.unidade_operacional ?? null;
+        const bspEventoLigado =
+          !bspDrakeLimpo && result.periodo ? bspDoEmbarqueMaisProximo(c.id, result.periodo) : null;
+        const bspPlanejamento =
+          bspDrakeLimpo || bspEventoLigado
+            ? null
+            : (bspPorNomePlanejamento.get(normalizeNomeHistograma(c.nome)) ?? null);
+        const bspFinal = bspDrakeLimpo || bspEventoLigado || bspPlanejamento;
+        recs.push({
+          date: d,
+          bucket: pobBucket(result),
+          unidade,
+          bsp: bspFinal,
+          nome: c.nome,
+          bspDoPlanejamento: !!bspPlanejamento,
+        });
+      });
+    });
+    return recs;
+  }, [
+    datesMesAtual,
+    activeColaboradoresMesAtualPob,
+    periodosByColaborador,
+    bspPorNomePlanejamento,
+    periodosOrdenadosPorColaborador,
+  ]);
+
   // ── Ocupação (donuts) — três rosquinhas lado a lado, cada uma só uma visualização dos MESMOS
   // números já mostrados nos cartões acima, sem recalcular nada por conta própria (pra nunca
   // divergir do cartão): "Ocupado" em tons de azul (Embarcados/Programados/Folga de Embarque —
@@ -4831,7 +4915,7 @@ function DashboardTab({
       row.nomesByDate.set(date, nomes);
       row.countByDate.set(date, nomes.length);
     };
-    dailyRecords.forEach((r) => {
+    dailyRecordsPob.forEach((r) => {
       if (r.bucket !== "E" || !r.unidade) return;
       const unidadeTexto = r.unidade.trim().toUpperCase();
       if (ehUnidadeNaoOperacional(unidadeTexto)) return;
@@ -4844,7 +4928,7 @@ function DashboardTab({
     return Array.from(m.values()).sort(
       (a, b) => a.unidade.localeCompare(b.unidade) || a.bsp.localeCompare(b.bsp),
     );
-  }, [dailyRecords]);
+  }, [dailyRecordsPob]);
 
   // "POB x Unidade" — a pedido dela, passa a vir do Planejamento de Embarque (mesma janela
   // Embarque→Desembarque exclusiva do fim, mesma exclusão de "FOLGA" como unidade, já usadas em
