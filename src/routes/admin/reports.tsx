@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import * as XLSX from "xlsx";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -6,12 +7,42 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 import { useState, type ElementType } from "react";
-import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2 } from "lucide-react";
+import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2, Hotel, Plane, Layers } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
-import { generateRelatorioTransporte } from "./transport";
+import { planilhaComCabecalho } from "@/lib/reportHeader";
+import { generateRelatorioTransporte, buscarLinhasRelatorioTransporte } from "./transport";
 import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH, generateRelatorioTimesheetsLancados } from "./timesheet-offshore";
 import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo, generateRelatorioPobUnidadeDia } from "@/components/histograma/HistogramaOffshoreNovo";
 import { generateRelatorioCustos } from "./costs";
+import { generateRelatorioHospedagem, buscarLinhasRelatorioHospedagem } from "./hospedagem";
+import { generateRelatorioPassagensAereas, buscarLinhasRelatorioPassagensAereas } from "./passagens-aereas";
+
+// Consolida Transporte + Hospedagem + Passagens Aéreas num único arquivo (uma aba por módulo),
+// pedido dela pra não precisar baixar os três separados quando quer ver tudo junto.
+async function generateRelatorioConsolidado(dataInicio: string, dataFim: string): Promise<void> {
+  const [transporte, hospedagem, passagens] = await Promise.all([
+    buscarLinhasRelatorioTransporte(dataInicio, dataFim),
+    buscarLinhasRelatorioHospedagem(dataInicio, dataFim),
+    buscarLinhasRelatorioPassagensAereas(dataInicio, dataFim),
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    wb,
+    planilhaComCabecalho(transporte, "Relatório de Transporte"),
+    "Transporte",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    planilhaComCabecalho(hospedagem, "Relatório de Hospedagem"),
+    "Hospedagem",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    planilhaComCabecalho(passagens, "Relatório de Passagens Aéreas"),
+    "Passagens Aéreas",
+  );
+  XLSX.writeFile(wb, `consolidado_transporte_hospedagem_passagens_${dataInicio}_a_${dataFim}.xlsx`);
+}
 
 export const Route = createFileRoute("/admin/reports")({ head: () => pageTitle("Relatórios"), component: ReportsPage });
 
@@ -37,7 +68,10 @@ interface ReportCard {
 }
 
 const REPORT_CARDS: ReportCard[] = [
+  { id: "consolidado", label: "Consolidado", description: "Transporte + Hospedagem + Passagens Aéreas, uma aba por módulo", icon: Layers, run: (i, f) => generateRelatorioConsolidado(i, f) },
   { id: "transporte", label: "Transporte", description: "Viagens no período em Excel", icon: Truck, run: (i, f) => generateRelatorioTransporte(i, f) },
+  { id: "hospedagem", label: "Hospedagem", description: "Hospedagens no período em Excel", icon: Hotel, run: (i, f) => generateRelatorioHospedagem(i, f) },
+  { id: "passagens-aereas", label: "Passagens Aéreas", description: "Passagens no período em Excel", icon: Plane, run: (i, f) => generateRelatorioPassagensAereas(i, f) },
   { id: "embarques", label: "Embarques", description: "Embarques do Histograma Offshore no período", icon: Ship, run: (i, f) => generateRelatorioEmbarques(i, f) },
   { id: "pob-unidade-dia", label: "POB por Unidade × Dia", description: "Embarcados por dia, unidade e BSP — sempre o mês atual", icon: BarChart3, run: () => generateRelatorioPobUnidadeDia() },
   { id: "headcount", label: "Headcount", description: "KPIs por período (um ou vários), com consolidado no final", icon: BarChart3, run: (i, f) => generateRelatorioHeadcount(i, f) },

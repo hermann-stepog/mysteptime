@@ -141,6 +141,59 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Linha de planilha de uma passagem — compartilhada entre o botão de exportar da própria tela
+// (já filtrado, ver exportarRelatorio) e o relatório standalone/consolidado do módulo de
+// Relatórios (generateRelatorioPassagensAereas, busca tudo do zero).
+function passagemToRelatorioRow(p: PassagemAerea) {
+  return {
+    "Data de lançamento": fmt(p.data_lancamento ?? dataLancamentoSp(p.created_at)),
+    Unidade: p.unidade,
+    BSP: p.bsp,
+    "Nome do usuário": p.nome_usuario,
+    "Companhia aérea": p.companhia_aerea ?? "—",
+    Origem: p.origem ?? "—",
+    Destino: p.destino ?? "—",
+    Ida: fmt(p.data_ida),
+    Volta: p.data_volta ? fmt(p.data_volta) : "—",
+    Tipo: p.tipo,
+    Valor: p.valor,
+    Status: p.status,
+    Motivo: p.motivo ?? "—",
+    "Forma de pagamento": p.forma_pagamento ?? "—",
+    NF: p.nf ?? "—",
+    Cobrado: p.cobrado ? "Sim" : "Não",
+    "Status Lançamento": p.status_lancamento ?? "—",
+    Faturado: p.faturado ? "Sim" : "Não",
+    "Usuário Faturamento": p.usuario_faturamento ?? "—",
+    "Data Faturamento": p.data_faturamento ? fmt(p.data_faturamento) : "—",
+  };
+}
+
+// Busca as linhas já no formato de planilha — usada pelo relatório standalone de Passagens
+// Aéreas (generateRelatorioPassagensAereas) e pelo relatório Consolidado (reports.tsx). Período
+// pela data de ida (quando a viagem acontece), não pela data de lançamento.
+export async function buscarLinhasRelatorioPassagensAereas(dataInicio?: string, dataFim?: string) {
+  let query = supabase.from("passagens_aereas").select("*").order("data_ida");
+  if (dataInicio) query = query.gte("data_ida", dataInicio);
+  if (dataFim) query = query.lte("data_ida", dataFim);
+  const { data, error } = await query;
+  if (error) throw error;
+  return ((data ?? []) as PassagemAerea[]).map((p) => passagemToRelatorioRow(p));
+}
+
+// Exportação standalone usada pelo módulo de Relatórios (card "Passagens Aéreas") — busca os
+// próprios dados, mesmo padrão de generateRelatorioTransporte/generateRelatorioHospedagem.
+export async function generateRelatorioPassagensAereas(
+  dataInicio?: string,
+  dataFim?: string,
+): Promise<void> {
+  const rows = await buscarLinhasRelatorioPassagensAereas(dataInicio, dataFim);
+  const ws = planilhaComCabecalho(rows, "Relatório de Passagens Aéreas");
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Passagens Aéreas");
+  XLSX.writeFile(wb, `passagens_aereas_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 const STATUS_BADGE: Record<string, "default" | "destructive" | "secondary"> = {
   Confirmada: "default",
   Cancelada: "destructive",
@@ -2206,28 +2259,7 @@ export function PassagensAereasPage({
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
   const exportarRelatorio = () => {
-    const rows = filtradas.map((p) => ({
-      "Data de lançamento": fmt(p.data_lancamento ?? dataLancamentoSp(p.created_at)),
-      Unidade: p.unidade,
-      BSP: p.bsp,
-      "Nome do usuário": p.nome_usuario,
-      "Companhia aérea": p.companhia_aerea ?? "—",
-      Origem: p.origem ?? "—",
-      Destino: p.destino ?? "—",
-      Ida: fmt(p.data_ida),
-      Volta: p.data_volta ? fmt(p.data_volta) : "—",
-      Tipo: p.tipo,
-      Valor: p.valor,
-      Status: p.status,
-      Motivo: p.motivo ?? "—",
-      "Forma de pagamento": p.forma_pagamento ?? "—",
-      NF: p.nf ?? "—",
-      Cobrado: p.cobrado ? "Sim" : "Não",
-      "Status Lançamento": p.status_lancamento ?? "—",
-      Faturado: p.faturado ? "Sim" : "Não",
-      "Usuário Faturamento": p.usuario_faturamento ?? "—",
-      "Data Faturamento": p.data_faturamento ? fmt(p.data_faturamento) : "—",
-    }));
+    const rows = filtradas.map((p) => passagemToRelatorioRow(p));
     if (rows.length === 0) {
       notify.error("Nenhuma passagem pra exportar com os filtros atuais.");
       return;

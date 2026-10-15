@@ -343,13 +343,10 @@ function tripToRelatorioRow(
   };
 }
 
-// Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
-// Busca os próprios dados (não depende de nenhuma tela já aberta) e já baixa tudo, sem
-// diálogo de opções — igual ao resto dos cartões de Relatórios.
-export async function generateRelatorioTransporte(
-  dataInicio?: string,
-  dataFim?: string,
-): Promise<void> {
+// Busca as linhas já no formato de planilha — usada pelo relatório standalone de Transporte
+// (generateRelatorioTransporte) e pelo relatório Consolidado (reports.tsx), que reúne Transporte
+// + Hospedagem + Passagens Aéreas num único arquivo sem repetir a consulta em outro lugar.
+export async function buscarLinhasRelatorioTransporte(dataInicio?: string, dataFim?: string) {
   let tripsQuery = supabase
     .from("transport_trips")
     .select(
@@ -372,9 +369,19 @@ export async function generateRelatorioTransporte(
   const collabsById = new Map(((collabs ?? []) as Collaborator[]).map((c) => [c.id, c]));
   const materialsById = new Map(((materials ?? []) as Material[]).map((m) => [m.id, m]));
 
-  const rows = ((trips ?? []) as Trip[]).map((t) =>
+  return ((trips ?? []) as Trip[]).map((t) =>
     tripToRelatorioRow(t, tagsById, collabsById, materialsById),
   );
+}
+
+// Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
+// Busca os próprios dados (não depende de nenhuma tela já aberta) e já baixa tudo, sem
+// diálogo de opções — igual ao resto dos cartões de Relatórios.
+export async function generateRelatorioTransporte(
+  dataInicio?: string,
+  dataFim?: string,
+): Promise<void> {
+  const rows = await buscarLinhasRelatorioTransporte(dataInicio, dataFim);
   const ws = planilhaComCabecalho(rows, "Relatório de Transporte");
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Transporte");
