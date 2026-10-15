@@ -345,31 +345,33 @@ function tripToRelatorioRow(
 // (generateRelatorioTransporte) e pelo relatório Consolidado (reports.tsx), que reúne Transporte
 // + Hospedagem + Passagens Aéreas num único arquivo sem repetir a consulta em outro lugar.
 export async function buscarLinhasRelatorioTransporte(dataInicio?: string, dataFim?: string) {
-  let tripsQuery = supabase
-    .from("transport_trips")
-    .select(
-      "*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)",
-    )
-    .order("scheduled_at");
-  if (dataInicio) tripsQuery = tripsQuery.gte("scheduled_at", dataInicio);
-  if (dataFim) tripsQuery = tripsQuery.lte("scheduled_at", `${dataFim}T23:59:59`);
+  // Sem paginação aqui, o PostgREST corta em 1000 linhas e some com o resto silenciosamente
+  // (mesmo motivo de selectAllPages em useTransportData) — um período maior de Transporte
+  // sozinho já passa disso, e o relatório Consolidado (3 módulos juntos) passa ainda mais fácil.
+  const trips = await selectAllPages<Trip>((from, to) => {
+    let tripsQuery = supabase
+      .from("transport_trips")
+      .select(
+        "*, tags:transport_trip_tags(tag_id), collabs:transport_trip_collaborators(collaborator_id), materials:transport_trip_materials(material_id, quantidade)",
+      )
+      .order("scheduled_at")
+      .range(from, to);
+    if (dataInicio) tripsQuery = tripsQuery.gte("scheduled_at", dataInicio);
+    if (dataFim) tripsQuery = tripsQuery.lte("scheduled_at", `${dataFim}T23:59:59`);
+    return tripsQuery;
+  });
 
-  const [{ data: trips, error: tripsErr }, { data: tags }, { data: collabs }, { data: materials }] =
-    await Promise.all([
-      tripsQuery,
-      supabase.from("transport_tags").select("*"),
-      supabase.from("collaborators").select("*").eq("active", true),
-      supabase.from("materials").select("*").eq("active", true),
-    ]);
-  if (tripsErr) throw tripsErr;
+  const [{ data: tags }, { data: collabs }, { data: materials }] = await Promise.all([
+    supabase.from("transport_tags").select("*"),
+    supabase.from("collaborators").select("*").eq("active", true),
+    supabase.from("materials").select("*").eq("active", true),
+  ]);
 
   const tagsById = new Map(((tags ?? []) as Tag[]).map((t) => [t.id, t]));
   const collabsById = new Map(((collabs ?? []) as Collaborator[]).map((c) => [c.id, c]));
   const materialsById = new Map(((materials ?? []) as Material[]).map((m) => [m.id, m]));
 
-  return ((trips ?? []) as Trip[]).map((t) =>
-    tripToRelatorioRow(t, tagsById, collabsById, materialsById),
-  );
+  return trips.map((t) => tripToRelatorioRow(t, tagsById, collabsById, materialsById));
 }
 
 // Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").

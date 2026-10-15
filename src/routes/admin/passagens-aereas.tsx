@@ -187,12 +187,16 @@ function passagemToRelatorioRow(p: PassagemAerea) {
 // Aéreas (generateRelatorioPassagensAereas) e pelo relatório Consolidado (reports.tsx). Período
 // pela data de ida (quando a viagem acontece), não pela data de lançamento.
 export async function buscarLinhasRelatorioPassagensAereas(dataInicio?: string, dataFim?: string) {
-  let query = supabase.from("passagens_aereas").select("*").order("data_ida");
-  if (dataInicio) query = query.gte("data_ida", dataInicio);
-  if (dataFim) query = query.lte("data_ida", dataFim);
-  const { data, error } = await query;
-  if (error) throw error;
-  return ((data ?? []) as PassagemAerea[]).map((p) => passagemToRelatorioRow(p));
+  // Sem paginação aqui, o PostgREST corta em 1000 linhas e some com o resto silenciosamente
+  // (mesmo motivo de selectAllPages em usePassagensQuery) — o relatório Consolidado (3 módulos
+  // juntos) passa disso com mais facilidade ainda.
+  const data = await selectAllPages<PassagemAerea>((from, to) => {
+    let query = supabase.from("passagens_aereas").select("*").order("data_ida").range(from, to);
+    if (dataInicio) query = query.gte("data_ida", dataInicio);
+    if (dataFim) query = query.lte("data_ida", dataFim);
+    return query;
+  });
+  return data.map((p) => passagemToRelatorioRow(p));
 }
 
 // Exportação standalone usada pelo módulo de Relatórios (card "Passagens Aéreas") — busca os

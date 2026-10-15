@@ -186,16 +186,20 @@ function hospedagemToRelatorioRow(h: Hospedagem, hotelById: Map<string, HotelFor
 // sobreposição (igual ao filtro da própria tela de Hospedagem): basta a estadia cruzar algum dia
 // do intervalo.
 export async function buscarLinhasRelatorioHospedagem(dataInicio?: string, dataFim?: string) {
-  let query = supabase.from("hospedagens").select("*").order("check_in");
-  if (dataInicio) query = query.gte("check_out", dataInicio);
-  if (dataFim) query = query.lte("check_in", dataFim);
-  const [{ data: hospedagens, error: hospErr }, { data: hoteis, error: hotelErr }] =
-    await Promise.all([query, supabase.from("hoteis_fornecedores").select("*")]);
-  if (hospErr) throw hospErr;
+  // Sem paginação aqui, o PostgREST corta em 1000 linhas e some com o resto silenciosamente
+  // (mesmo motivo de selectAllPages em useHospedagensQuery) — o relatório Consolidado (3
+  // módulos juntos) passa disso com mais facilidade ainda.
+  const hospedagens = await selectAllPages<Hospedagem>((from, to) => {
+    let query = supabase.from("hospedagens").select("*").order("check_in").range(from, to);
+    if (dataInicio) query = query.gte("check_out", dataInicio);
+    if (dataFim) query = query.lte("check_in", dataFim);
+    return query;
+  });
+  const { data: hoteis, error: hotelErr } = await supabase.from("hoteis_fornecedores").select("*");
   if (hotelErr) throw hotelErr;
 
   const hotelById = new Map(((hoteis ?? []) as HotelFornecedor[]).map((h) => [h.id, h]));
-  return ((hospedagens ?? []) as Hospedagem[]).map((h) => hospedagemToRelatorioRow(h, hotelById));
+  return hospedagens.map((h) => hospedagemToRelatorioRow(h, hotelById));
 }
 
 // Exportação standalone usada pelo módulo de Relatórios (card "Hospedagem") — busca os próprios
