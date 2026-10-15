@@ -1761,6 +1761,7 @@ export type Database = {
           cobrado: boolean | null
           created_at: string
           data_faturamento: string | null
+          data_lancamento: string | null
           diarias: number
           faturado: boolean | null
           forma_pagamento: string | null
@@ -1790,6 +1791,7 @@ export type Database = {
           cobrado?: boolean | null
           created_at?: string
           data_faturamento?: string | null
+          data_lancamento?: string | null
           diarias: number
           faturado?: boolean | null
           forma_pagamento?: string | null
@@ -1819,6 +1821,7 @@ export type Database = {
           cobrado?: boolean | null
           created_at?: string
           data_faturamento?: string | null
+          data_lancamento?: string | null
           diarias?: number
           faturado?: boolean | null
           forma_pagamento?: string | null
@@ -2647,6 +2650,21 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      planejamento_colaboradores_vistos: {
+        Row: {
+          nome_normalizado: string
+          primeira_vez_em: string
+        }
+        Insert: {
+          nome_normalizado: string
+          primeira_vez_em?: string
+        }
+        Update: {
+          nome_normalizado?: string
+          primeira_vez_em?: string
+        }
+        Relationships: []
       }
       planejamento_embarque: {
         Row: {
@@ -3701,6 +3719,7 @@ export type Database = {
           status: Database["public"]["Enums"]["transport_trip_status"]
           status_lancamento: string | null
           tipo: Database["public"]["Enums"]["transport_tipo"]
+          uber_solicitado_via: string | null
           unidade: string | null
           unidades: string[]
           updated_at: string
@@ -3741,6 +3760,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["transport_trip_status"]
           status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
+          uber_solicitado_via?: string | null
           unidade?: string | null
           unidades?: string[]
           updated_at?: string
@@ -3781,6 +3801,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["transport_trip_status"]
           status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
+          uber_solicitado_via?: string | null
           unidade?: string | null
           unidades?: string[]
           updated_at?: string
@@ -3934,6 +3955,10 @@ export type Database = {
         Returns: Json
       }
       mysteptime_histogram_weeks: { Args: { p_cutoff: string }; Returns: Json }
+      planejamento_normalizar_nome: {
+        Args: { p_nome: string }
+        Returns: string
+      }
       rh_set_bloqueio_planejamento: {
         Args: {
           p_bloqueado: boolean
