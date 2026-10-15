@@ -89,3 +89,79 @@ export function SearchableSelect({
     </Popover>
   );
 }
+
+// Mesma busca por texto do SearchableSelect acima, só que marcando mais de uma opção — usada
+// nos filtros do Quadro Detalhado de Transporte (pedido dela: "quero ter a opção de marcar mais
+// de um"). Lista vazia = "Todos" (sem filtro), igual ao StringMultiCombobox já usado no
+// Histograma Offshore — por isso as opções aqui não levam um "Todos"/"all" embutido, diferente
+// do SearchableSelect de opção única.
+export function SearchableMultiSelect({
+  value,
+  onValueChange,
+  options,
+  placeholder = "Todos",
+  searchPlaceholder = "Buscar...",
+  disabled,
+}: {
+  value: string[];
+  onValueChange: (v: string[]) => void;
+  options: SearchableSelectOption[];
+  placeholder?: string;
+  searchPlaceholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = (v: string) =>
+    onValueChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  const rotulo =
+    value.length === 0
+      ? placeholder
+      : value.length === 1
+        ? labelDe(options.find((opt) => valorDe(opt) === value[0]) ?? value[0])
+        : `${value.length} selecionados`;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          disabled={disabled}
+          className="w-full justify-between font-normal"
+        >
+          <span className={cn("truncate", value.length === 0 && "text-muted-foreground")}>
+            {rotulo}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[--radix-popover-trigger-width] p-0 pointer-events-auto"
+        align="start"
+      >
+        <Command filter={(v, search) => (matchesNameSearch(v, search) ? 1 : 0)}>
+          <CommandInput placeholder={searchPlaceholder} />
+          <CommandList>
+            <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
+            <CommandGroup>
+              {options.map((opt) => {
+                const v = valorDe(opt);
+                const label = labelDe(opt);
+                return (
+                  <CommandItem key={v} value={label} onSelect={() => toggle(v)}>
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        value.includes(v) ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    {label}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
