@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MOTIVOS_LOGISTICA, FORMAS_PAGAMENTO } from "@/lib/logistica";
 import { matchesNameSearch } from "@/lib/utils";
+import { SearchableSelect } from "@/components/SearchableSelect";
 
 // Campos de formulário compartilhados entre os módulos de logística (Hospedagem, Passagens
 // Aéreas, e o que mais vier depois) — evita duplicar a mesma lógica de combobox em cada módulo.
@@ -27,13 +27,12 @@ export function ListaDigitavelField({ value, onChange, options, placeholder = "S
     );
   }
   return (
-    <Select value={value} onValueChange={(v) => { if (v === "__outro__") { setManual(true); return; } onChange(v); }}>
-      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={placeholder} /></SelectTrigger>
-      <SelectContent className="max-h-72">
-        {options.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      value={value}
+      onValueChange={(v) => { if (v === "__outro__") { setManual(true); return; } onChange(v); }}
+      options={[...options, { value: "__outro__", label: "Outro (digitar)..." }]}
+      placeholder={placeholder}
+    />
   );
 }
 
@@ -113,13 +112,12 @@ export function MotivoField({ value, onChange }: { value: string; onChange: (v: 
     );
   }
   return (
-    <Select value={value} onValueChange={(v) => { if (v === "__outro__") { setManual(true); return; } onChange(v); }}>
-      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-      <SelectContent>
-        {MOTIVOS_LOGISTICA.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      value={value}
+      onValueChange={(v) => { if (v === "__outro__") { setManual(true); return; } onChange(v); }}
+      options={[...MOTIVOS_LOGISTICA, { value: "__outro__", label: "Outro (digitar)..." }]}
+      placeholder="Selecione"
+    />
   );
 }
 
@@ -154,16 +152,13 @@ export function SelectComOutro({ value, onChange, options, placeholder = "Seleci
     );
   }
   return (
-    <Select
-      value={value || undefined} disabled={disabled}
+    <SearchableSelect
+      value={value}
+      disabled={disabled}
       onValueChange={(v) => { if (v === "__outro__") { setManual(true); onChange(""); return; } onChange(v); }}
-    >
-      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={placeholder} /></SelectTrigger>
-      <SelectContent>
-        {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-        <SelectItem value="__outro__">Outro (digitar)...</SelectItem>
-      </SelectContent>
-    </Select>
+      options={[...options, { value: "__outro__", label: "Outro (digitar)..." }]}
+      placeholder={placeholder}
+    />
   );
 }
 
@@ -171,13 +166,12 @@ export function SelectComOutro({ value, onChange, options, placeholder = "Seleci
 // em Transporte/Hospedagem/Passagens Aéreas. Campo opcional (não força refazer lançamentos antigos).
 export function FormaPagamentoField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <Select value={value || "__nenhum__"} onValueChange={(v) => onChange(v === "__nenhum__" ? "" : v)}>
-      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__nenhum__">—</SelectItem>
-        {FORMAS_PAGAMENTO.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      value={value || "__nenhum__"}
+      onValueChange={(v) => onChange(v === "__nenhum__" ? "" : v)}
+      options={[{ value: "__nenhum__", label: "—" }, ...FORMAS_PAGAMENTO]}
+      placeholder="Selecione"
+    />
   );
 }
 
