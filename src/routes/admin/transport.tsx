@@ -173,6 +173,8 @@ type Column = { id: string; name: string; position: number };
 type Trip = {
   id: string;
   car_number: string;
+  // Só preenchido quando car_number é "Uber" — de onde a corrida foi solicitada.
+  uber_solicitado_via: string | null;
   column_id: string | null;
   scheduled_at: string;
   origin: string;
@@ -292,6 +294,7 @@ function tripToRelatorioRow(
   return {
     Data: fmtDate(t.scheduled_at),
     Carro: t.car_number,
+    "Uber solicitado via": t.uber_solicitado_via ?? "",
     Tipo: t.tipo === "material" ? "Material" : "Pessoas",
     Cliente: t.cliente ?? "",
     "Cliente 2": t.cliente_2 ?? "",
@@ -901,6 +904,8 @@ const MOTIVOS_TRANSPORTE = [
 const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
+const UBER_SOLICITADO_VIA_OPCOES = ["Computador", "Celular"];
+
 const STATUS_TRIP_OPTIONS = [
   { value: "em_andamento", label: "Em Andamento" },
   { value: "realizado", label: "Realizado" },
@@ -981,6 +986,7 @@ function TripDialog({
     carro_future_num: string;
     carro_outro: string;
     carro_outro_num: string;
+    uber_solicitado_via: string;
     column_id: string;
     scheduled_at: string;
     departure_time: string;
@@ -1020,6 +1026,7 @@ function TripDialog({
         id: t.id,
         car_number: t.car_number,
         ...parseCarro(t.car_number),
+        uber_solicitado_via: t.uber_solicitado_via ?? "",
         column_id: t.column_id ?? cols[0]?.id ?? "",
         scheduled_at: (t.scheduled_at ?? "").slice(0, 10),
         departure_time: t.departure_time ?? "",
@@ -1064,6 +1071,7 @@ function TripDialog({
       carro_future_num: "",
       carro_outro: "",
       carro_outro_num: "",
+      uber_solicitado_via: "",
       column_id: cols[0]?.id ?? "",
       scheduled_at: new Date().toISOString().slice(0, 10),
       departure_time: "",
@@ -1181,6 +1189,7 @@ function TripDialog({
       const isNew = !f.id;
       const payload = {
         car_number: f.car_number.trim(),
+        uber_solicitado_via: f.carro_opcao === "Uber" ? f.uber_solicitado_via || null : null,
         column_id: f.column_id || null,
         scheduled_at: `${f.scheduled_at}T12:00:00.000Z`,
         departure_time: f.departure_time || null,
@@ -1279,7 +1288,13 @@ function TripDialog({
         carro_opcao: opcao,
         car_number: [f.carro_outro, f.carro_outro_num].filter(Boolean).join(" "),
       });
-    else setF({ ...f, carro_opcao: opcao, car_number: opcao });
+    else
+      setF({
+        ...f,
+        carro_opcao: opcao,
+        car_number: opcao,
+        uber_solicitado_via: opcao === "Uber" ? f.uber_solicitado_via : "",
+      });
   };
   const setCarroFutureNum = (num: string) =>
     setF({ ...f, carro_future_num: num, car_number: `Future ${num}` });
@@ -1339,6 +1354,17 @@ function TripDialog({
                       onValueChange={setCarroFutureNum}
                       options={Array.from({ length: 20 }, (_, i) => String(i + 1))}
                       placeholder="Nº"
+                    />
+                  </div>
+                )}
+                {f.carro_opcao === "Uber" && (
+                  <div className="w-40">
+                    <Label>Solicitado via</Label>
+                    <SearchableSelect
+                      value={f.uber_solicitado_via}
+                      onValueChange={(v) => setF({ ...f, uber_solicitado_via: v })}
+                      options={[...UBER_SOLICITADO_VIA_OPCOES]}
+                      placeholder="Selecione"
                     />
                   </div>
                 )}
@@ -3659,6 +3685,7 @@ function NfFiltroCombobox({
 type DetailSortColumn =
   | "data"
   | "carro"
+  | "uber_via"
   | "tipo"
   | "cliente"
   | "bsp"
@@ -3691,6 +3718,7 @@ function DetailView({
   const [cliente, setCliente] = useState(initialCliente ?? "all");
   const [tipo, setTipo] = useState(initialTipo ?? "all");
   const [carro, setCarro] = useState("all");
+  const [uberVia, setUberVia] = useState("all");
   const [colaboradorId, setColaboradorId] = useState("");
   const [nf, setNf] = useState("");
   const { sortColumn, sortDirection, toggleSort } = useTableSort<DetailSortColumn>();
@@ -3729,6 +3757,7 @@ function DetailView({
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
+      if (uberVia !== "all" && (t.uber_solicitado_via ?? "") !== uberVia) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId))
         return false;
       if (nf === NF_FILTRO_SEM_NF) {
@@ -3744,6 +3773,8 @@ function DetailView({
       switch (sortColumn) {
         case "data":
           return t.scheduled_at ?? "";
+        case "uber_via":
+          return t.uber_solicitado_via ?? "";
         case "tipo":
           return t.tipo === "material" ? "Material" : "Pessoas";
         case "cliente":
@@ -3801,6 +3832,7 @@ function DetailView({
     cliente,
     tipo,
     carro,
+    uberVia,
     colaboradorId,
     nf,
     sortColumn,
@@ -3848,6 +3880,14 @@ function DetailView({
             value={carro}
             onValueChange={setCarro}
             options={[{ value: "all", label: "Todos" }, ...carroOptions]}
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Uber solicitado via</Label>
+          <SearchableSelect
+            value={uberVia}
+            onValueChange={setUberVia}
+            options={[{ value: "all", label: "Todos" }, ...UBER_SOLICITADO_VIA_OPCOES]}
           />
         </div>
         <div>
@@ -3925,6 +3965,14 @@ function DetailView({
                 sortColumn={sortColumn}
                 sortDirection={sortDirection}
                 onSort={toggleSort}
+              />
+              <SortableHead
+                label="Uber via"
+                column="uber_via"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+                className="hidden md:table-cell"
               />
               <SortableHead
                 label="Tipo"
@@ -4020,6 +4068,9 @@ function DetailView({
                 <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
                 <TableCell>{toDisplayCase(nomeTransporte(t.car_number))}</TableCell>
                 <TableCell className="hidden md:table-cell">
+                  {t.uber_solicitado_via ?? "—"}
+                </TableCell>
+                <TableCell className="hidden md:table-cell">
                   {t.tipo === "material" ? "Material" : "Pessoas"}
                 </TableCell>
                 <TableCell>
@@ -4102,7 +4153,7 @@ function DetailView({
             ))}
             {filtered.length === 0 && (
               <EmptyStateRow
-                colSpan={13}
+                colSpan={14}
                 icon={Package}
                 title="Sem viagens"
                 description="Ajuste os filtros ou cadastre uma nova viagem."
@@ -4116,6 +4167,7 @@ function DetailView({
                   Total ({filtered.length} {filtered.length === 1 ? "viagem" : "viagens"})
                 </TableCell>
                 <TableCell></TableCell>
+                <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
                 <TableCell></TableCell>
                 <TableCell className="hidden md:table-cell"></TableCell>
