@@ -510,31 +510,6 @@ function PassagemDialog({
               />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              {f.formaPagamento === "Cartão de Crédito" ? (
-                <>
-                  <Label className="text-xs">Mês de referência</Label>
-                  <Input
-                    type="month"
-                    value={f.dataFaturamento.slice(0, 7)}
-                    onChange={(e) =>
-                      setF({ ...f, dataFaturamento: e.target.value ? `${e.target.value}-01` : "" })
-                    }
-                  />
-                </>
-              ) : (
-                <>
-                  <Label className="text-xs">Data Faturamento</Label>
-                  <Input
-                    type="date"
-                    value={f.dataFaturamento}
-                    onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })}
-                  />
-                </>
-              )}
-            </div>
-          </div>
           <div className="grid grid-cols-1 gap-3">
             <div>
               <Label className="text-xs">Solicitante</Label>
@@ -662,6 +637,31 @@ function PassagemDialog({
               />
             </div>
           )}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              {f.formaPagamento === "Cartão de Crédito" ? (
+                <>
+                  <Label className="text-xs">Mês de referência</Label>
+                  <Input
+                    type="month"
+                    value={f.dataFaturamento.slice(0, 7)}
+                    onChange={(e) =>
+                      setF({ ...f, dataFaturamento: e.target.value ? `${e.target.value}-01` : "" })
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <Label className="text-xs">Data Faturamento</Label>
+                  <Input
+                    type="date"
+                    value={f.dataFaturamento}
+                    onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })}
+                  />
+                </>
+              )}
+            </div>
+          </div>
           <div>
             <Label className="text-xs">Observações</Label>
             <Textarea
