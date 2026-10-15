@@ -21,6 +21,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -2340,6 +2341,10 @@ export function PassagensAereasPage({
     ],
   );
 
+  // Soma o valor de tudo que está filtrado na tela agora — mesmo padrão do "Total" em
+  // Transporte (Quadro Detalhado).
+  const totalValor = useMemo(() => filtradas.reduce((sum, p) => sum + p.valor, 0), [filtradas]);
+
   // Exporta exatamente o que está na tela — mesmas linhas/ordem de `filtradas`, já com todos
   // os filtros (unidade, BSP, motivo, status, nome) aplicados. Mesmo padrão de Hospedagem.
   const exportarRelatorio = () => {
@@ -2682,7 +2687,7 @@ export function PassagensAereasPage({
                 </TableHeader>
                 <TableBody>
                   {filtradas.length === 0 ? (
-                    <EmptyStateRow colSpan={17} icon={Plane} title="Nenhuma passagem encontrada" />
+                    <EmptyStateRow colSpan={16} icon={Plane} title="Nenhuma passagem encontrada" />
                   ) : (
                     filtradas.map((p) => (
                       <TableRow key={p.id}>
@@ -2783,6 +2788,33 @@ export function PassagensAereasPage({
                     ))
                   )}
                 </TableBody>
+                {filtradas.length > 0 && (
+                  <TableFooter>
+                    <TableRow>
+                      <TableCell className="font-medium">
+                        Total ({filtradas.length}{" "}
+                        {filtradas.length === 1 ? "passagem" : "passagens"})
+                      </TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {fmtMoney(totalValor)}
+                      </TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                  </TableFooter>
+                )}
               </Table>
             </Card>
           </TabsContent>
