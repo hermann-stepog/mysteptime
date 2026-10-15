@@ -905,6 +905,9 @@ const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
 const UBER_SOLICITADO_VIA_OPCOES = ["Computador", "Celular"];
+// Sentinela do filtro do Quadro Detalhado pra achar as viagens de Uber ainda sem esse campo
+// preenchido (pedido dela, pra facilitar de completar os lançamentos antigos/incompletos).
+const UBER_VIA_FILTRO_VAZIO = "__sem_uber_via__";
 
 const STATUS_TRIP_OPTIONS = [
   { value: "em_andamento", label: "Em Andamento" },
@@ -3757,7 +3760,9 @@ function DetailView({
       if (cliente !== "all" && t.cliente !== cliente) return false;
       if (tipo !== "all" && t.tipo !== tipo) return false;
       if (carro !== "all" && toDisplayCase(nomeTransporte(t.car_number)) !== carro) return false;
-      if (uberVia !== "all" && (t.uber_solicitado_via ?? "") !== uberVia) return false;
+      if (uberVia === UBER_VIA_FILTRO_VAZIO) {
+        if (nomeTransporte(t.car_number) !== "Uber" || t.uber_solicitado_via?.trim()) return false;
+      } else if (uberVia !== "all" && (t.uber_solicitado_via ?? "") !== uberVia) return false;
       if (colaboradorId && !t.collabs.some((x) => x.collaborator_id === colaboradorId))
         return false;
       if (nf === NF_FILTRO_SEM_NF) {
@@ -3887,7 +3892,11 @@ function DetailView({
           <SearchableSelect
             value={uberVia}
             onValueChange={setUberVia}
-            options={[{ value: "all", label: "Todos" }, ...UBER_SOLICITADO_VIA_OPCOES]}
+            options={[
+              { value: "all", label: "Todos" },
+              ...UBER_SOLICITADO_VIA_OPCOES,
+              { value: UBER_VIA_FILTRO_VAZIO, label: "" },
+            ]}
           />
         </div>
         <div>
