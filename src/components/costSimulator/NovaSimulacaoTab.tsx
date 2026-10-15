@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
+import { parseValorForm } from "@/lib/format";
 import {
   fetchCostStats,
   fetchTransportLocais,
@@ -1005,13 +1006,12 @@ function ServicoTerraForm({
           Lavanderia
         </label>
         <Input
-          type="number"
-          min={0}
-          step="0.01"
+          type="text"
+          inputMode="decimal"
           className="w-32"
           placeholder="Valor único (R$)"
           value={lavanderiaValorDiario}
-          onChange={(e) => setLavanderiaValorDiario(Number(e.target.value) || 0)}
+          onChange={(e) => setLavanderiaValorDiario(parseValorForm(e.target.value) ?? 0)}
           disabled={!usaLavanderia}
         />
       </div>

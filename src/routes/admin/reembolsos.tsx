@@ -28,6 +28,7 @@ import {
   Wallet, Plus, Pencil, Trash2, Check, Camera, Paperclip, Download, AlertTriangle, ListChecks,
 } from "lucide-react";
 import { notify } from "@/lib/notify";
+import { parseValorForm } from "@/lib/format";
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
 import { selectAllPages } from "@/lib/supabasePaginate";
@@ -344,12 +345,13 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
       if (!reembolso) return;
       if (!novoItem.dataDespesa) throw new Error("Informe a data da despesa.");
       if (!novoItem.bsp) throw new Error("Selecione o BSP.");
-      if (!novoItem.valor || Number(novoItem.valor) <= 0) throw new Error("Informe um valor válido.");
+      const valorItem = parseValorForm(novoItem.valor) ?? 0;
+      if (!novoItem.valor || valorItem <= 0) throw new Error("Informe um valor válido.");
       if (novoItem.categoria === "Outros" && !novoItem.categoriaOutro.trim()) throw new Error("Descreva a categoria em \"Outros\".");
       const payload = {
         reembolso_id: reembolso.id, data_despesa: novoItem.dataDespesa, bsp: novoItem.bsp,
         categoria: novoItem.categoria, categoria_outro: novoItem.categoria === "Outros" ? novoItem.categoriaOutro.trim() : null,
-        valor: Number(novoItem.valor),
+        valor: valorItem,
       };
       if (editandoItemId) {
         const { error } = await supabase.from("reembolso_itens").update(payload).eq("id", editandoItemId);
@@ -585,7 +587,7 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
                 <div className="flex gap-1">
                   <div className="flex-1">
                     <Label className="text-[10px]">Valor</Label>
-                    <Input type="number" step="0.01" min="0" className="h-8 text-xs" value={novoItem.valor} onChange={(e) => setNovoItem({ ...novoItem, valor: e.target.value })} />
+                    <Input type="text" inputMode="decimal" className="h-8 text-xs" value={novoItem.valor} onChange={(e) => setNovoItem({ ...novoItem, valor: e.target.value })} />
                   </div>
                   <Button
                     size="sm" className="h-8 shrink-0" onClick={() => salvarItem.mutate()} disabled={salvarItem.isPending}

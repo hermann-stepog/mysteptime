@@ -5,6 +5,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // bm_medicoes ainda não está no types.ts gerado — mesmo padrão das outras tabelas de BM.
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
+import { parseValorForm } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,15 @@ function fmtDate(d: string | null): string {
 }
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// edits[row.id] guarda o que foi digitado como string (direto do onChange), mas o tipo
+// MedicaoRow declara valor_unitario/valor_total como number — aceita os dois pra não ter que
+// adivinhar se veio de um patch em edição ou do registro já salvo.
+function toMoneyNumber(v: string | number | null | undefined): number {
+  if (typeof v === "number") return v;
+  if (v == null) return 0;
+  return parseValorForm(v) ?? 0;
 }
 
 interface Form {
@@ -123,10 +133,10 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
     mutationFn: async () => {
       if (!form.descricao.trim()) throw new Error("Informe a descrição.");
       const qtd = Number(form.qtd) || 0;
-      const valor_unitario = Number(form.valor_unitario) || 0;
+      const valor_unitario = parseValorForm(form.valor_unitario) ?? 0;
       const valor_total = form.valor_total.trim() === ""
         ? round2(qtd * valor_unitario)
-        : round2(Number(form.valor_total.replace(",", ".")) || 0);
+        : round2(parseValorForm(form.valor_total) ?? 0);
       const { error } = await supabase.from("bm_medicoes").insert({
         tipo,
         descricao: form.descricao.trim(),
@@ -155,10 +165,10 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
       const patch = edits[row.id];
       if (!patch) return;
       const qtd = Number(patch.qtd ?? row.qtd) || 0;
-      const valor_unitario = Number(patch.valor_unitario ?? row.valor_unitario) || 0;
+      const valor_unitario = toMoneyNumber(patch.valor_unitario ?? row.valor_unitario);
       const valor_total = patch.valor_total == null
         ? round2(qtd * valor_unitario)
-        : round2(Number(patch.valor_total) || 0);
+        : round2(toMoneyNumber(patch.valor_total));
       const { error } = await supabase.from("bm_medicoes").update({
         ...patch,
         bsp: patch.bsp === "" ? null : patch.bsp,
@@ -284,13 +294,13 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div>
             <Label className="text-xs">Valor unitário</Label>
-            <Input type="number" step="0.01" value={form.valor_unitario} onChange={(e) => setForm({ ...form, valor_unitario: e.target.value })} />
+            <Input type="text" inputMode="decimal" value={form.valor_unitario} onChange={(e) => setForm({ ...form, valor_unitario: e.target.value })} />
           </div>
           <div>
             <Label className="text-xs">Valor total</Label>
-            <Input type="number" step="0.01" value={form.valor_total}
+            <Input type="text" inputMode="decimal" value={form.valor_total}
               onChange={(e) => setForm({ ...form, valor_total: e.target.value })}
-              placeholder={String(round2((Number(form.qtd) || 0) * (Number(form.valor_unitario) || 0)))} />
+              placeholder={String(round2((Number(form.qtd) || 0) * (parseValorForm(form.valor_unitario) ?? 0)))} />
           </div>
           <div className="md:col-span-2">
             <Label className="text-xs">Observações</Label>
@@ -392,13 +402,13 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
                     </TableCell>
                     <TableCell>
                       {r.applied ? fmtMoney(r.valor_unitario) : (
-                        <Input type="number" step="0.01" className="h-8 w-28 text-xs" value={valorEditado(r, "valor_unitario") as number}
+                        <Input type="text" inputMode="decimal" className="h-8 w-28 text-xs" value={valorEditado(r, "valor_unitario") as number}
                           onChange={(e) => setEdit(r.id, "valor_unitario", e.target.value)} />
                       )}
                     </TableCell>
                     <TableCell>
                       {r.applied ? fmtMoney(r.valor_total) : (
-                        <Input type="number" step="0.01" className="h-8 w-28 text-xs font-medium"
+                        <Input type="text" inputMode="decimal" className="h-8 w-28 text-xs font-medium"
                           value={valorEditado(r, "valor_total") as number}
                           onChange={(e) => setEdit(r.id, "valor_total", e.target.value)} />
                       )}

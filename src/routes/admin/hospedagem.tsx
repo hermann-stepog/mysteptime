@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import { matchesNameSearch } from "@/lib/utils";
+import { parseValorForm } from "@/lib/format";
 // hoteis_fornecedores/hospedagens ainda não estão nos tipos gerados (types.ts não é
 // regerado automaticamente neste projeto — ver mesmo padrão em nominations.tsx); cast local
 // para não bloquear o build.
@@ -63,6 +64,7 @@ import {
   useUnidadesAdicionais,
   FormaPagamentoField,
 } from "@/components/LogisticaFormFields";
+import { FORMAS_PAGAMENTO } from "@/lib/logistica";
 import {
   Check,
   ChevronsUpDown,
@@ -138,12 +140,24 @@ function fmt(d: string): string {
   return d.split("-").reverse().join("/");
 }
 
+// Mesma regra do formulário: Cartão de Crédito mostra só mês/ano ("Mês de referência");
+// Faturado (ou vazio) mostra a data cheia — ver data_faturamento no payload.
+function fmtFaturamento(h: Hospedagem): string {
+  if (!h.data_faturamento) return "—";
+  if (h.forma_pagamento === "Cartão de Crédito") {
+    const [ano, mes] = h.data_faturamento.split("-");
+    return `${mes}/${ano}`;
+  }
+  return fmt(h.data_faturamento);
+}
+
 // Linha de planilha de uma hospedagem — compartilhada entre o botão de exportar da própria tela
 // (já filtrado) e o relatório standalone/consolidado do módulo de Relatórios
 // (generateRelatorioHospedagem, busca tudo do zero).
 function hospedagemToRelatorioRow(h: Hospedagem, hotelById: Map<string, HotelFornecedor>) {
   const hotel = hotelById.get(h.hotel_id);
   return {
+    "Data de lançamento": h.data_lancamento ? fmt(h.data_lancamento) : "—",
     Unidade: h.unidade,
     BSP: h.bsp,
     "Nome do usuário": h.nome_usuario,
@@ -162,7 +176,7 @@ function hospedagemToRelatorioRow(h: Hospedagem, hotelById: Map<string, HotelFor
     "Status Lançamento": h.status_lancamento ?? "—",
     Faturado: h.faturado ? "Sim" : "Não",
     "Usuário Faturamento": h.usuario_faturamento ?? "—",
-    "Data Faturamento": h.data_faturamento ? fmt(h.data_faturamento) : "—",
+    "Mês de Referência / Data Faturamento": fmtFaturamento(h),
   };
 }
 
@@ -394,6 +408,7 @@ const FORM_VAZIO = {
   observacoes: "",
   nf: "",
   dataFaturamento: "",
+  dataLancamento: "",
 };
 
 // ─── Dialog: Nova hospedagem / Editar ───────────────────────────────────────
@@ -418,7 +433,10 @@ function HospedagemDialog({
 }) {
   const qc = useQueryClient();
   const registrarLog = useRegistrarLog("hospedagem");
-  const [f, setF] = useState(FORM_VAZIO);
+  const [f, setF] = useState(() => ({
+    ...FORM_VAZIO,
+    dataLancamento: new Date().toISOString().slice(0, 10),
+  }));
   const [bound, setBound] = useState<string | null>(null);
   // Valor digitado direto por unidade/BSP (não mais % de um total nem diária x dias) — o Total
   // é sempre a soma do que for digitado aqui, valendo pra uma ou mais unidades/BSPs.
@@ -428,9 +446,13 @@ function HospedagemDialog({
   const diariasAtual = f.checkIn && f.checkOut ? computeDiarias(f.checkIn, f.checkOut) : 0;
   const pessoas = usePessoasAdicionais();
   const unidades = useUnidadesAdicionais();
-  const valorPrincipalNum = Math.round((Number(valorPrincipal) || 0) * 100) / 100;
-  const valor2Num = unidades.unidades[0] ? Math.round((Number(valor2) || 0) * 100) / 100 : 0;
-  const valor3Num = unidades.unidades[1] ? Math.round((Number(valor3) || 0) * 100) / 100 : 0;
+  const valorPrincipalNum = Math.round((parseValorForm(valorPrincipal) ?? 0) * 100) / 100;
+  const valor2Num = unidades.unidades[0]
+    ? Math.round((parseValorForm(valor2) ?? 0) * 100) / 100
+    : 0;
+  const valor3Num = unidades.unidades[1]
+    ? Math.round((parseValorForm(valor3) ?? 0) * 100) / 100
+    : 0;
   const valorTotal = Math.round((valorPrincipalNum + valor2Num + valor3Num) * 100) / 100;
   const diarias = diariasAtual;
   const valorDiariaNum = diarias > 0 ? Math.round((valorTotal / diarias) * 100) / 100 : valorTotal;
@@ -456,6 +478,7 @@ function HospedagemDialog({
       observacoes: editing.observacoes ?? "",
       nf: editing.nf ?? "",
       dataFaturamento: editing.data_faturamento ?? "",
+      dataLancamento: editing.data_lancamento ?? new Date().toISOString().slice(0, 10),
     });
     pessoas.replace(outrosNomes.map((nome) => ({ nome, unidade: "", bsp: "" })));
     const v2 = editing.bsp_2 ? (editing.valor_2 ?? 0) : 0;
@@ -543,6 +566,7 @@ function HospedagemDialog({
         valor_3: terceiraUnidade ? valor3Num : null,
         nf: f.nf.trim() || null,
         data_faturamento: f.dataFaturamento || null,
+        data_lancamento: f.dataLancamento || new Date().toISOString().slice(0, 10),
       };
       // Fornecedor/Cobrado/Status Lanç./Faturado/Usuário Faturamento saíram do formulário —
       // numa hospedagem NOVA entram com um valor padrão neutro; ao EDITAR, ficam de fora do
@@ -636,9 +660,8 @@ function HospedagemDialog({
               <div>
                 <Label className="text-[11px]">Valor</Label>
                 <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="R$ 0,00"
                   value={valorPrincipal}
                   onChange={(e) => setValorPrincipal(e.target.value)}
@@ -677,9 +700,8 @@ function HospedagemDialog({
                   <div>
                     <Label className="text-[11px]">Valor</Label>
                     <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       placeholder="R$ 0,00"
                       value={valorItem}
                       onChange={(e) => setValorItem(e.target.value)}
@@ -743,6 +765,16 @@ function HospedagemDialog({
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
+              <Label className="text-xs">Data de lançamento</Label>
+              <Input
+                type="date"
+                value={f.dataLancamento}
+                onChange={(e) => setF({ ...f, dataLancamento: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
               <Label className="text-xs">Motivo</Label>
               <MotivoField value={f.motivo} onChange={(v) => setF({ ...f, motivo: v })} />
             </div>
@@ -769,12 +801,27 @@ function HospedagemDialog({
               <Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">Data Faturamento</Label>
-              <Input
-                type="date"
-                value={f.dataFaturamento}
-                onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })}
-              />
+              {f.formaPagamento === "Cartão de Crédito" ? (
+                <>
+                  <Label className="text-xs">Mês de referência</Label>
+                  <Input
+                    type="month"
+                    value={f.dataFaturamento.slice(0, 7)}
+                    onChange={(e) =>
+                      setF({ ...f, dataFaturamento: e.target.value ? `${e.target.value}-01` : "" })
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <Label className="text-xs">Data Faturamento</Label>
+                  <Input
+                    type="date"
+                    value={f.dataFaturamento}
+                    onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })}
+                  />
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1101,7 +1148,10 @@ type HospedagensSortColumn =
   | "diarias"
   | "valor_diaria"
   | "valor_total"
-  | "motivo";
+  | "motivo"
+  | "data_lancamento"
+  | "forma_pagamento"
+  | "faturamento";
 
 function LancamentosTab({
   hoteis,
@@ -1130,7 +1180,12 @@ function LancamentosTab({
   const [filterBsp, setFilterBsp] = useState("all");
   const [filterHotel, setFilterHotel] = useState("all");
   const [filterMotivo, setFilterMotivo] = useState("all");
+  const [filterFormaPagamento, setFilterFormaPagamento] = useState("all");
+  const [filterFaturamento, setFilterFaturamento] = useState("all");
   const [filterNome, setFilterNome] = useState("");
+  const [filterNf, setFilterNf] = useState("");
+  const [filterLancamentoDe, setFilterLancamentoDe] = useState("");
+  const [filterLancamentoAte, setFilterLancamentoAte] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Hospedagem | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1187,7 +1242,12 @@ function LancamentosTab({
               rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
             (filterHotel === "all" || h.hotel_id === filterHotel) &&
             (filterMotivo === "all" || (h.motivo ?? "") === filterMotivo) &&
-            (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)),
+            (filterFormaPagamento === "all" || (h.forma_pagamento ?? "") === filterFormaPagamento) &&
+            (filterFaturamento === "all" || fmtFaturamento(h) === filterFaturamento) &&
+            (!filterNome || matchesNameSearch(h.nome_usuario, filterNome)) &&
+            (!filterNf || (h.nf ?? "").toLowerCase().includes(filterNf.trim().toLowerCase())) &&
+            (!filterLancamentoDe || (h.data_lancamento ?? "") >= filterLancamentoDe) &&
+            (!filterLancamentoAte || (h.data_lancamento ?? "") <= filterLancamentoAte),
         )
         .sort((a, b) => {
           // Sem coluna escolhida, organiza por lançamento (BSP) — não mais por nome do usuário, que
@@ -1223,6 +1283,12 @@ function LancamentosTab({
               return dir * (a.valor_total - b.valor_total);
             case "motivo":
               return dir * (a.motivo ?? "").localeCompare(b.motivo ?? "");
+            case "data_lancamento":
+              return dir * (a.data_lancamento ?? "").localeCompare(b.data_lancamento ?? "");
+            case "forma_pagamento":
+              return dir * (a.forma_pagamento ?? "").localeCompare(b.forma_pagamento ?? "");
+            case "faturamento":
+              return dir * (a.data_faturamento ?? "").localeCompare(b.data_faturamento ?? "");
             default:
               return 0;
           }
@@ -1235,12 +1301,33 @@ function LancamentosTab({
       filterBsp,
       filterHotel,
       filterMotivo,
+      filterFormaPagamento,
+      filterFaturamento,
       filterNome,
+      filterNf,
+      filterLancamentoDe,
+      filterLancamentoAte,
       sortColumn,
       sortDirection,
       hotelById,
     ],
   );
+
+  // Opções a partir do que já foi lançado — filtra pelo texto exibido (mês/ano pra Cartão de
+  // Crédito, data cheia pra Faturado), não pela data crua, pra agrupar quem foi faturado no
+  // mesmo mês. Ordena pela data crua de um representante de cada rótulo (não alfabeticamente).
+  const faturamentoOptions = useMemo(() => {
+    const dataPorRotulo = new Map<string, string>();
+    for (const h of hospedagens) {
+      const rotulo = fmtFaturamento(h);
+      if (rotulo !== "—" && !dataPorRotulo.has(rotulo)) {
+        dataPorRotulo.set(rotulo, h.data_faturamento ?? "");
+      }
+    }
+    return Array.from(dataPorRotulo.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([rotulo]) => rotulo);
+  }, [hospedagens]);
 
   const motivosVistos = useMemo(
     () =>
@@ -1350,6 +1437,62 @@ function LancamentosTab({
               onChange={(e) => setFilterNome(e.target.value)}
             />
           </div>
+          <div className="space-y-0.5 w-32">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              NF
+            </Label>
+            <Input
+              className="h-8 text-xs"
+              placeholder="Buscar por NF..."
+              value={filterNf}
+              onChange={(e) => setFilterNf(e.target.value)}
+            />
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Forma de pagamento
+            </Label>
+            <SearchableSelect
+              value={filterFormaPagamento}
+              onValueChange={setFilterFormaPagamento}
+              options={[{ value: "all", label: "Todos" }, ...FORMAS_PAGAMENTO]}
+              placeholder="Todos"
+            />
+          </div>
+          <div className="space-y-0.5 w-40">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Mês Ref. / Data Fat.
+            </Label>
+            <SearchableSelect
+              value={filterFaturamento}
+              onValueChange={setFilterFaturamento}
+              options={[{ value: "all", label: "Todos" }, ...faturamentoOptions]}
+              placeholder="Todos"
+            />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Lançamento - de
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              value={filterLancamentoDe}
+              onChange={(e) => setFilterLancamentoDe(e.target.value)}
+            />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Lançamento - até
+            </Label>
+            <Input
+              type="date"
+              className="h-8 w-36 text-xs"
+              min={filterLancamentoDe || undefined}
+              value={filterLancamentoAte}
+              onChange={(e) => setFilterLancamentoAte(e.target.value)}
+            />
+          </div>
           <div className="ml-auto flex items-center gap-2">
             <HistoricoAlteracoesButton modulo="hospedagem" titulo="Hospedagem" />
             <Button variant="outline" onClick={exportarRelatorio}>
@@ -1377,6 +1520,13 @@ function LancamentosTab({
         <Table>
           <TableHeader>
             <TableRow>
+              <SortableHead
+                label="Data Lançamento"
+                column="data_lancamento"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
               <SortableHead
                 label="Unidade"
                 column="unidade"
@@ -1450,20 +1600,34 @@ function LancamentosTab({
                 sortDirection={sortDirection}
                 onSort={toggleSort}
               />
-              <TableHead>Forma de pagamento</TableHead>
+              <SortableHead
+                label="Forma de pagamento"
+                column="forma_pagamento"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                label="Mês Ref. / Data Fat."
+                column="faturamento"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={toggleSort}
+              />
               <TableHead>NF</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtradas.length === 0 ? (
-              <EmptyStateRow colSpan={13} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
+              <EmptyStateRow colSpan={15} icon={BedDouble} title="Nenhuma hospedagem encontrada" />
             ) : (
               filtradas.map((h) => {
                 const hotel = hotelById.get(h.hotel_id);
                 const rateios = rateiosDaHospedagem(h);
                 return (
                   <TableRow key={h.id}>
+                    <TableCell>{h.data_lancamento ? fmt(h.data_lancamento) : "—"}</TableCell>
                     <TableCell>
                       {Array.from(new Set(rateios.map((rateio) => rateio.unidade))).join(" · ")}
                     </TableCell>
@@ -1481,6 +1645,7 @@ function LancamentosTab({
                     </TableCell>
                     <TableCell>{h.motivo ?? "—"}</TableCell>
                     <TableCell>{h.forma_pagamento ?? "—"}</TableCell>
+                    <TableCell>{fmtFaturamento(h)}</TableCell>
                     <TableCell>{h.nf ?? "—"}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">

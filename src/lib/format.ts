@@ -17,6 +17,19 @@ export function fmtMoney(v: number | string | null | undefined) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 }
 
+// Valor digitado à mão num campo de texto (não <input type="number">, que trava o jeito
+// brasileiro de digitar e ainda muda de valor sozinho se a pessoa rolar o mouse por cima) —
+// aceita "R$ 1.234,56", "1234,56" e também o formato com ponto decimal.
+export function parseValorForm(raw: string): number | null {
+  const limpo = raw.replace(/[^\d.,-]/g, "").trim();
+  if (!limpo) return null;
+  const temVirgula = limpo.includes(",");
+  // Com vírgula, ela é o separador decimal e o ponto é separador de milhar.
+  const normalizado = temVirgula ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
+  const n = Number(normalizado);
+  return Number.isFinite(n) ? n : null;
+}
+
 const LOWERCASE_WORDS = new Set(["de", "da", "do", "das", "dos", "e", "em", "no", "na", "a", "o"]);
 
 export function toDisplayCase(value?: string | null): string {

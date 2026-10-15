@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import { matchesNameSearch } from "@/lib/utils";
+import { parseValorForm } from "@/lib/format";
+import { FORMAS_PAGAMENTO } from "@/lib/logistica";
 // passagens_aereas ainda não está nos tipos gerados (mesmo padrão de hospedagem.tsx/
 // nominations.tsx) — cast local pra não bloquear o build.
 const supabase: any = supabaseTyped;
@@ -141,6 +143,17 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Mesma regra do formulário: Cartão de Crédito mostra só mês/ano ("Mês de referência");
+// Faturado (ou vazio) mostra a data cheia — ver data_faturamento no payload.
+function fmtFaturamento(p: PassagemAerea): string {
+  if (!p.data_faturamento) return "—";
+  if (p.forma_pagamento === "Cartão de Crédito") {
+    const [ano, mes] = p.data_faturamento.split("-");
+    return `${mes}/${ano}`;
+  }
+  return fmt(p.data_faturamento);
+}
+
 // Linha de planilha de uma passagem — compartilhada entre o botão de exportar da própria tela
 // (já filtrado, ver exportarRelatorio) e o relatório standalone/consolidado do módulo de
 // Relatórios (generateRelatorioPassagensAereas, busca tudo do zero).
@@ -165,7 +178,7 @@ function passagemToRelatorioRow(p: PassagemAerea) {
     "Status Lançamento": p.status_lancamento ?? "—",
     Faturado: p.faturado ? "Sim" : "Não",
     "Usuário Faturamento": p.usuario_faturamento ?? "—",
-    "Data Faturamento": p.data_faturamento ? fmt(p.data_faturamento) : "—",
+    "Mês de Referência / Data Faturamento": fmtFaturamento(p),
   };
 }
 
@@ -211,7 +224,9 @@ type PassagensSortColumn =
   | "tipo"
   | "valor"
   | "status"
-  | "motivo";
+  | "motivo"
+  | "formaPagamento"
+  | "faturamento";
 
 // Ordem de prioridade lógica do status (não alfabética) — Confirmada (ativa) antes de
 // Remarcada, e Cancelada (estado terminal) por último.
@@ -296,6 +311,7 @@ const FORM_VAZIO = {
   motivo: "",
   motivoCancelamento: "",
   formaPagamento: "",
+  dataFaturamento: "",
   observacoes: "",
   solicitante: "",
   solicitanteEmail: "",
@@ -322,7 +338,7 @@ function PassagemDialog({
   const registrarLog = useRegistrarLog("passagens_aereas");
   const [f, setF] = useState(FORM_VAZIO);
   const [bound, setBound] = useState<string | null>(null);
-  const valorPassagem = Number(f.valor) || 0;
+  const valorPassagem = parseValorForm(f.valor) ?? 0;
   const rateio = useRateioComplementar(valorPassagem);
   const pessoas = usePessoasAdicionais();
   const unidades = useUnidadesAdicionais();
@@ -344,6 +360,7 @@ function PassagemDialog({
       motivo: editing.motivo ?? "",
       motivoCancelamento: editing.motivo_cancelamento ?? "",
       formaPagamento: editing.forma_pagamento ?? "",
+      dataFaturamento: editing.data_faturamento ?? "",
       observacoes: editing.observacoes ?? "",
       solicitante: editing.solicitante ?? "",
       solicitanteEmail: editing.solicitante_email ?? "",
@@ -401,6 +418,7 @@ function PassagemDialog({
         motivo: f.motivo.trim() || null,
         motivo_cancelamento: f.status === "Cancelada" ? f.motivoCancelamento.trim() || null : null,
         forma_pagamento: f.formaPagamento || null,
+        data_faturamento: f.dataFaturamento || null,
         observacoes: f.observacoes.trim() || null,
         solicitante: f.solicitante.trim() || null,
         solicitante_email: f.solicitanteEmail.trim() || null,
@@ -480,6 +498,31 @@ function PassagemDialog({
                 value={f.formaPagamento}
                 onChange={(v) => setF({ ...f, formaPagamento: v })}
               />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              {f.formaPagamento === "Cartão de Crédito" ? (
+                <>
+                  <Label className="text-xs">Mês de referência</Label>
+                  <Input
+                    type="month"
+                    value={f.dataFaturamento.slice(0, 7)}
+                    onChange={(e) =>
+                      setF({ ...f, dataFaturamento: e.target.value ? `${e.target.value}-01` : "" })
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <Label className="text-xs">Data Faturamento</Label>
+                  <Input
+                    type="date"
+                    value={f.dataFaturamento}
+                    onChange={(e) => setF({ ...f, dataFaturamento: e.target.value })}
+                  />
+                </>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3">
@@ -569,9 +612,8 @@ function PassagemDialog({
             <div>
               <Label className="text-xs">Valor</Label>
               <Input
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
+                inputMode="decimal"
                 value={f.valor}
                 onChange={(e) => setF({ ...f, valor: e.target.value })}
               />
@@ -802,8 +844,8 @@ function GerenciarFluxoDialog({
         voo: novaOpcao.voo.trim() || null,
         data_hora_ida: novaOpcao.dataHoraIda || null,
         bagagem: novaOpcao.bagagem.trim() || null,
-        valor: novaOpcao.valor ? Number(novaOpcao.valor) : null,
-        valor_alteracao: novaOpcao.valorAlteracao ? Number(novaOpcao.valorAlteracao) : null,
+        valor: novaOpcao.valor ? parseValorForm(novaOpcao.valor) : null,
+        valor_alteracao: novaOpcao.valorAlteracao ? parseValorForm(novaOpcao.valorAlteracao) : null,
       });
       if (error) throw error;
     },
@@ -986,16 +1028,16 @@ function GerenciarFluxoDialog({
                 />
                 <Input
                   className="h-8 text-xs"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="Valor"
                   value={novaOpcao.valor}
                   onChange={(e) => setNovaOpcao({ ...novaOpcao, valor: e.target.value })}
                 />
                 <Input
                   className="h-8 text-xs"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="Valor de alteração"
                   value={novaOpcao.valorAlteracao}
                   onChange={(e) => setNovaOpcao({ ...novaOpcao, valorAlteracao: e.target.value })}
@@ -1115,8 +1157,8 @@ function GerenciarFluxoDialog({
                 <div className="w-40">
                   <Label className="text-xs">Diferença de preço</Label>
                   <Input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={diferencaPreco}
                     onChange={(e) => setDiferencaPreco(e.target.value)}
                   />
@@ -1140,9 +1182,9 @@ function GerenciarFluxoDialog({
                       extra: {
                         revalidado_por: displayName,
                         revalidado_em: new Date().toISOString(),
-                        diferenca_preco: Number(diferencaPreco) || 0,
+                        diferenca_preco: parseValorForm(diferencaPreco) ?? 0,
                       },
-                      notes: `Preço aumentou em ${fmtMoney(Number(diferencaPreco) || 0)} — nova aprovação necessária`,
+                      notes: `Preço aumentou em ${fmtMoney(parseValorForm(diferencaPreco) ?? 0)} — nova aprovação necessária`,
                     });
                   }
                 }}
@@ -2146,6 +2188,8 @@ export function PassagensAereasPage({
   const [filterBsp, setFilterBsp] = useState("all");
   const [filterMotivo, setFilterMotivo] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterFormaPagamento, setFilterFormaPagamento] = useState("all");
+  const [filterFaturamento, setFilterFaturamento] = useState("all");
   const [filterNome, setFilterNome] = useState("");
   const [filterDe, setFilterDe] = useState("");
   const [filterAte, setFilterAte] = useState("");
@@ -2187,6 +2231,22 @@ export function PassagensAereasPage({
     onError: (e: any) => notify.error(e.message),
   });
 
+  // Opções a partir do que já foi lançado — filtra pelo texto exibido (mês/ano pra Cartão de
+  // Crédito, data cheia pra Faturado), não pela data crua, pra agrupar quem foi faturado no
+  // mesmo mês. Ordena pela data crua de um representante de cada rótulo (não alfabeticamente).
+  const faturamentoOptions = useMemo(() => {
+    const dataPorRotulo = new Map<string, string>();
+    for (const p of passagens) {
+      const rotulo = fmtFaturamento(p);
+      if (rotulo !== "—" && !dataPorRotulo.has(rotulo)) {
+        dataPorRotulo.set(rotulo, p.data_faturamento ?? "");
+      }
+    }
+    return Array.from(dataPorRotulo.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([rotulo]) => rotulo);
+  }, [passagens]);
+
   const filtradas = useMemo(
     () =>
       passagens
@@ -2196,6 +2256,8 @@ export function PassagensAereasPage({
             (filterBsp === "all" || p.bsp === filterBsp) &&
             (filterMotivo === "all" || (p.motivo ?? "") === filterMotivo) &&
             (filterStatus === "all" || p.status === filterStatus) &&
+            (filterFormaPagamento === "all" || (p.forma_pagamento ?? "") === filterFormaPagamento) &&
+            (filterFaturamento === "all" || fmtFaturamento(p) === filterFaturamento) &&
             (!filterNome || matchesNameSearch(p.nome_usuario, filterNome)) &&
             (!filterDe ||
               (filterDataTipo === "ida"
@@ -2237,6 +2299,10 @@ export function PassagensAereasPage({
               return dir * (STATUS_PASSAGEM_ORDER[a.status] - STATUS_PASSAGEM_ORDER[b.status]);
             case "motivo":
               return dir * (a.motivo ?? "").localeCompare(b.motivo ?? "");
+            case "formaPagamento":
+              return dir * (a.forma_pagamento ?? "").localeCompare(b.forma_pagamento ?? "");
+            case "faturamento":
+              return dir * (a.data_faturamento ?? "").localeCompare(b.data_faturamento ?? "");
             default:
               return 0;
           }
@@ -2247,6 +2313,8 @@ export function PassagensAereasPage({
       filterBsp,
       filterMotivo,
       filterStatus,
+      filterFormaPagamento,
+      filterFaturamento,
       filterNome,
       filterDe,
       filterAte,
@@ -2395,6 +2463,28 @@ export function PassagensAereasPage({
                     value={filterStatus}
                     onValueChange={setFilterStatus}
                     options={[{ value: "all", label: "Todos" }, ...STATUS_PASSAGEM]}
+                    placeholder="Todos"
+                  />
+                </div>
+                <div className="space-y-0.5 w-40">
+                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    Forma de pagamento
+                  </Label>
+                  <SearchableSelect
+                    value={filterFormaPagamento}
+                    onValueChange={setFilterFormaPagamento}
+                    options={[{ value: "all", label: "Todos" }, ...FORMAS_PAGAMENTO]}
+                    placeholder="Todos"
+                  />
+                </div>
+                <div className="space-y-0.5 w-40">
+                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    Mês Ref. / Data Fat.
+                  </Label>
+                  <SearchableSelect
+                    value={filterFaturamento}
+                    onValueChange={setFilterFaturamento}
+                    options={[{ value: "all", label: "Todos" }, ...faturamentoOptions]}
                     placeholder="Todos"
                   />
                 </div>
@@ -2549,14 +2639,27 @@ export function PassagensAereasPage({
                       sortDirection={sortDirection}
                       onSort={toggleSort}
                     />
-                    <TableHead>Forma de pagamento</TableHead>
+                    <SortableHead
+                      label="Forma de pagamento"
+                      column="formaPagamento"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <SortableHead
+                      label="Mês Ref. / Data Fat."
+                      column="faturamento"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={toggleSort}
+                    />
                     <TableHead>Etapa</TableHead>
                     <TableHead className="w-32" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtradas.length === 0 ? (
-                    <EmptyStateRow colSpan={14} icon={Plane} title="Nenhuma passagem encontrada" />
+                    <EmptyStateRow colSpan={16} icon={Plane} title="Nenhuma passagem encontrada" />
                   ) : (
                     filtradas.map((p) => (
                       <TableRow key={p.id}>
@@ -2578,6 +2681,7 @@ export function PassagensAereasPage({
                         </TableCell>
                         <TableCell>{p.motivo ?? "—"}</TableCell>
                         <TableCell>{p.forma_pagamento ?? "—"}</TableCell>
+                        <TableCell>{fmtFaturamento(p)}</TableCell>
                         <TableCell>
                           <span
                             className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_FLUXO_COLOR[p.status_fluxo].bg} ${STATUS_FLUXO_COLOR[p.status_fluxo].text}`}

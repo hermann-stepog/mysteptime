@@ -12,6 +12,7 @@ import { fetchBmDayGrid, computeDayCodes, countDayQuantities, filterDayGridByCol
 import { generateDateRange, getContrastText } from "@/lib/histogramaNovo";
 import { notify } from "@/lib/notify";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+import { parseValorForm } from "@/lib/format";
 // bms/bm_lines_* ainda não existem no schema gerado — mesmo cast usado em admin/bm.tsx.
 const supabase: any = supabaseTyped;
 
@@ -307,11 +308,11 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                   <>
                     <span className="hidden print:inline">{l[campo] != null ? fmtMoney(l[campo]!) : "—"}</span>
                     <Input
-                      type="number" step="0.01" placeholder="Inserir rate"
+                      type="text" inputMode="decimal" placeholder="Inserir rate"
                       className="h-7 w-24 text-xs print:hidden"
                       defaultValue={l[campo] ?? ""}
                       onBlur={(e) => {
-                        const valor = e.target.value.trim() === "" ? null : Number(e.target.value);
+                        const valor = e.target.value.trim() === "" ? null : parseValorForm(e.target.value);
                         if (valor === l[campo]) return;
                         salvarRate.mutate({ linha: l, campo, valor });
                       }}
@@ -384,11 +385,11 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
             const rateField = (campo: "rate_embarque" | "rate_dobra" | "rate_hotel") =>
               idsComRateFaltando.has(l.id) ? (
                 <Input
-                  type="number" step="0.01" placeholder="Rate"
+                  type="text" inputMode="decimal" placeholder="Rate"
                   className="h-7 w-20 text-xs"
                   defaultValue={l[campo] ?? ""}
                   onBlur={(e) => {
-                    const valor = e.target.value.trim() === "" ? null : Number(e.target.value);
+                    const valor = e.target.value.trim() === "" ? null : parseValorForm(e.target.value);
                     if (valor === l[campo]) return;
                     salvarRate.mutate({ linha: l, campo, valor });
                   }}
@@ -492,18 +493,18 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                     <TableCell className="text-xs">{l.horas_adicional_noturno ? `${l.horas_adicional_noturno}h` : "0h"}</TableCell>
                     <TableCell className="p-1">
                       <Input
-                        type="number" step="0.01" className="h-7 w-24 text-xs"
+                        type="text" inputMode="decimal" className="h-7 w-24 text-xs"
                         value={l.rate_hora_extra ?? ""}
-                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_hora_extra: e.target.value === "" ? null : Number(e.target.value) } : x)))}
-                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_hora_extra", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_hora_extra: e.target.value === "" ? null : (parseValorForm(e.target.value) ?? null) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_hora_extra", valor: e.target.value === "" ? null : parseValorForm(e.target.value) })}
                       />
                     </TableCell>
                     <TableCell className="p-1">
                       <Input
-                        type="number" step="0.01" className="h-7 w-24 text-xs"
+                        type="text" inputMode="decimal" className="h-7 w-24 text-xs"
                         value={l.rate_adicional_noturno ?? ""}
-                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_adicional_noturno: e.target.value === "" ? null : Number(e.target.value) } : x)))}
-                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_adicional_noturno", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_adicional_noturno: e.target.value === "" ? null : (parseValorForm(e.target.value) ?? null) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_adicional_noturno", valor: e.target.value === "" ? null : parseValorForm(e.target.value) })}
                       />
                     </TableCell>
                     <TableCell className="text-xs font-semibold">{fmtMoney(valorHoras)}</TableCell>
@@ -550,10 +551,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                     <div className="flex items-center gap-1">
                       <span>{l.horas_extras ? `${l.horas_extras}h` : "0h"}</span>
                       <Input
-                        type="number" step="0.01" className="h-7 w-20 text-xs"
+                        type="text" inputMode="decimal" className="h-7 w-20 text-xs"
                         value={l.rate_hora_extra ?? ""}
-                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_hora_extra: e.target.value === "" ? null : Number(e.target.value) } : x)))}
-                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_hora_extra", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_hora_extra: e.target.value === "" ? null : (parseValorForm(e.target.value) ?? null) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_hora_extra", valor: e.target.value === "" ? null : parseValorForm(e.target.value) })}
                       />
                     </div>
                   </div>
@@ -562,10 +563,10 @@ export function BmTimesheetCoverView({ bm, linesMo }: BmTimesheetCoverViewProps)
                     <div className="flex items-center gap-1">
                       <span>{l.horas_adicional_noturno ? `${l.horas_adicional_noturno}h` : "0h"}</span>
                       <Input
-                        type="number" step="0.01" className="h-7 w-20 text-xs"
+                        type="text" inputMode="decimal" className="h-7 w-20 text-xs"
                         value={l.rate_adicional_noturno ?? ""}
-                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_adicional_noturno: e.target.value === "" ? null : Number(e.target.value) } : x)))}
-                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_adicional_noturno", valor: e.target.value === "" ? null : Number(e.target.value) })}
+                        onChange={(e) => setLinesMoLocal((prev) => prev.map((x) => (x.id === l.id ? { ...x, rate_adicional_noturno: e.target.value === "" ? null : (parseValorForm(e.target.value) ?? null) } : x)))}
+                        onBlur={(e) => salvarRate.mutate({ linha: l, campo: "rate_adicional_noturno", valor: e.target.value === "" ? null : parseValorForm(e.target.value) })}
                       />
                     </div>
                   </div>
