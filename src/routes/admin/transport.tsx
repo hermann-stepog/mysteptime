@@ -3778,6 +3778,7 @@ function DetailView({
   const [cliente, setCliente] = useState<string[]>(() => (initialCliente ? [initialCliente] : []));
   const [tipo, setTipo] = useState<string[]>(() => (initialTipo ? [initialTipo] : []));
   const [carro, setCarro] = useState<string[]>([]);
+  const [bsp, setBsp] = useState<string[]>([]);
   const [uberVia, setUberVia] = useState<string[]>([]);
   const [formaPagamento, setFormaPagamento] = useState<string[]>([]);
   const [faturamento, setFaturamento] = useState<string[]>([]);
@@ -3810,6 +3811,18 @@ function DetailView({
     [trips],
   );
 
+  // BSP das viagens já carregadas (até 3 por viagem) — opções a partir do que já existe, mesmo
+  // padrão de carroOptions/nfOptions acima.
+  const bspOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (trips as Trip[]).flatMap((t) => [t.bsp, t.bsp_2, t.bsp_3].filter((b): b is string => !!b?.trim())),
+        ),
+      ).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true })),
+    [trips],
+  );
+
   // Opções a partir do que já foi lançado — filtra pelo texto exibido (mês/ano pra Cartão de
   // Crédito, data cheia pra Faturado), não pela data crua, pra agrupar quem foi faturado no
   // mesmo mês mesmo com dias diferentes. Ordena pela data crua de um representante de cada
@@ -3836,6 +3849,11 @@ function DetailView({
       if (cliente.length > 0 && !cliente.includes(t.cliente ?? "")) return false;
       if (tipo.length > 0 && !tipo.includes(t.tipo)) return false;
       if (carro.length > 0 && !carro.includes(toDisplayCase(nomeTransporte(t.car_number))))
+        return false;
+      if (
+        bsp.length > 0 &&
+        ![t.bsp, t.bsp_2, t.bsp_3].some((b) => b && bsp.includes(b))
+      )
         return false;
       if (uberVia.length > 0) {
         const ehVazioUber =
@@ -3926,6 +3944,7 @@ function DetailView({
     cliente,
     tipo,
     carro,
+    bsp,
     uberVia,
     formaPagamento,
     faturamento,
@@ -3973,6 +3992,10 @@ function DetailView({
         <div>
           <Label className="text-xs">Transporte</Label>
           <SearchableMultiSelect value={carro} onValueChange={setCarro} options={carroOptions} />
+        </div>
+        <div>
+          <Label className="text-xs">BSP</Label>
+          <SearchableMultiSelect value={bsp} onValueChange={setBsp} options={bspOptions} />
         </div>
         <div>
           <Label className="text-xs">Uber solicitado via</Label>
