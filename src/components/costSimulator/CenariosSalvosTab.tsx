@@ -24,7 +24,7 @@ import {
   deleteCostSimulation,
   type CostSimulationRow,
 } from "@/lib/api/costSimulator.functions";
-import { cidadesERotas, montarResultado } from "@/lib/costSimulator";
+import { montarResultado } from "@/lib/costSimulator";
 import { CompararCenariosDialog } from "@/components/costSimulator/CompararCenariosDialog";
 import { TIPO_LABEL, formatBRL } from "@/components/costSimulator/formatacao";
 
@@ -104,18 +104,7 @@ export function CenariosSalvosTab({ onEditar }: { onEditar: (row: CostSimulation
 
   const recalcular = useMutation({
     mutationFn: async (row: CostSimulationRow) => {
-      const { cidades, rotas, trajetos, trajetosExecutivos } = cidadesERotas(row.entradas);
-      const stats = await fetchCostStats({
-        periodoInicio: row.ajustes.periodoReferencia.inicio,
-        periodoFim: row.ajustes.periodoReferencia.fim,
-        cidades,
-        rotas,
-        trajetos,
-        trajetosExecutivos,
-        bsp: row.entradas.bsp,
-        hotelIds: row.ajustes.filtros.hotelIds,
-        tipoTransporte: row.ajustes.filtros.tipoTransporte,
-      });
+      const stats = await fetchCostStats(row.entradas, row.ajustes);
       const resultado = montarResultado(row.entradas, row.ajustes, stats);
       return updateCostSimulation(row.id, {
         ...rowParaInput(row),

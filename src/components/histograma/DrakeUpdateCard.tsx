@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, CheckCircle2, AlertCircle, Clock, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,25 @@ async function getAccessToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
+// drake_sync_runs ainda não está nos tipos gerados — mesmo cast local do DrakeSyncLogList.
+const supabaseAny: any = supabase;
+
+const ULTIMA_SINCRONIZACAO_STATUS_LABEL: Record<string, string> = {
+  success: "sucesso",
+  partial: "parcial",
+  error: "falhou",
+};
+
+function fmtUltimaSincronizacao(iso: string): string {
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function isInternalPathLeak(message: string): boolean {
   return /ENOENT|no such file or directory|context-controls|tmp[/\\]drake|mysteptime-drake|[A-Za-z]:\\|\bEPERM\b|\bEBUSY\b/i.test(
     message,
@@ -87,6 +106,25 @@ export function DrakeUpdateCard() {
   const [showProgress, setShowProgress] = useState(false);
   const [activeScope, setActiveScope] = useState<DrakeUpdateScope | null>(null);
   const [confirmFullOpen, setConfirmFullOpen] = useState(false);
+
+  // Hora/dia da última sincronização (pedido dela) — mesma tabela que já alimenta os "Logs de
+  // sincronização" (DrakeSyncLogList) logo abaixo, só que pegando a mais recente de todas, sem
+  // precisar abrir/rolar a lista. invalidateQueries(["drake-sync-runs"]) em applyEvent já
+  // atualiza essa também (mesmo prefixo de chave).
+  const { data: ultimaSincronizacao } = useQuery({
+    queryKey: ["drake-sync-runs", "latest"],
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabaseAny
+        .from("drake_sync_runs")
+        .select("finished_at, status")
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { finished_at: string; status: string } | null;
+    },
+  });
 
   const abortRef = useRef<AbortController | null>(null);
   const doneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,6 +254,13 @@ export function DrakeUpdateCard() {
         Busca os relatórios atualizados diretamente no Drake e atualiza automaticamente os
         colaboradores, embarques e períodos de disponibilidade.
       </p>
+      {ultimaSincronizacao && (
+        <p className="text-xs text-muted-foreground">
+          Última sincronização: {fmtUltimaSincronizacao(ultimaSincronizacao.finished_at)}
+          {ultimaSincronizacao.status !== "success" &&
+            ` (${ULTIMA_SINCRONIZACAO_STATUS_LABEL[ultimaSincronizacao.status] ?? ultimaSincronizacao.status})`}
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <TooltipProvider>
@@ -228,8 +273,15 @@ export function DrakeUpdateCard() {
                 onClick={() => setConfirmFullOpen(true)}
                 aria-label="Atualizar todo o histograma pelo Drake"
               >
-                <RefreshCw className={cn("mr-2 h-4 w-4", isRunning && activeScope === "full" && "animate-spin")} />
-                {isRunning && activeScope === "full" ? "Atualizando..." : "Atualizar todo o histograma"}
+                <RefreshCw
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    isRunning && activeScope === "full" && "animate-spin",
+                  )}
+                />
+                {isRunning && activeScope === "full"
+                  ? "Atualizando..."
+                  : "Atualizar todo o histograma"}
               </Button>
             </TooltipTrigger>
             <TooltipContent>Atualiza o ano inteiro com os dados do Drake</TooltipContent>
@@ -246,7 +298,12 @@ export function DrakeUpdateCard() {
                 onClick={() => void handleClick("current-and-next-month")}
                 aria-label="Atualizar mês atual e mês seguinte pelo Drake"
               >
-                <RefreshCw className={cn("mr-2 h-4 w-4", isRunning && activeScope === "current-and-next-month" && "animate-spin")} />
+                <RefreshCw
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    isRunning && activeScope === "current-and-next-month" && "animate-spin",
+                  )}
+                />
                 {isRunning && activeScope === "current-and-next-month"
                   ? "Atualizando..."
                   : "Atualizar mês atual"}
@@ -262,8 +319,8 @@ export function DrakeUpdateCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Atualizar todo o histograma?</AlertDialogTitle>
             <AlertDialogDescription>
-              Todo o histograma do ano vigente será atualizado com os dados do Drake. Esse
-              processo consulta todos os colaboradores e pode demorar vários minutos.
+              Todo o histograma do ano vigente será atualizado com os dados do Drake. Esse processo
+              consulta todos os colaboradores e pode demorar vários minutos.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -318,11 +375,13 @@ export function DrakeUpdateCard() {
               <p className="font-medium text-foreground">Resumo:</p>
               {result.annualPositionWorkers != null ? (
                 <p>{result.annualPositionWorkers} colaboradores do Drake processados</p>
-              ) : (result.created != null || result.updated != null) && (
-                <p>
-                  {(result.created ?? 0) + (result.updated ?? 0)} colaboradores atualizados
-                  {` (${result.created ?? 0} criados, ${result.updated ?? 0} atualizados)`}
-                </p>
+              ) : (
+                (result.created != null || result.updated != null) && (
+                  <p>
+                    {(result.created ?? 0) + (result.updated ?? 0)} colaboradores atualizados
+                    {` (${result.created ?? 0} criados, ${result.updated ?? 0} atualizados)`}
+                  </p>
+                )
               )}
               {result.annualPositionEvents != null && (
                 <p>{result.annualPositionEvents} períodos do histograma sincronizados</p>
@@ -337,7 +396,10 @@ export function DrakeUpdateCard() {
                 <p>{result.availabilityEvents} períodos de disponibilidade lançados</p>
               )}
               {!!result.novosColaboradores && (
-                <p>{result.novosColaboradores} colaboradores novos cadastrados (efetivo geral do Drake)</p>
+                <p>
+                  {result.novosColaboradores} colaboradores novos cadastrados (efetivo geral do
+                  Drake)
+                </p>
               )}
             </div>
           )}

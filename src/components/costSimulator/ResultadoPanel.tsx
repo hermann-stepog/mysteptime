@@ -92,6 +92,22 @@ export function ResultadoPanel({
           <Kpi label="Por pessoa" valor={formatBRL(resultado.porPessoa)} />
           <Kpi label="Pessoas" valor={String(pessoas)} />
         </div>
+        <div className="space-y-1 text-sm">
+          {resultado.categoriasIncluidas.length > 0 && (
+            <p>
+              <span className="text-muted-foreground">Categorias incluídas: </span>
+              {resultado.categoriasIncluidas.join(", ")}
+            </p>
+          )}
+          {resultado.categoriasPendentes.length > 0 && (
+            <p className="text-amber-600">
+              <span className="font-medium">Pendentes: </span>
+              {resultado.categoriasPendentes
+                .map((p) => `${p.categoria} (falta preencher: ${p.motivo})`)
+                .join("; ")}
+            </p>
+          )}
+        </div>
       </Card>
 
       <Card className="overflow-x-auto p-4">
@@ -109,31 +125,53 @@ export function ResultadoPanel({
             </tr>
           </thead>
           <tbody>
-            {resultado.porCategoria.map((c) => (
-              <tr key={c.chaveOverride} className="border-b last:border-0">
-                <td className="py-1.5 pr-2">{c.categoria}</td>
-                <td className="py-1.5 pr-2 text-muted-foreground">{c.base}</td>
-                <td className="py-1.5 pr-2">
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    className="h-8 w-28"
-                    value={overrides[c.chaveOverride] ?? ""}
-                    placeholder={formatBRL(c.unitario)}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      onChangeOverride(c.chaveOverride, v === "" ? null : (parseValorForm(v) ?? 0));
-                    }}
-                  />
-                </td>
-                <td className="py-1.5 pr-2">{c.qtd}</td>
-                <td className="py-1.5 pr-2 font-medium">{formatBRL(c.subtotal)}</td>
-                <td className="py-1.5 pr-2">{porPessoaDe(c.subtotal)}</td>
-                <td className="py-1.5 pr-2 text-muted-foreground">
-                  {c.percentualDoTotal.toFixed(1)}%
-                </td>
-              </tr>
-            ))}
+            {resultado.porCategoria.map((c) =>
+              c.naoCalculado ? (
+                <tr key={c.chaveOverride} className="border-b text-muted-foreground last:border-0">
+                  <td className="py-1.5 pr-2">{c.categoria}</td>
+                  <td className="py-1.5 pr-2" colSpan={6}>
+                    {c.base}
+                  </td>
+                </tr>
+              ) : (
+                <tr key={c.chaveOverride} className="border-b last:border-0">
+                  <td className="py-1.5 pr-2">
+                    {c.categoria}
+                    {c.amostraPequena && (
+                      <span
+                        className="ml-1 text-xs text-amber-600"
+                        title="Amostra pequena no histórico"
+                      >
+                        *
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 text-muted-foreground">{c.base}</td>
+                  <td className="py-1.5 pr-2">
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      className="h-8 w-28"
+                      value={overrides[c.chaveOverride] ?? ""}
+                      placeholder={formatBRL(c.unitario)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        onChangeOverride(
+                          c.chaveOverride,
+                          v === "" ? null : (parseValorForm(v) ?? 0),
+                        );
+                      }}
+                    />
+                  </td>
+                  <td className="py-1.5 pr-2">{c.qtd}</td>
+                  <td className="py-1.5 pr-2 font-medium">{formatBRL(c.subtotal)}</td>
+                  <td className="py-1.5 pr-2">{porPessoaDe(c.subtotal)}</td>
+                  <td className="py-1.5 pr-2 text-muted-foreground">
+                    {c.percentualDoTotal.toFixed(1)}%
+                  </td>
+                </tr>
+              ),
+            )}
             {resultado.porCategoria.length === 0 && (
               <tr>
                 <td colSpan={7} className="py-3 text-center text-muted-foreground">
