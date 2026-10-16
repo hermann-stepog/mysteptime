@@ -104,8 +104,15 @@ export async function fetchDrakeWorkers(http: DrakeHttpClient): Promise<DrakeWor
 
   const unique = new Map<string, DrakeWorkerDashboardRow>();
   for (const item of validItems) {
-    // O Drake às vezes repete o mesmo cadastro entre páginas; mantém só uma cópia.
-    if (unique.has(item.id)) continue;
+    // O Drake pode listar o mesmo cadastro (mesmo id) em mais de uma linha do painel.
+    // É a mesma pessoa no Drake: a ficha anual é buscada pelo id, então guardamos um
+    // registro só e a importação continua fiel ao Drake. Se as linhas diferirem,
+    // preferimos a que tem função preenchida.
+    const existing = unique.get(item.id);
+    if (existing) {
+      if (!existing.jobDescription && item.jobDescription) unique.set(item.id, item);
+      continue;
+    }
     unique.set(item.id, item);
   }
 
