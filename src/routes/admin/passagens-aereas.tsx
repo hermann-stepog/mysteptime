@@ -190,13 +190,17 @@ export async function buscarLinhasRelatorioPassagensAereas(dataInicio?: string, 
   // Sem paginação aqui, o PostgREST corta em 1000 linhas e some com o resto silenciosamente
   // (mesmo motivo de selectAllPages em usePassagensQuery) — o relatório Consolidado (3 módulos
   // juntos) passa disso com mais facilidade ainda.
-  const data = await selectAllPages<PassagemAerea>((from, to) => {
-    let query = supabase.from("passagens_aereas").select("*").order("data_ida").range(from, to);
-    if (dataInicio) query = query.gte("data_ida", dataInicio);
-    if (dataFim) query = query.lte("data_ida", dataFim);
-    return query;
-  });
-  return data.map((p) => passagemToRelatorioRow(p));
+  // Filtra pela data de lançamento (mesma regra da tela), não pela data de ida. Passagens antigas
+  // sem data_lancamento caem na data em que foram salvas — por isso o filtro é feito aqui.
+  const data = await selectAllPages<PassagemAerea>((from, to) =>
+    supabase.from("passagens_aereas").select("*").order("data_ida").range(from, to),
+  );
+  return data
+    .filter((p) => {
+      const lanc = p.data_lancamento ?? dataLancamentoSp(p.created_at);
+      return (!dataInicio || lanc >= dataInicio) && (!dataFim || lanc <= dataFim);
+    })
+    .map((p) => passagemToRelatorioRow(p));
 }
 
 // Exportação standalone usada pelo módulo de Relatórios (card "Passagens Aéreas") — busca os
