@@ -104,9 +104,8 @@ export async function fetchDrakeWorkers(http: DrakeHttpClient): Promise<DrakeWor
 
   const unique = new Map<string, DrakeWorkerDashboardRow>();
   for (const item of validItems) {
-    if (unique.has(item.id)) {
-      throw new Error(`O Drake devolveu o colaborador ${item.id} mais de uma vez.`);
-    }
+    // O Drake às vezes repete o mesmo cadastro entre páginas; mantém só uma cópia.
+    if (unique.has(item.id)) continue;
     unique.set(item.id, item);
   }
 
