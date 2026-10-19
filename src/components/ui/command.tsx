@@ -11,16 +11,40 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive>
->(({ className, ...props }, ref) => (
-  <CommandPrimitive
-    ref={ref}
-    className={cn(
-      "flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground",
-      className,
-    )}
-    {...props}
-  />
-));
+>(({ className, onKeyDown, onMouseMove, ...props }, ref) => {
+  // Pedido dela (2026-10-19): Tab já confirma o item destacado (por mouse ou setas) antes de
+  // sair do campo, em vez de precisar clicar — vale pra todo combobox construído em cima deste
+  // componente (SearchableSelect, SearchableMultiSelect, Motivo, Forma de pagamento, BSP,
+  // Unidade, trajetos do Simulador de Custos etc.), já que todos usam este wrapper. Só dispara
+  // se a pessoa realmente passou o mouse ou usou as setas nesta abertura — sem isso, o cmdk
+  // destaca o primeiro item sozinho ao abrir, e o Tab trocaria um valor já selecionado sem
+  // querer só por ter aberto e fechado o campo.
+  const interagiuRef = React.useRef(false);
+  return (
+    <CommandPrimitive
+      ref={ref}
+      className={cn(
+        "flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground",
+        className,
+      )}
+      onMouseMove={(e) => {
+        interagiuRef.current = true;
+        onMouseMove?.(e);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") interagiuRef.current = true;
+        if (e.key === "Tab" && interagiuRef.current && !e.defaultPrevented) {
+          const item = e.currentTarget.querySelector<HTMLElement>(
+            '[cmdk-item=""][aria-selected="true"]',
+          );
+          item?.dispatchEvent(new Event("cmdk-item-select"));
+        }
+        onKeyDown?.(e);
+      }}
+      {...props}
+    />
+  );
+});
 Command.displayName = CommandPrimitive.displayName;
 
 const CommandDialog = ({ children, ...props }: DialogProps) => {
