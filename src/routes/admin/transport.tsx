@@ -1209,6 +1209,14 @@ function TripDialog({
         throw new Error("Selecione o BSP 2.");
       if (f.cliente_3.trim() && !bspOpcional(f.cliente_3) && !f.bsp_3.trim())
         throw new Error("Selecione o BSP 3.");
+      // Pedido dela (2026-10-19): não deixa salvar sem as colunas principais que saem no
+      // Relatório Consolidado — Data, Unidade, Valor, Motivo e Forma de pagamento. BSP
+      // continua com a exceção de "Viagem" (ver bspOpcional acima), inalterada.
+      if (!f.scheduled_at) throw new Error("Selecione a data.");
+      if (f.unidades.filter((u) => u.trim()).length === 0) throw new Error("Selecione a unidade.");
+      if (!f.custo.trim()) throw new Error("Informe o valor.");
+      if (!f.motivo.trim()) throw new Error("Selecione o motivo.");
+      if (!f.forma_pagamento) throw new Error("Selecione a forma de pagamento.");
       const isNew = !f.id;
       const payload = {
         car_number: f.car_number.trim(),

@@ -530,6 +530,12 @@ function HospedagemDialog({
       if (!f.hotelId) throw new Error("Selecione o hotel.");
       if (!f.checkIn || !f.checkOut) throw new Error("Informe check-in e check-out.");
       if (diarias <= 0) throw new Error("Check-out precisa ser depois do check-in.");
+      // Pedido dela (2026-10-19): não deixa salvar sem as colunas principais que saem no
+      // Relatório Consolidado — Data de lançamento, Valor, Motivo e Forma de pagamento.
+      if (!f.dataLancamento) throw new Error("Informe a data de lançamento.");
+      if (valorPrincipalNum <= 0) throw new Error("Informe o valor.");
+      if (!f.motivo.trim()) throw new Error("Selecione o motivo.");
+      if (!f.formaPagamento) throw new Error("Selecione a forma de pagamento.");
       if (unidades.validas.length > 2)
         throw new Error("O lançamento aceita até três unidades/BSPs.");
       if (

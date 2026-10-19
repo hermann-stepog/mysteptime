@@ -417,6 +417,11 @@ function PassagemDialog({
       if (!f.nomeUsuario.trim()) throw new Error("Informe o nome de quem vai utilizar.");
       if (!f.dataIda) throw new Error("Informe a data de ida.");
       if (!f.valor) throw new Error("Informe o valor.");
+      // Pedido dela (2026-10-19): não deixa salvar sem as colunas principais que saem no
+      // Relatório Consolidado — Data de lançamento, Motivo e Forma de pagamento.
+      if (!f.dataLancamento) throw new Error("Informe a data de lançamento.");
+      if (!f.motivo.trim()) throw new Error("Selecione o motivo.");
+      if (!f.formaPagamento) throw new Error("Selecione a forma de pagamento.");
       const payload = {
         unidade: f.unidade,
         bsp: f.bsp,
