@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import * as XLSX from "xlsx";
+// O Consolidado e o Resumo Gerencial usam "xlsx-js-style" (fork compatível da lib "xlsx" usada
+// no resto do app) em vez da "xlsx" normal — testei e confirmei que a "xlsx" gratuita ignora
+// cor/negrito de célula ao salvar (pedido dela, 2026-10-19: quer a aba colorida como no print).
+// O resto dos relatórios deste arquivo continua em "xlsx" normal, sem nenhuma mudança.
+import * as XLSX from "xlsx-js-style";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +13,7 @@ import { notify } from "@/lib/notify";
 import { useState, type ElementType } from "react";
 import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2, Hotel, Plane, Layers } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
-import { planilhaComCabecalho } from "@/lib/reportHeader";
+import { tituloRelatorio } from "@/lib/reportHeader";
 import { generateRelatorioTransporte, buscarLinhasRelatorioTransporte } from "./transport";
 import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH, generateRelatorioTimesheetsLancados } from "./timesheet-offshore";
 import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo, generateRelatorioPobUnidadeDia } from "@/components/histograma/HistogramaOffshoreNovo";
@@ -73,20 +77,198 @@ function normalizarPassagens(r: LinhaPassagens) {
   };
 }
 
+// ── Estilo das abas Consolidado + Resumo Gerencial (pedido dela, 2026-10-19, com print de
+// referência) — cores em RGB hex, formato aceito por xlsx-js-style. ──────────────────────────
+const COR_TITULO = "1F3864";
+const COR_FAIXA = "4472C4";
+const COR_TOTAL = "DCE6F1";
+const BORDA = { style: "thin", color: { rgb: "B7C6E3" } } as const;
+const MOEDA_FMT = '"R$" #,##0.00';
+
+const ESTILO_TITULO = {
+  fill: { fgColor: { rgb: COR_TITULO } },
+  font: { bold: true, color: { rgb: "FFFFFF" }, sz: 13 },
+  alignment: { vertical: "center", horizontal: "left" },
+};
+const ESTILO_FAIXA = {
+  fill: { fgColor: { rgb: COR_FAIXA } },
+  font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
+  alignment: { vertical: "center", horizontal: "center", wrapText: true },
+  border: { top: BORDA, bottom: BORDA, left: BORDA, right: BORDA },
+};
+const ESTILO_KPI_VALOR = {
+  font: { bold: true, color: { rgb: "1F2937" }, sz: 14 },
+  alignment: { vertical: "center", horizontal: "center" },
+};
+const ESTILO_SECAO = { font: { bold: true, sz: 11 } };
+const ESTILO_CELULA = {
+  font: { sz: 10 },
+  alignment: { vertical: "center" },
+  border: { top: BORDA, bottom: BORDA, left: BORDA, right: BORDA },
+};
+const ESTILO_TOTAL = {
+  fill: { fgColor: { rgb: COR_TOTAL } },
+  font: { bold: true, sz: 10 },
+  alignment: { vertical: "center" },
+  border: { top: BORDA, bottom: BORDA, left: BORDA, right: BORDA },
+};
+
+const COLUNAS_CONSOLIDADO = [
+  "Módulo",
+  "Data de Lançamento",
+  "Unidade",
+  "BSP",
+  "Valor",
+  "Motivo",
+  "Forma de pagamento",
+  "Mês de Referência / Data Faturamento",
+  "Observações",
+];
+
+function construirAbaConsolidado(linhas: Record<string, unknown>[]): XLSX.WorkSheet {
+  const ws = XLSX.utils.aoa_to_sheet([
+    [tituloRelatorio("Relatório Consolidado — Transporte, Hospedagem e Passagens Aéreas")],
+  ]);
+  XLSX.utils.sheet_add_json(ws, linhas, { origin: "A2", header: COLUNAS_CONSOLIDADO });
+
+  const nCols = COLUNAS_CONSOLIDADO.length;
+  const ultimaCol = XLSX.utils.encode_col(nCols - 1);
+  ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nCols - 1 } }];
+  ws["A1"].s = ESTILO_TITULO;
+  for (let c = 0; c < nCols; c++) {
+    const ref = `${XLSX.utils.encode_col(c)}2`;
+    if (ws[ref]) ws[ref].s = ESTILO_FAIXA;
+  }
+  const colValor = COLUNAS_CONSOLIDADO.indexOf("Valor");
+  for (let r = 0; r < linhas.length; r++) {
+    const ref = `${XLSX.utils.encode_col(colValor)}${r + 3}`;
+    if (ws[ref] && typeof ws[ref].v === "number") ws[ref].z = MOEDA_FMT;
+  }
+  ws["!autofilter"] = { ref: `A2:${ultimaCol}2` };
+  ws["!cols"] = COLUNAS_CONSOLIDADO.map((c) => ({
+    wch: c === "Observações" ? 40 : c === "Mês de Referência / Data Faturamento" ? 24 : 18,
+  }));
+  ws["!rows"] = [{ hpt: 22 }];
+  return ws;
+}
+
+interface ResumoModulo {
+  nome: string;
+  nRegistros: number;
+  valorTotal: number;
+  status: string;
+}
+
+// Valor mais frequente de Status entre os lançamentos do período — Hospedagem não tem esse
+// conceito no relatório (ver normalizarHospedagem), por isso nunca entra aqui, só Transporte e
+// Passagens Aéreas chamam esta função.
+function modaDeStatus(valores: string[]): string {
+  const contagem = new Map<string, number>();
+  for (const v of valores) {
+    const s = (v ?? "").trim();
+    if (!s) continue;
+    contagem.set(s, (contagem.get(s) ?? 0) + 1);
+  }
+  if (contagem.size === 0) return "Não informado";
+  return [...contagem.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function construirAbaResumoGerencial(modulos: ResumoModulo[]): XLSX.WorkSheet {
+  const totalRegistros = modulos.reduce((s, m) => s + m.nRegistros, 0);
+  const totalValor = modulos.reduce((s, m) => s + m.valorTotal, 0);
+
+  const aoa: unknown[][] = [
+    ["RELATÓRIO GERENCIAL — RESUMO DE CUSTOS", "", "", "", "", ""],
+    ["", "", "", "", "", ""],
+    ["TOTAL DE DESPESAS", "", "QUANTIDADE DE REGISTROS", "", "MÓDULOS IDENTIFICADOS", ""],
+    [totalValor, "", totalRegistros, "", modulos.length, ""],
+    ["", "", "", "", "", ""],
+    ["", "", "", "", "", ""],
+    ["DESPESAS POR MÓDULO", "", "", "", "", ""],
+    ["Módulo", "Nº de registros", "Valor total", "% do total", "Status predominante", "Observação"],
+    ...modulos.map((m) => [
+      m.nome,
+      m.nRegistros,
+      m.valorTotal,
+      totalValor > 0 ? m.valorTotal / totalValor : 0,
+      m.status,
+      "",
+    ]),
+    ["TOTAL GERAL", totalRegistros, totalValor, totalValor > 0 ? 1 : 0, "", ""],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 1 } },
+    { s: { r: 2, c: 2 }, e: { r: 2, c: 3 } },
+    { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 1 } },
+    { s: { r: 3, c: 2 }, e: { r: 3, c: 3 } },
+    { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
+  ];
+
+  ws["A1"].s = ESTILO_TITULO;
+  for (const ref of ["A3", "C3", "E3"]) ws[ref].s = ESTILO_FAIXA;
+  for (const ref of ["A4", "C4", "E4"]) if (ws[ref]) ws[ref].s = ESTILO_KPI_VALOR;
+  if (ws["A4"]) ws["A4"].z = MOEDA_FMT;
+  ws["A7"].s = ESTILO_SECAO;
+  for (const c of ["A", "B", "C", "D", "E", "F"]) ws[`${c}8`].s = ESTILO_FAIXA;
+
+  const linhaTotal = 9 + modulos.length;
+  for (let r = 9; r <= linhaTotal; r++) {
+    const estiloLinha = r === linhaTotal ? ESTILO_TOTAL : ESTILO_CELULA;
+    for (const c of ["A", "B", "C", "D", "E", "F"]) {
+      const ref = `${c}${r}`;
+      if (ws[ref]) ws[ref].s = estiloLinha;
+    }
+    if (ws[`C${r}`]) ws[`C${r}`].z = MOEDA_FMT;
+    if (ws[`D${r}`]) ws[`D${r}`].z = "0.0%";
+  }
+
+  ws["!cols"] = [{ wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 40 }];
+  ws["!rows"] = [{ hpt: 24 }];
+  return ws;
+}
+
 async function generateRelatorioConsolidado(dataInicio: string, dataFim: string): Promise<void> {
   const [transporte, hospedagem, passagens] = await Promise.all([
     buscarLinhasRelatorioTransporte(dataInicio, dataFim),
     buscarLinhasRelatorioHospedagem(dataInicio, dataFim),
     buscarLinhasRelatorioPassagensAereas(dataInicio, dataFim),
   ]);
-  const linhas = [
-    ...transporte.map(normalizarTransporte),
-    ...hospedagem.map(normalizarHospedagem),
-    ...passagens.map(normalizarPassagens),
+  const linhasTransporte = transporte.map(normalizarTransporte);
+  const linhasHospedagem = hospedagem.map(normalizarHospedagem);
+  const linhasPassagens = passagens.map(normalizarPassagens);
+  const linhas = [...linhasTransporte, ...linhasHospedagem, ...linhasPassagens];
+
+  const somaValor = (lista: { Valor: unknown }[]) =>
+    lista.reduce((s, r) => s + (Number(r.Valor) || 0), 0);
+  const modulos: ResumoModulo[] = [
+    {
+      nome: "Transporte",
+      nRegistros: linhasTransporte.length,
+      valorTotal: somaValor(linhasTransporte),
+      status: modaDeStatus(transporte.map((r) => r.Status)),
+    },
+    {
+      nome: "Hospedagem",
+      nRegistros: linhasHospedagem.length,
+      valorTotal: somaValor(linhasHospedagem),
+      status: "Não informado",
+    },
+    {
+      nome: "Passagens Aéreas",
+      nRegistros: linhasPassagens.length,
+      valorTotal: somaValor(linhasPassagens),
+      status: modaDeStatus(passagens.map((r) => r.Status)),
+    },
   ];
-  const ws = planilhaComCabecalho(linhas, "Relatório Consolidado — Transporte, Hospedagem e Passagens Aéreas");
+
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Consolidado");
+  XLSX.utils.book_append_sheet(wb, construirAbaConsolidado(linhas), "Consolidado");
+  XLSX.utils.book_append_sheet(wb, construirAbaResumoGerencial(modulos), "Resumo Gerencial");
   XLSX.writeFile(wb, `consolidado_transporte_hospedagem_passagens_${dataInicio}_a_${dataFim}.xlsx`);
 }
 
