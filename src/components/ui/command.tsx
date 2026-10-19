@@ -12,14 +12,21 @@ const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive>
 >(({ className, onKeyDown, onMouseMove, ...props }, ref) => {
-  // Pedido dela (2026-10-19): Tab já confirma o item destacado (por mouse ou setas) antes de
-  // sair do campo, em vez de precisar clicar — vale pra todo combobox construído em cima deste
-  // componente (SearchableSelect, SearchableMultiSelect, Motivo, Forma de pagamento, BSP,
-  // Unidade, trajetos do Simulador de Custos etc.), já que todos usam este wrapper. Só dispara
-  // se a pessoa realmente passou o mouse ou usou as setas nesta abertura — sem isso, o cmdk
-  // destaca o primeiro item sozinho ao abrir, e o Tab trocaria um valor já selecionado sem
-  // querer só por ter aberto e fechado o campo.
-  const interagiuRef = React.useRef(false);
+  // Pedido dela (2026-10-19, corrigido no mesmo dia): Tab já confirma o item destacado (por
+  // mouse ou setas) antes de sair do campo, em vez de precisar clicar — vale pra todo combobox
+  // construído em cima deste componente (SearchableSelect, SearchableMultiSelect, Motivo,
+  // Forma de pagamento, BSP, Unidade, trajetos do Simulador de Custos etc.), já que todos usam
+  // este wrapper.
+  //
+  // Primeira versão só confirmava depois de um evento onMouseMove dentro da lista — mas
+  // onMouseMove exige o ponteiro realmente se MEXER; se o item desejado for o primeiro da
+  // lista (que o cmdk já destaca sozinho ao abrir) e o mouse ficar parado em cima dele sem
+  // deslizar, nenhum mousemove dispara e o Tab não confirmava nada (bug relatado: Unidade do
+  // formulário de Transporte, onde a opção certa costuma já estar em cima do clique que abriu
+  // o campo). Corrigido pra checar ":hover" de verdade no momento do Tab, em vez de depender
+  // de ter capturado um evento de movimento — cobre tanto o mouse parado em cima do item
+  // quanto o destacado só pelas setas do teclado.
+  const interagiuPorTecladoRef = React.useRef(false);
   return (
     <CommandPrimitive
       ref={ref}
@@ -27,17 +34,16 @@ const Command = React.forwardRef<
         "flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground",
         className,
       )}
-      onMouseMove={(e) => {
-        interagiuRef.current = true;
-        onMouseMove?.(e);
-      }}
+      onMouseMove={onMouseMove}
       onKeyDown={(e) => {
-        if (e.key === "ArrowUp" || e.key === "ArrowDown") interagiuRef.current = true;
-        if (e.key === "Tab" && interagiuRef.current && !e.defaultPrevented) {
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") interagiuPorTecladoRef.current = true;
+        if (e.key === "Tab" && !e.defaultPrevented) {
           const item = e.currentTarget.querySelector<HTMLElement>(
             '[cmdk-item=""][aria-selected="true"]',
           );
-          item?.dispatchEvent(new Event("cmdk-item-select"));
+          if (item && (interagiuPorTecladoRef.current || item.matches(":hover"))) {
+            item.dispatchEvent(new Event("cmdk-item-select"));
+          }
         }
         onKeyDown?.(e);
       }}
