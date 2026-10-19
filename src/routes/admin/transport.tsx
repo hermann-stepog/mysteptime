@@ -933,6 +933,53 @@ const MOTIVOS_TRANSPORTE = [
   "Emergência (SMS)",
 ] as const;
 
+// Pedido dela (2026-10-19): a lista de Motivo mistura a lista fixa acima com as etiquetas já
+// cadastradas (ver TripDialog), mas o catálogo de etiquetas tem nomes que ela não quer nessa
+// lista, duplicados (mesmo nome variando maiúscula/acento/espaço) e um com um caractere de
+// crase sobrando em "Embarque - Hotel". Filtra/limpa só aqui, na hora de montar as opções —
+// nunca mexe em transport_tags nem nas viagens que já usam essas etiquetas (ela foi explícita:
+// não pode tocar no que já está preenchido, isso é só exibição no combobox de Motivo).
+const MOTIVOS_ETIQUETA_EXCLUIR = [
+  "CURSO",
+  "CLINICA",
+  "CHEGADA",
+  "HOSPITAL",
+  "TRABALHO EXTRA",
+  "UBER",
+  "SMS",
+  "RETORNO",
+  "IDA",
+  "MATERIAL",
+];
+
+function normalizarTextoMotivo(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
+
+function tituloCaseMotivo(s: string): string {
+  return s
+    .trim()
+    .split(/\s+/)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function nomesEtiquetasParaMotivo(etiquetas: { name: string }[]): string[] {
+  const vistos = new Map<string, string>(); // chave normalizada -> nome de exibição escolhido
+  for (const e of etiquetas) {
+    const chave = normalizarTextoMotivo(e.name);
+    if (!chave || MOTIVOS_ETIQUETA_EXCLUIR.includes(chave)) continue;
+    if (vistos.has(chave)) continue;
+    vistos.set(chave, chave === "EMBARQUE HOTEL" ? "Embarque - Hotel" : tituloCaseMotivo(e.name));
+  }
+  return Array.from(vistos.values());
+}
+
 const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step", "Rodoviário"];
 const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
 
@@ -1450,12 +1497,12 @@ function TripDialog({
                 options={[
                   "—",
                   ...MOTIVOS_TRANSPORTE,
-                  ...etiquetasParaMotivo
-                    .map((t) => t.name)
-                    .filter((nome) => !(MOTIVOS_TRANSPORTE as readonly string[]).includes(nome)),
+                  ...nomesEtiquetasParaMotivo(etiquetasParaMotivo).filter(
+                    (nome) => !(MOTIVOS_TRANSPORTE as readonly string[]).includes(nome),
+                  ),
                   ...(f.motivo &&
                   !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo) &&
-                  !etiquetasParaMotivo.some((t) => t.name === f.motivo)
+                  !nomesEtiquetasParaMotivo(etiquetasParaMotivo).includes(f.motivo)
                     ? [f.motivo]
                     : []),
                 ]}
