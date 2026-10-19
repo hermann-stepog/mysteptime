@@ -115,7 +115,25 @@ function Approvers() {
             <TableRow key={a.id}>
               <TableCell>{a.full_name}</TableCell><TableCell>{a.role_title}</TableCell><TableCell>{a.email}</TableCell><TableCell>{a.department ?? "—"}</TableCell>
               <TableCell><Switch checked={a.active} onCheckedChange={(v) => toggle(a.id, v)} /></TableCell>
-              <TableCell><Button size="icon" variant="ghost" onClick={() => remove(a.id)} loading={removingId === a.id}><Trash2 className="h-4 w-4" /></Button></TableCell>
+              <TableCell>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="icon" variant="ghost" loading={removingId === a.id}><Trash2 className="h-4 w-4" /></Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+                      <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => remove(a.id)}>
+                        Excluir
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

@@ -15,6 +15,17 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
@@ -111,6 +122,44 @@ function parseRatesWorkbook(buf: ArrayBuffer): ParsedRateRow[] {
       rate_adicional_noturno: iAdicionalNoturno >= 0 ? num(r[iAdicionalNoturno]) : null,
     };
   }).filter((r): r is ParsedRateRow => r !== null);
+}
+
+// Pedido dela (2026-10-19): confirmação antes de excluir, em vez de apagar direto no clique —
+// um só componente porque o botão de excluir rate aparece em 3 lugares nesta tela (lista
+// agrupada por embarcação/BSP e a tabela achatada), todos chamando a mesma mutation `remove`.
+function ExcluirRateBotao({
+  onConfirm,
+  className,
+  loading,
+}: {
+  onConfirm: () => void;
+  className?: string;
+  loading?: boolean;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button size="icon" variant="ghost" className={className} loading={loading}>
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+          <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={onConfirm}
+          >
+            Excluir
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 function RatesPage() {
@@ -417,7 +466,7 @@ function RatesPage() {
                                     </div>
                                     <div className="flex shrink-0 items-center gap-1">
                                       <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></Button>
-                                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => remove.mutate(r.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                                      <ExcluirRateBotao className="h-6 w-6" onConfirm={() => remove.mutate(r.id)} />
                                     </div>
                                   </div>
                                 ))}
@@ -450,7 +499,7 @@ function RatesPage() {
                                       </div>
                                       <div className="flex shrink-0 items-center gap-1">
                                         <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></Button>
-                                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => remove.mutate(r.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                                        <ExcluirRateBotao className="h-6 w-6" onConfirm={() => remove.mutate(r.id)} />
                                       </div>
                                     </div>
                                   ))}
@@ -506,9 +555,10 @@ function RatesPage() {
                 <TableCell>
                   <div className="flex gap-1">
                     <Button size="icon" variant="ghost" onClick={() => setEditing(r)}><Pencil className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => remove.mutate(r.id)} loading={remove.isPending && remove.variables === r.id}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <ExcluirRateBotao
+                      onConfirm={() => remove.mutate(r.id)}
+                      loading={remove.isPending && remove.variables === r.id}
+                    />
                   </div>
                 </TableCell>
               </TableRow>
