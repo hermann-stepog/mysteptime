@@ -178,6 +178,7 @@ function hospedagemToRelatorioRow(h: Hospedagem, hotelById: Map<string, HotelFor
     Faturado: h.faturado ? "Sim" : "Não",
     "Usuário Faturamento": h.usuario_faturamento ?? "—",
     "Mês de Referência / Data Faturamento": fmtFaturamento(h),
+    Observações: h.observacoes ?? "—",
   };
 }
 

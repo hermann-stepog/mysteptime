@@ -1,12 +1,11 @@
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import type {
   AjustesSimulacao,
-  CostSimulatorUnitStats,
-  CostStats,
+  CostSimulatorBase,
   EntradasSimulacao,
   ResultadoSimulacao,
-  cidadesERotas,
 } from "@/lib/costSimulator";
+import { montarPedidoBase } from "@/lib/costSimulator";
 
 // cost_simulations ainda não está no types.ts gerado — mesmo padrão de bm.ts/smartsheetBm.functions.ts
 // pra tabelas novas antes da próxima geração de tipos.
@@ -25,7 +24,7 @@ export interface CostSimulationRow {
   metodoCalculo: string;
   entradas: EntradasSimulacao;
   ajustes: AjustesSimulacao;
-  snapshotCustos: CostSimulatorUnitStats;
+  snapshotCustos: CostSimulatorBase;
   resultado: ResultadoSimulacao;
   createdBy: string;
   createdByName: string | null;
@@ -56,85 +55,37 @@ function mapRow(r: any): CostSimulationRow {
   };
 }
 
-export interface FetchCostStatsParams {
-  periodoInicio: string;
-  periodoFim: string;
-  cidades: ReturnType<typeof cidadesERotas>["cidades"];
-  rotas: ReturnType<typeof cidadesERotas>["rotas"];
-  trajetos: ReturnType<typeof cidadesERotas>["trajetos"];
-  trajetosExecutivos: ReturnType<typeof cidadesERotas>["trajetosExecutivos"];
-  bsp?: string; // usado só no filtro de Alimentação (Reembolsos não tem cidade, só BSP)
-  hotelIds?: string[];
-  tipoTransporte?: string;
-}
-
 // Única função que lê Transporte/Hospedagem/Passagens/Alimentação (via Reembolsos) pro
-// simulador — sempre via a RPC SECURITY DEFINER. Nunca cai pra leitura direta das
-// tabelas-fonte: se a RPC falhar (migration não aplicada, sem permissão etc.), o erro sobe pra
-// tela em vez de mascarar com dado vazio.
+// simulador — sempre via cost_simulator_base (SECURITY DEFINER). Nunca cai pra leitura direta
+// das tabelas-fonte: se a RPC falhar (migration não aplicada, sem permissão etc.), o erro sobe
+// pra tela em vez de mascarar com dado vazio. Só pede as categorias realmente ativas na
+// simulação (ver montarPedidoBase) — uma categoria desativada nem é calculada.
 export async function fetchCostStats(
-  params: FetchCostStatsParams,
-): Promise<CostSimulatorUnitStats> {
-  const { data, error } = await supabase.rpc("cost_simulator_unit_stats", {
+  entradas: EntradasSimulacao,
+  ajustes: AjustesSimulacao,
+): Promise<CostSimulatorBase> {
+  const pedido = montarPedidoBase(entradas);
+  if (pedido.categorias.length === 0) return {};
+
+  const { data, error } = await supabase.rpc("cost_simulator_base", {
     p_filters: {
-      periodo_inicio: params.periodoInicio,
-      periodo_fim: params.periodoFim,
-      cidades: params.cidades,
-      rotas: params.rotas,
-      bsp: params.bsp || null,
-      hotel_ids: params.hotelIds && params.hotelIds.length > 0 ? params.hotelIds : undefined,
-      tipo_transporte: params.tipoTransporte || null,
+      periodo_inicio: ajustes.periodoReferencia.inicio,
+      periodo_fim: ajustes.periodoReferencia.fim,
+      categorias: pedido.categorias,
+      hotel_ids:
+        ajustes.filtros.hotelIds && ajustes.filtros.hotelIds.length > 0
+          ? ajustes.filtros.hotelIds
+          : undefined,
+      hospedagem_cidades: pedido.hospedagemCidades,
+      passagem_rotas: pedido.passagemRotas,
+      transporte_terrestre_trajetos: pedido.transporteTerrestreTrajetos,
+      uber_trajetos: pedido.uberTrajetos,
+      transporte_executivo_trajetos: pedido.transporteExecutivoTrajetos,
+      alimentacao_bsp: pedido.alimentacaoBsp || null,
     },
   });
   if (error) throw new Error(error.message);
-  const stats = (data ?? {}) as CostSimulatorUnitStats;
-
-  const buscarTrajetos = async (
-    tipo: "uber" | "future",
-    trajetos: { origem: string; destino: string }[],
-  ) => {
-    if (trajetos.length === 0) return {};
-    const { data: dados, error: erro } = await supabase.rpc("cost_simulator_transport_trajetos", {
-      p_filters: {
-        periodo_inicio: params.periodoInicio,
-        periodo_fim: params.periodoFim,
-        tipo,
-        trajetos,
-      },
-    });
-    if (erro) throw new Error(erro.message);
-    return (dados ?? {}) as Record<string, CostStats>;
-  };
-
-  const [transporteTrajeto, transporteExecutivoTrajeto] = await Promise.all([
-    buscarTrajetos("uber", params.trajetos),
-    buscarTrajetos("future", params.trajetosExecutivos),
-  ]);
-
-  let aproximado: {
-    hospedagem?: Record<string, CostStats>;
-    transporte?: Record<string, CostStats>;
-  } = {};
-  if (params.cidades.length > 0) {
-    const { data: dataAprox, error: erroAprox } = await supabase.rpc("cost_simulator_local_stats", {
-      p_filters: {
-        periodo_inicio: params.periodoInicio,
-        periodo_fim: params.periodoFim,
-        cidades: params.cidades,
-        hotel_ids: params.hotelIds && params.hotelIds.length > 0 ? params.hotelIds : undefined,
-      },
-    });
-    if (erroAprox) throw new Error(erroAprox.message);
-    aproximado = (dataAprox ?? {}) as typeof aproximado;
-  }
-
-  return {
-    ...stats,
-    hospedagem: { ...(stats.hospedagem ?? {}), ...(aproximado.hospedagem ?? {}) },
-    transporte: { ...(stats.transporte ?? {}), ...(aproximado.transporte ?? {}) },
-    transporteTrajeto,
-    transporteExecutivoTrajeto,
-  };
+  return (data ?? {}) as CostSimulatorBase;
 }
 
 export interface HotelRegiao {
@@ -154,6 +105,25 @@ export async function fetchTransportLocais(): Promise<string[]> {
   const { data, error } = await supabase.rpc("cost_simulator_transport_locais");
   if (error) throw new Error(error.message);
   return (data ?? []) as string[];
+}
+
+export interface TrajetoConhecido {
+  origem: string;
+  destino: string;
+  n: number;
+  mediana: number;
+}
+
+// Pra alimentar o combobox pesquisável de Origem/Destino (pedido dela) — mostra n/mediana de
+// cada trajeto já visto no histórico, mas o campo continua aceitando texto livre também.
+export async function fetchTrajetosConhecidos(
+  tipo: "uber" | "future" | "terrestre",
+): Promise<TrajetoConhecido[]> {
+  const { data, error } = await supabase.rpc("cost_simulator_trajetos_conhecidos", {
+    p_tipo: tipo,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as TrajetoConhecido[];
 }
 
 export async function listCostSimulations(): Promise<CostSimulationRow[]> {
@@ -176,7 +146,7 @@ export interface SaveCostSimulationInput {
   metodoCalculo: string;
   entradas: EntradasSimulacao;
   ajustes: AjustesSimulacao;
-  snapshotCustos: CostSimulatorUnitStats;
+  snapshotCustos: CostSimulatorBase;
   resultado: ResultadoSimulacao;
   createdByName: string | null;
 }

@@ -18,10 +18,61 @@ import { generateRelatorioHospedagem, buscarLinhasRelatorioHospedagem } from "./
 import { generateRelatorioPassagensAereas, buscarLinhasRelatorioPassagensAereas } from "./passagens-aereas";
 
 // Consolida Transporte + Hospedagem + Passagens Aéreas numa única planilha (pedido dela: uma
-// aba só, não uma por módulo) — cada linha ganha "Módulo" como 1ª coluna pra identificar de onde
-// veio, já que os três têm colunas diferentes entre si. json_to_sheet/sheet_add_json junta o
-// conjunto de colunas de todas as linhas sozinho (não só da primeira), então o Excel sai com
-// todas as colunas dos três módulos, em branco onde não se aplica.
+// aba só, não uma por módulo), mantendo só as colunas que existem nos 3 módulos (pedido dela,
+// 2026-10-19: "quero manter apenas as que tem em comum") — o resto (Carro/Hotel/Companhia
+// aérea, Check-in/Check-out, Ida/Volta, Colaboradores, NF, Status Lançamento etc., que só
+// existem num ou dois dos módulos) fica de fora do Consolidado, mas continua intacto nos
+// relatórios individuais de cada módulo. "Motivo" (que já existe em Transporte, só não era
+// exportado) e "Observações" (que já existem em Hospedagem/Passagens, só não eram exportadas)
+// foram adicionados nas 3 funções de origem pra virarem comuns também. Em Transporte, a única
+// data que existe (a da viagem) já é tratada como "data de lançamento" na prática, por isso
+// ela entra direto na coluna comum. Observações fica como última coluna, como pedido.
+type LinhaTransporte = Awaited<ReturnType<typeof buscarLinhasRelatorioTransporte>>[number];
+type LinhaHospedagem = Awaited<ReturnType<typeof buscarLinhasRelatorioHospedagem>>[number];
+type LinhaPassagens = Awaited<ReturnType<typeof buscarLinhasRelatorioPassagensAereas>>[number];
+
+function normalizarTransporte(r: LinhaTransporte) {
+  return {
+    Módulo: "Transporte",
+    "Data de Lançamento": r.Data,
+    Unidade: r.Unidade,
+    BSP: r.BSP,
+    Valor: r.Custo,
+    Motivo: r.Motivo,
+    "Forma de pagamento": r["Forma de pagamento"],
+    "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
+    Observações: r.Observações,
+  };
+}
+
+function normalizarHospedagem(r: LinhaHospedagem) {
+  return {
+    Módulo: "Hospedagem",
+    "Data de Lançamento": r["Data de lançamento"],
+    Unidade: r.Unidade,
+    BSP: r.BSP,
+    Valor: r["Valor total"],
+    Motivo: r.Motivo,
+    "Forma de pagamento": r["Forma de pagamento"],
+    "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
+    Observações: r.Observações,
+  };
+}
+
+function normalizarPassagens(r: LinhaPassagens) {
+  return {
+    Módulo: "Passagens Aéreas",
+    "Data de Lançamento": r["Data de lançamento"],
+    Unidade: r.Unidade,
+    BSP: r.BSP,
+    Valor: r.Valor,
+    Motivo: r.Motivo,
+    "Forma de pagamento": r["Forma de pagamento"],
+    "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
+    Observações: r.Observações,
+  };
+}
+
 async function generateRelatorioConsolidado(dataInicio: string, dataFim: string): Promise<void> {
   const [transporte, hospedagem, passagens] = await Promise.all([
     buscarLinhasRelatorioTransporte(dataInicio, dataFim),
@@ -29,9 +80,9 @@ async function generateRelatorioConsolidado(dataInicio: string, dataFim: string)
     buscarLinhasRelatorioPassagensAereas(dataInicio, dataFim),
   ]);
   const linhas = [
-    ...transporte.map((r) => ({ Módulo: "Transporte", ...r })),
-    ...hospedagem.map((r) => ({ Módulo: "Hospedagem", ...r })),
-    ...passagens.map((r) => ({ Módulo: "Passagens Aéreas", ...r })),
+    ...transporte.map(normalizarTransporte),
+    ...hospedagem.map(normalizarHospedagem),
+    ...passagens.map(normalizarPassagens),
   ];
   const ws = planilhaComCabecalho(linhas, "Relatório Consolidado — Transporte, Hospedagem e Passagens Aéreas");
   const wb = XLSX.utils.book_new();

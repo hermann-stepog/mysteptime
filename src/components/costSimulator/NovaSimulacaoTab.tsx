@@ -11,29 +11,43 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Plus, Trash2, ChevronsUpDown, Save } from "lucide-react";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
-import { parseValorForm } from "@/lib/format";
 import {
   fetchCostStats,
   fetchTransportLocais,
   fetchHoteisRegiao,
+  fetchTrajetosConhecidos,
   type HotelRegiao,
+  type TrajetoConhecido,
   saveCostSimulation,
   updateCostSimulation,
   type CostSimulationRow,
 } from "@/lib/api/costSimulator.functions";
 import { useAuth } from "@/hooks/useAuth";
-import { Save } from "lucide-react";
 import {
   montarResultado,
-  cidadesERotas,
+  montarPedidoBase,
   REGIMES_ROTACAO,
   type EntradasSimulacao,
+  type EntradasEmbarque,
+  type EntradasViagemExecutiva,
+  type EntradasServicoTerra,
   type AjustesSimulacao,
-  type CostSimulatorUnitStats,
+  type CostSimulatorBase,
+  type PeriodoReferenciaTipo,
+  type Referencia,
   ajustesPadrao,
-  hojeISO,
+  periodoReferenciaParaDatas,
   type EquipeLinha,
   type EquipeSimples,
   type ViagemLinha,
@@ -43,6 +57,7 @@ import {
 import { ResultadoPanel } from "@/components/costSimulator/ResultadoPanel";
 import { exportarSimulacaoPdf } from "@/lib/costSimulatorPdf";
 import { TIPO_LABEL, formatBRL } from "@/components/costSimulator/formatacao";
+import { cn, matchesNameSearch } from "@/lib/utils";
 
 interface ItemHistorico {
   id: string;
@@ -54,29 +69,26 @@ interface ItemHistorico {
   total: number;
 }
 
-// Três tipos de simulação (pedido dela, 2026-10-02, depois de ver um e-mail real de pedido de
-// cotação que não era nem Embarque nem Viagem Executiva): cada um tem sua própria seção de
-// entradas, mas compartilham Cliente/Ajustes/Resultado.
-//
-// Custos históricos (stats) vêm da RPC só quando clica em Calcular; ajustes (método, reajuste,
-// markup, overrides) recalculam o resultado localmente sem nova chamada ao banco.
-
 type TipoSimulacao = "embarque" | "viagem_executiva" | "servico_terra";
 
 const VIAGEM_VAZIA: ViagemLinha = {
   descricao: "",
   qtd: 1,
+  incluirPassagem: false,
   origem: "",
   destino: "",
   somenteIda: false,
-  usaHotel: true,
+  incluirHospedagem: false,
   noitesHotel: 1,
-  usaTransporteLocal: true,
-  qtdTransporteLocal: 2,
+  incluirAlimentacao: false,
+  diasAlimentacao: null,
+  incluirUber: false,
+  trajetosUber: [],
+  incluirTransporteExecutivo: false,
+  trajetosExecutivo: [],
 };
 const EQUIPE_EMBARQUE_VAZIA: EquipeLinha[] = [{ funcao: "", qtd: 1, cidadeOrigem: "" }];
 const EQUIPE_TERRA_VAZIA: EquipeSimples[] = [{ funcao: "", qtd: 1 }];
-const TRAJETOS_TERRA_VAZIO: TrajetoTerra[] = [{ origem: "", destino: "", qtd: 1 }];
 
 interface NovaSimulacaoTabProps {
   carregado: CostSimulationRow | null;
@@ -95,17 +107,39 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   const [unidade, setUnidade] = useState(carregado?.unidade ?? "");
   const [bsp, setBsp] = useState(carregado?.bsp ?? "");
   const [observacoes, setObservacoes] = useState(carregado?.observacoes ?? "");
-  const [ajustes, setAjustes] = useState<AjustesSimulacao>(carregado?.ajustes ?? ajustesPadrao);
-  const [stats, setStats] = useState<CostSimulatorUnitStats | null>(
-    carregado?.snapshotCustos ?? null,
-  );
+  const [ajustes, setAjustes] = useState<AjustesSimulacao>(carregado?.ajustes ?? ajustesPadrao());
+  const [stats, setStats] = useState<CostSimulatorBase | null>(carregado?.snapshotCustos ?? null);
   const [historico, setHistorico] = useState<ItemHistorico[]>([]);
 
   // ── Embarque ──
   const [cidadeEmbarque, setCidadeEmbarque] = useState(emb?.cidadeEmbarque ?? "");
   const [equipe, setEquipe] = useState<EquipeLinha[]>(emb?.equipe ?? EQUIPE_EMBARQUE_VAZIA);
   const [regimeTipo, setRegimeTipo] = useState<RegimeTipo>(emb?.regime.tipo ?? "14x14");
+  const [regimeCustomEmbarcado, setRegimeCustomEmbarcado] = useState(
+    emb?.regime.tipo === "custom" ? emb.regime.diasEmbarcado : 14,
+  );
+  const [regimeCustomFolga, setRegimeCustomFolga] = useState(
+    emb?.regime.tipo === "custom" ? emb.regime.diasFolga : 14,
+  );
   const [duracaoValor, setDuracaoValor] = useState(emb?.duracao.valor ?? 90);
+  const [mobDesmob, setMobDesmob] = useState(emb?.mobDesmob ?? false);
+  const [noitesPreEmbarque, setNoitesPreEmbarque] = useState(emb?.noitesPreEmbarque ?? 1);
+  const [diasAlimentacaoPorTroca, setDiasAlimentacaoPorTroca] = useState<number | null>(
+    emb?.diasAlimentacaoPorTroca ?? null,
+  );
+  const [trajetosTransporteTerrestre, setTrajetosTransporteTerrestre] = useState<TrajetoTerra[]>(
+    emb?.trajetosTransporteTerrestre ?? [{ origem: "", destino: "", qtd: 2 }],
+  );
+  const [incluirEmb, setIncluirEmb] = useState<EntradasEmbarque["incluir"]>(
+    emb?.incluir ?? {
+      passagem: false,
+      hospedagem: false,
+      alimentacao: false,
+      transporteTerrestre: false,
+      uber: false,
+      transporteExecutivo: false,
+    },
+  );
 
   // ── Viagem Executiva ──
   const [viagens, setViagens] = useState<ViagemLinha[]>(via?.viagens ?? [VIAGEM_VAZIA]);
@@ -116,65 +150,70 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     ter?.equipe ?? EQUIPE_TERRA_VAZIA,
   );
   const [duracaoDiasTerra, setDuracaoDiasTerra] = useState(ter?.duracaoDias ?? 9);
-  const [usaAcomodacao, setUsaAcomodacao] = useState((ter ?? emb ?? via)?.usaAcomodacao ?? true);
-  const [usaAlimentacao, setUsaAlimentacao] = useState((ter ?? emb ?? via)?.usaAlimentacao ?? true);
+  const [lavanderiaDias, setLavanderiaDias] = useState<number | null>(ter?.lavanderiaDias ?? null);
+  const [incluirTerra, setIncluirTerra] = useState<EntradasServicoTerra["incluir"]>(
+    ter?.incluir ?? {
+      hospedagem: false,
+      alimentacao: false,
+      lavanderia: false,
+      uber: false,
+      transporteExecutivo: false,
+    },
+  );
+
+  // Trajetos de Uber/Transporte executivo — compartilhados entre Embarque e Serviço em Terra
+  // (Viagem Executiva tem o seu próprio, por linha de viagem).
+  const [trajetosUber, setTrajetosUber] = useState<TrajetoTerra[]>(
+    (emb ?? ter)?.trajetos ?? [{ origem: "", destino: "", qtd: 1 }],
+  );
   const [trajetosExecutivos, setTrajetosExecutivos] = useState<TrajetoTerra[]>(
-    (ter ?? emb ?? via)?.trajetosExecutivos ?? TRAJETOS_TERRA_VAZIO,
-  );
-  const [trajetosTerra, setTrajetosTerra] = useState<TrajetoTerra[]>(
-    (ter ?? emb ?? via)?.trajetos ?? TRAJETOS_TERRA_VAZIO,
-  );
-  const [usaLavanderia, setUsaLavanderia] = useState(ter?.usaLavanderia ?? false);
-  const [lavanderiaValorDiario, setLavanderiaValorDiario] = useState(
-    ter?.lavanderiaValorDiario ?? 0,
+    (emb ?? ter)?.trajetosExecutivos ?? [{ origem: "", destino: "", qtd: 1 }],
   );
 
   const entradas: EntradasSimulacao = useMemo(() => {
     const comuns = { nomeCenario, cliente, unidade, bsp, observacoes };
     if (tipo === "embarque") {
-      return {
+      const entrada: EntradasEmbarque = {
         ...comuns,
         tipo: "embarque",
+        incluir: incluirEmb,
         cidadeEmbarque,
         equipe,
         regime: {
           tipo: regimeTipo,
-          diasEmbarcado: regimeTipo === "custom" ? 14 : REGIMES_ROTACAO[regimeTipo].diasEmbarcado,
-          diasFolga: regimeTipo === "custom" ? 14 : REGIMES_ROTACAO[regimeTipo].diasFolga,
+          diasEmbarcado:
+            regimeTipo === "custom"
+              ? regimeCustomEmbarcado
+              : REGIMES_ROTACAO[regimeTipo].diasEmbarcado,
+          diasFolga:
+            regimeTipo === "custom" ? regimeCustomFolga : REGIMES_ROTACAO[regimeTipo].diasFolga,
         },
-        dataInicio: hojeISO(),
-        usaAcomodacao,
-        usaAlimentacao,
-        trajetos: trajetosTerra,
-        trajetosExecutivos,
         duracao: { valor: duracaoValor, unidade: "dias" },
-        mobDesmob: false,
+        mobDesmob,
+        noitesPreEmbarque,
+        diasAlimentacaoPorTroca,
+        trajetosTransporteTerrestre,
+        trajetos: trajetosUber,
+        trajetosExecutivos,
       };
+      return entrada;
     }
     if (tipo === "servico_terra") {
-      return {
+      const entrada: EntradasServicoTerra = {
         ...comuns,
         tipo: "servico_terra",
+        incluir: incluirTerra,
         local,
         equipe: equipeTerra,
         duracaoDias: duracaoDiasTerra,
-        usaAcomodacao,
-        usaAlimentacao,
-        trajetos: trajetosTerra,
+        lavanderiaDias,
+        trajetos: trajetosUber,
         trajetosExecutivos,
-        usaLavanderia,
-        lavanderiaValorDiario,
       };
+      return entrada;
     }
-    return {
-      ...comuns,
-      tipo: "viagem_executiva",
-      viagens,
-      usaAcomodacao,
-      usaAlimentacao,
-      trajetos: trajetosTerra,
-      trajetosExecutivos,
-    };
+    const entrada: EntradasViagemExecutiva = { ...comuns, tipo: "viagem_executiva", viagens };
+    return entrada;
   }, [
     tipo,
     nomeCenario,
@@ -185,38 +224,34 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     cidadeEmbarque,
     equipe,
     regimeTipo,
+    regimeCustomEmbarcado,
+    regimeCustomFolga,
     duracaoValor,
+    mobDesmob,
+    noitesPreEmbarque,
+    diasAlimentacaoPorTroca,
+    trajetosTransporteTerrestre,
+    incluirEmb,
     viagens,
     local,
     equipeTerra,
     duracaoDiasTerra,
-    usaAcomodacao,
-    usaAlimentacao,
-    trajetosTerra,
+    lavanderiaDias,
+    incluirTerra,
+    trajetosUber,
     trajetosExecutivos,
-    usaLavanderia,
-    lavanderiaValorDiario,
   ]);
+
+  // Pelo menos uma categoria ativa com o mínimo de campos preenchidos, em qualquer um dos tipos
+  // — não é preciso Cliente/Unidade/BSP/Observações/Nome do cenário pra calcular.
+  const temAlgoPraCalcular = useMemo(
+    () => montarPedidoBase(entradas).categorias.length > 0,
+    [entradas],
+  );
 
   const calcular = useMutation({
     mutationFn: async () => {
-      const {
-        cidades,
-        rotas,
-        trajetos,
-        trajetosExecutivos: trajetosExec,
-      } = cidadesERotas(entradas);
-      const novoStats = await fetchCostStats({
-        periodoInicio: ajustes.periodoReferencia.inicio,
-        periodoFim: ajustes.periodoReferencia.fim,
-        cidades,
-        rotas,
-        trajetos,
-        trajetosExecutivos: trajetosExec,
-        bsp: entradas.bsp,
-        hotelIds: ajustes.filtros.hotelIds,
-        tipoTransporte: ajustes.filtros.tipoTransporte,
-      });
+      const novoStats = await fetchCostStats(entradas, ajustes);
       return { novoStats, entradasCalculadas: entradas, ajustesCalculados: ajustes };
     },
     onSuccess: ({ novoStats, entradasCalculadas, ajustesCalculados }) => {
@@ -237,19 +272,20 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
     },
   });
 
-  const chaveBusca = useMemo(() => JSON.stringify(cidadesERotas(entradas)), [entradas]);
+  // Recalcula sozinho 800ms depois de qualquer mudança nas entradas que afete o pedido à RPC
+  // (cidades/rotas/trajetos/categorias ativas) — não precisa clicar em Calcular toda vez.
+  const chavePedido = useMemo(() => JSON.stringify(montarPedidoBase(entradas)), [entradas]);
   const primeiraBusca = useRef(true);
   useEffect(() => {
     if (primeiraBusca.current) {
       primeiraBusca.current = false;
       return;
     }
-    const { cidades, rotas, trajetos } = JSON.parse(chaveBusca) as ReturnType<typeof cidadesERotas>;
-    if (cidades.length === 0 && rotas.length === 0 && trajetos.length === 0) return;
+    if (!temAlgoPraCalcular) return;
     const timer = setTimeout(() => calcular.mutate(), 800);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chaveBusca]);
+  }, [chavePedido, ajustes.periodoReferencia.inicio, ajustes.periodoReferencia.fim]);
 
   const resultado = useMemo(
     () => (stats ? montarResultado(entradas, ajustes, stats) : null),
@@ -286,6 +322,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
       ).sort(),
     [locaisTransporte.data, hoteisRegiao.data],
   );
+
   const salvar = useMutation({
     mutationFn: async (modo: "novo" | "atualizar") => {
       if (!stats || !resultado) throw new Error("Calcule a simulação antes de salvar.");
@@ -297,7 +334,7 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
         observacoes: observacoes || null,
         periodoReferenciaInicio: ajustes.periodoReferencia.inicio,
         periodoReferenciaFim: ajustes.periodoReferencia.fim,
-        metodoCalculo: ajustes.metodoCalculo,
+        metodoCalculo: ajustes.referencia,
         entradas,
         ajustes,
         snapshotCustos: stats,
@@ -396,17 +433,27 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setEquipe={setEquipe}
                 regimeTipo={regimeTipo}
                 setRegimeTipo={setRegimeTipo}
+                regimeCustomEmbarcado={regimeCustomEmbarcado}
+                setRegimeCustomEmbarcado={setRegimeCustomEmbarcado}
+                regimeCustomFolga={regimeCustomFolga}
+                setRegimeCustomFolga={setRegimeCustomFolga}
                 duracaoValor={duracaoValor}
                 setDuracaoValor={setDuracaoValor}
-                usaAlimentacao={usaAlimentacao}
-                setUsaAlimentacao={setUsaAlimentacao}
-                usaAcomodacao={usaAcomodacao}
-                setUsaAcomodacao={setUsaAcomodacao}
+                mobDesmob={mobDesmob}
+                setMobDesmob={setMobDesmob}
+                noitesPreEmbarque={noitesPreEmbarque}
+                setNoitesPreEmbarque={setNoitesPreEmbarque}
+                diasAlimentacaoPorTroca={diasAlimentacaoPorTroca}
+                setDiasAlimentacaoPorTroca={setDiasAlimentacaoPorTroca}
+                incluir={incluirEmb}
+                setIncluir={setIncluirEmb}
                 hoteisAcomodacao={hoteisRegiao.data ?? []}
                 hotelAcomodacao={hotelAcomodacao}
                 setHotelAcomodacao={setHotelAcomodacao}
-                trajetos={trajetosTerra}
-                setTrajetos={setTrajetosTerra}
+                trajetosTransporteTerrestre={trajetosTransporteTerrestre}
+                setTrajetosTransporteTerrestre={setTrajetosTransporteTerrestre}
+                trajetosUber={trajetosUber}
+                setTrajetosUber={setTrajetosUber}
                 trajetosExecutivos={trajetosExecutivos}
                 setTrajetosExecutivos={setTrajetosExecutivos}
                 locais={sugestoesTrajeto}
@@ -416,14 +463,6 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
               <ViagemExecutivaForm
                 viagens={viagens}
                 setViagens={setViagens}
-                usaAlimentacao={usaAlimentacao}
-                setUsaAlimentacao={setUsaAlimentacao}
-                usaAcomodacao={usaAcomodacao}
-                setUsaAcomodacao={setUsaAcomodacao}
-                trajetos={trajetosTerra}
-                setTrajetos={setTrajetosTerra}
-                trajetosExecutivos={trajetosExecutivos}
-                setTrajetosExecutivos={setTrajetosExecutivos}
                 locais={sugestoesTrajeto}
               />
             )}
@@ -435,27 +474,29 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 setEquipe={setEquipeTerra}
                 duracaoDias={duracaoDiasTerra}
                 setDuracaoDias={setDuracaoDiasTerra}
-                usaAcomodacao={usaAcomodacao}
-                setUsaAcomodacao={setUsaAcomodacao}
+                incluir={incluirTerra}
+                setIncluir={setIncluirTerra}
                 hoteisAcomodacao={hoteisRegiao.data ?? []}
                 hotelAcomodacao={hotelAcomodacao}
                 setHotelAcomodacao={setHotelAcomodacao}
-                usaAlimentacao={usaAlimentacao}
-                setUsaAlimentacao={setUsaAlimentacao}
+                trajetosUber={trajetosUber}
+                setTrajetosUber={setTrajetosUber}
                 trajetosExecutivos={trajetosExecutivos}
                 setTrajetosExecutivos={setTrajetosExecutivos}
-                trajetos={trajetosTerra}
                 locais={sugestoesTrajeto}
-                setTrajetos={setTrajetosTerra}
-                usaLavanderia={usaLavanderia}
-                setUsaLavanderia={setUsaLavanderia}
-                lavanderiaValorDiario={lavanderiaValorDiario}
-                setLavanderiaValorDiario={setLavanderiaValorDiario}
+                lavanderiaDias={lavanderiaDias}
+                setLavanderiaDias={setLavanderiaDias}
               />
             )}
 
+            <AjustesPanel ajustes={ajustes} setAjustes={setAjustes} />
+
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => calcular.mutate()} disabled={calcular.isPending}>
+              <Button
+                type="button"
+                onClick={() => calcular.mutate()}
+                disabled={calcular.isPending || !temAlgoPraCalcular}
+              >
                 {calcular.isPending ? "Buscando custos..." : "Calcular"}
               </Button>
               {carregado && (
@@ -478,7 +519,12 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
                 {carregado ? "Salvar como novo" : "Salvar cenário"}
               </Button>
             </div>
-            {!stats && (
+            {!temAlgoPraCalcular && (
+              <p className="text-xs text-muted-foreground">
+                Ative pelo menos uma categoria e preencha o mínimo pra poder calcular.
+              </p>
+            )}
+            {temAlgoPraCalcular && !stats && (
               <p className="text-xs text-muted-foreground">
                 Calcule antes de salvar. Sem nome do cenário, o salvamento fica bloqueado.
               </p>
@@ -537,6 +583,159 @@ export function NovaSimulacaoTab({ carregado, onSalvo }: NovaSimulacaoTabProps) 
   );
 }
 
+// ── Ajustes: período de referência, qual estatística usar, reajuste/contingência/markup ──────
+function AjustesPanel({
+  ajustes,
+  setAjustes,
+}: {
+  ajustes: AjustesSimulacao;
+  setAjustes: (v: AjustesSimulacao | ((a: AjustesSimulacao) => AjustesSimulacao)) => void;
+}) {
+  function setPeriodoTipo(tipoPeriodo: PeriodoReferenciaTipo) {
+    setAjustes((a) => ({
+      ...a,
+      periodoReferencia: { tipo: tipoPeriodo, ...periodoReferenciaParaDatas(tipoPeriodo) },
+    }));
+  }
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <p className="text-sm font-medium">Ajustes</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Base de custos</Label>
+          <select
+            className="w-full border rounded-md h-9 px-2 text-sm"
+            value={ajustes.periodoReferencia.tipo}
+            onChange={(e) => setPeriodoTipo(e.target.value as PeriodoReferenciaTipo)}
+          >
+            <option value="3">Últimos 3 meses</option>
+            <option value="6">Últimos 6 meses</option>
+            <option value="12">Últimos 12 meses</option>
+            <option value="todo">Todo o histórico</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Referência</Label>
+          <select
+            className="w-full border rounded-md h-9 px-2 text-sm"
+            value={ajustes.referencia}
+            onChange={(e) =>
+              setAjustes((a) => ({ ...a, referencia: e.target.value as Referencia }))
+            }
+          >
+            <option value="mediana">Mediana</option>
+            <option value="media">Média</option>
+            <option value="ultimo">Último valor</option>
+            <option value="conservador">Conservador (p75)</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Reajuste (%)</Label>
+          <Input
+            type="number"
+            step="0.01"
+            value={ajustes.reajustePercent}
+            onChange={(e) =>
+              setAjustes((a) => ({ ...a, reajustePercent: Number(e.target.value) || 0 }))
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Contingência (%)</Label>
+          <Input
+            type="number"
+            step="0.01"
+            value={ajustes.contingenciaPercent}
+            onChange={(e) =>
+              setAjustes((a) => ({ ...a, contingenciaPercent: Number(e.target.value) || 0 }))
+            }
+          />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={ajustes.markup.aplicar}
+          onChange={(e) =>
+            setAjustes((a) => ({ ...a, markup: { ...a.markup, aplicar: e.target.checked } }))
+          }
+        />
+        Aplicar markup
+      </label>
+      {ajustes.markup.aplicar && (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Tipo</Label>
+            <select
+              className="w-full border rounded-md h-9 px-2 text-sm"
+              value={ajustes.markup.tipo}
+              onChange={(e) =>
+                setAjustes((a) => ({
+                  ...a,
+                  markup: {
+                    ...a.markup,
+                    tipo: e.target.value as AjustesSimulacao["markup"]["tipo"],
+                  },
+                }))
+              }
+            >
+              <option value="simples">Simples</option>
+              <option value="por_dentro">Por dentro</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Lucro (%)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={ajustes.markup.percentualLucro}
+              onChange={(e) =>
+                setAjustes((a) => ({
+                  ...a,
+                  markup: { ...a.markup, percentualLucro: Number(e.target.value) || 0 },
+                }))
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Imposto (%)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={ajustes.markup.percentualImposto}
+              onChange={(e) =>
+                setAjustes((a) => ({
+                  ...a,
+                  markup: { ...a.markup, percentualImposto: Number(e.target.value) || 0 },
+                }))
+              }
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CategoriaCheckbox({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
 function EmbarqueForm({
   cidadeEmbarque,
   setCidadeEmbarque,
@@ -544,20 +743,30 @@ function EmbarqueForm({
   setEquipe,
   regimeTipo,
   setRegimeTipo,
+  regimeCustomEmbarcado,
+  setRegimeCustomEmbarcado,
+  regimeCustomFolga,
+  setRegimeCustomFolga,
   duracaoValor,
   setDuracaoValor,
-  usaAlimentacao,
-  setUsaAlimentacao,
-  trajetos,
-  setTrajetos,
-  trajetosExecutivos,
-  setTrajetosExecutivos,
-  locais,
-  usaAcomodacao,
-  setUsaAcomodacao,
+  mobDesmob,
+  setMobDesmob,
+  noitesPreEmbarque,
+  setNoitesPreEmbarque,
+  diasAlimentacaoPorTroca,
+  setDiasAlimentacaoPorTroca,
+  incluir,
+  setIncluir,
   hoteisAcomodacao,
   hotelAcomodacao,
   setHotelAcomodacao,
+  trajetosTransporteTerrestre,
+  setTrajetosTransporteTerrestre,
+  trajetosUber,
+  setTrajetosUber,
+  trajetosExecutivos,
+  setTrajetosExecutivos,
+  locais,
 }: {
   cidadeEmbarque: string;
   setCidadeEmbarque: (v: string) => void;
@@ -565,20 +774,36 @@ function EmbarqueForm({
   setEquipe: (v: EquipeLinha[] | ((e: EquipeLinha[]) => EquipeLinha[])) => void;
   regimeTipo: RegimeTipo;
   setRegimeTipo: (v: RegimeTipo) => void;
+  regimeCustomEmbarcado: number;
+  setRegimeCustomEmbarcado: (v: number) => void;
+  regimeCustomFolga: number;
+  setRegimeCustomFolga: (v: number) => void;
   duracaoValor: number;
   setDuracaoValor: (v: number) => void;
-  usaAlimentacao: boolean;
-  setUsaAlimentacao: (v: boolean) => void;
-  trajetos: TrajetoTerra[];
-  setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
-  trajetosExecutivos: TrajetoTerra[];
-  setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
-  locais: string[];
-  usaAcomodacao: boolean;
-  setUsaAcomodacao: (v: boolean) => void;
+  mobDesmob: boolean;
+  setMobDesmob: (v: boolean) => void;
+  noitesPreEmbarque: number;
+  setNoitesPreEmbarque: (v: number) => void;
+  diasAlimentacaoPorTroca: number | null;
+  setDiasAlimentacaoPorTroca: (v: number | null) => void;
+  incluir: EntradasEmbarque["incluir"];
+  setIncluir: (
+    v:
+      | EntradasEmbarque["incluir"]
+      | ((i: EntradasEmbarque["incluir"]) => EntradasEmbarque["incluir"]),
+  ) => void;
   hoteisAcomodacao: HotelRegiao[];
   hotelAcomodacao: string;
   setHotelAcomodacao: (v: string) => void;
+  trajetosTransporteTerrestre: TrajetoTerra[];
+  setTrajetosTransporteTerrestre: (
+    v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[]),
+  ) => void;
+  trajetosUber: TrajetoTerra[];
+  setTrajetosUber: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  trajetosExecutivos: TrajetoTerra[];
+  setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  locais: string[];
 }) {
   function addLinha() {
     setEquipe((e) => [...e, { funcao: "", qtd: 1, cidadeOrigem: "" }]);
@@ -588,6 +813,9 @@ function EmbarqueForm({
   }
   function updateLinha(i: number, patch: Partial<EquipeLinha>) {
     setEquipe((e) => e.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+  function marcar(chave: keyof EntradasEmbarque["incluir"], v: boolean) {
+    setIncluir((i) => ({ ...i, [chave]: v }));
   }
 
   return (
@@ -653,41 +881,143 @@ function EmbarqueForm({
           />
         </div>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={usaAcomodacao}
-          onChange={(e) => setUsaAcomodacao(e.target.checked)}
-        />{" "}
-        Acomodação
-      </label>
-      {usaAcomodacao && (
-        <SeletorHotel
-          hoteis={hoteisAcomodacao}
-          valor={hotelAcomodacao}
-          onChange={setHotelAcomodacao}
-        />
+      {regimeTipo === "custom" && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2">
+            <Label>Dias embarcado</Label>
+            <Input
+              type="number"
+              min={1}
+              value={regimeCustomEmbarcado}
+              onChange={(e) => setRegimeCustomEmbarcado(Number(e.target.value) || 1)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Dias de folga</Label>
+            <Input
+              type="number"
+              min={1}
+              value={regimeCustomFolga}
+              onChange={(e) => setRegimeCustomFolga(Number(e.target.value) || 1)}
+            />
+          </div>
+        </div>
       )}
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
-          checked={usaAlimentacao}
-          onChange={(e) => setUsaAlimentacao(e.target.checked)}
-        />{" "}
-        Alimentação (pessoas × dias embarcados)
+          checked={mobDesmob}
+          onChange={(e) => setMobDesmob(e.target.checked)}
+        />
+        Mobilização/desmobilização (+1 ida no início, +1 volta no fim)
       </label>
-      <TrajetosEditor
-        titulo="Uber por trajeto (custo do histórico)"
-        trajetos={trajetos}
-        setTrajetos={setTrajetos}
-        locais={locais}
-      />
-      <TrajetosEditor
-        titulo="Transporte executivo por trajeto (custo do histórico Future)"
-        trajetos={trajetosExecutivos}
-        setTrajetos={setTrajetosExecutivos}
-        locais={locais}
-      />
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.passagem}
+          onChange={(v) => marcar("passagem", v)}
+          label="Passagem Aérea"
+        />
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.hospedagem}
+          onChange={(v) => marcar("hospedagem", v)}
+          label="Hospedagem"
+        />
+        {incluir.hospedagem && (
+          <>
+            <div className="space-y-1">
+              <Label className="text-xs">Noites de pré-embarque por troca</Label>
+              <Input
+                type="number"
+                min={0}
+                value={noitesPreEmbarque}
+                onChange={(e) => setNoitesPreEmbarque(Number(e.target.value) || 0)}
+              />
+            </div>
+            <SeletorHotel
+              hoteis={hoteisAcomodacao}
+              valor={hotelAcomodacao}
+              onChange={setHotelAcomodacao}
+            />
+          </>
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.alimentacao}
+          onChange={(v) => marcar("alimentacao", v)}
+          label="Alimentação"
+        />
+        {incluir.alimentacao && (
+          <div className="space-y-1">
+            <Label className="text-xs">Dias em terra por troca</Label>
+            <Input
+              type="number"
+              min={0}
+              placeholder={`Padrão: ${noitesPreEmbarque + 1}`}
+              value={diasAlimentacaoPorTroca ?? ""}
+              onChange={(e) =>
+                setDiasAlimentacaoPorTroca(
+                  e.target.value === "" ? null : Number(e.target.value) || 0,
+                )
+              }
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.transporteTerrestre}
+          onChange={(v) => marcar("transporteTerrestre", v)}
+          label="Transporte terrestre"
+        />
+        {incluir.transporteTerrestre && (
+          <TrajetosEditor
+            trajetos={trajetosTransporteTerrestre}
+            setTrajetos={setTrajetosTransporteTerrestre}
+            locais={locais}
+            tipoHistorico="terrestre"
+            qtdLabel="Viagens por troca"
+          />
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.uber}
+          onChange={(v) => marcar("uber", v)}
+          label="Uber"
+        />
+        {incluir.uber && (
+          <TrajetosEditor
+            trajetos={trajetosUber}
+            setTrajetos={setTrajetosUber}
+            locais={locais}
+            tipoHistorico="uber"
+          />
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.transporteExecutivo}
+          onChange={(v) => marcar("transporteExecutivo", v)}
+          label="Transporte executivo (Future)"
+        />
+        {incluir.transporteExecutivo && (
+          <TrajetosEditor
+            trajetos={trajetosExecutivos}
+            setTrajetos={setTrajetosExecutivos}
+            locais={locais}
+            tipoHistorico="future"
+          />
+        )}
+      </div>
     </>
   );
 }
@@ -695,43 +1025,14 @@ function EmbarqueForm({
 function ViagemExecutivaForm({
   viagens,
   setViagens,
-  usaAlimentacao,
-  setUsaAlimentacao,
-  trajetos,
-  setTrajetos,
-  trajetosExecutivos,
-  setTrajetosExecutivos,
   locais,
-  usaAcomodacao,
-  setUsaAcomodacao,
 }: {
   viagens: ViagemLinha[];
   setViagens: (v: ViagemLinha[] | ((v: ViagemLinha[]) => ViagemLinha[])) => void;
-  usaAlimentacao: boolean;
-  setUsaAlimentacao: (v: boolean) => void;
-  trajetos: TrajetoTerra[];
-  setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
-  trajetosExecutivos: TrajetoTerra[];
-  setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
   locais: string[];
-  usaAcomodacao: boolean;
-  setUsaAcomodacao: (v: boolean) => void;
 }) {
   function addViagem() {
-    setViagens((v) => [
-      ...v,
-      {
-        descricao: "",
-        qtd: 1,
-        origem: "",
-        destino: "",
-        somenteIda: false,
-        usaHotel: true,
-        noitesHotel: 1,
-        usaTransporteLocal: true,
-        qtdTransporteLocal: 2,
-      },
-    ]);
+    setViagens((v) => [...v, { ...VIAGEM_VAZIA }]);
   }
   function removeViagem(i: number) {
     setViagens((v) => v.filter((_, idx) => idx !== i));
@@ -748,8 +1049,12 @@ function ViagemExecutivaForm({
           <Plus className="h-4 w-4 mr-1" /> Viagem
         </Button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Cada viagem pode ter qualquer combinação de categorias — uma viagem só com Passagem, ou só
+        com Uber, é válida.
+      </p>
       {viagens.map((v, i) => (
-        <div key={i} className="border rounded-md p-2 space-y-2">
+        <div key={i} className="border rounded-md p-2 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Viagem {i + 1}</span>
             <Button type="button" size="icon" variant="ghost" onClick={() => removeViagem(i)}>
@@ -765,97 +1070,126 @@ function ViagemExecutivaForm({
             <Input
               type="number"
               min={1}
-              placeholder="Qtd"
+              placeholder="Qtd pessoas"
               value={v.qtd}
               onChange={(e) => updateViagem(i, { qtd: Number(e.target.value) || 0 })}
             />
-            <Input
-              placeholder="Origem"
-              value={v.origem}
-              onChange={(e) => updateViagem(i, { origem: e.target.value })}
-            />
-            <Input
-              placeholder="Destino"
-              value={v.destino}
-              onChange={(e) => updateViagem(i, { destino: e.target.value })}
-            />
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={v.somenteIda}
-              onChange={(e) => updateViagem(i, { somenteIda: e.target.checked })}
-            />{" "}
-            Somente ida
-          </label>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={v.usaHotel}
-                onChange={(e) => updateViagem(i, { usaHotel: e.target.checked })}
-              />{" "}
-              Hotel
-            </label>
-            <Input
-              type="number"
-              min={0}
-              className="w-24"
-              placeholder="Noites"
-              value={v.noitesHotel}
-              onChange={(e) => updateViagem(i, { noitesHotel: Number(e.target.value) || 0 })}
-              disabled={!v.usaHotel}
+
+          <div className="space-y-1 rounded-md border p-2">
+            <CategoriaCheckbox
+              checked={v.incluirPassagem}
+              onChange={(c) => updateViagem(i, { incluirPassagem: c })}
+              label="Passagem Aérea"
             />
+            {v.incluirPassagem && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder="Origem"
+                    value={v.origem}
+                    onChange={(e) => updateViagem(i, { origem: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Destino"
+                    value={v.destino}
+                    onChange={(e) => updateViagem(i, { destino: e.target.value })}
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={v.somenteIda}
+                    onChange={(e) => updateViagem(i, { somenteIda: e.target.checked })}
+                  />
+                  Somente ida
+                </label>
+              </>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={v.usaTransporteLocal}
-                onChange={(e) => updateViagem(i, { usaTransporteLocal: e.target.checked })}
-              />{" "}
-              Transporte local
-            </label>
-            <Input
-              type="number"
-              min={0}
-              className="w-24"
-              placeholder="Carros na ida"
-              value={v.qtdTransporteLocal}
-              onChange={(e) => updateViagem(i, { qtdTransporteLocal: Number(e.target.value) || 0 })}
-              disabled={!v.usaTransporteLocal}
+
+          <div className="space-y-1 rounded-md border p-2">
+            <CategoriaCheckbox
+              checked={v.incluirHospedagem}
+              onChange={(c) => updateViagem(i, { incluirHospedagem: c })}
+              label="Hotel"
             />
+            {v.incluirHospedagem && (
+              <Input
+                type="number"
+                min={0}
+                className="w-24"
+                placeholder="Noites"
+                value={v.noitesHotel}
+                onChange={(e) => updateViagem(i, { noitesHotel: Number(e.target.value) || 0 })}
+              />
+            )}
+          </div>
+
+          <div className="space-y-1 rounded-md border p-2">
+            <CategoriaCheckbox
+              checked={v.incluirAlimentacao}
+              onChange={(c) => updateViagem(i, { incluirAlimentacao: c })}
+              label="Alimentação"
+            />
+            {v.incluirAlimentacao && (
+              <Input
+                type="number"
+                min={0}
+                className="w-24"
+                placeholder={`Padrão: ${Math.max(1, v.noitesHotel || 1)}`}
+                value={v.diasAlimentacao ?? ""}
+                onChange={(e) =>
+                  updateViagem(i, {
+                    diasAlimentacao: e.target.value === "" ? null : Number(e.target.value) || 0,
+                  })
+                }
+              />
+            )}
+          </div>
+
+          <div className="space-y-1 rounded-md border p-2">
+            <CategoriaCheckbox
+              checked={v.incluirUber}
+              onChange={(c) => updateViagem(i, { incluirUber: c })}
+              label="Uber"
+            />
+            {v.incluirUber && (
+              <TrajetosEditor
+                trajetos={v.trajetosUber}
+                setTrajetos={(novo) =>
+                  updateViagem(i, {
+                    trajetosUber: typeof novo === "function" ? novo(v.trajetosUber) : novo,
+                  })
+                }
+                locais={locais}
+                tipoHistorico="uber"
+              />
+            )}
+          </div>
+
+          <div className="space-y-1 rounded-md border p-2">
+            <CategoriaCheckbox
+              checked={v.incluirTransporteExecutivo}
+              onChange={(c) => updateViagem(i, { incluirTransporteExecutivo: c })}
+              label="Transporte executivo (Future)"
+            />
+            {v.incluirTransporteExecutivo && (
+              <TrajetosEditor
+                trajetos={v.trajetosExecutivo}
+                setTrajetos={(novo) =>
+                  updateViagem(i, {
+                    trajetosExecutivo:
+                      typeof novo === "function" ? novo(v.trajetosExecutivo) : novo,
+                  })
+                }
+                locais={locais}
+                tipoHistorico="future"
+              />
+            )}
           </div>
         </div>
       ))}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={usaAcomodacao}
-          onChange={(e) => setUsaAcomodacao(e.target.checked)}
-        />{" "}
-        Acomodação
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={usaAlimentacao}
-          onChange={(e) => setUsaAlimentacao(e.target.checked)}
-        />{" "}
-        Alimentação (pessoas × dias de cada viagem)
-      </label>
-      <TrajetosEditor
-        titulo="Uber por trajeto (custo do histórico)"
-        trajetos={trajetos}
-        setTrajetos={setTrajetos}
-        locais={locais}
-      />
-      <TrajetosEditor
-        titulo="Transporte executivo por trajeto (custo do histórico Future)"
-        trajetos={trajetosExecutivos}
-        setTrajetos={setTrajetosExecutivos}
-        locais={locais}
-      />
     </div>
   );
 }
@@ -867,22 +1201,18 @@ function ServicoTerraForm({
   setEquipe,
   duracaoDias,
   setDuracaoDias,
-  usaAcomodacao,
-  setUsaAcomodacao,
-  usaAlimentacao,
-  setUsaAlimentacao,
-  trajetosExecutivos,
-  setTrajetosExecutivos,
-  trajetos,
-  setTrajetos,
-  locais,
-  usaLavanderia,
-  setUsaLavanderia,
-  lavanderiaValorDiario,
-  setLavanderiaValorDiario,
+  incluir,
+  setIncluir,
   hoteisAcomodacao,
   hotelAcomodacao,
   setHotelAcomodacao,
+  trajetosUber,
+  setTrajetosUber,
+  trajetosExecutivos,
+  setTrajetosExecutivos,
+  locais,
+  lavanderiaDias,
+  setLavanderiaDias,
 }: {
   local: string;
   setLocal: (v: string) => void;
@@ -890,19 +1220,19 @@ function ServicoTerraForm({
   setEquipe: (v: EquipeSimples[] | ((e: EquipeSimples[]) => EquipeSimples[])) => void;
   duracaoDias: number;
   setDuracaoDias: (v: number) => void;
-  usaAcomodacao: boolean;
-  setUsaAcomodacao: (v: boolean) => void;
-  usaAlimentacao: boolean;
-  setUsaAlimentacao: (v: boolean) => void;
+  incluir: EntradasServicoTerra["incluir"];
+  setIncluir: (
+    v:
+      | EntradasServicoTerra["incluir"]
+      | ((i: EntradasServicoTerra["incluir"]) => EntradasServicoTerra["incluir"]),
+  ) => void;
   trajetosExecutivos: TrajetoTerra[];
   setTrajetosExecutivos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
-  trajetos: TrajetoTerra[];
+  trajetosUber: TrajetoTerra[];
   locais: string[];
-  setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
-  usaLavanderia: boolean;
-  setUsaLavanderia: (v: boolean) => void;
-  lavanderiaValorDiario: number;
-  setLavanderiaValorDiario: (v: number) => void;
+  setTrajetosUber: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
+  lavanderiaDias: number | null;
+  setLavanderiaDias: (v: number | null) => void;
   hoteisAcomodacao: HotelRegiao[];
   hotelAcomodacao: string;
   setHotelAcomodacao: (v: string) => void;
@@ -915,6 +1245,9 @@ function ServicoTerraForm({
   }
   function updateLinha(i: number, patch: Partial<EquipeSimples>) {
     setEquipe((e) => e.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+  function marcar(chave: keyof EntradasServicoTerra["incluir"], v: boolean) {
+    setIncluir((i) => ({ ...i, [chave]: v }));
   }
 
   return (
@@ -961,79 +1294,111 @@ function ServicoTerraForm({
         />
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={usaAcomodacao}
-          onChange={(e) => setUsaAcomodacao(e.target.checked)}
-        />{" "}
-        Acomodação
-      </label>
-      {usaAcomodacao && (
-        <SeletorHotel
-          hoteis={hoteisAcomodacao}
-          valor={hotelAcomodacao}
-          onChange={setHotelAcomodacao}
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.hospedagem}
+          onChange={(v) => marcar("hospedagem", v)}
+          label="Hospedagem"
         />
-      )}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={usaAlimentacao}
-          onChange={(e) => setUsaAlimentacao(e.target.checked)}
-        />{" "}
-        Alimentação (histórico de Reembolsos)
-      </label>
-      <TrajetosEditor
-        titulo="Uber por trajeto (custo do histórico)"
-        trajetos={trajetos}
-        setTrajetos={setTrajetos}
-        locais={locais}
-      />
-      <TrajetosEditor
-        titulo="Transporte executivo por trajeto (custo do histórico Future)"
-        trajetos={trajetosExecutivos}
-        setTrajetos={setTrajetosExecutivos}
-        locais={locais}
-      />
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={usaLavanderia}
-            onChange={(e) => setUsaLavanderia(e.target.checked)}
-          />{" "}
-          Lavanderia
-        </label>
-        <Input
-          type="text"
-          inputMode="decimal"
-          className="w-32"
-          placeholder="Valor único (R$)"
-          value={lavanderiaValorDiario}
-          onChange={(e) => setLavanderiaValorDiario(parseValorForm(e.target.value) ?? 0)}
-          disabled={!usaLavanderia}
+        {incluir.hospedagem && (
+          <SeletorHotel
+            hoteis={hoteisAcomodacao}
+            valor={hotelAcomodacao}
+            onChange={setHotelAcomodacao}
+          />
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.alimentacao}
+          onChange={(v) => marcar("alimentacao", v)}
+          label="Alimentação"
         />
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.uber}
+          onChange={(v) => marcar("uber", v)}
+          label="Uber"
+        />
+        {incluir.uber && (
+          <TrajetosEditor
+            trajetos={trajetosUber}
+            setTrajetos={setTrajetosUber}
+            locais={locais}
+            tipoHistorico="uber"
+          />
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.transporteExecutivo}
+          onChange={(v) => marcar("transporteExecutivo", v)}
+          label="Transporte executivo (Future)"
+        />
+        {incluir.transporteExecutivo && (
+          <TrajetosEditor
+            trajetos={trajetosExecutivos}
+            setTrajetos={setTrajetosExecutivos}
+            locais={locais}
+            tipoHistorico="future"
+          />
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border p-2">
+        <CategoriaCheckbox
+          checked={incluir.lavanderia}
+          onChange={(v) => marcar("lavanderia", v)}
+          label="Lavanderia"
+        />
+        {incluir.lavanderia && (
+          <div className="space-y-1">
+            <Label className="text-xs">Nº de dias</Label>
+            <Input
+              type="number"
+              min={0}
+              placeholder={`Padrão: ${duracaoDias}`}
+              value={lavanderiaDias ?? ""}
+              onChange={(e) =>
+                setLavanderiaDias(e.target.value === "" ? null : Number(e.target.value) || 0)
+              }
+            />
+          </div>
+        )}
       </div>
     </>
   );
 }
 
+// ── Editor de trajetos: lista de origem/destino + qtd, com combobox pesquisável dos trajetos
+// já vistos no histórico (mostrando n/mediana) — digitar texto livre continua funcionando. ──
 function TrajetosEditor({
-  titulo,
   trajetos,
   setTrajetos,
   locais,
+  tipoHistorico,
+  qtdLabel = "Carros na ida",
 }: {
-  titulo: string;
   trajetos: TrajetoTerra[];
   setTrajetos: (v: TrajetoTerra[] | ((t: TrajetoTerra[]) => TrajetoTerra[])) => void;
   locais: string[];
+  tipoHistorico: "uber" | "future" | "terrestre";
+  qtdLabel?: string;
 }) {
+  const conhecidos = useQuery({
+    queryKey: ["cost-simulator-trajetos-conhecidos", tipoHistorico],
+    queryFn: () => fetchTrajetosConhecidos(tipoHistorico),
+    staleTime: 5 * 60_000,
+  });
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <Label>{titulo}</Label>
+        <Label className="text-xs">Trajetos</Label>
         <Button
           type="button"
           size="sm"
@@ -1044,46 +1409,56 @@ function TrajetosEditor({
         </Button>
       </div>
       {trajetos.map((t, i) => (
-        <div key={i} className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 items-end">
-          <Input
-            list="locais-transporte"
-            placeholder="Origem (ex. Aeroporto)"
-            value={t.origem}
-            onChange={(e) =>
-              setTrajetos((ts) =>
-                ts.map((x, idx) => (idx === i ? { ...x, origem: e.target.value } : x)),
-              )
-            }
-          />
-          <Input
-            list="locais-transporte"
-            placeholder="Destino (ex. Pousada)"
-            value={t.destino}
-            onChange={(e) =>
-              setTrajetos((ts) =>
-                ts.map((x, idx) => (idx === i ? { ...x, destino: e.target.value } : x)),
-              )
-            }
-          />
-          <Input
-            type="number"
-            min={0}
-            placeholder="Carros na ida"
-            value={t.qtd}
-            onChange={(e) =>
-              setTrajetos((ts) =>
-                ts.map((x, idx) => (idx === i ? { ...x, qtd: Number(e.target.value) || 0 } : x)),
-              )
-            }
-          />
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={() => setTrajetos((ts) => ts.filter((_, idx) => idx !== i))}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+        <div key={i} className="space-y-1 rounded border p-2">
+          <div className="flex items-center justify-between gap-2">
+            <TrajetoConhecidoCombobox
+              trajetos={conhecidos.data ?? []}
+              onSelect={(origem, destino) =>
+                setTrajetos((ts) => ts.map((x, idx) => (idx === i ? { ...x, origem, destino } : x)))
+              }
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => setTrajetos((ts) => ts.filter((_, idx) => idx !== i))}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-[2fr_2fr_1fr] gap-2 items-end">
+            <Input
+              list="locais-transporte"
+              placeholder="Origem"
+              value={t.origem}
+              onChange={(e) =>
+                setTrajetos((ts) =>
+                  ts.map((x, idx) => (idx === i ? { ...x, origem: e.target.value } : x)),
+                )
+              }
+            />
+            <Input
+              list="locais-transporte"
+              placeholder="Destino"
+              value={t.destino}
+              onChange={(e) =>
+                setTrajetos((ts) =>
+                  ts.map((x, idx) => (idx === i ? { ...x, destino: e.target.value } : x)),
+                )
+              }
+            />
+            <Input
+              type="number"
+              min={0}
+              placeholder={qtdLabel}
+              value={t.qtd}
+              onChange={(e) =>
+                setTrajetos((ts) =>
+                  ts.map((x, idx) => (idx === i ? { ...x, qtd: Number(e.target.value) || 0 } : x)),
+                )
+              }
+            />
+          </div>
         </div>
       ))}
       <datalist id="locais-transporte">
@@ -1092,6 +1467,60 @@ function TrajetosEditor({
         ))}
       </datalist>
     </div>
+  );
+}
+
+function TrajetoConhecidoCombobox({
+  trajetos,
+  onSelect,
+}: {
+  trajetos: TrajetoConhecido[];
+  onSelect: (origem: string, destino: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          size="sm"
+          className="h-7 justify-between text-xs font-normal"
+        >
+          Buscar trajeto conhecido...
+          <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0 pointer-events-auto" align="start">
+        <Command filter={(v, search) => (matchesNameSearch(v, search) ? 1 : 0)}>
+          <CommandInput placeholder="Buscar por cidade..." />
+          <CommandList
+            className={cn(trajetos.length <= 6 ? "max-h-none overflow-visible" : undefined)}
+          >
+            <CommandEmpty>Nenhum trajeto encontrado no histórico.</CommandEmpty>
+            <CommandGroup>
+              {trajetos.map((t, i) => (
+                <CommandItem
+                  key={`${t.origem}|${t.destino}|${i}`}
+                  value={`${t.origem} ${t.destino}`}
+                  onSelect={() => {
+                    onSelect(t.origem, t.destino);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="truncate">
+                    {t.origem} → {t.destino}{" "}
+                    <span className="text-muted-foreground">
+                      · {t.n} lançamento(s) · {formatBRL(t.mediana)}
+                    </span>
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 

@@ -60,7 +60,10 @@ export function SearchableSelect({
       >
         <Command filter={(v, search) => (matchesNameSearch(v, search) ? 1 : 0)}>
           <CommandInput placeholder={placeholder} />
-          <CommandList>
+          {/* Listas curtas (ex.: Status, só 4 opções) não precisam do limite de altura com
+              rolagem pensado pra listas longas — sem isso, o Popover às vezes reserva a área de
+              rolagem mesmo sem precisar, pedido dela pra tirar isso de campos pequenos. */}
+          <CommandList className={options.length <= 6 ? "max-h-none overflow-visible" : undefined}>
             <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
             <CommandGroup>
               {options.map((opt) => {
@@ -140,7 +143,7 @@ export function SearchableMultiSelect({
       >
         <Command filter={(v, search) => (matchesNameSearch(v, search) ? 1 : 0)}>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <CommandList className={options.length <= 6 ? "max-h-none overflow-visible" : undefined}>
             <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
             <CommandGroup>
               {options.map((opt) => {

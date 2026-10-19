@@ -1,26 +1,27 @@
 import type { AjustesSimulacao, EntradasSimulacao, ResultadoSimulacao } from "@/lib/costSimulator";
-import { REGIMES_ROTACAO } from "@/lib/costSimulator";
+import { REFERENCIA_LABEL } from "@/lib/costSimulator";
 import { TIPO_LABEL, formatBRL } from "@/components/costSimulator/formatacao";
 import logoUrl from "@/assets/Logo - STEP.png";
 
-// Exportação do simulador em PDF (pedido dela, 2026-10-02). Gráficos entram como imagem
-// capturada da própria tela (html2canvas) — mais simples que redesenhar em vetor.
-// jsPDF/html2canvas são carregados só quando o botão é clicado, pra não pesar a página.
+// Exportação do simulador em PDF (pedido dela, 2026-10-02; reestruturado 2026-10-16 pra
+// simulação parcial). Gráficos entram como imagem capturada da própria tela (html2canvas) —
+// mais simples que redesenhar em vetor. jsPDF/html2canvas são carregados só quando o botão é
+// clicado, pra não pesar a página.
 
 const MARGEM = 14;
 const TOPO_CONTEUDO = 50;
-const BANNER = "Os valores desta simulação são baseados nos últimos custos lançados no sistema.";
+const DISCLAIMER =
+  "Simulação baseada nos custos lançados no My Step Time. Valores estimados, sujeitos a variação.";
 
 // jsPDF usa fonte WinAnsi, que não tem seta; troca pra texto simples.
 function texto(s: string): string {
   return s.replace(/→/g, "->");
 }
 
-const METODO_LABEL: Record<AjustesSimulacao["metodoCalculo"], string> = {
-  media: "Média",
-  mediana: "Mediana",
-  ultimo: "Último valor lançado",
-};
+function dataBR(iso: string): string {
+  const [ano, mes, dia] = iso.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
 
 function linhasTrajetos(lista: { origem: string; destino: string; qtd: number }[]): string {
   return (
@@ -32,14 +33,7 @@ function linhasTrajetos(lista: { origem: string; destino: string; qtd: number }[
 }
 
 export function resumoEntradas(entradas: EntradasSimulacao): [string, string][] {
-  const extras: [string, string][] = [
-    ...(entradas.tipo !== "servico_terra"
-      ? [["Alimentação", entradas.usaAlimentacao ? "Sim" : "Não"] as [string, string]]
-      : []),
-    ["Uber por trajeto", linhasTrajetos(entradas.trajetos ?? [])],
-    ["Transporte executivo por trajeto", linhasTrajetos(entradas.trajetosExecutivos ?? [])],
-  ];
-  return [...resumoEntradasBase(entradas), ...extras];
+  return resumoEntradasBase(entradas);
 }
 
 function resumoEntradasBase(entradas: EntradasSimulacao): [string, string][] {
@@ -61,6 +55,8 @@ function resumoEntradasBase(entradas: EntradasSimulacao): [string, string][] {
           )
           .join("\n") || "—",
       ],
+      ["Uber por trajeto", linhasTrajetos(entradas.trajetos ?? [])],
+      ["Transporte executivo por trajeto", linhasTrajetos(entradas.trajetosExecutivos ?? [])],
     ];
   }
   if (entradas.tipo === "viagem_executiva") {
@@ -69,29 +65,27 @@ function resumoEntradasBase(entradas: EntradasSimulacao): [string, string][] {
         "Viagens",
         entradas.viagens
           .map((v, i) => {
-            const partes = [`${v.qtd} pessoa(s)`, `${v.origem || "—"} -> ${v.destino || "—"}`];
-            if (v.somenteIda) partes.push("só ida");
-            if (v.usaHotel) partes.push(`${v.noitesHotel} noite(s) de hotel`);
-            if (v.usaTransporteLocal) partes.push(`${v.qtdTransporteLocal} transporte(s) local`);
+            const partes = [`${v.qtd} pessoa(s)`];
+            if (v.incluirPassagem)
+              partes.push(
+                `${v.origem || "—"} -> ${v.destino || "—"}${v.somenteIda ? " (só ida)" : ""}`,
+              );
+            if (v.incluirHospedagem) partes.push(`${v.noitesHotel} noite(s) de hotel`);
+            if (v.incluirAlimentacao) partes.push("alimentação");
+            if (v.incluirUber) partes.push("Uber");
+            if (v.incluirTransporteExecutivo) partes.push("Transporte executivo");
             return `${v.descricao.trim() || `Viagem ${i + 1}`}: ${partes.join(", ")}`;
           })
           .join("\n") || "—",
       ],
     ];
   }
-  const itens = [
-    entradas.usaAcomodacao && "Acomodação",
-    entradas.usaAlimentacao && "Alimentação",
-    entradas.usaLavanderia &&
-      `Lavanderia (valor único: ${formatBRL(entradas.lavanderiaValorDiario)})`,
-  ]
-    .filter(Boolean)
-    .join(", ");
   return [
     ["Local", entradas.local || "—"],
     ["Duração", `${entradas.duracaoDias} dia(s)`],
     ["Equipe", entradas.equipe.map((l) => `${l.funcao || "Função"}: ${l.qtd}`).join("\n") || "—"],
-    ["Itens", itens || "—"],
+    ["Uber por trajeto", linhasTrajetos(entradas.trajetos ?? [])],
+    ["Transporte executivo por trajeto", linhasTrajetos(entradas.trajetosExecutivos ?? [])],
   ];
 }
 
@@ -163,6 +157,11 @@ export async function exportarSimulacaoPdf({
   doc.setFont("helvetica", "normal");
   doc.text(`Tipo: ${TIPO_LABEL[entradas.tipo]}`, MARGEM, TOPO_CONTEUDO - 7);
 
+  const periodoTexto =
+    ajustes.periodoReferencia.tipo === "todo"
+      ? "Todo o histórico"
+      : `Últimos ${ajustes.periodoReferencia.tipo} meses (${dataBR(ajustes.periodoReferencia.inicio)} a ${dataBR(ajustes.periodoReferencia.fim)})`;
+
   autoTable(doc, {
     ...cabecalhoTabela,
     startY: TOPO_CONTEUDO,
@@ -171,8 +170,16 @@ export async function exportarSimulacaoPdf({
       ["Cliente", entradas.cliente || "—"],
       ["Unidade", entradas.unidade || "—"],
       ["BSP", entradas.bsp || "—"],
-      ["Método de cálculo", METODO_LABEL[ajustes.metodoCalculo]],
+      ["Período de referência", periodoTexto],
+      ["Valor de referência", REFERENCIA_LABEL[ajustes.referencia]],
       ...resumoEntradas(entradas),
+      ["Categorias incluídas", resultado.categoriasIncluidas.join(", ") || "—"],
+      [
+        "Categorias pendentes",
+        resultado.categoriasPendentes
+          .map((p) => `${p.categoria} (falta: ${p.motivo})`)
+          .join("; ") || "—",
+      ],
       ["Gerado em", geradoEm],
       ["Gerado por", geradoPor || "—"],
     ].map(([k, v]) => [texto(k), texto(v)]),
@@ -263,7 +270,7 @@ export async function exportarSimulacaoPdf({
     doc.setDrawColor(252, 211, 77);
     doc.roundedRect(MARGEM, 22, larguraUtil, 9, 1.5, 1.5, "FD");
     doc.setTextColor(120, 53, 15);
-    doc.text(BANNER, MARGEM + 3, 27.8);
+    doc.text(DISCLAIMER, MARGEM + 3, 27.8);
     doc.setTextColor(120);
     doc.text(`Página ${p} de ${totalPaginas}`, larguraPagina - MARGEM, alturaPagina - 8, {
       align: "right",

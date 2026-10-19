@@ -1,16 +1,17 @@
 import type { TipoMarkup } from "@/lib/bm";
 
-// ── Motor de cálculo do Simulador de Custos Logísticos (pedido dela, 2026-10-02) ──
-// Módulo puro, sem I/O: recebe as entradas digitadas + os custos agregados que vieram da RPC
-// cost_simulator_unit_stats e devolve o resultado pronto pra tela/PDF. Nada aqui lê o Supabase.
+// ── Motor de cálculo do Simulador de Custos Logísticos — reescrito pra simulação PARCIAL
+// (pedido dela, 2026-10-16): cada categoria de custo tem seu próprio "Incluir na simulação",
+// todas desmarcadas por padrão, e uma categoria ativa mas incompleta não trava o cálculo — vira
+// uma linha "Não calculado" no resultado, sem entrar no total. Módulo puro, sem I/O: recebe as
+// entradas digitadas + o resultado já de cost_simulator_base (uma linha por item pedido, já com
+// o fallback de amostra pequena resolvido no banco) e devolve o resultado pronto pra tela/PDF.
 //
 // Três tipos de simulação, com entradas diferentes mas Ajustes/Resultado compartilhados:
 // - "embarque": equipe rotativa numa única base, com regime de embarque/folga e nº de ciclos.
-// - "viagem_executiva": lista livre de viagens ponto a ponto (com passagem aérea), cada uma com
-//   seu próprio destino, sem regime de rotação.
-// - "servico_terra": equipe + duração em dias num único local em terra, sem passagem aérea —
-//   Acomodação/Alimentação/Transporte local/Lavanderia por dia (pedido dela depois de ver um
-//   e-mail real de pedido de cotação nesse formato, pra um ARM em terra).
+// - "viagem_executiva": lista livre de viagens ponto a ponto, cada uma com sua própria
+//   combinação de categorias (uma viagem só com passagem, ou só com Uber, é válida).
+// - "servico_terra": equipe + duração em dias num único local em terra, sem passagem aérea.
 
 export type RegimeTipo = "14x14" | "21x21" | "28x28" | "custom";
 
@@ -23,7 +24,36 @@ export const REGIMES_ROTACAO: Record<
   "28x28": { diasEmbarcado: 28, diasFolga: 28 },
 };
 
-export type MetodoCalculo = "media" | "mediana" | "ultimo";
+// As 7 categorias de custo que existem no sistema hoje — nem todo tipo de simulação usa todas
+// (Serviço em Terra não tem Passagem Aérea; só Serviço em Terra tem Lavanderia).
+export type CategoriaKey =
+  | "passagem"
+  | "hospedagem"
+  | "alimentacao"
+  | "transporteTerrestre"
+  | "uber"
+  | "transporteExecutivo"
+  | "lavanderia";
+
+export const CATEGORIA_LABEL: Record<CategoriaKey, string> = {
+  passagem: "Passagem Aérea",
+  hospedagem: "Hospedagem",
+  alimentacao: "Alimentação",
+  transporteTerrestre: "Transporte terrestre",
+  uber: "Uber",
+  transporteExecutivo: "Transporte executivo (Future)",
+  lavanderia: "Lavanderia",
+};
+
+export type PeriodoReferenciaTipo = "3" | "6" | "12" | "todo";
+export type Referencia = "mediana" | "media" | "ultimo" | "conservador";
+
+export const REFERENCIA_LABEL: Record<Referencia, string> = {
+  mediana: "Mediana",
+  media: "Média",
+  ultimo: "Último valor",
+  conservador: "Conservador (p75)",
+};
 
 export interface EquipeLinha {
   funcao: string;
@@ -39,39 +69,55 @@ interface EntradasComuns {
   observacoes: string;
 }
 
+export interface TrajetoTerra {
+  origem: string;
+  destino: string;
+  qtd: number; // Embarque/Viagem Executiva/Serviço em Terra: carros na ida (ida+volta = ×2); só em "Transporte terrestre" do Embarque é "viagens por troca".
+}
+
+type CategoriaEmbarque =
+  | "passagem"
+  | "hospedagem"
+  | "alimentacao"
+  | "transporteTerrestre"
+  | "uber"
+  | "transporteExecutivo";
+
 export interface EntradasEmbarque extends EntradasComuns {
   tipo: "embarque";
+  incluir: Record<CategoriaEmbarque, boolean>;
   cidadeEmbarque: string;
   equipe: EquipeLinha[];
   regime: { tipo: RegimeTipo; diasEmbarcado: number; diasFolga: number };
-  dataInicio: string;
   duracao: { valor: number; unidade: "dias" | "meses" };
   mobDesmob: boolean;
-  usaAcomodacao: boolean;
-  usaAlimentacao: boolean;
-  trajetos: TrajetoTerra[];
-  trajetosExecutivos: TrajetoTerra[];
+  noitesPreEmbarque: number; // padrão 1 (editável) — hospedagem antes do embarque, por troca
+  diasAlimentacaoPorTroca: number | null; // null = usa o padrão (noitesPreEmbarque + 1)
+  trajetosTransporteTerrestre: TrajetoTerra[]; // qtd aqui = viagens por troca (padrão 2)
+  trajetos: TrajetoTerra[]; // Uber
+  trajetosExecutivos: TrajetoTerra[]; // Transporte executivo (Future)
 }
 
 export interface ViagemLinha {
-  descricao: string; // função ou nome da pessoa/serviço, só rótulo
-  qtd: number;
+  descricao: string; // rótulo livre (função ou nome)
+  qtd: number; // pessoas nessa viagem
+  incluirPassagem: boolean;
   origem: string;
   destino: string;
   somenteIda: boolean;
-  usaHotel: boolean;
+  incluirHospedagem: boolean;
   noitesHotel: number;
-  usaTransporteLocal: boolean;
-  qtdTransporteLocal: number; // nº de viagens de carro/van no destino (padrão 2: ida+volta)
+  incluirAlimentacao: boolean;
+  diasAlimentacao: number | null; // null = usa o padrão (noitesHotel, mínimo 1)
+  incluirUber: boolean;
+  trajetosUber: TrajetoTerra[];
+  incluirTransporteExecutivo: boolean;
+  trajetosExecutivo: TrajetoTerra[];
 }
 
 export interface EntradasViagemExecutiva extends EntradasComuns {
   tipo: "viagem_executiva";
   viagens: ViagemLinha[];
-  usaAcomodacao: boolean;
-  usaAlimentacao: boolean;
-  trajetos: TrajetoTerra[];
-  trajetosExecutivos: TrajetoTerra[];
 }
 
 export interface EquipeSimples {
@@ -79,31 +125,26 @@ export interface EquipeSimples {
   qtd: number;
 }
 
-export interface TrajetoTerra {
-  origem: string;
-  destino: string;
-  qtd: number; // nº total de viagens nesse trajeto (ida e volta somadas)
-}
+type CategoriaServicoTerra =
+  "hospedagem" | "alimentacao" | "lavanderia" | "uber" | "transporteExecutivo";
 
 export interface EntradasServicoTerra extends EntradasComuns {
   tipo: "servico_terra";
+  incluir: Record<CategoriaServicoTerra, boolean>;
   local: string; // cidade/base em terra (ex. "ARM SBM Duque de Caxias")
   equipe: EquipeSimples[];
   duracaoDias: number;
-  usaAcomodacao: boolean;
-  usaAlimentacao: boolean;
-  trajetos: TrajetoTerra[];
-  trajetosExecutivos: TrajetoTerra[];
-  usaLavanderia: boolean;
-  lavanderiaValorDiario: number; // sem fonte de histórico no sistema — sempre digitado manualmente
+  lavanderiaDias: number | null; // null = usa duracaoDias
+  trajetos: TrajetoTerra[]; // Uber
+  trajetosExecutivos: TrajetoTerra[]; // Transporte executivo (Future)
 }
 
 export type EntradasSimulacao = EntradasEmbarque | EntradasViagemExecutiva | EntradasServicoTerra;
 
 export interface AjustesSimulacao {
-  periodoReferencia: { tipo: "3" | "6" | "12" | "custom"; inicio: string; fim: string };
-  metodoCalculo: MetodoCalculo;
-  filtros: { hotelIds?: string[]; tipoTransporte?: string };
+  periodoReferencia: { tipo: PeriodoReferenciaTipo; inicio: string; fim: string };
+  referencia: Referencia;
+  filtros: { hotelIds?: string[] };
   overrides: Record<string, number | null>;
   reajustePercent: number;
   contingenciaPercent: number;
@@ -115,25 +156,42 @@ export interface AjustesSimulacao {
   };
 }
 
-export interface CostStats {
+// Estatística unitária já pronta, como cost_simulator_base devolve.
+export interface CostStatsExt {
+  n: number;
   media: number;
   mediana: number;
+  p25: number;
+  p75: number;
+  minimo: number;
+  maximo: number;
   ultimo: number;
-  n: number;
+  ultima_data: string | null;
 }
 
-// Formato devolvido por cost_simulator_unit_stats: hospedagem/transporte por cidade, passagens
-// por rota "origem|destino", alimentação é um único agregado (reembolsos não têm cidade).
-export interface CostSimulatorUnitStats {
-  hospedagem?: Record<string, CostStats>;
-  transporte?: Record<string, CostStats>;
-  passagens?: Record<string, CostStats>;
-  transporteTrajeto?: Record<string, CostStats>;
-  transporteExecutivoTrajeto?: Record<string, CostStats>;
-  alimentacao?: CostStats;
+// Um item já RESOLVIDO pela RPC (fallback de amostra pequena em cascata já aplicado no banco —
+// ver cost_simulator_base/_cost_sim_resolver). "nivel" diz qual fonte foi usada
+// ("cidade"/"estado"/"geral"/"rota"/"destino"/"bsp"/"nenhum"); "nenhum" = sem histórico nenhum.
+export interface ItemResolvido {
+  stats: CostStatsExt | null;
+  nivel: string;
+  amostraPequena: boolean;
+}
+
+// Formato devolvido por cost_simulator_base — uma entrada por item PEDIDO (cidade/rota),
+// chaveada pela mesma normalização usada pra montar o pedido (ver normalizarCostSim/rotaKey).
+export interface CostSimulatorBase {
+  hospedagem?: Record<string, ItemResolvido>;
+  passagem?: Record<string, ItemResolvido>;
+  transporteTerrestre?: Record<string, ItemResolvido>;
+  uber?: Record<string, ItemResolvido>;
+  transporteExecutivo?: Record<string, ItemResolvido>;
+  alimentacao?: ItemResolvido;
+  lavanderia?: ItemResolvido;
 }
 
 export interface CategoriaResultado {
+  categoriaKey: CategoriaKey;
   categoria: string;
   base: string;
   chaveOverride: string;
@@ -141,10 +199,18 @@ export interface CategoriaResultado {
   qtd: number;
   subtotal: number;
   percentualDoTotal: number;
+  naoCalculado?: boolean; // ativa mas faltando campo obrigatório — não entra no total
+  motivoPendente?: string;
+  semHistorico?: boolean; // ativa, completa, mas sem nenhum dado no histórico
+  amostraPequena?: boolean;
+  nivel?: string;
+  valorAjustado?: boolean; // usuário sobrescreveu o valor unitário
 }
 
 export interface ResultadoSimulacao {
   porCategoria: CategoriaResultado[];
+  categoriasIncluidas: string[];
+  categoriasPendentes: { categoria: string; motivo: string }[];
   subtotal: number;
   reajusteValor: number;
   contingenciaValor: number;
@@ -152,7 +218,7 @@ export interface ResultadoSimulacao {
   total: number;
   porPessoa: number;
   porMes: number;
-  porTrocaDeTurma: number; // viagem_executiva: custo médio por viagem (nCiclos = nº de viagens)
+  porTrocaDeTurma: number;
   nCiclos: number;
   totalPessoas: number;
   serieMensal: { mes: number; custoAcumulado: number }[];
@@ -168,10 +234,19 @@ export function mesesAtras(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function periodoReferenciaParaDatas(tipo: PeriodoReferenciaTipo): {
+  inicio: string;
+  fim: string;
+} {
+  if (tipo === "todo") return { inicio: "1900-01-01", fim: hojeISO() };
+  const meses = tipo === "3" ? 3 : tipo === "6" ? 6 : 12;
+  return { inicio: mesesAtras(meses), fim: hojeISO() };
+}
+
 export function ajustesPadrao(): AjustesSimulacao {
   return {
-    periodoReferencia: { tipo: "custom", inicio: "2000-01-01", fim: "2100-12-31" },
-    metodoCalculo: "media",
+    periodoReferencia: { tipo: "12", ...periodoReferenciaParaDatas("12") },
+    referencia: "mediana",
     filtros: {},
     overrides: {},
     reajustePercent: 0,
@@ -223,131 +298,214 @@ export function calcularValorComMarkup(
   return round2(bruto / (1 - percentualImposto / 100));
 }
 
-function valorPorMetodo(stats: CostStats, metodo: MetodoCalculo): number {
-  return metodo === "media" ? stats.media : metodo === "mediana" ? stats.mediana : stats.ultimo;
+function valorPorReferencia(stats: CostStatsExt, referencia: Referencia): number {
+  if (referencia === "media") return stats.media;
+  if (referencia === "ultimo") return stats.ultimo;
+  if (referencia === "conservador") return stats.p75;
+  return stats.mediana;
 }
 
-export function rotaKey(origem: string, destino: string): string {
-  return `${origem.trim()}|${destino.trim()}`;
+// Mesma normalização usada no banco (public._cost_sim_norm) — maiúsculo, sem acento, sem
+// pontuação — pra montar/ler as chaves de cidade e rota que vêm de cost_simulator_base.
+export function normalizarCostSim(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
 }
 
-// Monta a lista de cidades distintas (hospedagem/transporte) e rotas distintas (passagens) que
-// a simulação precisa, pra mandar pra RPC — um só payload independente do tipo de simulação.
-export function cidadesERotas(entradas: EntradasSimulacao): {
-  cidades: string[];
-  rotas: { origem: string; destino: string }[];
-  trajetos: { origem: string; destino: string }[];
-  trajetosExecutivos: { origem: string; destino: string }[];
-} {
-  const aTrajeto = (t: TrajetoTerra) => ({ origem: t.origem.trim(), destino: t.destino.trim() });
-  const trajetos = trajetosValidos(entradas.trajetos).map(aTrajeto);
-  const trajetosExecutivos = trajetosValidos(entradas.trajetosExecutivos).map(aTrajeto);
-
-  if (entradas.tipo === "embarque") {
-    const cidadeBase = entradas.cidadeEmbarque.trim();
-    const origens = new Set(entradas.equipe.map((e) => e.cidadeOrigem.trim()).filter(Boolean));
-    return {
-      cidades: cidadeBase ? [cidadeBase] : [],
-      rotas: Array.from(origens).map((origem) => ({ origem, destino: cidadeBase })),
-      trajetos,
-      trajetosExecutivos,
-    };
-  }
-  if (entradas.tipo === "servico_terra") {
-    const local = entradas.local.trim();
-    return { cidades: local ? [local] : [], rotas: [], trajetos, trajetosExecutivos };
-  }
-  const cidades = new Set(entradas.viagens.map((v) => v.destino.trim()).filter(Boolean));
-  const rotas = new Map<string, { origem: string; destino: string }>();
-  for (const v of entradas.viagens) {
-    if (!v.origem.trim() || !v.destino.trim()) continue;
-    rotas.set(rotaKey(v.origem, v.destino), { origem: v.origem.trim(), destino: v.destino.trim() });
-  }
-  return {
-    cidades: Array.from(cidades),
-    rotas: Array.from(rotas.values()),
-    trajetos,
-    trajetosExecutivos,
-  };
+export function rotaKeyCostSim(origem: string, destino: string): string {
+  return `${normalizarCostSim(origem)}|${normalizarCostSim(destino)}`;
 }
 
-function trajetosValidos(lista: TrajetoTerra[] | undefined): TrajetoTerra[] {
+export function trajetosValidos(lista: TrajetoTerra[] | undefined): TrajetoTerra[] {
   return (lista ?? []).filter((t) => t.origem.trim() && t.destino.trim());
 }
 
-// Alimentação: valor fixo por pessoa por dia (R$ 100), não vem do histórico de reembolsos.
-const ALIMENTACAO_VALOR_FIXO = 100;
+// Monta o payload pra cost_simulator_base: só os itens (cidades/rotas/trajetos) das categorias
+// que estão ativas em algum lugar da simulação — não pede o que não vai ser usado.
+export function montarPedidoBase(entradas: EntradasSimulacao): {
+  categorias: CategoriaKey[];
+  hospedagemCidades: string[];
+  passagemRotas: { origem: string; destino: string }[];
+  transporteTerrestreTrajetos: { origem: string; destino: string }[];
+  uberTrajetos: { origem: string; destino: string }[];
+  transporteExecutivoTrajetos: { origem: string; destino: string }[];
+  alimentacaoBsp: string;
+} {
+  const categorias = new Set<CategoriaKey>();
+  const hospedagemCidades = new Set<string>();
+  const passagemRotas = new Map<string, { origem: string; destino: string }>();
+  const transporteTerrestreTrajetos = new Map<string, { origem: string; destino: string }>();
+  const uberTrajetos = new Map<string, { origem: string; destino: string }>();
+  const transporteExecutivoTrajetos = new Map<string, { origem: string; destino: string }>();
 
-function categoriaAlimentacao(
-  qtd: number,
-  base: string,
-  ajustes: AjustesSimulacao,
-): CategoriaResultado[] {
-  if (qtd <= 0) return [];
-  const unitario = ajustes.overrides["alimentacao"] ?? ALIMENTACAO_VALOR_FIXO;
-  return [
-    {
-      categoria: "Alimentação",
-      base: `${base} (R$ ${ALIMENTACAO_VALOR_FIXO},00 fixo)`,
-      chaveOverride: "alimentacao",
-      unitario,
-      qtd,
-      subtotal: round2(unitario * qtd),
-      percentualDoTotal: 0,
-    },
-  ];
-}
-
-// Transporte executivo (Future) e Uber por trajeto: custo por viagem do histórico entre as duas
-// cidades nos dois sentidos; a quantidade é o nº de viagens digitado, não se multiplica por pessoa.
-function categoriasTrajetos(
-  entradas: { trajetos?: TrajetoTerra[]; trajetosExecutivos?: TrajetoTerra[] },
-  ajustes: AjustesSimulacao,
-  stats: CostSimulatorUnitStats,
-): CategoriaResultado[] {
-  const out: CategoriaResultado[] = [];
-  const adicionar = (
+  const addTrajetos = (
     lista: TrajetoTerra[] | undefined,
-    prefixo: "Transporte executivo" | "Uber",
-    statsPorRota: Record<string, CostStats> | undefined,
-    chavePrefixo: "executivo" | "trajeto",
+    destino: Map<string, { origem: string; destino: string }>,
   ) => {
-    (lista ?? []).forEach((t, i) => {
-      const origem = t.origem.trim();
-      const destino = t.destino.trim();
-      if (!origem || !destino) return;
-      const key = rotaKey(origem, destino);
-      const stat = statsPorRota?.[key];
-      if (!stat) return;
-      const chave = `${chavePrefixo}:${key}#${i}`;
-      const unitario = ajustes.overrides[chave] ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-      const carrosIda = Number(t.qtd) || 0;
-      const qtd = carrosIda * 2;
-      out.push({
-        categoria: `${prefixo} (${origem} → ${destino})`,
-        base: `${carrosIda} carro(s) na ida × 2 (ida e volta)`,
-        chaveOverride: chave,
-        unitario,
-        qtd,
-        subtotal: round2(unitario * qtd),
-        percentualDoTotal: 0,
+    trajetosValidos(lista).forEach((t) => {
+      destino.set(rotaKeyCostSim(t.origem, t.destino), {
+        origem: t.origem.trim(),
+        destino: t.destino.trim(),
       });
     });
   };
-  adicionar(
-    entradas.trajetosExecutivos,
-    "Transporte executivo",
-    stats.transporteExecutivoTrajeto,
-    "executivo",
-  );
-  adicionar(entradas.trajetos, "Uber", stats.transporteTrajeto, "trajeto");
-  return out;
+
+  if (entradas.tipo === "embarque") {
+    const cidadeBase = entradas.cidadeEmbarque.trim();
+    if (entradas.incluir.hospedagem) categorias.add("hospedagem");
+    if (entradas.incluir.hospedagem && cidadeBase)
+      hospedagemCidades.add(normalizarCostSim(cidadeBase));
+    if (entradas.incluir.alimentacao) categorias.add("alimentacao");
+    if (entradas.incluir.passagem) {
+      categorias.add("passagem");
+      if (cidadeBase) {
+        entradas.equipe.forEach((e) => {
+          if (e.cidadeOrigem.trim()) {
+            passagemRotas.set(rotaKeyCostSim(e.cidadeOrigem, cidadeBase), {
+              origem: e.cidadeOrigem.trim(),
+              destino: cidadeBase,
+            });
+          }
+        });
+      }
+    }
+    if (entradas.incluir.transporteTerrestre) {
+      categorias.add("transporteTerrestre");
+      addTrajetos(entradas.trajetosTransporteTerrestre, transporteTerrestreTrajetos);
+    }
+    if (entradas.incluir.uber) {
+      categorias.add("uber");
+      addTrajetos(entradas.trajetos, uberTrajetos);
+    }
+    if (entradas.incluir.transporteExecutivo) {
+      categorias.add("transporteExecutivo");
+      addTrajetos(entradas.trajetosExecutivos, transporteExecutivoTrajetos);
+    }
+  } else if (entradas.tipo === "servico_terra") {
+    const local = entradas.local.trim();
+    if (entradas.incluir.hospedagem) {
+      categorias.add("hospedagem");
+      if (local) hospedagemCidades.add(normalizarCostSim(local));
+    }
+    if (entradas.incluir.alimentacao) categorias.add("alimentacao");
+    if (entradas.incluir.lavanderia) categorias.add("lavanderia");
+    if (entradas.incluir.uber) {
+      categorias.add("uber");
+      addTrajetos(entradas.trajetos, uberTrajetos);
+    }
+    if (entradas.incluir.transporteExecutivo) {
+      categorias.add("transporteExecutivo");
+      addTrajetos(entradas.trajetosExecutivos, transporteExecutivoTrajetos);
+    }
+  } else {
+    entradas.viagens.forEach((v) => {
+      if (v.incluirPassagem) {
+        categorias.add("passagem");
+        if (v.origem.trim() && v.destino.trim()) {
+          passagemRotas.set(rotaKeyCostSim(v.origem, v.destino), {
+            origem: v.origem.trim(),
+            destino: v.destino.trim(),
+          });
+        }
+      }
+      if (v.incluirHospedagem) {
+        categorias.add("hospedagem");
+        if (v.destino.trim()) hospedagemCidades.add(normalizarCostSim(v.destino));
+      }
+      if (v.incluirAlimentacao) categorias.add("alimentacao");
+      if (v.incluirUber) {
+        categorias.add("uber");
+        addTrajetos(v.trajetosUber, uberTrajetos);
+      }
+      if (v.incluirTransporteExecutivo) {
+        categorias.add("transporteExecutivo");
+        addTrajetos(v.trajetosExecutivo, transporteExecutivoTrajetos);
+      }
+    });
+  }
+
+  return {
+    categorias: Array.from(categorias),
+    hospedagemCidades: Array.from(hospedagemCidades),
+    passagemRotas: Array.from(passagemRotas.values()),
+    transporteTerrestreTrajetos: Array.from(transporteTerrestreTrajetos.values()),
+    uberTrajetos: Array.from(uberTrajetos.values()),
+    transporteExecutivoTrajetos: Array.from(transporteExecutivoTrajetos.values()),
+    alimentacaoBsp: entradas.bsp.trim(),
+  };
+}
+
+// ── Resolução genérica de uma linha de resultado, usada por todas as categorias ────────────
+function resolverCategoria(params: {
+  categoriaKey: CategoriaKey;
+  categoriaLabel: string;
+  chaveOverride: string;
+  incluir: boolean;
+  camposFaltando: string[];
+  item: ItemResolvido | undefined;
+  qtd: number;
+  baseTexto: string;
+  ajustes: AjustesSimulacao;
+}): CategoriaResultado | null {
+  const {
+    categoriaKey,
+    categoriaLabel,
+    chaveOverride,
+    incluir,
+    camposFaltando,
+    item,
+    qtd,
+    baseTexto,
+    ajustes,
+  } = params;
+  if (!incluir) return null;
+
+  if (camposFaltando.length > 0) {
+    return {
+      categoriaKey,
+      categoria: categoriaLabel,
+      base: `Não calculado — falta: ${camposFaltando.join(", ")}`,
+      chaveOverride,
+      unitario: 0,
+      qtd: 0,
+      subtotal: 0,
+      percentualDoTotal: 0,
+      naoCalculado: true,
+      motivoPendente: camposFaltando.join(", "),
+    };
+  }
+
+  const override = ajustes.overrides[chaveOverride];
+  const stats = item?.stats ?? null;
+  const unitario = override ?? (stats ? valorPorReferencia(stats, ajustes.referencia) : 0);
+  const semHistorico = !stats;
+
+  return {
+    categoriaKey,
+    categoria: categoriaLabel,
+    base: semHistorico
+      ? `${baseTexto} — Sem histórico no período`
+      : `${baseTexto} (n=${stats!.n}${item?.nivel && item.nivel !== "cidade" && item.nivel !== "rota" ? `, ${item.nivel}` : ""})`,
+    chaveOverride,
+    unitario,
+    qtd,
+    subtotal: round2(unitario * qtd),
+    percentualDoTotal: 0,
+    semHistorico,
+    amostraPequena: item?.amostraPequena,
+    nivel: item?.nivel,
+    valorAjustado: override != null,
+  };
 }
 
 function montarCategoriasEmbarque(
   entradas: EntradasEmbarque,
   ajustes: AjustesSimulacao,
-  stats: CostSimulatorUnitStats,
+  stats: CostSimulatorBase,
 ) {
   const diasEmbarcado =
     entradas.regime.tipo === "custom"
@@ -359,232 +517,387 @@ function montarCategoriasEmbarque(
       : REGIMES_ROTACAO[entradas.regime.tipo].diasFolga;
   const duracaoDias = duracaoEmDias(entradas.duracao);
   const nCiclos = calcularCiclos(duracaoDias, diasEmbarcado, diasFolga);
-  const totalPessoas = entradas.equipe.reduce((s, e) => s + (Number(e.qtd) || 0), 0);
-  const mobDesmobExtra = entradas.mobDesmob ? 2 : 0; // +1 ida no início, +1 volta no fim, por pessoa
+  const totalPessoas = Math.max(
+    1,
+    entradas.equipe.reduce((s, e) => s + (Number(e.qtd) || 0), 0),
+  );
+  const mobDesmobExtra = entradas.mobDesmob ? 2 : 0;
   const cidadeBase = entradas.cidadeEmbarque.trim();
+  const noitesPreEmbarque = Math.max(1, Number(entradas.noitesPreEmbarque) || 1);
+  const diasAlimentacao = entradas.diasAlimentacaoPorTroca ?? noitesPreEmbarque + 1;
 
   const porCategoria: CategoriaResultado[] = [];
 
-  // ── Hospedagem: diária única da base de embarque, qtd por ciclo = noites embarcadas ──
-  const statsHospedagem = stats.hospedagem?.[cidadeBase];
-  if (statsHospedagem && entradas.usaAcomodacao) {
-    const override = ajustes.overrides["hospedagem"];
-    const unitario = override ?? valorPorMetodo(statsHospedagem, ajustes.metodoCalculo);
-    const qtd = diasEmbarcado * nCiclos * totalPessoas;
-    porCategoria.push({
-      categoria: "Hospedagem",
-      base: `${diasEmbarcado * nCiclos} noites × ${totalPessoas} pessoas`,
-      chaveOverride: "hospedagem",
-      unitario,
-      qtd,
-      subtotal: round2(unitario * qtd),
-      percentualDoTotal: 0,
-    });
-  }
+  // ── Hospedagem: noites de pré-embarque por troca × trocas × pessoas (não cobra os dias
+  // embarcados, só o pré-embarque na base) ──
+  const qtdHospedagem = noitesPreEmbarque * nCiclos * totalPessoas;
+  const linhaHospedagem = resolverCategoria({
+    categoriaKey: "hospedagem",
+    categoriaLabel: "Hospedagem",
+    chaveOverride: "hospedagem",
+    incluir: entradas.incluir.hospedagem,
+    camposFaltando: cidadeBase ? [] : ["cidade de embarque"],
+    item: stats.hospedagem?.[normalizarCostSim(cidadeBase)],
+    qtd: qtdHospedagem,
+    baseTexto: `${noitesPreEmbarque} noite(s) de pré-embarque × ${nCiclos} troca(s) × ${totalPessoas} pessoa(s)`,
+    ajustes,
+  });
+  if (linhaHospedagem) porCategoria.push(linhaHospedagem);
 
-  // ── Transporte: custo é por viagem de carro/van (o veículo leva a equipe toda), não por
-  // pessoa — ver custoTotal()/collabs em transport.tsx, uma corrida só pode levar várias pessoas.
-  // Troca de turma = 1 viagem (ida ou volta) por ciclo, mais mob/desmob se marcado.
-  const statsTransporte = stats.transporte?.[cidadeBase];
-  if (statsTransporte) {
-    const override = ajustes.overrides["transporte"];
-    const unitario = override ?? valorPorMetodo(statsTransporte, ajustes.metodoCalculo);
-    const qtd = 2 * nCiclos + mobDesmobExtra;
-    porCategoria.push({
-      categoria: "Transporte",
-      base: `${2 * nCiclos + mobDesmobExtra} viagens`,
-      chaveOverride: "transporte",
-      unitario,
-      qtd,
-      subtotal: round2(unitario * qtd),
-      percentualDoTotal: 0,
-    });
-  }
+  // ── Alimentação: dias em terra por troca (padrão = noites de pré-embarque + 1) × trocas ×
+  // pessoas ──
+  const qtdAlimentacao = diasAlimentacao * nCiclos * totalPessoas;
+  const linhaAlimentacao = resolverCategoria({
+    categoriaKey: "alimentacao",
+    categoriaLabel: "Alimentação",
+    chaveOverride: "alimentacao",
+    incluir: entradas.incluir.alimentacao,
+    camposFaltando: [],
+    item: stats.alimentacao,
+    qtd: qtdAlimentacao,
+    baseTexto: `${diasAlimentacao} dia(s) × ${nCiclos} troca(s) × ${totalPessoas} pessoa(s)`,
+    ajustes,
+  });
+  if (linhaAlimentacao) porCategoria.push(linhaAlimentacao);
 
-  // ── Passagens: uma linha por cidade de origem distinta na equipe (sempre por pessoa — cada
-  // uma ocupa um assento) ──
-  if (stats.passagens) {
-    const porCidade = new Map<string, number>();
-    for (const e of entradas.equipe) {
-      if (!e.cidadeOrigem.trim()) continue;
-      porCidade.set(
-        e.cidadeOrigem.trim(),
-        (porCidade.get(e.cidadeOrigem.trim()) || 0) + (Number(e.qtd) || 0),
-      );
-    }
-    for (const [cidade, qtdPessoas] of porCidade) {
-      const chave = rotaKey(cidade, cidadeBase);
-      const stat = stats.passagens[chave];
-      if (!stat) continue;
-      const override = ajustes.overrides[chave];
-      const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-      const qtd = (2 * nCiclos + mobDesmobExtra) * qtdPessoas;
+  // ── Passagem: uma linha por cidade de origem distinta na equipe ──
+  if (entradas.incluir.passagem) {
+    if (!cidadeBase) {
       porCategoria.push({
-        categoria: `Passagens (${cidade})`,
-        base: `${2 * nCiclos + mobDesmobExtra} trechos × ${qtdPessoas} pessoas`,
-        chaveOverride: chave,
-        unitario,
-        qtd,
-        subtotal: round2(unitario * qtd),
+        categoriaKey: "passagem",
+        categoria: "Passagem Aérea",
+        base: "Não calculado — falta: cidade de embarque",
+        chaveOverride: "passagem",
+        unitario: 0,
+        qtd: 0,
+        subtotal: 0,
         percentualDoTotal: 0,
+        naoCalculado: true,
+        motivoPendente: "cidade de embarque",
+      });
+    } else {
+      const porCidade = new Map<string, number>();
+      for (const e of entradas.equipe) {
+        if (!e.cidadeOrigem.trim()) continue;
+        porCidade.set(
+          e.cidadeOrigem.trim(),
+          (porCidade.get(e.cidadeOrigem.trim()) || 0) + Math.max(1, Number(e.qtd) || 0),
+        );
+      }
+      if (porCidade.size === 0) {
+        porCategoria.push({
+          categoriaKey: "passagem",
+          categoria: "Passagem Aérea",
+          base: "Não calculado — falta: cidade de origem da equipe",
+          chaveOverride: "passagem",
+          unitario: 0,
+          qtd: 0,
+          subtotal: 0,
+          percentualDoTotal: 0,
+          naoCalculado: true,
+          motivoPendente: "cidade de origem da equipe",
+        });
+      }
+      for (const [cidadeOrigem, qtdPessoas] of porCidade) {
+        const qtdTrechos = (2 * nCiclos + mobDesmobExtra) * qtdPessoas;
+        const linha = resolverCategoria({
+          categoriaKey: "passagem",
+          categoriaLabel: `Passagem Aérea (${cidadeOrigem})`,
+          chaveOverride: `passagem:${rotaKeyCostSim(cidadeOrigem, cidadeBase)}`,
+          incluir: true,
+          camposFaltando: [],
+          item: stats.passagem?.[rotaKeyCostSim(cidadeOrigem, cidadeBase)],
+          qtd: qtdTrechos,
+          baseTexto: `${2 * nCiclos + mobDesmobExtra} trecho(s) × ${qtdPessoas} pessoa(s)`,
+          ajustes,
+        });
+        if (linha) porCategoria.push(linha);
+      }
+    }
+  }
+
+  // ── Transporte terrestre: viagens por troca (qtd do trajeto) × trocas, por carro (não
+  // multiplica por pessoa) ──
+  if (entradas.incluir.transporteTerrestre) {
+    const trajetos = trajetosValidos(entradas.trajetosTransporteTerrestre);
+    if (trajetos.length === 0) {
+      porCategoria.push({
+        categoriaKey: "transporteTerrestre",
+        categoria: "Transporte terrestre",
+        base: "Não calculado — falta: trajeto",
+        chaveOverride: "transporteTerrestre",
+        unitario: 0,
+        qtd: 0,
+        subtotal: 0,
+        percentualDoTotal: 0,
+        naoCalculado: true,
+        motivoPendente: "trajeto",
       });
     }
+    trajetos.forEach((t, i) => {
+      const viagensPorTroca = Math.max(1, Number(t.qtd) || 2);
+      const qtd = viagensPorTroca * nCiclos;
+      const chave = `transporteTerrestre:${rotaKeyCostSim(t.origem, t.destino)}#${i}`;
+      const linha = resolverCategoria({
+        categoriaKey: "transporteTerrestre",
+        categoriaLabel: `Transporte terrestre (${t.origem.trim()} → ${t.destino.trim()})`,
+        chaveOverride: chave,
+        incluir: true,
+        camposFaltando: [],
+        item: stats.transporteTerrestre?.[rotaKeyCostSim(t.origem, t.destino)],
+        qtd,
+        baseTexto: `${viagensPorTroca} viagem(ns)/troca × ${nCiclos} troca(s)`,
+        ajustes,
+      });
+      if (linha) porCategoria.push(linha);
+    });
   }
 
-  if (entradas.usaAlimentacao) {
-    porCategoria.push(
-      ...categoriaAlimentacao(
-        diasEmbarcado * nCiclos * totalPessoas,
-        `${diasEmbarcado * nCiclos} dias × ${totalPessoas} pessoas`,
-        ajustes,
-      ),
-    );
-  }
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+  porCategoria.push(
+    ...categoriasTrajetoSimples(
+      entradas.trajetos,
+      "uber",
+      "Uber",
+      entradas.incluir.uber,
+      stats,
+      ajustes,
+    ),
+  );
+  porCategoria.push(
+    ...categoriasTrajetoSimples(
+      entradas.trajetosExecutivos,
+      "transporteExecutivo",
+      "Transporte executivo (Future)",
+      entradas.incluir.transporteExecutivo,
+      stats,
+      ajustes,
+    ),
+  );
 
   return { porCategoria, nCiclos, totalPessoas, duracaoDias };
+}
+
+// Uber/Transporte executivo: custo por viagem do histórico entre as duas cidades (ida+volta); a
+// quantidade é "carros na ida" × 2, sem multiplicar por troca/pessoa — usado em todos os tipos.
+function categoriasTrajetoSimples(
+  lista: TrajetoTerra[] | undefined,
+  categoriaKey: "uber" | "transporteExecutivo",
+  label: string,
+  incluir: boolean,
+  stats: CostSimulatorBase,
+  ajustes: AjustesSimulacao,
+  sufixoChave = "",
+): CategoriaResultado[] {
+  if (!incluir) return [];
+  const trajetos = trajetosValidos(lista);
+  if (trajetos.length === 0) {
+    return [
+      {
+        categoriaKey,
+        categoria: label,
+        base: "Não calculado — falta: trajeto",
+        chaveOverride: `${categoriaKey}${sufixoChave}`,
+        unitario: 0,
+        qtd: 0,
+        subtotal: 0,
+        percentualDoTotal: 0,
+        naoCalculado: true,
+        motivoPendente: "trajeto",
+      },
+    ];
+  }
+  const statsPorRota = stats[categoriaKey];
+  const out: CategoriaResultado[] = [];
+  trajetos.forEach((t, i) => {
+    const carrosIda = Math.max(1, Number(t.qtd) || 1);
+    const qtd = carrosIda * 2;
+    const chave = `${categoriaKey}:${rotaKeyCostSim(t.origem, t.destino)}#${i}${sufixoChave}`;
+    const linha = resolverCategoria({
+      categoriaKey,
+      categoriaLabel: `${label} (${t.origem.trim()} → ${t.destino.trim()})`,
+      chaveOverride: chave,
+      incluir: true,
+      camposFaltando: [],
+      item: statsPorRota?.[rotaKeyCostSim(t.origem, t.destino)],
+      qtd,
+      baseTexto: `${carrosIda} carro(s) na ida × 2 (ida e volta)`,
+      ajustes,
+    });
+    if (linha) out.push(linha);
+  });
+  return out;
 }
 
 function montarCategoriasViagemExecutiva(
   entradas: EntradasViagemExecutiva,
   ajustes: AjustesSimulacao,
-  stats: CostSimulatorUnitStats,
+  stats: CostSimulatorBase,
 ) {
   const porCategoria: CategoriaResultado[] = [];
   let totalPessoas = 0;
 
   entradas.viagens.forEach((v, i) => {
-    const qtdPessoas = Number(v.qtd) || 0;
+    const qtdPessoas = Math.max(1, Number(v.qtd) || 1);
     totalPessoas += qtdPessoas;
     const rotulo = v.descricao.trim() || `Viagem ${i + 1}`;
 
-    if (v.origem.trim() && v.destino.trim()) {
-      const chave = rotaKey(v.origem, v.destino);
-      const stat = stats.passagens?.[chave];
-      if (stat) {
-        const override = ajustes.overrides[`${chave}#${i}`];
-        const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-        const qtd = (v.somenteIda ? 1 : 2) * qtdPessoas; // passagem é sempre por pessoa
-        porCategoria.push({
-          categoria: `Passagens (${rotulo}: ${v.origem.trim()} → ${v.destino.trim()})`,
-          base: `${v.somenteIda ? 1 : 2} trecho(s) × ${qtdPessoas} pessoa(s)`,
-          chaveOverride: `${chave}#${i}`,
-          unitario,
-          qtd,
-          subtotal: round2(unitario * qtd),
-          percentualDoTotal: 0,
-        });
-      }
+    if (v.incluirPassagem) {
+      const faltando = !v.origem.trim() || !v.destino.trim() ? ["origem e destino"] : [];
+      const qtd = (v.somenteIda ? 1 : 2) * qtdPessoas;
+      const linha = resolverCategoria({
+        categoriaKey: "passagem",
+        categoriaLabel: `Passagem Aérea (${rotulo})`,
+        chaveOverride: `passagem:${rotaKeyCostSim(v.origem, v.destino)}#${i}`,
+        incluir: true,
+        camposFaltando: faltando,
+        item: faltando.length ? undefined : stats.passagem?.[rotaKeyCostSim(v.origem, v.destino)],
+        qtd,
+        baseTexto: `${v.somenteIda ? 1 : 2} trecho(s) × ${qtdPessoas} pessoa(s)`,
+        ajustes,
+      });
+      if (linha) porCategoria.push(linha);
     }
 
-    if (entradas.usaAcomodacao && v.usaHotel) {
-      const stat = stats.hospedagem?.[v.destino.trim()];
-      if (stat) {
-        const chave = `hospedagem:${v.destino.trim()}#${i}`;
-        const override = ajustes.overrides[chave];
-        const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-        const qtd = (Number(v.noitesHotel) || 0) * qtdPessoas;
-        porCategoria.push({
-          categoria: `Hospedagem (${rotulo}: ${v.destino.trim()})`,
-          base: `${Number(v.noitesHotel) || 0} noite(s) × ${qtdPessoas} pessoa(s)`,
-          chaveOverride: chave,
-          unitario,
-          qtd,
-          subtotal: round2(unitario * qtd),
-          percentualDoTotal: 0,
-        });
-      }
+    if (v.incluirHospedagem) {
+      const faltando = !v.destino.trim() ? ["cidade (destino)"] : [];
+      const noites = Math.max(1, Number(v.noitesHotel) || 1);
+      const qtd = noites * qtdPessoas;
+      const linha = resolverCategoria({
+        categoriaKey: "hospedagem",
+        categoriaLabel: `Hospedagem (${rotulo})`,
+        chaveOverride: `hospedagem:${normalizarCostSim(v.destino)}#${i}`,
+        incluir: true,
+        camposFaltando: faltando,
+        item: faltando.length ? undefined : stats.hospedagem?.[normalizarCostSim(v.destino)],
+        qtd,
+        baseTexto: `${noites} noite(s) × ${qtdPessoas} pessoa(s)`,
+        ajustes,
+      });
+      if (linha) porCategoria.push(linha);
     }
 
-    // Transporte local: custo por viagem de van (não multiplica pela qtd de pessoas — mesma
-    // correção do modo Embarque, um carro leva o grupo todo).
-    if (v.usaTransporteLocal) {
-      const stat = stats.transporte?.[v.destino.trim()];
-      if (stat) {
-        const chave = `transporte:${v.destino.trim()}#${i}`;
-        const override = ajustes.overrides[chave];
-        const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-        const qtd = Number(v.qtdTransporteLocal) || 0;
-        porCategoria.push({
-          categoria: `Transporte (${rotulo}: ${v.destino.trim()})`,
-          base: `${Number(v.qtdTransporteLocal) || 0} viagem(ns)`,
-          chaveOverride: chave,
-          unitario,
-          qtd,
-          subtotal: round2(unitario * qtd),
-          percentualDoTotal: 0,
-        });
-      }
+    if (v.incluirAlimentacao) {
+      const dias = v.diasAlimentacao ?? Math.max(1, Number(v.noitesHotel) || 1);
+      const qtd = dias * qtdPessoas;
+      const linha = resolverCategoria({
+        categoriaKey: "alimentacao",
+        categoriaLabel: `Alimentação (${rotulo})`,
+        chaveOverride: `alimentacao#${i}`,
+        incluir: true,
+        camposFaltando: [],
+        item: stats.alimentacao,
+        qtd,
+        baseTexto: `${dias} dia(s) × ${qtdPessoas} pessoa(s)`,
+        ajustes,
+      });
+      if (linha) porCategoria.push(linha);
     }
-  });
 
-  if (entradas.usaAlimentacao) {
-    const pessoaDias = entradas.viagens.reduce(
-      (soma, v) =>
-        soma + (Number(v.qtd) || 0) * (v.usaHotel ? Math.max(1, Number(v.noitesHotel) || 0) : 1),
-      0,
+    porCategoria.push(
+      ...categoriasTrajetoSimples(
+        v.trajetosUber,
+        "uber",
+        `Uber (${rotulo})`,
+        v.incluirUber,
+        stats,
+        ajustes,
+        `#${i}`,
+      ),
     );
     porCategoria.push(
-      ...categoriaAlimentacao(pessoaDias, "pessoas × dias de cada viagem", ajustes),
+      ...categoriasTrajetoSimples(
+        v.trajetosExecutivo,
+        "transporteExecutivo",
+        `Transporte executivo (${rotulo})`,
+        v.incluirTransporteExecutivo,
+        stats,
+        ajustes,
+        `#${i}`,
+      ),
     );
-  }
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+  });
 
-  return { porCategoria, nCiclos: entradas.viagens.length, totalPessoas, duracaoDias: 30 };
+  return {
+    porCategoria,
+    nCiclos: entradas.viagens.length,
+    totalPessoas: Math.max(1, totalPessoas),
+    duracaoDias: 30,
+  };
 }
 
 function montarCategoriasServicoTerra(
   entradas: EntradasServicoTerra,
   ajustes: AjustesSimulacao,
-  stats: CostSimulatorUnitStats,
+  stats: CostSimulatorBase,
 ) {
   const porCategoria: CategoriaResultado[] = [];
-  const totalPessoas = entradas.equipe.reduce((s, e) => s + (Number(e.qtd) || 0), 0);
-  const duracaoDias = entradas.duracaoDias;
+  const totalPessoas = Math.max(
+    1,
+    entradas.equipe.reduce((s, e) => s + (Number(e.qtd) || 0), 0),
+  );
+  const duracaoDias = Math.max(1, Number(entradas.duracaoDias) || 1);
   const local = entradas.local.trim();
 
-  if (entradas.usaAcomodacao) {
-    const stat = stats.hospedagem?.[local];
-    if (stat) {
-      const override = ajustes.overrides["hospedagem"];
-      const unitario = override ?? valorPorMetodo(stat, ajustes.metodoCalculo);
-      const qtd = duracaoDias * totalPessoas;
-      porCategoria.push({
-        categoria: "Acomodação",
-        base: `${duracaoDias} diárias × ${totalPessoas} pessoas`,
-        chaveOverride: "hospedagem",
-        unitario,
-        qtd,
-        subtotal: round2(unitario * qtd),
-        percentualDoTotal: 0,
-      });
-    }
-  }
+  const linhaHospedagem = resolverCategoria({
+    categoriaKey: "hospedagem",
+    categoriaLabel: "Hospedagem",
+    chaveOverride: "hospedagem",
+    incluir: entradas.incluir.hospedagem,
+    camposFaltando: local ? [] : ["cidade/local"],
+    item: stats.hospedagem?.[normalizarCostSim(local)],
+    qtd: duracaoDias * totalPessoas,
+    baseTexto: `${duracaoDias} diária(s) × ${totalPessoas} pessoa(s)`,
+    ajustes,
+  });
+  if (linhaHospedagem) porCategoria.push(linhaHospedagem);
 
-  if (entradas.usaAlimentacao) {
-    porCategoria.push(
-      ...categoriaAlimentacao(
-        duracaoDias * totalPessoas,
-        `${duracaoDias} diárias × ${totalPessoas} pessoas`,
-        ajustes,
-      ),
-    );
-  }
+  const linhaAlimentacao = resolverCategoria({
+    categoriaKey: "alimentacao",
+    categoriaLabel: "Alimentação",
+    chaveOverride: "alimentacao",
+    incluir: entradas.incluir.alimentacao,
+    camposFaltando: [],
+    item: stats.alimentacao,
+    qtd: duracaoDias * totalPessoas,
+    baseTexto: `${duracaoDias} dia(s) × ${totalPessoas} pessoa(s)`,
+    ajustes,
+  });
+  if (linhaAlimentacao) porCategoria.push(linhaAlimentacao);
 
-  porCategoria.push(...categoriasTrajetos(entradas, ajustes, stats));
+  const diasLavanderia = entradas.lavanderiaDias ?? duracaoDias;
+  const linhaLavanderia = resolverCategoria({
+    categoriaKey: "lavanderia",
+    categoriaLabel: "Lavanderia",
+    chaveOverride: "lavanderia",
+    incluir: entradas.incluir.lavanderia,
+    camposFaltando: diasLavanderia > 0 ? [] : ["nº de dias"],
+    item: stats.lavanderia,
+    qtd: diasLavanderia,
+    baseTexto: `${diasLavanderia} dia(s)`,
+    ajustes,
+  });
+  if (linhaLavanderia) porCategoria.push(linhaLavanderia);
 
-  // Lavanderia: sem fonte de histórico no sistema hoje — valor sempre digitado manualmente.
-  if (entradas.usaLavanderia && entradas.lavanderiaValorDiario > 0) {
-    porCategoria.push({
-      categoria: "Lavanderia",
-      base: "valor único",
-      chaveOverride: "lavanderia",
-      unitario: entradas.lavanderiaValorDiario,
-      qtd: 1,
-      subtotal: round2(entradas.lavanderiaValorDiario),
-      percentualDoTotal: 0,
-    });
-  }
+  porCategoria.push(
+    ...categoriasTrajetoSimples(
+      entradas.trajetos,
+      "uber",
+      "Uber",
+      entradas.incluir.uber,
+      stats,
+      ajustes,
+    ),
+  );
+  porCategoria.push(
+    ...categoriasTrajetoSimples(
+      entradas.trajetosExecutivos,
+      "transporteExecutivo",
+      "Transporte executivo (Future)",
+      entradas.incluir.transporteExecutivo,
+      stats,
+      ajustes,
+    ),
+  );
 
   return { porCategoria, nCiclos: 1, totalPessoas, duracaoDias };
 }
@@ -592,7 +905,7 @@ function montarCategoriasServicoTerra(
 export function montarResultado(
   entradas: EntradasSimulacao,
   ajustes: AjustesSimulacao,
-  stats: CostSimulatorUnitStats,
+  stats: CostSimulatorBase,
 ): ResultadoSimulacao {
   const { porCategoria, nCiclos, totalPessoas, duracaoDias } =
     entradas.tipo === "embarque"
@@ -601,8 +914,11 @@ export function montarResultado(
         ? montarCategoriasServicoTerra(entradas, ajustes, stats)
         : montarCategoriasViagemExecutiva(entradas, ajustes, stats);
 
-  const subtotal = round2(porCategoria.reduce((s, c) => s + c.subtotal, 0));
-  for (const c of porCategoria)
+  const calculadas = porCategoria.filter((c) => !c.naoCalculado);
+  const pendentes = porCategoria.filter((c) => c.naoCalculado);
+
+  const subtotal = round2(calculadas.reduce((s, c) => s + c.subtotal, 0));
+  for (const c of calculadas)
     c.percentualDoTotal = subtotal > 0 ? round2((c.subtotal / subtotal) * 100) : 0;
 
   const comReajuste = round2(subtotal * (1 + ajustes.reajustePercent / 100));
@@ -617,15 +933,26 @@ export function montarResultado(
     : comContingencia;
 
   const nMeses = Math.max(1, Math.round(duracaoDias / 30));
-  // Simplificação: distribui o total linearmente pelos meses da duração, só pra dar uma noção
-  // de ritmo de gasto acumulado no gráfico — não tenta simular em que ciclo/viagem cada custo ocorre.
-  const serieMensal = Array.from({ length: nMeses }, (_, i) => ({
-    mes: i + 1,
-    custoAcumulado: round2((total * (i + 1)) / nMeses),
+  const serieMensal =
+    nMeses > 1
+      ? Array.from({ length: nMeses }, (_, i) => ({
+          mes: i + 1,
+          custoAcumulado: round2((total * (i + 1)) / nMeses),
+        }))
+      : [];
+
+  const categoriasIncluidas = Array.from(
+    new Set(calculadas.map((c) => CATEGORIA_LABEL[c.categoriaKey])),
+  );
+  const categoriasPendentes = pendentes.map((c) => ({
+    categoria: CATEGORIA_LABEL[c.categoriaKey],
+    motivo: c.motivoPendente ?? "",
   }));
 
   return {
     porCategoria,
+    categoriasIncluidas,
+    categoriasPendentes,
     subtotal,
     reajusteValor: round2(comReajuste - subtotal),
     contingenciaValor: round2(comContingencia - comReajuste),
