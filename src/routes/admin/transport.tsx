@@ -3995,6 +3995,34 @@ function DetailView({
     XLSX.writeFile(wb, `transporte_detalhado${periodo}_${todayISO()}.xlsx`);
   };
 
+  // Pedido dela (2026-10-19): botão pra zerar de uma vez todos os filtros de seleção do Quadro
+  // Detalhado — não mexe no período De/Até, que é um filtro diferente (intervalo, não seleção).
+  const limparSelecao = () => {
+    setCarro([]);
+    setBsp([]);
+    setUberVia([]);
+    setFormaPagamento([]);
+    setFaturamento([]);
+    setTipo([]);
+    setTagId([]);
+    setCliente([]);
+    setStatus([]);
+    setColaboradorId("");
+    setNf("");
+  };
+  const temSelecao =
+    carro.length > 0 ||
+    bsp.length > 0 ||
+    uberVia.length > 0 ||
+    formaPagamento.length > 0 ||
+    faturamento.length > 0 ||
+    tipo.length > 0 ||
+    tagId.length > 0 ||
+    cliente.length > 0 ||
+    status.length > 0 ||
+    !!colaboradorId ||
+    !!nf;
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
@@ -4087,6 +4115,16 @@ function DetailView({
             modulo="transporte_quadro_detalhado"
             titulo="Quadro Detalhado — Transporte"
           />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={limparSelecao}
+            disabled={!temSelecao}
+          >
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            Limpar seleção
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={exportarFiltrado}>
             <Download className="mr-1.5 h-3.5 w-3.5" />
             Exportar planilha
