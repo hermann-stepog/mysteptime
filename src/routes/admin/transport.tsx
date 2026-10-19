@@ -99,7 +99,7 @@ import {
   type Material,
   type MaterialQty,
 } from "@/components/MaterialMultiSelect";
-import { TagMultiSelect, useTagsQuery, type Tag } from "@/components/TagMultiSelect";
+import { useTagsQuery, type Tag } from "@/components/TagMultiSelect";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { FadeInView } from "@/components/FadeInView";
 import { KpiValue } from "@/components/KpiValue";
@@ -489,19 +489,14 @@ function TripCard({
       </div>
 
       <div className="mt-1 flex flex-wrap gap-1">
-        {trip.tags.map((t) => {
-          const tag = tagsById.get(t.tag_id);
-          if (!tag) return null;
-          return (
-            <span
-              key={t.tag_id}
-              className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
-              style={{ backgroundColor: tag.color }}
-            >
-              {tag.name}
-            </span>
-          );
-        })}
+        {/* Pedido dela (2026-10-19): no cartão, o Motivo substitui a Etiqueta como selo —
+            etiqueta deixa de ser usada daqui pra frente, sem mexer no que já estava
+            preenchido (tags antigas continuam salvas, só não aparecem mais aqui). */}
+        {trip.motivo && (
+          <span className="rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-medium text-white">
+            {trip.motivo}
+          </span>
+        )}
         {[trip.cliente, trip.cliente_2, trip.cliente_3].filter(Boolean).map((c, i) => (
           <span
             key={`cli-${i}`}
@@ -1214,6 +1209,14 @@ function TripDialog({
         throw new Error("Selecione o BSP 2.");
       if (f.cliente_3.trim() && !bspOpcional(f.cliente_3) && !f.bsp_3.trim())
         throw new Error("Selecione o BSP 3.");
+      // Pedido dela (2026-10-19): não deixa salvar sem as colunas principais que saem no
+      // Relatório Consolidado — Data, Unidade, Valor, Motivo e Forma de pagamento. BSP
+      // continua com a exceção de "Viagem" (ver bspOpcional acima), inalterada.
+      if (!f.scheduled_at) throw new Error("Selecione a data.");
+      if (f.unidades.filter((u) => u.trim()).length === 0) throw new Error("Selecione a unidade.");
+      if (!f.custo.trim()) throw new Error("Informe o valor.");
+      if (!f.motivo.trim()) throw new Error("Selecione o motivo.");
+      if (!f.forma_pagamento) throw new Error("Selecione a forma de pagamento.");
       const isNew = !f.id;
       const payload = {
         car_number: f.car_number.trim(),
@@ -1678,11 +1681,6 @@ function TripDialog({
           </div>
 
           <RateioPercentualPanel rateio={rateio} labels={["BSP 1", "BSP 2", "BSP 3"]} />
-
-          <div>
-            <Label>Etiquetas</Label>
-            <TagMultiSelect value={f.tag_ids} onChange={(ids) => setF({ ...f, tag_ids: ids })} />
-          </div>
 
           {f.tipo === "pessoas" ? (
             <CollaboratorsSection f={f} setF={setF} />
