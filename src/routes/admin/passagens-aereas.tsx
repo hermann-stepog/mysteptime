@@ -180,6 +180,7 @@ function passagemToRelatorioRow(p: PassagemAerea) {
     Faturado: p.faturado ? "Sim" : "Não",
     "Usuário Faturamento": p.usuario_faturamento ?? "—",
     "Mês de Referência / Data Faturamento": fmtFaturamento(p),
+    Observações: p.observacoes ?? "—",
   };
 }
 

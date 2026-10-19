@@ -338,6 +338,7 @@ function tripToRelatorioRow(
     Custo: t.custo ?? "",
     "Custo 2": t.custo_2 ?? "",
     "Custo 3": t.custo_3 ?? "",
+    Motivo: t.motivo ?? "",
   };
 }
 
@@ -1133,6 +1134,9 @@ function TripDialog({
   const [f, setF] = useState<FormState>(() => init(trip, columns));
   const [openedFor, setOpenedFor] = useState<string | null>(null);
   const rateio = useRateioPercentual(3);
+  // Pedido dela (2026-10-19): a lista de Motivo também deve incluir todas as etiquetas
+  // existentes, não só a lista fixa — mesmo catálogo usado no campo Etiquetas logo abaixo.
+  const { data: etiquetasParaMotivo = [] } = useTagsQuery();
   // Unidade e BSP passam a vir da aba de Planejamento de Embarque (não mais texto livre nem
   // Drake) — pedido dela: primeiro escolhe a Unidade, e a partir dela a lista de BSP se
   // restringe às BSPs que aparecem naquela unidade na planilha.
@@ -1428,7 +1432,12 @@ function TripDialog({
                 options={[
                   "—",
                   ...MOTIVOS_TRANSPORTE,
-                  ...(f.motivo && !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo)
+                  ...etiquetasParaMotivo
+                    .map((t) => t.name)
+                    .filter((nome) => !(MOTIVOS_TRANSPORTE as readonly string[]).includes(nome)),
+                  ...(f.motivo &&
+                  !(MOTIVOS_TRANSPORTE as readonly string[]).includes(f.motivo) &&
+                  !etiquetasParaMotivo.some((t) => t.name === f.motivo)
                     ? [f.motivo]
                     : []),
                 ]}
