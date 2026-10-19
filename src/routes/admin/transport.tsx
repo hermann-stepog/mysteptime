@@ -489,14 +489,29 @@ function TripCard({
       </div>
 
       <div className="mt-1 flex flex-wrap gap-1">
-        {/* Pedido dela (2026-10-19): no cartão, o Motivo substitui a Etiqueta como selo —
-            etiqueta deixa de ser usada daqui pra frente, sem mexer no que já estava
-            preenchido (tags antigas continuam salvas, só não aparecem mais aqui). */}
-        {trip.motivo && (
-          <span className="rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-medium text-white">
-            {trip.motivo}
-          </span>
-        )}
+        {/* Pedido dela (2026-10-19, corrigido no mesmo dia): etiqueta sai de uso só daqui pra
+            frente — viagem que JÁ tinha etiqueta preenchida continua mostrando a etiqueta de
+            sempre, intacta; só quando não há etiqueta nenhuma (viagem nova, já que o campo saiu
+            do formulário) é que o Motivo aparece no lugar, em forma de selo. */}
+        {trip.tags.length > 0
+          ? trip.tags.map((t) => {
+              const tag = tagsById.get(t.tag_id);
+              if (!tag) return null;
+              return (
+                <span
+                  key={t.tag_id}
+                  className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                  style={{ backgroundColor: tag.color }}
+                >
+                  {tag.name}
+                </span>
+              );
+            })
+          : trip.motivo && (
+              <span className="rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-medium text-white">
+                {trip.motivo}
+              </span>
+            )}
         {[trip.cliente, trip.cliente_2, trip.cliente_3].filter(Boolean).map((c, i) => (
           <span
             key={`cli-${i}`}
