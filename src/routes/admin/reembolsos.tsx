@@ -179,9 +179,28 @@ function AnexoChip({ anexo, onDelete }: { anexo: ReembolsoAnexo; onDelete?: () =
         <Download className="h-3 w-3" /><span className="max-w-32 truncate">{anexo.nome_original}</span>
       </button>
       {onDelete && (
-        <button type="button" onClick={onDelete} className="text-muted-foreground hover:text-destructive" title="Remover">
-          <Trash2 className="h-3 w-3" />
-        </button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button type="button" className="text-muted-foreground hover:text-destructive" title="Remover">
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+              <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={onDelete}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </span>
   );
@@ -538,9 +557,25 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
                             }}>
                               <Pencil className="h-3 w-3" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => excluirItem.mutate(it.id)}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive">
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+                                  <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluirItem.mutate(it.id)}>
+                                    Excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </>
                         )}
                       </div>

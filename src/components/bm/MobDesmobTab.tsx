@@ -17,6 +17,17 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Plus, Trash2, Truck, Upload, Send, ChevronRight, ChevronDown, RefreshCw, BedDouble, Car, Percent, Undo2 } from "lucide-react";
 import { type BmMobDesmobCost, type MobDesmobCategoria, type TipoMarkup } from "@/lib/bm";
@@ -235,6 +246,40 @@ interface MobDesmobTabProps {
   // abre com o BSP preenchido e o diálogo "Aplicar ao BM" oferece o BM em geração como alvo.
   bmEmGeracao?: { bsp: string; bmNumber: string } | null;
   onAplicadoNoBmEmGeracao?: () => void;
+}
+
+// Pedido dela (2026-10-19): confirmação antes de excluir — o botão de excluir custo aparece
+// duas vezes nesta tela (tabela larga e o cartão da versão estreita/mobile), mesma mutation.
+function ExcluirCustoBotao({ onConfirm }: { onConfirm: () => void }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-destructive hover:text-destructive"
+          title="Excluir"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+          <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={onConfirm}
+          >
+            Excluir
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: MobDesmobTabProps = {}) {
@@ -934,10 +979,7 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
                           </TableCell>
                           <TableCell className="text-xs">{c.applied_bm_number ?? "—"}</TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                              title="Excluir" onClick={() => excluirCusto.mutate(c.id)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            <ExcluirCustoBotao onConfirm={() => excluirCusto.mutate(c.id)} />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -968,10 +1010,7 @@ export function MobDesmobTab({ bmEmGeracao = null, onAplicadoNoBmEmGeracao }: Mo
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold">{fmtMoney(c.total_cost)}</span>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                            title="Excluir" onClick={() => excluirCusto.mutate(c.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          <ExcluirCustoBotao onConfirm={() => excluirCusto.mutate(c.id)} />
                         </div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-xs">
