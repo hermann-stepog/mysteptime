@@ -125,6 +125,13 @@ const COLUNAS_CONSOLIDADO = [
   "Observações",
 ];
 
+// Coluna auxiliar escondida (pedido dela, 2026-10-19: Resumo Gerencial acompanhar o filtro do
+// Excel) — cada linha recebe =SUBTOTAL(103,<própria célula de Módulo>), que vale 1 quando a
+// linha está visível e 0 quando foi escondida pelas setinhas de filtro do cabeçalho. O Resumo
+// Gerencial usa essa coluna pra somar/contar só o que está visível, sem precisar reabrir o
+// relatório. Fica oculta porque é só um apoio de cálculo, não um dado em si.
+const COL_AUXILIAR_VISIVEL = "Linha visível";
+
 function construirAbaConsolidado(linhas: Record<string, unknown>[]): XLSX.WorkSheet {
   const ws = XLSX.utils.aoa_to_sheet([
     [tituloRelatorio("Relatório Consolidado — Transporte, Hospedagem e Passagens Aéreas")],
@@ -132,7 +139,9 @@ function construirAbaConsolidado(linhas: Record<string, unknown>[]): XLSX.WorkSh
   XLSX.utils.sheet_add_json(ws, linhas, { origin: "A2", header: COLUNAS_CONSOLIDADO });
 
   const nCols = COLUNAS_CONSOLIDADO.length;
+  const colAuxiliar = nCols; // primeira coluna depois das colunas visíveis (ex.: J se nCols=9)
   const ultimaCol = XLSX.utils.encode_col(nCols - 1);
+  const colAuxiliarLetra = XLSX.utils.encode_col(colAuxiliar);
   ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nCols - 1 } }];
   ws["A1"].s = ESTILO_TITULO;
   for (let c = 0; c < nCols; c++) {
@@ -141,13 +150,23 @@ function construirAbaConsolidado(linhas: Record<string, unknown>[]): XLSX.WorkSh
   }
   const colValor = COLUNAS_CONSOLIDADO.indexOf("Valor");
   for (let r = 0; r < linhas.length; r++) {
-    const ref = `${XLSX.utils.encode_col(colValor)}${r + 3}`;
-    if (ws[ref] && typeof ws[ref].v === "number") ws[ref].z = MOEDA_FMT;
+    const linha = r + 3;
+    const refValor = `${XLSX.utils.encode_col(colValor)}${linha}`;
+    if (ws[refValor] && typeof ws[refValor].v === "number") ws[refValor].z = MOEDA_FMT;
+    ws[`${colAuxiliarLetra}${linha}`] = {
+      t: "n",
+      f: `SUBTOTAL(103,A${linha})`,
+      v: 1,
+    };
   }
+  ws[`${colAuxiliarLetra}2`] = { t: "s", v: COL_AUXILIAR_VISIVEL, s: ESTILO_FAIXA };
   ws["!autofilter"] = { ref: `A2:${ultimaCol}2` };
-  ws["!cols"] = COLUNAS_CONSOLIDADO.map((c) => ({
-    wch: c === "Observações" ? 40 : c === "Mês de Referência / Data Faturamento" ? 24 : 18,
-  }));
+  ws["!cols"] = [
+    ...COLUNAS_CONSOLIDADO.map((c) => ({
+      wch: c === "Observações" ? 40 : c === "Mês de Referência / Data Faturamento" ? 24 : 18,
+    })),
+    { wch: 10, hidden: true },
+  ];
   ws["!rows"] = [{ hpt: 22 }];
   return ws;
 }
@@ -173,7 +192,10 @@ function modaDeStatus(valores: string[]): string {
   return [...contagem.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
-function construirAbaResumoGerencial(modulos: ResumoModulo[]): XLSX.WorkSheet {
+function construirAbaResumoGerencial(
+  modulos: ResumoModulo[],
+  totalLinhasConsolidado: number,
+): XLSX.WorkSheet {
   const totalRegistros = modulos.reduce((s, m) => s + m.nRegistros, 0);
   const totalValor = modulos.reduce((s, m) => s + m.valorTotal, 0);
 
@@ -227,6 +249,58 @@ function construirAbaResumoGerencial(modulos: ResumoModulo[]): XLSX.WorkSheet {
     if (ws[`D${r}`]) ws[`D${r}`].z = "0.0%";
   }
 
+  // Pedido dela (2026-10-19): os KPIs e a tabela por módulo passam a ser fórmulas do Excel
+  // (SUBTOTAL/SUMPRODUCT), não números fixos — assim, ao filtrar a aba Consolidado pelas
+  // setinhas do cabeçalho, esses totais recalculam sozinhos pra refletir só o que ficou
+  // visível, sem precisar gerar o relatório de novo. "Status predominante" continua fixo (uma
+  // fotografia do período pedido): Status nem é uma coluna da aba Consolidado — ela foi tirada
+  // de lá por pedido anterior dela ("só as colunas em comum") — então não tem como recalcular
+  // isso a partir do filtro. O valor que cada célula mostra antes do Excel recalcular (atributo
+  // "v") é o total do período inteiro, sem filtro nenhum aplicado ainda.
+  // Conta/soma só o que está visível usando a coluna auxiliar "Linha visível" (J) da aba
+  // Consolidado (=SUBTOTAL(103,<própria linha>), vale 1 visível/0 escondida pelo filtro) — é a
+  // forma padrão e mais confiável de fazer um "SOMASE que respeita filtro" no Excel; a
+  // alternativa com OFFSET dentro de SUBTOTAL truncado em array não é suportada por todo motor
+  // de fórmula (testei antes de escolher esta).
+  const ultimaLinha = Math.max(3, 2 + totalLinhasConsolidado);
+  const faixaA = `Consolidado!$A$3:$A$${ultimaLinha}`;
+  const faixaE = `Consolidado!$E$3:$E$${ultimaLinha}`;
+  const faixaJ = `Consolidado!$J$3:$J$${ultimaLinha}`;
+
+  if (ws["A4"]) Object.assign(ws["A4"], { f: `SUBTOTAL(109,${faixaE})`, v: totalValor });
+  if (ws["C4"]) Object.assign(ws["C4"], { f: `SUBTOTAL(103,${faixaA})`, v: totalRegistros });
+  if (ws["E4"]) Object.assign(ws["E4"], { f: "(B9>0)+(B10>0)+(B11>0)", v: modulos.length });
+
+  modulos.forEach((m, i) => {
+    const linha = 9 + i;
+    const cond = `(${faixaA}="${m.nome.replace(/"/g, '""')}")`;
+    if (ws[`B${linha}`])
+      Object.assign(ws[`B${linha}`], {
+        f: `SUMPRODUCT(${cond}*${faixaJ})`,
+        v: m.nRegistros,
+      });
+    if (ws[`C${linha}`])
+      Object.assign(ws[`C${linha}`], {
+        f: `SUMPRODUCT(${cond}*${faixaJ}*${faixaE})`,
+        v: m.valorTotal,
+      });
+    if (ws[`D${linha}`])
+      Object.assign(ws[`D${linha}`], {
+        f: `IF($A$4=0,0,C${linha}/$A$4)`,
+        v: totalValor > 0 ? m.valorTotal / totalValor : 0,
+      });
+  });
+
+  if (ws[`B${linhaTotal}`])
+    Object.assign(ws[`B${linhaTotal}`], { f: `SUM(B9:B${linhaTotal - 1})`, v: totalRegistros });
+  if (ws[`C${linhaTotal}`])
+    Object.assign(ws[`C${linhaTotal}`], { f: `SUM(C9:C${linhaTotal - 1})`, v: totalValor });
+  if (ws[`D${linhaTotal}`])
+    Object.assign(ws[`D${linhaTotal}`], {
+      f: `SUM(D9:D${linhaTotal - 1})`,
+      v: totalValor > 0 ? 1 : 0,
+    });
+
   ws["!cols"] = [{ wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 40 }];
   ws["!rows"] = [{ hpt: 24 }];
   return ws;
@@ -268,7 +342,11 @@ async function generateRelatorioConsolidado(dataInicio: string, dataFim: string)
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, construirAbaConsolidado(linhas), "Consolidado");
-  XLSX.utils.book_append_sheet(wb, construirAbaResumoGerencial(modulos), "Resumo Gerencial");
+  XLSX.utils.book_append_sheet(
+    wb,
+    construirAbaResumoGerencial(modulos, linhas.length),
+    "Resumo Gerencial",
+  );
   XLSX.writeFile(wb, `consolidado_transporte_hospedagem_passagens_${dataInicio}_a_${dataFim}.xlsx`);
 }
 
