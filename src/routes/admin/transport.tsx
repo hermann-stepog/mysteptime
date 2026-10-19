@@ -1426,7 +1426,10 @@ function TripDialog({
         <DialogHeader>
           <DialogTitle>{f.id ? "Editar viagem" : "Nova viagem"}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
+        {/* Pedido dela (2026-10-19): some a barra de rolagem visível do formulário (aparecia ao
+            interagir com os campos perto do fim, como o Status) — o scroll continua funcionando
+            normalmente (overflow-y-auto se mantém), só o "trilho" cinza deixa de aparecer. */}
+        <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <div className="flex gap-2">
