@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -22,14 +23,23 @@ import {
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Receipt, Plus, Pencil, Trash2, ListChecks, Download } from "lucide-react";
+import { Receipt, Plus, Pencil, Trash2, ListChecks, Download, Camera, Paperclip, X } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { parseValorForm } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { planilhaColoridaComCabecalho } from "@/lib/reportHeaderColorido";
+import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
+import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
+import { clienteDaUnidade, agruparUnidadesPorCliente } from "@/lib/clientes";
+import { ColaboradoresDrakeMultiField } from "@/components/LogisticaFormFields";
+import { useAuth } from "@/hooks/useAuth";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
-import { type NotaDebito, type NotaDebitoItem, SACADO_FIXO } from "@/lib/notasDebito";
+import { type NotaDebito, type NotaDebitoItem, type NotaDebitoAnexo, SACADO_FIXO } from "@/lib/notasDebito";
+
+const BUCKET = "reembolsos-anexos";
+const TIPOS_ARQUIVO_ACEITOS = "application/pdf,image/jpeg,image/png,image/webp";
+const TAMANHO_MAXIMO = 20 * 1024 * 1024;
 
 function fmt(d: string | null): string {
   return d ? d.split("-").reverse().join("/") : "—";
@@ -59,6 +69,116 @@ function useNotaDebitoItensQuery(notaDebitoId: string | null) {
   });
 }
 
+function useNotaDebitoAnexosQuery(notaDebitoId: string | null) {
+  return useQuery<NotaDebitoAnexo[]>({
+    queryKey: ["nota-debito-anexos", notaDebitoId],
+    queryFn: () => selectAllPages<NotaDebitoAnexo>((from, to) =>
+      supabase.from("notas_debito_anexos").select("*").eq("nota_debito_id", notaDebitoId).order("enviado_em").range(from, to),
+    ),
+    enabled: !!notaDebitoId,
+  });
+}
+
+// Mesma lista de Unidades/BSP do Drake que o Reembolso já usa (duplicado aqui de propósito —
+// mesmo padrão de auto-contenção por arquivo já seguido por useColaboradoresQuery/
+// usePeriodosEQuery em reembolsos.tsx/hospedagem.tsx/passagens-aereas.tsx).
+function usePeriodosEQuery() {
+  return useQuery<HistNovoPeriodo[]>({
+    queryKey: ["hist-novo-periodos"],
+    queryFn: () => selectAllPages<HistNovoPeriodo>((from, to) =>
+      supabase.from("hist_novo_periodos").select("*").gte("data_fim", DRAKE_DATA_CUTOFF).order("id").range(from, to),
+    ),
+  });
+}
+
+interface ColaboradorBasico { id: string; nome: string; funcao: string | null; funcao_operacao: string | null; }
+function useColaboradoresQuery() {
+  return useQuery<ColaboradorBasico[]>({
+    queryKey: ["hist-novo-colaboradores"],
+    queryFn: () => selectAllPages<ColaboradorBasico>((from, to) =>
+      supabase.from("hist_novo_colaboradores").select("id, nome, funcao, funcao_operacao").order("nome").range(from, to),
+    ),
+  });
+}
+
+// ─── Anexos (upload/download direto via Supabase Storage, mesmo bucket compartilhado de
+// Reembolso — 'reembolsos-anexos', sob o prefixo 'notas-debito/') — pedido dela, 2026-10-20:
+// anexar PDF direto no formulário de lançamento.
+async function uploadNotaDebitoAnexo(params: { notaDebitoId: string; file: File; enviadoPor: string }): Promise<void> {
+  if (!TIPOS_ARQUIVO_ACEITOS.split(",").includes(params.file.type)) {
+    throw new Error("Formato não aceito. Envie PDF, JPEG, PNG ou WEBP.");
+  }
+  if (params.file.size > TAMANHO_MAXIMO) throw new Error("Arquivo muito grande (máximo 20MB).");
+  const anexoId = crypto.randomUUID();
+  const nomeSeguro = params.file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+  const path = `notas-debito/${params.notaDebitoId}/${anexoId}-${nomeSeguro}`;
+  const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, params.file, { contentType: params.file.type });
+  if (upErr) throw upErr;
+  const { error: insErr } = await supabase.from("notas_debito_anexos").insert({
+    id: anexoId, nota_debito_id: params.notaDebitoId, storage_path: path,
+    nome_original: params.file.name, enviado_por: params.enviadoPor,
+  });
+  if (insErr) throw insErr;
+}
+
+async function baixarAnexoNota(anexo: NotaDebitoAnexo): Promise<void> {
+  const { data, error } = await supabase.storage.from(BUCKET).download(anexo.storage_path);
+  if (error) { notify.error(error.message); return; }
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url; a.download = anexo.nome_original;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function AnexoChipNota({ anexo, onDelete }: { anexo: NotaDebitoAnexo; onDelete?: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-[11px]">
+      <button type="button" className="flex items-center gap-1 hover:underline" onClick={() => baixarAnexoNota(anexo)} title="Baixar">
+        <Download className="h-3 w-3" /><span className="max-w-32 truncate">{anexo.nome_original}</span>
+      </button>
+      {onDelete && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button type="button" className="text-muted-foreground hover:text-destructive" title="Remover">
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+              <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={onDelete}>
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </span>
+  );
+}
+
+function BotoesAnexoNota({ onSelect, disabled }: { onSelect: (file: File) => void; disabled?: boolean }) {
+  return (
+    <div className="flex gap-1">
+      <label className={cn("inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted", disabled && "pointer-events-none opacity-50")}>
+        <Camera className="h-3 w-3" />Tirar foto
+        <input type="file" accept={TIPOS_ARQUIVO_ACEITOS} capture="environment" className="hidden" disabled={disabled}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelect(f); e.target.value = ""; }} />
+      </label>
+      <label className={cn("inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted", disabled && "pointer-events-none opacity-50")}>
+        <Paperclip className="h-3 w-3" />Anexar arquivo
+        <input type="file" accept={TIPOS_ARQUIVO_ACEITOS} className="hidden" disabled={disabled}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onSelect(f); e.target.value = ""; }} />
+      </label>
+    </div>
+  );
+}
+
 // ─── Relatório Excel por período — uma linha por item de despesa ───────────────────────────
 export async function buscarLinhasRelatorioNotasDebito(dataInicio?: string, dataFim?: string) {
   const notas = await selectAllPages<NotaDebito>((from, to) => {
@@ -80,13 +200,14 @@ export async function buscarLinhasRelatorioNotasDebito(dataInicio?: string, data
     return notas.map((n) => ({
       Número: n.numero_fornecedor,
       "Data de lançamento": fmt(n.data_lancamento),
+      Unidade: n.unidade ?? "—",
       "Emitente (Razão Social)": n.emitente_razao_social,
       "CNPJ Emitente": n.emitente_cnpj ?? "—",
       BSP: n.bsp,
       "Descrição da despesa": "—",
       Valor: 0,
       "Valor total da nota": n.valor_total,
-      Contato: n.contato ?? "—",
+      Contato: (n.contato ?? []).join(", ") || "—",
       Vencimento: fmt(n.vencimento),
       "Forma de pagamento": n.forma_pagamento ?? "—",
       Observações: n.observacoes ?? "—",
@@ -97,13 +218,14 @@ export async function buscarLinhasRelatorioNotasDebito(dataInicio?: string, data
     return {
       Número: n?.numero_fornecedor ?? "—",
       "Data de lançamento": fmt(n?.data_lancamento ?? null),
+      Unidade: n?.unidade ?? "—",
       "Emitente (Razão Social)": n?.emitente_razao_social ?? "—",
       "CNPJ Emitente": n?.emitente_cnpj ?? "—",
       BSP: n?.bsp ?? "—",
       "Descrição da despesa": it.descricao,
       Valor: it.valor,
       "Valor total da nota": n?.valor_total ?? 0,
-      Contato: n?.contato ?? "—",
+      Contato: (n?.contato ?? []).join(", ") || "—",
       Vencimento: fmt(n?.vencimento ?? null),
       "Forma de pagamento": n?.forma_pagamento ?? "—",
       Observações: n?.observacoes ?? "—",
@@ -121,41 +243,79 @@ export async function generateRelatorioNotasDebito(dataInicio?: string, dataFim?
 
 // ─── Dialog: Nova nota / Editar cabeçalho ───────────────────────────────────────────────────
 const FORM_VAZIO_NOTA = {
-  numeroFornecedor: "", bsp: "", dataLancamento: new Date().toISOString().slice(0, 10),
+  numeroFornecedor: "", cliente: "", unidade: "", bsp: "", dataLancamento: new Date().toISOString().slice(0, 10),
   emitenteRazaoSocial: "", emitenteCnpj: "", emitenteInscricaoEstadual: "", emitenteInscricaoMunicipal: "",
   emitenteEndereco: "", emitenteCidade: "", emitenteUf: "",
-  contato: "", vencimento: "", formaPagamento: "", observacoes: "",
+  contato: [] as string[], vencimento: "", formaPagamento: "", observacoes: "",
 };
 
-function NotaDebitoFormDialog({ open, onOpenChange, editing }: {
+function NotaDebitoFormDialog({ open, onOpenChange, editing, periodosE, colaboradores, unidadeOptions }: {
   open: boolean; onOpenChange: (o: boolean) => void; editing: NotaDebito | null;
+  periodosE: HistNovoPeriodo[]; colaboradores: { id: string; nome: string }[]; unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const displayName = profile?.full_name || profile?.email || "Usuário";
   const [f, setF] = useState(FORM_VAZIO_NOTA);
   const [bound, setBound] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   if (open && editing && bound !== editing.id) {
     setF({
-      numeroFornecedor: editing.numero_fornecedor, bsp: editing.bsp, dataLancamento: editing.data_lancamento,
+      numeroFornecedor: editing.numero_fornecedor,
+      cliente: editing.unidade ? (clienteDaUnidade(editing.unidade) ?? "Cliente não identificado") : "",
+      unidade: editing.unidade ?? "", bsp: editing.bsp, dataLancamento: editing.data_lancamento,
       emitenteRazaoSocial: editing.emitente_razao_social, emitenteCnpj: editing.emitente_cnpj ?? "",
       emitenteInscricaoEstadual: editing.emitente_inscricao_estadual ?? "", emitenteInscricaoMunicipal: editing.emitente_inscricao_municipal ?? "",
       emitenteEndereco: editing.emitente_endereco ?? "", emitenteCidade: editing.emitente_cidade ?? "", emitenteUf: editing.emitente_uf ?? "",
-      contato: editing.contato ?? "", vencimento: editing.vencimento ?? "", formaPagamento: editing.forma_pagamento ?? "",
+      contato: editing.contato ?? [], vencimento: editing.vencimento ?? "", formaPagamento: editing.forma_pagamento ?? "",
       observacoes: editing.observacoes ?? "",
     });
+    setPendingFile(null);
     setBound(editing.id);
   }
-  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO_NOTA); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO_NOTA); setPendingFile(null); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
+
+  // Cascata Cliente → Unidade → BSP (pedido dela, 2026-10-20) — mesmo padrão do Reembolso:
+  // Cliente é só um filtro de UI (não persistido), Unidade/BSP vêm do Drake.
+  const unidadesPorCliente = useMemo(() => agruparUnidadesPorCliente(unidadeOptions), [unidadeOptions]);
+  const unidadesDoCliente = useMemo(
+    () => unidadesPorCliente.find((g) => g.cliente === f.cliente)?.unidades ?? [],
+    [unidadesPorCliente, f.cliente],
+  );
+  const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
+
+  const { data: anexosExistentes = [] } = useNotaDebitoAnexosQuery(editing?.id ?? null);
+
+  const enviarAnexoForm = useMutation({
+    mutationFn: async (file: File) => {
+      if (!editing) return;
+      await uploadNotaDebitoAnexo({ notaDebitoId: editing.id, file, enviadoPor: displayName });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nota-debito-anexos", editing?.id ?? null] }),
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const excluirAnexoForm = useMutation({
+    mutationFn: async (anexo: NotaDebitoAnexo) => {
+      await supabase.storage.from(BUCKET).remove([anexo.storage_path]);
+      const { error } = await supabase.from("notas_debito_anexos").delete().eq("id", anexo.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["nota-debito-anexos", editing?.id ?? null] }),
+    onError: (e: any) => notify.error(e.message),
+  });
 
   const salvar = useMutation({
     mutationFn: async () => {
       if (!f.numeroFornecedor.trim()) throw new Error("Informe o número da nota.");
-      if (!f.bsp.trim()) throw new Error("Informe o centro de custo (BSP).");
+      if (!f.unidade) throw new Error("Selecione a unidade.");
+      if (!f.bsp) throw new Error("Selecione o centro de custo (BSP).");
       if (!f.dataLancamento) throw new Error("Informe a data de lançamento.");
       if (!f.emitenteRazaoSocial.trim()) throw new Error("Informe a razão social do emitente.");
       const payload = {
-        numero_fornecedor: f.numeroFornecedor.trim(), bsp: f.bsp.trim(), data_lancamento: f.dataLancamento,
+        numero_fornecedor: f.numeroFornecedor.trim(), unidade: f.unidade, bsp: f.bsp, data_lancamento: f.dataLancamento,
         emitente_razao_social: f.emitenteRazaoSocial.trim(), emitente_cnpj: f.emitenteCnpj.trim() || null,
         emitente_inscricao_estadual: f.emitenteInscricaoEstadual.trim() || null,
         emitente_inscricao_municipal: f.emitenteInscricaoMunicipal.trim() || null,
@@ -164,15 +324,22 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing }: {
         sacado_razao_social: SACADO_FIXO.razaoSocial, sacado_cnpj: SACADO_FIXO.cnpj,
         sacado_inscricao_estadual: SACADO_FIXO.inscricaoEstadual, sacado_endereco: SACADO_FIXO.endereco,
         sacado_cidade: SACADO_FIXO.cidade, sacado_uf: SACADO_FIXO.uf,
-        contato: f.contato.trim() || null, vencimento: f.vencimento || null,
+        contato: f.contato.length > 0 ? f.contato : null, vencimento: f.vencimento || null,
         forma_pagamento: f.formaPagamento.trim() || null, observacoes: f.observacoes.trim() || null,
       };
+      let notaId = editing?.id ?? null;
       if (editing) {
         const { error } = await supabase.from("notas_debito").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("notas_debito").insert(payload);
+        const { data, error } = await supabase.from("notas_debito").insert(payload).select("id").single();
         if (error) throw error;
+        notaId = data.id;
+      }
+      // Anexo escolhido antes de existir o registro (lançamento novo) só sobe depois do
+      // INSERT, já com o id gerado (pedido dela, 2026-10-20: anexar PDF no formulário mesmo).
+      if (pendingFile && notaId) {
+        await uploadNotaDebitoAnexo({ notaDebitoId: notaId, file: pendingFile, enviadoPor: displayName });
       }
     },
     onSuccess: () => {
@@ -186,20 +353,39 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing }: {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{editing ? "Editar nota de débito" : "Nova nota de débito"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editing ? "Editar lançamento" : "Novo lançamento de nota de débito"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Número (do fornecedor)</Label>
               <Input value={f.numeroFornecedor} onChange={(e) => setF({ ...f, numeroFornecedor: e.target.value })} placeholder="Ex.: 022/2026" />
             </div>
             <div>
-              <Label className="text-xs">Centro de custo (BSP)</Label>
-              <Input value={f.bsp} onChange={(e) => setF({ ...f, bsp: e.target.value })} />
-            </div>
-            <div>
               <Label className="text-xs">Data de lançamento</Label>
               <Input type="date" value={f.dataLancamento} onChange={(e) => setF({ ...f, dataLancamento: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <Label className="text-xs">Cliente</Label>
+              <Select value={f.cliente} onValueChange={(v) => setF({ ...f, cliente: v, unidade: "", bsp: "" })}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{unidadesPorCliente.map((g) => <SelectItem key={g.cliente} value={g.cliente}>{g.cliente}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Unidade</Label>
+              <Select value={f.unidade} onValueChange={(v) => setF({ ...f, unidade: v, bsp: "" })} disabled={!f.cliente}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{unidadesDoCliente.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Centro de custo (BSP)</Label>
+              <Select value={f.bsp} onValueChange={(v) => setF({ ...f, bsp: v })} disabled={!f.unidade}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -275,15 +461,13 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing }: {
 
           <div className="space-y-2 rounded-md border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Informações Gerais</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label className="text-xs">Contato</Label>
-                <Input value={f.contato} onChange={(e) => setF({ ...f, contato: e.target.value })} />
-              </div>
-              <div>
-                <Label className="text-xs">Vencimento</Label>
-                <Input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} />
-              </div>
+            <div>
+              <Label className="text-xs">Contato</Label>
+              <ColaboradoresDrakeMultiField value={f.contato} onChange={(v) => setF({ ...f, contato: v })} colaboradores={colaboradores} placeholder="Selecionar contato(s)" />
+            </div>
+            <div>
+              <Label className="text-xs">Vencimento</Label>
+              <Input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} />
             </div>
             <div>
               <Label className="text-xs">Forma de pagamento</Label>
@@ -294,6 +478,27 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing }: {
           <div>
             <Label className="text-xs">Observações</Label>
             <Textarea value={f.observacoes} onChange={(e) => setF({ ...f, observacoes: e.target.value })} rows={2} />
+          </div>
+
+          <div className="space-y-1.5 rounded-md border p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Anexo (PDF)</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {anexosExistentes.map((a) => (
+                <AnexoChipNota key={a.id} anexo={a} onDelete={() => excluirAnexoForm.mutate(a)} />
+              ))}
+              {pendingFile && (
+                <span className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-[11px]">
+                  <Paperclip className="h-3 w-3" /><span className="max-w-32 truncate">{pendingFile.name}</span>
+                  <button type="button" onClick={() => setPendingFile(null)} className="text-muted-foreground hover:text-destructive">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
+              <BotoesAnexoNota
+                disabled={enviarAnexoForm.isPending}
+                onSelect={(file) => { if (editing) enviarAnexoForm.mutate(file); else setPendingFile(file); }}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>
@@ -470,7 +675,19 @@ type NotasDebitoSortColumn = "numero" | "emitente" | "bsp" | "data" | "venciment
 
 export function NotaDebitoTab() {
   const qc = useQueryClient();
-  const { data: notas = [], isLoading } = useNotasDebitoQuery();
+  const { data: notas = [], isLoading: l1 } = useNotasDebitoQuery();
+  const { data: periodos = [], isLoading: l2 } = usePeriodosEQuery();
+  const { data: colaboradores = [], isLoading: l3 } = useColaboradoresQuery();
+  const isLoading = l1 || l2 || l3;
+
+  const periodosE = useMemo(() => periodos.filter((p) => p.tipo === "E"), [periodos]);
+  const unidadeOptions = useMemo(
+    () => Array.from(new Set([
+      ...UNIDADES_OPERACIONAIS_FIXAS,
+      ...periodos.map((p) => p.unidade_operacional).filter((u): u is string => !!u),
+    ])).sort(),
+    [periodos],
+  );
 
   const [filterBsp, setFilterBsp] = useState("");
   const [filterEmitente, setFilterEmitente] = useState("");
@@ -571,7 +788,7 @@ export function NotaDebitoTab() {
               <Download className="mr-1.5 h-4 w-4" />{exportando ? "Exportando..." : "Exportar"}
             </Button>
             <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
-              <Plus className="mr-1.5 h-4 w-4" />Nova nota
+              <Plus className="mr-1.5 h-4 w-4" />Novo lançamento
             </Button>
           </div>
         </div>
@@ -643,7 +860,10 @@ export function NotaDebitoTab() {
         ))}
       </div>
 
-      <NotaDebitoFormDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
+      <NotaDebitoFormDialog
+        open={dialogOpen} onOpenChange={setDialogOpen} editing={editing}
+        periodosE={periodosE} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
+      />
       <NotaDebitoItensDialog
         nota={gerenciando} open={gerenciarOpen} onOpenChange={setGerenciarOpen}
         onEditarCabecalho={() => { setEditing(gerenciando); setGerenciarOpen(false); setDialogOpen(true); }}

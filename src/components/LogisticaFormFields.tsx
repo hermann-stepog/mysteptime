@@ -2,9 +2,14 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
+import { Check, ChevronsUpDown, X } from "lucide-react";
 import { MOTIVOS_LOGISTICA, FORMAS_PAGAMENTO } from "@/lib/logistica";
-import { matchesNameSearch } from "@/lib/utils";
+import { cn, matchesNameSearch } from "@/lib/utils";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { parseValorForm } from "@/lib/format";
 
@@ -46,53 +51,90 @@ function nomesUnicos(colaboradores: { nome: string }[]): string[] {
   return out.sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
+// hist_novo_colaboradores tem 1 linha por empresa+matrícula — a mesma pessoa que já passou por
+// mais de um contrato/empresa aparece mais de uma vez com o mesmo nome. Pra campos de texto
+// livre (não referenciam o id) isso não importa — desduplica por nome antes de listar.
+function colaboradoresUnicosPorNome(colaboradores: { id: string; nome: string }[]): { id: string; nome: string }[] {
+  const vistos = new Set<string>();
+  return colaboradores.filter((c) => {
+    const chave = c.nome.trim().toUpperCase();
+    if (!c.nome.trim() || vistos.has(chave)) return false;
+    vistos.add(chave);
+    return true;
+  });
+}
+
+// Botão "Limpar busca" dentro do próprio campo de busca (pedido dela, 2026-10-20) — some quando
+// não há texto digitado.
+function BotaoLimparBusca({ search, onClear }: { search: string; onClear: () => void }) {
+  if (!search) return null;
+  return (
+    <button
+      type="button"
+      className="mr-2 shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClear}
+    >
+      Limpar busca
+    </button>
+  );
+}
+
+// Pedido dela (2026-10-20): puxa TODO colaborador do Drake (sem limite de sugestões, antes
+// cortava em 20), sugere enquanto digita, e rola direito dentro de um Dialog — mesma correção de
+// scroll-lock do Radix Dialog que o CommandList compartilhado já tem (onWheel manual), aplicada
+// aqui também, sem reestruturar o campo pra dentro de um Command/cmdk (continua sendo texto
+// livre — digitar qualquer coisa fora da lista é aceito, não é obrigatório escolher da lista).
 export function NomeUsuarioField({ value, onChange, colaboradores }: {
   value: string; onChange: (v: string) => void; colaboradores: { id: string; nome: string }[];
 }) {
   const [open, setOpen] = useState(false);
-  // hist_novo_colaboradores tem 1 linha por empresa+matrícula — a mesma pessoa que já passou por
-  // mais de um contrato/empresa aparece mais de uma vez com o mesmo nome. Pra esse campo (só
-  // preenche um texto livre, não referencia o id) isso não importa: sem desduplicar por nome,
-  // gente reaparecendo várias vezes toma o lugar de outras pessoas dentro do limite de 20
-  // sugestões, escondendo quem realmente está sendo procurado.
-  const colaboradoresUnicos = useMemo(() => {
-    const vistos = new Set<string>();
-    return colaboradores.filter((c) => {
-      const chave = c.nome.trim().toUpperCase();
-      if (vistos.has(chave)) return false;
-      vistos.add(chave);
-      return true;
-    });
-  }, [colaboradores]);
+  const colaboradoresUnicos = useMemo(() => colaboradoresUnicosPorNome(colaboradores), [colaboradores]);
   const sugestoes = useMemo(() => {
     const q = value.trim();
-    const lista = q ? colaboradoresUnicos.filter((c) => matchesNameSearch(c.nome, q)) : colaboradoresUnicos;
-    return lista.slice(0, 20);
+    return q ? colaboradoresUnicos.filter((c) => matchesNameSearch(c.nome, q)) : colaboradoresUnicos;
   }, [value, colaboradoresUnicos]);
 
   return (
     <Popover open={open && sugestoes.length > 0} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Input
-          type="text"
-          value={value}
-          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(e) => {
-            // Mesmo comportamento do combobox de Colaborador em Transporte: digitar as
-            // primeiras letras e apertar Enter já escolhe a primeira sugestão da lista.
-            if (e.key === "Enter" && sugestoes.length > 0) {
-              e.preventDefault();
-              onChange(sugestoes[0].nome);
-              setOpen(false);
-            }
-          }}
-          placeholder="Nome de quem vai utilizar"
-          autoComplete="off"
-        />
+        <div className="relative">
+          <Input
+            type="text"
+            value={value}
+            onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={(e) => {
+              // Mesmo comportamento do combobox de Colaborador em Transporte: digitar as
+              // primeiras letras e apertar Enter já escolhe a primeira sugestão da lista.
+              if (e.key === "Enter" && sugestoes.length > 0) {
+                e.preventDefault();
+                onChange(sugestoes[0].nome);
+                setOpen(false);
+              }
+            }}
+            placeholder="Nome de quem vai utilizar"
+            autoComplete="off"
+            className={value ? "pr-7" : undefined}
+          />
+          {value && (
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onChange("")}
+              title="Limpar busca"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <div className="max-h-56 overflow-auto">
+        <div
+          className="max-h-64 overflow-auto"
+          onWheel={(e) => { e.currentTarget.scrollTop += e.deltaY; e.stopPropagation(); e.preventDefault(); }}
+        >
           {sugestoes.map((c) => (
             <button
               key={c.id}
@@ -106,6 +148,64 @@ export function NomeUsuarioField({ value, onChange, colaboradores }: {
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+// Combobox multi-select de verdade (um valor = lista de nomes dentro do MESMO registro — não
+// confundir com NomeUsuarioMultiField abaixo, que gera um lançamento separado por colaborador).
+// Pedido dela, 2026-10-20: poder escolher vários colaboradores no mesmo lançamento de
+// Reembolso/Nota de Débito, com badges removíveis igual ao CollaboratorMultiSelect de
+// Transporte — mas aqui por nome/texto livre vindo do Drake, não por id de uma tabela própria.
+export function ColaboradoresDrakeMultiField({ value, onChange, colaboradores, placeholder = "Selecionar colaboradores" }: {
+  value: string[]; onChange: (v: string[]) => void; colaboradores: { id: string; nome: string }[]; placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const colaboradoresUnicos = useMemo(() => colaboradoresUnicosPorNome(colaboradores), [colaboradores]);
+  const toggle = (nome: string) => onChange(value.includes(nome) ? value.filter((v) => v !== nome) : [...value, nome]);
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(""); }}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+            <span className="truncate text-muted-foreground">{value.length ? `${value.length} selecionado(s)` : placeholder}</span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0 pointer-events-auto" align="start">
+          <Command filter={(itemValue, s) => (matchesNameSearch(itemValue, s) ? 1 : 0)}>
+            <div className="flex items-center border-b">
+              <CommandInput placeholder="Buscar colaborador..." value={search} onValueChange={setSearch} className="border-0" />
+              <BotaoLimparBusca search={search} onClear={() => setSearch("")} />
+            </div>
+            <CommandList className="max-h-64">
+              <CommandEmpty>Nenhum encontrado.</CommandEmpty>
+              <CommandGroup>
+                {colaboradoresUnicos.map((c) => (
+                  <CommandItem key={c.id} value={c.nome} onSelect={() => toggle(c.nome)}>
+                    <Check className={cn("mr-2 h-4 w-4", value.includes(c.nome) ? "opacity-100" : "opacity-0")} />
+                    <span className="flex-1">{c.nome}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {value.map((nome) => (
+            <Badge key={nome} variant="secondary" className="gap-1 pr-1">
+              <span>{nome}</span>
+              <button type="button" onClick={() => toggle(nome)} className="hover:text-destructive" title="Remover">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
