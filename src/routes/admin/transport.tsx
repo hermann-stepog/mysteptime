@@ -508,7 +508,10 @@ function TripCard({
               );
             })
           : trip.motivo && (
-              <span className="rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-medium text-white">
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                style={{ backgroundColor: corDoMotivo(trip.motivo) }}
+              >
                 {trip.motivo}
               </span>
             )}
@@ -981,6 +984,29 @@ function tituloCaseMotivo(s: string): string {
     .split(/\s+/)
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
     .join(" ");
+}
+
+// Cor do selo de Motivo no Kanban (pedido dela, 2026-10-20) — uma cor fixa por motivo, igual
+// etiqueta colorida tinha antes. Embarque/Desembarque casam por prefixo (cobre variantes
+// compostas, ex. "Embarque - Hotel", sempre verde) — o resto é nome exato. Motivo sem regra
+// definida cai no indigo antigo (nunca fica sem cor nenhuma).
+const MOTIVO_COR_FIXA: Record<string, string> = {
+  "VIAGEM": "#b8860b", // amarelo
+  "TRABALHO EXTERNO": "#78350f", // marrom
+  "TREINAMENTO": "#ea580c", // laranja
+  "ASO SMS": "#7c3aed", // roxo
+  "EMERGENCIA SMS": "#78350f", // marrom
+  "COLETA": "#64748b", // cinza
+  "NO SHOW": "#7f1d1d", // vinho
+  "REUNIAO": "#18181b", // preto
+  "VIAGEM CANCELADA": "#db2777", // rosa
+};
+
+function corDoMotivo(motivo: string): string {
+  const chave = normalizarTextoMotivo(motivo);
+  if (chave.startsWith("EMBARQUE")) return "#16a34a"; // verde
+  if (chave.startsWith("DESEMBARQUE")) return "#dc2626"; // vermelho
+  return MOTIVO_COR_FIXA[chave] ?? "#6366f1";
 }
 
 function nomesEtiquetasParaMotivo(etiquetas: { name: string }[]): string[] {
