@@ -1503,6 +1503,9 @@ export function PlanejamentoEmbarqueTab() {
   const [filterBsp, setFilterBsp] = useState<string[]>([]);
   const [filterFuncao, setFilterFuncao] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
+  // Pedido dela (2026-10-20): filtro pra ver só quem está com o selo "Novo" (mesmo critério de
+  // isColaboradorNovo usado no selo) — aplica na hora, sem precisar clicar em "Buscar".
+  const [filterSoNovos, setFilterSoNovos] = useState(false);
 
   const aplicarFiltro = () => {
     setFilterColaborador(colaboradorInput);
@@ -1522,6 +1525,7 @@ export function PlanejamentoEmbarqueTab() {
     setFilterBsp([]);
     setFilterFuncao([]);
     setFilterStatus([]);
+    setFilterSoNovos(false);
   };
 
   const nomesExistentes = useMemo(
@@ -1556,8 +1560,21 @@ export function PlanejamentoEmbarqueTab() {
       .filter((r) => filterBsp.length === 0 || (r.bsp != null && filterBsp.includes(r.bsp)))
       .filter(
         (r) => filterFuncao.length === 0 || (r.funcao != null && filterFuncao.includes(r.funcao)),
+      )
+      .filter(
+        (r) =>
+          !filterSoNovos ||
+          isColaboradorNovo(primeiraVezPorNome.get(normalizarNomePlanejamento(r.nome))),
       );
-  }, [registros, filterColaborador, filterUnidade, filterBsp, filterFuncao]);
+  }, [
+    registros,
+    filterColaborador,
+    filterUnidade,
+    filterBsp,
+    filterFuncao,
+    filterSoNovos,
+    primeiraVezPorNome,
+  ]);
 
   const contagemStatus = useMemo(() => {
     const mapa = new Map<string, number>();
@@ -1749,6 +1766,14 @@ export function PlanejamentoEmbarqueTab() {
               emptyLabel="Nenhum status encontrado."
             />
           </div>
+          <label className="flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs">
+            <input
+              type="checkbox"
+              checked={filterSoNovos}
+              onChange={(e) => setFilterSoNovos(e.target.checked)}
+            />
+            Só novos
+          </label>
           <Button size="sm" className="h-8" onClick={aplicarFiltro}>
             <Search className="mr-1.5 h-3.5 w-3.5" />
             Buscar
