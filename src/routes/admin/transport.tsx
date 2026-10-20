@@ -931,6 +931,7 @@ const MOTIVOS_TRANSPORTE = [
   "ASO (SMS)",
   "Treinamento",
   "Emergência (SMS)",
+  "Coleta",
 ] as const;
 
 // Pedido dela (2026-10-19): a lista de Motivo mistura a lista fixa acima com as etiquetas já
