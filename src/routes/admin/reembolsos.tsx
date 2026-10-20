@@ -25,10 +25,10 @@ import {
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField, MotivoField } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, ColaboradoresDrakeMultiField, MotivoField } from "@/components/LogisticaFormFields";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Wallet, Plus, Pencil, Trash2, Camera, Paperclip, Download, ListChecks,
+  Wallet, Plus, Pencil, Trash2, Camera, Paperclip, Download, ListChecks, X,
 } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { parseValorForm } from "@/lib/format";
@@ -38,6 +38,7 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { planilhaColoridaComCabecalho } from "@/lib/reportHeaderColorido";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
+import { clienteDaUnidade, agruparUnidadesPorCliente } from "@/lib/clientes";
 import {
   CATEGORIAS_REEMBOLSO, MOTIVOS_REEMBOLSO,
   type Reembolso, type ReembolsoItem, type ReembolsoAnexo,
@@ -132,7 +133,7 @@ export async function buscarLinhasRelatorioReembolsos(dataInicio?: string, dataF
       Código: r?.codigo ?? "—",
       "Data da despesa": fmt(it.data_despesa),
       Solicitante: r?.solicitante ?? "—",
-      "Colaborador beneficiário": r?.colaborador_beneficiario ?? "—",
+      "Colaborador beneficiário": (r?.colaborador_beneficiario ?? []).join(", ") || "—",
       Unidade: r?.unidade ?? "—",
       BSP: it.bsp,
       Motivo: it.motivo ?? "—",
@@ -240,8 +241,8 @@ function AnexoChip({ anexo, onDelete }: { anexo: ReembolsoAnexo; onDelete?: () =
 
 // ─── Dialog: Nova solicitação / Editar cabeçalho ────────────────────────────────────────
 const FORM_VAZIO_REEMBOLSO = {
-  solicitante: "", colaboradorBeneficiario: "", mesmoBeneficiario: true,
-  unidade: "", bsp: "", periodoInicio: "", periodoFim: "", observacoes: "",
+  solicitante: "", colaboradorBeneficiario: [] as string[], mesmoBeneficiario: true,
+  cliente: "", unidade: "", bsp: "", periodoInicio: "", periodoFim: "", observacoes: "",
 };
 
 function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaboradores, unidadeOptions }: {
@@ -249,23 +250,59 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
   periodosE: HistNovoPeriodo[]; colaboradores: { id: string; nome: string }[]; unidadeOptions: string[];
 }) {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const displayName = profile?.full_name || profile?.email || "Usuário";
   const [f, setF] = useState(FORM_VAZIO_REEMBOLSO);
   const [bound, setBound] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   if (open && editing && bound !== editing.id) {
-    const mesmo = editing.colaborador_beneficiario === editing.solicitante;
+    const mesmo = editing.colaborador_beneficiario.length <= 1
+      && (editing.colaborador_beneficiario[0] ?? "") === editing.solicitante;
     setF({
       solicitante: editing.solicitante, colaboradorBeneficiario: editing.colaborador_beneficiario,
-      mesmoBeneficiario: mesmo, unidade: editing.unidade, bsp: editing.bsp,
+      mesmoBeneficiario: mesmo,
+      cliente: clienteDaUnidade(editing.unidade) ?? "Cliente não identificado",
+      unidade: editing.unidade, bsp: editing.bsp,
       periodoInicio: editing.periodo_inicio, periodoFim: editing.periodo_fim,
       observacoes: editing.observacoes ?? "",
     });
+    setPendingFile(null);
     setBound(editing.id);
   }
-  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO_REEMBOLSO); setBound("novo"); }
+  if (open && !editing && bound !== "novo") { setF(FORM_VAZIO_REEMBOLSO); setPendingFile(null); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
 
+  // Cascata Cliente → Unidade → BSP (pedido dela, 2026-10-20) — Cliente é só um filtro de UI
+  // (não persistido), igual já é feito na árvore de custos de Transporte.
+  const unidadesPorCliente = useMemo(() => agruparUnidadesPorCliente(unidadeOptions), [unidadeOptions]);
+  const unidadesDoCliente = useMemo(
+    () => unidadesPorCliente.find((g) => g.cliente === f.cliente)?.unidades ?? [],
+    [unidadesPorCliente, f.cliente],
+  );
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, f.unidade || "all"), [periodosE, f.unidade]);
+
+  const { data: anexosExistentes = [] } = useReembolsoAnexosQuery(editing?.id ?? null);
+  const anexosFormulario = useMemo(() => anexosExistentes.filter((a) => a.tipo === "formulario"), [anexosExistentes]);
+
+  const enviarAnexoForm = useMutation({
+    mutationFn: async (file: File) => {
+      if (!editing) return;
+      await uploadReembolsoAnexo({ reembolsoId: editing.id, itemId: null, tipo: "formulario", file, enviadoPor: displayName });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["reembolso-anexos", editing?.id ?? null] }),
+    onError: (e: any) => notify.error(e.message),
+  });
+
+  const excluirAnexoForm = useMutation({
+    mutationFn: async (anexo: ReembolsoAnexo) => {
+      await supabase.storage.from(BUCKET).remove([anexo.storage_path]);
+      const { error } = await supabase.from("reembolso_anexos").delete().eq("id", anexo.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["reembolso-anexos", editing?.id ?? null] }),
+    onError: (e: any) => notify.error(e.message),
+  });
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -276,11 +313,14 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
       if (f.periodoFim < f.periodoInicio) throw new Error("O fim do período não pode ser antes do início.");
       const payload = {
         solicitante: f.solicitante.trim(),
-        colaborador_beneficiario: f.mesmoBeneficiario ? f.solicitante.trim() : (f.colaboradorBeneficiario.trim() || f.solicitante.trim()),
+        colaborador_beneficiario: f.mesmoBeneficiario
+          ? [f.solicitante.trim()]
+          : (f.colaboradorBeneficiario.length > 0 ? f.colaboradorBeneficiario : [f.solicitante.trim()]),
         unidade: f.unidade, bsp: f.bsp,
         periodo_inicio: f.periodoInicio, periodo_fim: f.periodoFim,
         observacoes: f.observacoes.trim() || null,
       };
+      let reembolsoId = editing?.id ?? null;
       if (editing) {
         const { error } = await supabase.from("reembolsos").update(payload).eq("id", editing.id);
         if (error) throw error;
@@ -288,8 +328,14 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
         // Não seta status_fluxo/codigo aqui de propósito — o banco cuida sozinho (DEFAULT
         // 'solicitado' e o trigger assign_reembolso_codigo), já que a tela nova não tem mais
         // fluxo de aprovação (pedido dela, 2026-10-20).
-        const { error } = await supabase.from("reembolsos").insert(payload);
+        const { data, error } = await supabase.from("reembolsos").insert(payload).select("id").single();
         if (error) throw error;
+        reembolsoId = data.id;
+      }
+      // Anexo escolhido antes de existir o registro (lançamento novo) só sobe depois do
+      // INSERT, já com o id gerado (pedido dela, 2026-10-20: anexar PDF no formulário mesmo).
+      if (pendingFile && reembolsoId) {
+        await uploadReembolsoAnexo({ reembolsoId, itemId: null, tipo: "formulario", file: pendingFile, enviadoPor: displayName });
       }
     },
     onSuccess: () => {
@@ -302,7 +348,7 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{editing ? "Editar lançamento" : "Novo lançamento de reembolso"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
           <div>
@@ -315,16 +361,23 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
           </label>
           {!f.mesmoBeneficiario && (
             <div>
-              <Label className="text-xs">Colaborador beneficiário</Label>
-              <NomeUsuarioField value={f.colaboradorBeneficiario} onChange={(v) => setF({ ...f, colaboradorBeneficiario: v })} colaboradores={colaboradores} />
+              <Label className="text-xs">Colaborador(es) beneficiário(s)</Label>
+              <ColaboradoresDrakeMultiField value={f.colaboradorBeneficiario} onChange={(v) => setF({ ...f, colaboradorBeneficiario: v })} colaboradores={colaboradores} />
             </div>
           )}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <Label className="text-xs">Cliente</Label>
+              <Select value={f.cliente} onValueChange={(v) => setF({ ...f, cliente: v, unidade: "", bsp: "" })}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{unidadesPorCliente.map((g) => <SelectItem key={g.cliente} value={g.cliente}>{g.cliente}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
             <div>
               <Label className="text-xs">Unidade</Label>
-              <Select value={f.unidade} onValueChange={(v) => setF({ ...f, unidade: v, bsp: "" })}>
+              <Select value={f.unidade} onValueChange={(v) => setF({ ...f, unidade: v, bsp: "" })} disabled={!f.cliente}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{unidadeOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                <SelectContent>{unidadesDoCliente.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
@@ -348,6 +401,26 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
           <div>
             <Label className="text-xs">Observações</Label>
             <Textarea value={f.observacoes} onChange={(e) => setF({ ...f, observacoes: e.target.value })} rows={2} />
+          </div>
+          <div className="space-y-1.5 rounded-md border p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Anexo (PDF)</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {anexosFormulario.map((a) => (
+                <AnexoChip key={a.id} anexo={a} onDelete={() => excluirAnexoForm.mutate(a)} />
+              ))}
+              {pendingFile && (
+                <span className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-[11px]">
+                  <Paperclip className="h-3 w-3" /><span className="max-w-32 truncate">{pendingFile.name}</span>
+                  <button type="button" onClick={() => setPendingFile(null)} className="text-muted-foreground hover:text-destructive">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
+              <BotoesAnexo
+                disabled={enviarAnexoForm.isPending}
+                onSelect={(file) => { if (editing) enviarAnexoForm.mutate(file); else setPendingFile(file); }}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>
@@ -464,7 +537,7 @@ function ReembolsoItensDialog({ reembolso, open, onOpenChange, periodosE, onEdit
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {reembolso.codigo} — {reembolso.colaborador_beneficiario}
+            {reembolso.codigo} — {reembolso.colaborador_beneficiario.join(", ")}
             <Button variant="ghost" size="icon" className="h-6 w-6" title="Editar cabeçalho" onClick={onEditarCabecalho}>
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -606,7 +679,7 @@ function ReembolsoCard({ r, onOpen }: { r: Reembolso; onOpen: () => void }) {
   return (
     <Card className="cursor-pointer space-y-1.5 p-3" onClick={onOpen}>
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-medium">{r.colaborador_beneficiario}</span>
+        <span className="truncate text-sm font-medium">{r.colaborador_beneficiario.join(", ")}</span>
         <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{r.codigo}</span>
       </div>
       <p className="text-xs text-muted-foreground">{r.unidade} · BSP {r.bsp}</p>
@@ -666,7 +739,7 @@ function ReembolsosTab() {
   const filtradas = useMemo(() => reembolsos.filter((r) =>
     (filterUnidade === "all" || r.unidade === filterUnidade) &&
     (filterBsp === "all" || r.bsp === filterBsp) &&
-    (!filterNome || matchesNameSearch(r.colaborador_beneficiario, filterNome)) &&
+    (!filterNome || r.colaborador_beneficiario.some((nome) => matchesNameSearch(nome, filterNome))) &&
     (!filterPeriodoDe || r.periodo_fim >= filterPeriodoDe) &&
     (!filterPeriodoAte || r.periodo_inicio <= filterPeriodoAte),
   ).sort((a, b) => {
@@ -676,7 +749,7 @@ function ReembolsosTab() {
       case "codigo": return a.codigo.localeCompare(b.codigo) * dir;
       case "unidade": return a.unidade.localeCompare(b.unidade) * dir;
       case "bsp": return a.bsp.localeCompare(b.bsp) * dir;
-      case "nome": return a.colaborador_beneficiario.localeCompare(b.colaborador_beneficiario) * dir;
+      case "nome": return a.colaborador_beneficiario.join(", ").localeCompare(b.colaborador_beneficiario.join(", ")) * dir;
       case "periodo": return a.periodo_inicio.localeCompare(b.periodo_inicio) * dir;
       case "total": return (a.valor_total - b.valor_total) * dir;
       default: return 0;
@@ -779,7 +852,7 @@ function ReembolsosTab() {
                   <TableCell className="font-mono text-xs">{r.codigo}</TableCell>
                   <TableCell>{r.unidade}</TableCell>
                   <TableCell>{r.bsp}</TableCell>
-                  <TableCell>{r.colaborador_beneficiario}</TableCell>
+                  <TableCell>{r.colaborador_beneficiario.join(", ")}</TableCell>
                   <TableCell>{fmt(r.periodo_inicio)} – {fmt(r.periodo_fim)}</TableCell>
                   <TableCell className="text-right font-medium">{fmtMoney(r.valor_total)}</TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>

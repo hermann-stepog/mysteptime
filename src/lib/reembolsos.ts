@@ -3,7 +3,9 @@ export interface Reembolso {
   created_at: string;
   codigo: string;
   solicitante: string;
-  colaborador_beneficiario: string;
+  // Vários colaboradores beneficiados por lançamento (pedido dela, 2026-10-20) — texto livre
+  // vindo do Drake, sem FK, igual já era quando era um nome só.
+  colaborador_beneficiario: string[];
   unidade: string;
   bsp: string;
   periodo_inicio: string;

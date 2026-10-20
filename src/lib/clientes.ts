@@ -92,3 +92,20 @@ export function clienteDaUnidade(unidade: string | null | undefined): Cliente | 
 export function unidadeCanonica(unidade: string | null | undefined): string | null {
   return matchUnidade(unidade)?.nomeOriginal ?? unidade?.trim() ?? null;
 }
+
+// Agrupa uma lista de unidades por cliente — base da cascata Cliente → Unidade → BSP nos
+// formulários de Despesas Extras (Reembolso/Nota de Débito, pedido dela, 2026-10-20). Unidade
+// sem vínculo confirmado cai no grupo "Cliente não identificado" (nunca some da lista).
+export function agruparUnidadesPorCliente(
+  unidades: string[],
+): { cliente: string; unidades: string[] }[] {
+  const porCliente = new Map<string, Set<string>>();
+  for (const u of unidades) {
+    const cliente = clienteDaUnidade(u) ?? "Cliente não identificado";
+    if (!porCliente.has(cliente)) porCliente.set(cliente, new Set());
+    porCliente.get(cliente)!.add(u);
+  }
+  return Array.from(porCliente.entries())
+    .map(([cliente, uns]) => ({ cliente, unidades: Array.from(uns).sort() }))
+    .sort((a, b) => a.cliente.localeCompare(b.cliente, "pt-BR"));
+}
