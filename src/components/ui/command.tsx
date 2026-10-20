@@ -87,10 +87,22 @@ CommandInput.displayName = CommandPrimitive.Input.displayName;
 const CommandList = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
->(({ className, ...props }, ref) => (
+>(({ className, onWheel, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
     className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
+    // Pedido dela (2026-10-20): roda do mouse não rolava essa lista quando o combobox abre por
+    // cima de um formulário em modal (Dialog) — o bloqueio de rolagem do fundo da página que o
+    // Radix liga enquanto o modal está aberto (react-remove-scroll) às vezes intercepta a roda
+    // do mouse mesmo dentro de um popover que fica por cima, mesmo a lista sendo rolável. Rola
+    // a própria lista na mão e impede o evento de chegar nesse bloqueio, pra funcionar sempre,
+    // dentro ou fora de um modal.
+    onWheel={(e) => {
+      e.currentTarget.scrollTop += e.deltaY;
+      e.stopPropagation();
+      e.preventDefault();
+      onWheel?.(e);
+    }}
     {...props}
   />
 ));
