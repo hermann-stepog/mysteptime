@@ -2286,7 +2286,6 @@ function ImportCustosTransporteDialog({
 // (bsp/bsp_2/bsp_3) — cada um vira uma "perna" própria na árvore, com o valor já rateado que o
 // próprio custo/custo_2/custo_3 representa (não soma custoTotal em mais de um lugar).
 type PernaCusto = { trip: Trip; bsp: string; cliente: string; custo: number };
-type TripsSortColumn = "data" | "carro" | "unidade" | "bsp" | "custo" | "status";
 
 function buildPernas(trips: Trip[]): PernaCusto[] {
   const pernas: PernaCusto[] = [];
@@ -2318,52 +2317,70 @@ function buildPernas(trips: Trip[]): PernaCusto[] {
   return pernas;
 }
 
+type AgrupamentoCusto = "tipo" | "bsp" | "unidade";
+
+const AGRUPAMENTO_LABEL: Record<AgrupamentoCusto, string> = {
+  tipo: "Tipo de transporte",
+  bsp: "Centro de custo (BSP)",
+  unidade: "Unidade",
+};
+
+function rotuloDimensao(p: PernaCusto, dim: AgrupamentoCusto): string {
+  if (dim === "tipo") return toDisplayCase(nomeTransporte(p.trip.car_number)) || "Não informado";
+  if (dim === "bsp") return p.bsp;
+  return p.trip.unidade?.trim() || "Sem unidade";
+}
+
+const MAX_BARRAS_CUSTO = 8;
+
+function buildBreakdownCusto(pernas: PernaCusto[], dim: AgrupamentoCusto) {
+  const porRotulo = new Map<string, number>();
+  pernas.forEach((p) => {
+    const rotulo = rotuloDimensao(p, dim);
+    porRotulo.set(rotulo, (porRotulo.get(rotulo) ?? 0) + p.custo);
+  });
+  const ordenado = Array.from(porRotulo.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([rotulo, total]) => ({ rotulo, total }));
+  if (ordenado.length <= MAX_BARRAS_CUSTO) return ordenado;
+  const principais = ordenado.slice(0, MAX_BARRAS_CUSTO - 1);
+  const outros = ordenado
+    .slice(MAX_BARRAS_CUSTO - 1)
+    .reduce((acc, item) => acc + item.total, 0);
+  return [...principais, { rotulo: "Outros", total: outros }];
+}
+
+function mesLabelCusto(mes: string): string {
+  const [ano, m] = mes.split("-");
+  const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  return `${nomes[parseInt(m, 10) - 1] ?? mes}/${ano.slice(2)}`;
+}
+
+function buildEvolucaoMensalCusto(trips: Trip[]) {
+  const porMes = new Map<string, number>();
+  trips.forEach((t) => {
+    const mes = t.scheduled_at.slice(0, 7);
+    porMes.set(mes, (porMes.get(mes) ?? 0) + (custoTotal(t) ?? 0));
+  });
+  return Array.from(porMes.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([mes, total]) => ({ mes, mesLabel: mesLabelCusto(mes), total }));
+}
+
+const custosBreakdownChartConfig = {} satisfies ChartConfig;
+
+const custosEvolucaoChartConfig = {
+  total: { label: "Custo total", color: "var(--color-chart-1)" },
+} satisfies ChartConfig;
+
 function CustosTab({ trips }: { trips: Trip[] }) {
   const [periodoDe, setPeriodoDe] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
   const [periodoAte, setPeriodoAte] = useState(() => new Date().toISOString().slice(0, 10));
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
+  const [filterTipo, setFilterTipo] = useState("all");
   const [importOpen, setImportOpen] = useState(false);
-  const { sortColumn, sortDirection, toggleSort } = useTableSort<TripsSortColumn>();
-
-  const filtradas = useMemo(
-    () =>
-      trips.filter((t) => {
-        const dia = t.scheduled_at.slice(0, 10);
-        return (
-          (!periodoDe || dia >= periodoDe) &&
-          (!periodoAte || dia <= periodoAte) &&
-          (filterUnidade === "all" || t.unidade === filterUnidade) &&
-          (filterBsp === "all" || [t.bsp, t.bsp_2, t.bsp_3].includes(filterBsp))
-        );
-      }),
-    [trips, periodoDe, periodoAte, filterUnidade, filterBsp],
-  );
-
-  const ordenadas = useMemo(
-    () =>
-      [...filtradas].sort((a, b) => {
-        if (!sortColumn) return b.scheduled_at.localeCompare(a.scheduled_at);
-        const dir = sortDirection === "asc" ? 1 : -1;
-        switch (sortColumn) {
-          case "data":
-            return dir * a.scheduled_at.localeCompare(b.scheduled_at);
-          case "carro":
-            return dir * compareCarNumber(a.car_number, b.car_number);
-          case "unidade":
-            return dir * (a.unidade ?? "").localeCompare(b.unidade ?? "");
-          case "bsp":
-            return dir * (a.bsp ?? "").localeCompare(b.bsp ?? "");
-          case "custo":
-            return dir * ((custoTotal(a) ?? 0) - (custoTotal(b) ?? 0));
-          case "status":
-            return dir * a.status.localeCompare(b.status);
-          default:
-            return 0;
-        }
-      }),
-    [filtradas, sortColumn, sortDirection],
-  );
+  const [agrupamento, setAgrupamento] = useState<AgrupamentoCusto>("tipo");
 
   const unidadeOptions = useMemo(
     () => Array.from(new Set(trips.map((t) => t.unidade).filter((u): u is string => !!u))).sort(),
@@ -2376,49 +2393,37 @@ function CustosTab({ trips }: { trips: Trip[] }) {
       ).sort(),
     [trips],
   );
+  const tipoOptions = useMemo(
+    () =>
+      Array.from(new Set(trips.map((t) => toDisplayCase(nomeTransporte(t.car_number))))).sort(),
+    [trips],
+  );
 
-  const consolidado = useMemo(() => {
-    const porCliente = new Map<string, Map<string, Map<string, PernaCusto[]>>>();
-    buildPernas(filtradas).forEach((p) => {
-      if (!porCliente.has(p.cliente)) porCliente.set(p.cliente, new Map());
-      const porUnidade = porCliente.get(p.cliente)!;
-      const unidade = p.trip.unidade ?? "Sem unidade";
-      if (!porUnidade.has(unidade)) porUnidade.set(unidade, new Map());
-      const porBsp = porUnidade.get(unidade)!;
-      if (!porBsp.has(p.bsp)) porBsp.set(p.bsp, []);
-      porBsp.get(p.bsp)!.push(p);
-    });
-    return Array.from(porCliente.entries())
-      .map(([cliente, porUnidade]) => {
-        const unidades = Array.from(porUnidade.entries())
-          .map(([unidade, porBsp]) => {
-            const bsps = Array.from(porBsp.entries())
-              .map(([bsp, pernas]) => ({
-                bsp,
-                total: pernas.reduce((a, p) => a + p.custo, 0),
-                itens: [...pernas].sort((a, b) =>
-                  b.trip.scheduled_at.localeCompare(a.trip.scheduled_at),
-                ),
-              }))
-              .sort((a, b) => b.total - a.total);
-            return { unidade, total: bsps.reduce((a, b) => a + b.total, 0), bsps };
-          })
-          .sort((a, b) => b.total - a.total);
-        return { cliente, total: unidades.reduce((a, u) => a + u.total, 0), unidades };
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [filtradas]);
-  const [collapsedClientes, setCollapsedClientes] = useState<Set<string>>(new Set());
-  const [collapsedUnidades, setCollapsedUnidades] = useState<Set<string>>(new Set());
-  const [expandedBsps, setExpandedBsps] = useState<Set<string>>(new Set());
-  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
-    setter((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  const filtradas = useMemo(
+    () =>
+      trips.filter((t) => {
+        const dia = t.scheduled_at.slice(0, 10);
+        return (
+          (!periodoDe || dia >= periodoDe) &&
+          (!periodoAte || dia <= periodoAte) &&
+          (filterUnidade === "all" || t.unidade === filterUnidade) &&
+          (filterBsp === "all" || [t.bsp, t.bsp_2, t.bsp_3].includes(filterBsp)) &&
+          (filterTipo === "all" || toDisplayCase(nomeTransporte(t.car_number)) === filterTipo)
+        );
+      }),
+    [trips, periodoDe, periodoAte, filterUnidade, filterBsp, filterTipo],
+  );
+
+  const pernas = useMemo(() => buildPernas(filtradas), [filtradas]);
+  const totalCusto = useMemo(() => pernas.reduce((acc, p) => acc + p.custo, 0), [pernas]);
+  const totalViagens = filtradas.length;
+  const custoMedio = totalViagens > 0 ? totalCusto / totalViagens : 0;
+
+  const breakdown = useMemo(
+    () => buildBreakdownCusto(pernas, agrupamento),
+    [pernas, agrupamento],
+  );
+  const evolucaoMensal = useMemo(() => buildEvolucaoMensalCusto(filtradas), [filtradas]);
 
   return (
     <div className="space-y-4">
@@ -2469,6 +2474,17 @@ function CustosTab({ trips }: { trips: Trip[] }) {
               placeholder="Todos"
             />
           </div>
+          <div className="space-y-0.5 w-48">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Tipo de transporte
+            </Label>
+            <SearchableSelect
+              value={filterTipo}
+              onValueChange={setFilterTipo}
+              options={[{ value: "all", label: "Todos" }, ...tipoOptions]}
+              placeholder="Todos"
+            />
+          </div>
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />
@@ -2478,265 +2494,176 @@ function CustosTab({ trips }: { trips: Trip[] }) {
         </div>
       </Card>
 
-      {consolidado.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs text-muted-foreground"
-              onClick={() => {
-                const tudoAberto = collapsedClientes.size === 0 && collapsedUnidades.size === 0;
-                if (tudoAberto) {
-                  setCollapsedClientes(new Set(consolidado.map((c) => c.cliente)));
-                  setCollapsedUnidades(
-                    new Set(
-                      consolidado.flatMap((c) =>
-                        c.unidades.map((u) => `${c.cliente}::${u.unidade}`),
-                      ),
-                    ),
-                  );
-                } else {
-                  setCollapsedClientes(new Set());
-                  setCollapsedUnidades(new Set());
-                }
-              }}
-            >
-              {collapsedClientes.size === 0 && collapsedUnidades.size === 0 ? (
-                <>
-                  <ChevronsDownUp className="mr-1.5 h-3.5 w-3.5" />
-                  Recolher tudo
-                </>
-              ) : (
-                <>
-                  <ChevronsUpDown className="mr-1.5 h-3.5 w-3.5" />
-                  Expandir tudo
-                </>
-              )}
-            </Button>
-          </div>
-          <Card className="overflow-hidden">
-            {consolidado.map((c) => {
-              const clienteAberto = !collapsedClientes.has(c.cliente);
-              return (
-                <div key={c.cliente} className="border-b last:border-b-0">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                    aria-expanded={clienteAberto}
-                    onClick={() => toggleSet(setCollapsedClientes, c.cliente)}
-                  >
-                    <span className="flex min-w-0 items-center gap-2 font-semibold">
-                      {clienteAberto ? (
-                        <ChevronDown className="h-4 w-4 shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 shrink-0" />
-                      )}
-                      <Building2 className="h-4 w-4 shrink-0 text-primary" />
-                      <span className="truncate">{c.cliente}</span>
-                    </span>
-                    <span className="shrink-0 text-sm font-semibold">{fmtMoney(c.total)}</span>
-                  </button>
-                  {clienteAberto &&
-                    c.unidades.map((u) => {
-                      const unidadeKey = `${c.cliente}::${u.unidade}`;
-                      const unidadeAberta = !collapsedUnidades.has(unidadeKey);
-                      return (
-                        <div key={unidadeKey}>
-                          <button
-                            type="button"
-                            className="flex w-full items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
-                            aria-expanded={unidadeAberta}
-                            onClick={() => toggleSet(setCollapsedUnidades, unidadeKey)}
-                          >
-                            <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
-                              {unidadeAberta ? (
-                                <ChevronDown className="h-4 w-4 shrink-0" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 shrink-0" />
-                              )}
-                              <Ship className="h-4 w-4 shrink-0 text-sky-700" />
-                              <span className="truncate">{u.unidade}</span>
-                              {u.bsps.some((b) => b.bsp !== "Não informado") && (
-                                <span className="text-xs font-normal text-muted-foreground">
-                                  ({u.bsps.filter((b) => b.bsp !== "Não informado").length} BSP)
-                                </span>
-                              )}
-                            </span>
-                            <span className="shrink-0 text-sm font-medium">
-                              {fmtMoney(u.total)}
-                            </span>
-                          </button>
-                          {unidadeAberta &&
-                            u.bsps.map((b) => {
-                              if (b.bsp === "Não informado") {
-                                return (
-                                  <div
-                                    key={`${unidadeKey}::sem-bsp`}
-                                    className="divide-y border-t bg-emerald-50/40 pl-16"
-                                  >
-                                    {b.itens.map((p) => (
-                                      <div
-                                        key={`${p.trip.id}-${p.bsp}`}
-                                        className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs"
-                                      >
-                                        <div className="min-w-0">
-                                          <p className="truncate font-medium">
-                                            {p.trip.car_number}
-                                          </p>
-                                          <p className="text-muted-foreground">
-                                            {fmtDate(p.trip.scheduled_at)} · {p.trip.origin} →{" "}
-                                            {p.trip.destination}
-                                            {p.trip.motivo ? ` · ${p.trip.motivo}` : ""}
-                                          </p>
-                                        </div>
-                                        <span className="shrink-0 font-semibold">
-                                          {fmtMoney(p.custo)}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                );
-                              }
-                              const bspKey = `${unidadeKey}::${b.bsp}`;
-                              const bspAberto = expandedBsps.has(bspKey);
-                              return (
-                                <div key={bspKey}>
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center justify-between gap-2 border-t bg-white px-4 py-2.5 pl-16 text-left"
-                                    aria-expanded={bspAberto}
-                                    onClick={() => toggleSet(setExpandedBsps, bspKey)}
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      {bspAberto ? (
-                                        <ChevronDown className="h-4 w-4 shrink-0" />
-                                      ) : (
-                                        <ChevronRight className="h-4 w-4 shrink-0" />
-                                      )}
-                                      <Layers3 className="h-4 w-4 shrink-0 text-sky-600" />
-                                      <span className="truncate">{b.bsp}</span>
-                                      <span className="text-xs font-normal text-muted-foreground">
-                                        ({b.itens.length})
-                                      </span>
-                                    </span>
-                                    <span className="shrink-0 text-sm">{fmtMoney(b.total)}</span>
-                                  </button>
-                                  {bspAberto && (
-                                    <div className="divide-y border-t bg-emerald-50/40 pl-20">
-                                      {b.itens.map((p) => (
-                                        <div
-                                          key={`${p.trip.id}-${p.bsp}`}
-                                          className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs"
-                                        >
-                                          <div className="min-w-0">
-                                            <p className="truncate font-medium">
-                                              {p.trip.car_number}
-                                            </p>
-                                            <p className="text-muted-foreground">
-                                              {fmtDate(p.trip.scheduled_at)} · {p.trip.origin} →{" "}
-                                              {p.trip.destination}
-                                              {p.trip.motivo ? ` · ${p.trip.motivo}` : ""}
-                                            </p>
-                                          </div>
-                                          <span className="shrink-0 font-semibold">
-                                            {fmtMoney(p.custo)}
-                                          </span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      );
-                    })}
-                </div>
-              );
-            })}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <FadeInView delay={0}>
+          <Card
+            className="p-4 border-l-4"
+            style={{
+              borderLeftColor: "#1e3a5f",
+              background: "linear-gradient(135deg, rgba(30,58,95,0.08), transparent)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Total no período
+              </span>
+              <Wallet className="h-4 w-4" style={{ color: "#1e3a5f" }} />
+            </div>
+            <div className="mt-2 text-3xl font-semibold" style={{ color: "#1e3a5f" }}>
+              <KpiValue value={totalCusto} format={{ style: "currency", currency: "BRL" }} />
+            </div>
           </Card>
-        </div>
-      )}
+        </FadeInView>
+        <FadeInView delay={0.05}>
+          <Card
+            className="p-4 border-l-4"
+            style={{
+              borderLeftColor: "#2563eb",
+              background: "linear-gradient(135deg, rgba(37,99,235,0.08), transparent)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Viagens no período
+              </span>
+              <TrendingUp className="h-4 w-4" style={{ color: "#2563eb" }} />
+            </div>
+            <div className="mt-2 text-3xl font-semibold" style={{ color: "#2563eb" }}>
+              <KpiValue value={totalViagens} />
+            </div>
+          </Card>
+        </FadeInView>
+        <FadeInView delay={0.1}>
+          <Card
+            className="p-4 border-l-4"
+            style={{
+              borderLeftColor: "#0288d1",
+              background: "linear-gradient(135deg, rgba(2,136,209,0.08), transparent)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Custo médio por viagem
+              </span>
+              <Activity className="h-4 w-4" style={{ color: "#0288d1" }} />
+            </div>
+            <div className="mt-2 text-3xl font-semibold" style={{ color: "#0288d1" }}>
+              <KpiValue value={custoMedio} format={{ style: "currency", currency: "BRL" }} />
+            </div>
+          </Card>
+        </FadeInView>
+      </div>
 
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <SortableHead
-                label="Data"
-                column="data"
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                onSort={toggleSort}
-              />
-              <SortableHead
-                label="Carro/Fornecedor"
-                column="carro"
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                onSort={toggleSort}
-              />
-              <SortableHead
-                label="Unidade"
-                column="unidade"
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                onSort={toggleSort}
-              />
-              <SortableHead
-                label="BSP"
-                column="bsp"
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                onSort={toggleSort}
-              />
-              <TableHead>NF</TableHead>
-              <TableHead>Motivo</TableHead>
-              <SortableHead
-                label="Custo"
-                column="custo"
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                onSort={toggleSort}
-                className="text-right"
-              />
-              <SortableHead
-                label="Status"
-                column="status"
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                onSort={toggleSort}
-              />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {ordenadas.length === 0 ? (
-              <EmptyStateRow colSpan={8} icon={Wallet} title="Nenhum custo encontrado no período" />
-            ) : (
-              ordenadas.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell>{fmtDate(t.scheduled_at)}</TableCell>
-                  <TableCell>{t.car_number}</TableCell>
-                  <TableCell>
-                    {(t.unidades && t.unidades.length > 0 ? t.unidades.join(", ") : t.unidade) ??
-                      "—"}
-                  </TableCell>
-                  <TableCell>
-                    {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).join(", ") || "—"}
-                  </TableCell>
-                  <TableCell>{t.nf ?? "—"}</TableCell>
-                  <TableCell>{t.motivo ?? "—"}</TableCell>
-                  <TableCell className="text-right font-medium">
-                    {custoTotal(t) != null ? fmtMoney(custoTotal(t)!) : "—"}
-                  </TableCell>
-                  <TableCell>{STATUS_LABEL[t.status]}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <Card className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">Custo por {AGRUPAMENTO_LABEL[agrupamento]}</h2>
+          <Tabs value={agrupamento} onValueChange={(v) => setAgrupamento(v as AgrupamentoCusto)}>
+            <TabsList className="h-8">
+              <TabsTrigger value="tipo" className="text-xs">
+                Tipo de transporte
+              </TabsTrigger>
+              <TabsTrigger value="bsp" className="text-xs">
+                Centro de custo
+              </TabsTrigger>
+              <TabsTrigger value="unidade" className="text-xs">
+                Unidade
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+        <div className="mt-3" style={{ height: Math.max(220, breakdown.length * 42) }}>
+          {breakdown.length === 0 ? (
+            <EmptyState icon={Wallet} title="Nenhum custo encontrado no período" className="h-full" />
+          ) : (
+            <ChartContainer config={custosBreakdownChartConfig} className="aspect-auto h-full w-full">
+              <BarChart data={breakdown} layout="vertical" margin={{ left: 8, right: 24 }}>
+                <CartesianGrid horizontal={false} />
+                <XAxis
+                  type="number"
+                  tickLine={false}
+                  axisLine={false}
+                  fontSize={11}
+                  tickFormatter={(v: number) => fmtMoney(v)}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="rotulo"
+                  tickLine={false}
+                  axisLine={false}
+                  fontSize={11}
+                  width={160}
+                />
+                <ChartTooltip
+                  cursor={{ fill: "var(--color-muted)" }}
+                  content={
+                    <ChartTooltipContent hideLabel formatter={(value) => fmtMoney(Number(value))} />
+                  }
+                />
+                <Bar dataKey="total" radius={[0, 6, 6, 0]}>
+                  {breakdown.map((item, i) => (
+                    <Cell
+                      key={item.rotulo}
+                      fill={item.rotulo === "Outros" ? "#94a3b8" : BLUES[i % BLUES.length]}
+                    />
+                  ))}
+                  <LabelList
+                    dataKey="total"
+                    position="right"
+                    fontSize={11}
+                    fill="hsl(var(--foreground))"
+                    formatter={(v: number) => fmtMoney(v)}
+                  />
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          )}
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="text-base font-semibold">Evolução mensal do custo</h2>
+        <div className="mt-3 h-64">
+          {evolucaoMensal.length === 0 ? (
+            <EmptyState icon={TrendingUp} title="Sem dados" className="h-full" />
+          ) : (
+            <ChartContainer config={custosEvolucaoChartConfig} className="aspect-auto h-full w-full">
+              <AreaChart data={evolucaoMensal}>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="mesLabel"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  fontSize={11}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  fontSize={11}
+                  tickFormatter={(v: number) => fmtMoney(v)}
+                  width={80}
+                />
+                <ChartTooltip
+                  cursor={false}
+                  content={
+                    <ChartTooltipContent indicator="line" formatter={(value) => fmtMoney(Number(value))} />
+                  }
+                />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke="var(--color-total)"
+                  fill="var(--color-total)"
+                  fillOpacity={0.18}
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  dot={{ r: 3, fill: "var(--color-total)", strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                />
+              </AreaChart>
+            </ChartContainer>
+          )}
+        </div>
       </Card>
 
       <ImportCustosTransporteDialog open={importOpen} onOpenChange={setImportOpen} />
