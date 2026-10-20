@@ -303,7 +303,7 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>{editing ? "Editar solicitação" : "Nova solicitação de reembolso"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editing ? "Editar lançamento" : "Novo lançamento de reembolso"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
           <div>
             <Label className="text-xs">Solicitante</Label>
@@ -750,7 +750,7 @@ function ReembolsosTab() {
               <Download className="mr-1.5 h-4 w-4" />{exportando ? "Exportando..." : "Exportar"}
             </Button>
             <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
-              <Plus className="mr-1.5 h-4 w-4" />Nova solicitação
+              <Plus className="mr-1.5 h-4 w-4" />Novo lançamento
             </Button>
           </div>
         </div>

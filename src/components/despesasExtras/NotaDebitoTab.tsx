@@ -186,7 +186,7 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing }: {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{editing ? "Editar nota de débito" : "Nova nota de débito"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editing ? "Editar lançamento" : "Novo lançamento de nota de débito"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
@@ -571,7 +571,7 @@ export function NotaDebitoTab() {
               <Download className="mr-1.5 h-4 w-4" />{exportando ? "Exportando..." : "Exportar"}
             </Button>
             <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
-              <Plus className="mr-1.5 h-4 w-4" />Nova nota
+              <Plus className="mr-1.5 h-4 w-4" />Novo lançamento
             </Button>
           </div>
         </div>
