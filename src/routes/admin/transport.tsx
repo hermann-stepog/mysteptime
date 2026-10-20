@@ -2367,6 +2367,32 @@ function buildEvolucaoMensalCusto(trips: Trip[]) {
     .map(([mes, total]) => ({ mes, mesLabel: mesLabelCusto(mes), total }));
 }
 
+// Aba "Geral" (pedido dela, 2026-10-20): compara o custo de cada tipo de transporte mês a mês
+// ao longo de um ano inteiro — 12 linhas fixas (mesmo sem lançamento no mês) × 1 coluna por tipo
+// de transporte encontrado naquele ano, pra dar pra comparar lado a lado no gráfico.
+function buildComparativoMensalPorTipo(trips: Trip[], ano: string) {
+  const doAno = trips.filter((t) => t.scheduled_at.slice(0, 4) === ano);
+  // Identidade categórica (cada tipo sempre com a mesma cor, mês a mês) — ordem fixa alfabética,
+  // nunca por rank/magnitude (ao contrário do gráfico de ranking acima).
+  const tipos = Array.from(new Set(doAno.map((t) => toDisplayCase(nomeTransporte(t.car_number))))).sort();
+  const porMesTipo = new Map<string, Map<string, number>>();
+  doAno.forEach((t) => {
+    const mes = t.scheduled_at.slice(5, 7);
+    const tipo = toDisplayCase(nomeTransporte(t.car_number));
+    if (!porMesTipo.has(mes)) porMesTipo.set(mes, new Map());
+    const porTipo = porMesTipo.get(mes)!;
+    porTipo.set(tipo, (porTipo.get(tipo) ?? 0) + (custoTotal(t) ?? 0));
+  });
+  const linhas = Array.from({ length: 12 }, (_, i) => {
+    const mes = String(i + 1).padStart(2, "0");
+    const porTipo = porMesTipo.get(mes);
+    const linha: Record<string, number | string> = { mes, mesLabel: mesLabelCusto(`${ano}-${mes}`) };
+    tipos.forEach((tipo) => { linha[tipo] = porTipo?.get(tipo) ?? 0; });
+    return linha;
+  });
+  return { linhas, tipos };
+}
+
 const custosBreakdownChartConfig = {} satisfies ChartConfig;
 
 const custosEvolucaoChartConfig = {
@@ -2381,6 +2407,11 @@ function CustosTab({ trips }: { trips: Trip[] }) {
   const [filterTipo, setFilterTipo] = useState("all");
   const [importOpen, setImportOpen] = useState(false);
   const [agrupamento, setAgrupamento] = useState<AgrupamentoCusto>("tipo");
+  const anosDisponiveis = useMemo(
+    () => Array.from(new Set(trips.map((t) => t.scheduled_at.slice(0, 4)))).sort().reverse(),
+    [trips],
+  );
+  const [anoGeral, setAnoGeral] = useState(() => String(new Date().getFullYear()));
 
   const unidadeOptions = useMemo(
     () => Array.from(new Set(trips.map((t) => t.unidade).filter((u): u is string => !!u))).sort(),
@@ -2425,8 +2456,26 @@ function CustosTab({ trips }: { trips: Trip[] }) {
   );
   const evolucaoMensal = useMemo(() => buildEvolucaoMensalCusto(filtradas), [filtradas]);
 
+  const comparativoMensal = useMemo(
+    () => buildComparativoMensalPorTipo(trips, anoGeral),
+    [trips, anoGeral],
+  );
+  const comparativoChartConfig = useMemo(
+    () =>
+      Object.fromEntries(
+        comparativoMensal.tipos.map((tipo, i) => [tipo, { label: tipo, color: BLUES[i % BLUES.length] }]),
+      ) as ChartConfig,
+    [comparativoMensal.tipos],
+  );
+
   return (
-    <div className="space-y-4">
+    <Tabs defaultValue="detalhado" className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="detalhado">Detalhado</TabsTrigger>
+        <TabsTrigger value="geral">Geral</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="detalhado" className="space-y-4">
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-0.5">
@@ -2667,7 +2716,71 @@ function CustosTab({ trips }: { trips: Trip[] }) {
       </Card>
 
       <ImportCustosTransporteDialog open={importOpen} onOpenChange={setImportOpen} />
-    </div>
+      </TabsContent>
+
+      <TabsContent value="geral" className="space-y-4">
+        <Card className="p-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-0.5 w-32">
+              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                Ano
+              </Label>
+              <SearchableSelect
+                value={anoGeral}
+                onValueChange={setAnoGeral}
+                options={anosDisponiveis}
+              />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">
+            Custo mensal por tipo de transporte — {anoGeral}
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Compare o gasto de cada tipo de transporte mês a mês ao longo do ano.
+          </p>
+          <div className="mt-3 h-96">
+            {comparativoMensal.tipos.length === 0 ? (
+              <EmptyState icon={Wallet} title="Nenhum custo encontrado nesse ano" className="h-full" />
+            ) : (
+              <ChartContainer config={comparativoChartConfig} className="aspect-auto h-full w-full">
+                <BarChart data={comparativoMensal.linhas}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="mesLabel"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    fontSize={11}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                    tickFormatter={(v: number) => fmtMoney(v)}
+                    width={80}
+                  />
+                  <ChartTooltip
+                    cursor={{ fill: "var(--color-muted)" }}
+                    content={<ChartTooltipContent formatter={(value) => fmtMoney(Number(value))} />}
+                  />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  {comparativoMensal.tipos.map((tipo) => (
+                    // fill direto (não var(--color-...)) de propósito — nome do tipo pode ter
+                    // espaço/acento, o que quebraria o nome da custom property CSS gerada pelo
+                    // ChartContainer a partir da chave do config (mesmo motivo de "Top rotas"
+                    // acima usar Cell com fill direto em vez de var(--color-...)).
+                    <Bar key={tipo} dataKey={tipo} fill={comparativoChartConfig[tipo]?.color as string} radius={[4, 4, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ChartContainer>
+            )}
+          </div>
+        </Card>
+      </TabsContent>
+    </Tabs>
   );
 }
 
