@@ -773,6 +773,19 @@ function useLocationOptionsQuery() {
   });
 }
 
+// Pedido dela (2026-10-20): enxugar a lista de Origem/Destino, tirando endereço completo
+// digitado por extenso (rua + número + bairro + CEP) e deixando só nome de cidade/hotel/base/
+// aeroporto — o CEP (99999-999) é o sinal mais confiável de endereço completo; o prefixo de
+// logradouro (Av./Rua/Rod. etc.) e a vírgula seguida de número (número do imóvel) cobrem o
+// resto. Só filtra as OPÇÕES sugeridas daqui pra frente — viagem antiga que já tinha endereço
+// completo salvo continua exatamente como estava (LocationSelect cai sozinho no modo "digitar"
+// quando o valor salvo não está mais na lista, sem perder o que já tinha).
+const PREFIXO_LOGRADOURO =
+  /^(av\.?|avenida|r\.?|rua|rod\.?|rodovia|estrada|al\.?|alameda|travessa|trav\.?|pra[cç]a|p[cç]a\.?)\b/i;
+function pareceEnderecoCompleto(loc: string): boolean {
+  return /\d{5}-?\d{3}/.test(loc) || PREFIXO_LOGRADOURO.test(loc.trim()) || /,\s*\d/.test(loc);
+}
+
 // Lista de Origem/Destino ordenada pelas mais preenchidas (sem repetir) — mesma pool pros dois
 // campos, já que o mesmo lugar pode ser origem numa viagem e destino em outra. Combobox com
 // busca (digitar as primeiras letras já filtra), pedido dela — mesmo padrão popover+Command já
@@ -1255,7 +1268,7 @@ function TripDialog({
       [t.origin, t.destination, ...(t.origens_extras ?? []), ...(t.destinos_extras ?? [])].forEach(
         (loc) => {
           const v = toDisplayCase(loc?.trim());
-          if (!v) return;
+          if (!v || pareceEnderecoCompleto(v)) return;
           freq.set(v, (freq.get(v) ?? 0) + 1);
         },
       );
