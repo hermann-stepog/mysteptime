@@ -45,7 +45,7 @@ function formatBr(dataIso: string): string {
 }
 
 async function enviarEmailLogistica(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   nomination: { funcao: string; unidade: string; bsp: string; period_start: string; period_end: string | null },
   troca: string,
 ) {
