@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as XLSX from "xlsx";
+// "xlsx-js-style" no lugar da "xlsx" normal pra exportar com cor (pedido dela, 2026-10-20,
+// mesmo visual do Relatório Consolidado) — é um fork com a mesma API, serve tanto pra ler a
+// planilha importada quanto pra escrever o relatório colorido.
+import * as XLSX from "xlsx-js-style";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // Tabela ainda não está nos tipos gerados; cast local pra não bloquear o build.
 const supabase: any = supabaseTyped;
 import { notify } from "@/lib/notify";
-import { planilhaComCabecalho } from "@/lib/reportHeader";
+import { planilhaColoridaComCabecalho } from "@/lib/reportHeaderColorido";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { normalizeHeader, parseExcelDate } from "@/lib/histograma/import-drake";
 import { todayStr, addDays } from "@/lib/histogramaNovo";
@@ -1688,7 +1691,7 @@ export function PlanejamentoEmbarqueTab() {
       notify.error("Nenhum registro pra exportar com os filtros atuais.");
       return;
     }
-    const ws = planilhaComCabecalho(rows, "Relatório de Planejamento de Embarque");
+    const ws = planilhaColoridaComCabecalho(rows, "Relatório de Planejamento de Embarque");
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Planejamento de Embarque");
     XLSX.writeFile(wb, `planejamento_embarque_${todayStr()}.xlsx`);
