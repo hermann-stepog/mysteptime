@@ -1412,6 +1412,22 @@ type PlanejamentoSortColumn =
   | "programado2"
   | "observacoes";
 
+// Filtro de período (De/Até) — usado pra Embarque, Desembarque e Programado 1 (pedido dela,
+// 2026-10-20). Datas em ISO (yyyy-mm-dd), comparam direto por ordem lexicográfica.
+interface FiltroData {
+  de: string;
+  ate: string;
+}
+const FILTRO_DATA_VAZIO: FiltroData = { de: "", ate: "" };
+
+function dentroDoPeriodo(valor: string | null, filtro: FiltroData): boolean {
+  if (!filtro.de && !filtro.ate) return true;
+  if (!valor) return false;
+  if (filtro.de && valor < filtro.de) return false;
+  if (filtro.ate && valor > filtro.ate) return false;
+  return true;
+}
+
 export function PlanejamentoEmbarqueTab() {
   const qc = useQueryClient();
   const { role } = useAuth();
@@ -1509,6 +1525,13 @@ export function PlanejamentoEmbarqueTab() {
   // Pedido dela (2026-10-20): filtro pra ver só quem está com o selo "Novo" (mesmo critério de
   // isColaboradorNovo usado no selo) — aplica na hora, sem precisar clicar em "Buscar".
   const [filterSoNovos, setFilterSoNovos] = useState(false);
+  // Pedido dela (2026-10-20): filtro de período por Embarque/Desembarque/Programado 1.
+  const [embarqueInput, setEmbarqueInput] = useState<FiltroData>(FILTRO_DATA_VAZIO);
+  const [desembarqueInput, setDesembarqueInput] = useState<FiltroData>(FILTRO_DATA_VAZIO);
+  const [programado1Input, setProgramado1Input] = useState<FiltroData>(FILTRO_DATA_VAZIO);
+  const [filterEmbarque, setFilterEmbarque] = useState<FiltroData>(FILTRO_DATA_VAZIO);
+  const [filterDesembarque, setFilterDesembarque] = useState<FiltroData>(FILTRO_DATA_VAZIO);
+  const [filterProgramado1, setFilterProgramado1] = useState<FiltroData>(FILTRO_DATA_VAZIO);
 
   const aplicarFiltro = () => {
     setFilterColaborador(colaboradorInput);
@@ -1516,6 +1539,9 @@ export function PlanejamentoEmbarqueTab() {
     setFilterBsp(bspInput);
     setFilterFuncao(funcaoInput);
     setFilterStatus(statusInput);
+    setFilterEmbarque(embarqueInput);
+    setFilterDesembarque(desembarqueInput);
+    setFilterProgramado1(programado1Input);
   };
   const limparFiltros = () => {
     setColaboradorInput([]);
@@ -1523,9 +1549,15 @@ export function PlanejamentoEmbarqueTab() {
     setBspInput([]);
     setFuncaoInput([]);
     setStatusInput([]);
+    setEmbarqueInput(FILTRO_DATA_VAZIO);
+    setDesembarqueInput(FILTRO_DATA_VAZIO);
+    setProgramado1Input(FILTRO_DATA_VAZIO);
     setFilterColaborador([]);
     setFilterUnidade([]);
     setFilterBsp([]);
+    setFilterEmbarque(FILTRO_DATA_VAZIO);
+    setFilterDesembarque(FILTRO_DATA_VAZIO);
+    setFilterProgramado1(FILTRO_DATA_VAZIO);
     setFilterFuncao([]);
     setFilterStatus([]);
     setFilterSoNovos(false);
@@ -1568,7 +1600,10 @@ export function PlanejamentoEmbarqueTab() {
         (r) =>
           !filterSoNovos ||
           isColaboradorNovo(primeiraVezPorNome.get(normalizarNomePlanejamento(r.nome))),
-      );
+      )
+      .filter((r) => dentroDoPeriodo(r.embarque, filterEmbarque))
+      .filter((r) => dentroDoPeriodo(r.desembarque, filterDesembarque))
+      .filter((r) => dentroDoPeriodo(r.programado_1, filterProgramado1));
   }, [
     registros,
     filterColaborador,
@@ -1577,6 +1612,9 @@ export function PlanejamentoEmbarqueTab() {
     filterFuncao,
     filterSoNovos,
     primeiraVezPorNome,
+    filterEmbarque,
+    filterDesembarque,
+    filterProgramado1,
   ]);
 
   const contagemStatus = useMemo(() => {
@@ -1768,6 +1806,66 @@ export function PlanejamentoEmbarqueTab() {
               searchPlaceholder="Buscar status..."
               emptyLabel="Nenhum status encontrado."
             />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Embarque
+            </Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="date"
+                className="h-8 w-[136px] text-xs"
+                value={embarqueInput.de}
+                onChange={(e) => setEmbarqueInput((f) => ({ ...f, de: e.target.value }))}
+              />
+              <span className="text-xs text-muted-foreground">até</span>
+              <Input
+                type="date"
+                className="h-8 w-[136px] text-xs"
+                value={embarqueInput.ate}
+                onChange={(e) => setEmbarqueInput((f) => ({ ...f, ate: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Desembarque
+            </Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="date"
+                className="h-8 w-[136px] text-xs"
+                value={desembarqueInput.de}
+                onChange={(e) => setDesembarqueInput((f) => ({ ...f, de: e.target.value }))}
+              />
+              <span className="text-xs text-muted-foreground">até</span>
+              <Input
+                type="date"
+                className="h-8 w-[136px] text-xs"
+                value={desembarqueInput.ate}
+                onChange={(e) => setDesembarqueInput((f) => ({ ...f, ate: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              Programado 1
+            </Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="date"
+                className="h-8 w-[136px] text-xs"
+                value={programado1Input.de}
+                onChange={(e) => setProgramado1Input((f) => ({ ...f, de: e.target.value }))}
+              />
+              <span className="text-xs text-muted-foreground">até</span>
+              <Input
+                type="date"
+                className="h-8 w-[136px] text-xs"
+                value={programado1Input.ate}
+                onChange={(e) => setProgramado1Input((f) => ({ ...f, ate: e.target.value }))}
+              />
+            </div>
           </div>
           <label className="flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs">
             <input
