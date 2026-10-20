@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+// "xlsx-js-style" no lugar da "xlsx" normal pra exportar com cor (pedido dela, 2026-10-19/20,
+// mesmo visual do Relatório Consolidado) — é um fork com a mesma API da lib "xlsx" original.
+import * as XLSX from "xlsx-js-style";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // reembolsos/reembolso_itens/etc. ainda não estão nos tipos gerados (mesmo padrão de
 // hospedagem.tsx/passagens-aereas.tsx) — cast local pra não bloquear o build.
@@ -22,29 +25,29 @@ import {
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NomeUsuarioField } from "@/components/LogisticaFormFields";
+import { NomeUsuarioField, MotivoField } from "@/components/LogisticaFormFields";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Wallet, Plus, Pencil, Trash2, Check, Camera, Paperclip, Download, AlertTriangle, ListChecks,
+  Wallet, Plus, Pencil, Trash2, Camera, Paperclip, Download, ListChecks,
 } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { parseValorForm } from "@/lib/format";
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
 import { selectAllPages } from "@/lib/supabasePaginate";
+import { planilhaColoridaComCabecalho } from "@/lib/reportHeaderColorido";
 import { bspOptionsForUnidade, DRAKE_DATA_CUTOFF, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import {
-  CATEGORIAS_REEMBOLSO,
-  STATUS_FLUXO_REEMBOLSO_ORDER, STATUS_FLUXO_REEMBOLSO_LABEL, STATUS_FLUXO_REEMBOLSO_COLOR,
-  STATUS_FLUXO_REEMBOLSO_RESPONSAVEL, STATUS_FLUXO_REEMBOLSO_PROXIMA_ACAO,
-  type Reembolso, type ReembolsoItem, type ReembolsoStatusHistory, type ReembolsoAnexo,
-  type StatusFluxoReembolso, type CategoriaReembolso, type TipoAnexoReembolso,
+  CATEGORIAS_REEMBOLSO, MOTIVOS_REEMBOLSO,
+  type Reembolso, type ReembolsoItem, type ReembolsoAnexo,
+  type CategoriaReembolso, type TipoAnexoReembolso,
 } from "@/lib/reembolsos";
 import { useAuth } from "@/hooks/useAuth";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
+import { NotaDebitoTab } from "@/components/despesasExtras/NotaDebitoTab";
 
-export const Route = createFileRoute("/admin/reembolsos")({ head: () => pageTitle("Reembolsos"), component: ReembolsosPage });
+export const Route = createFileRoute("/admin/reembolsos")({ head: () => pageTitle("Despesas Extras"), component: DespesasExtrasPage });
 
 function fmt(d: string | null): string {
   return d ? d.split("-").reverse().join("/") : "—";
@@ -65,9 +68,6 @@ function useReembolsosQuery() {
     queryFn: () => selectAllPages<Reembolso>((from, to) =>
       supabase.from("reembolsos").select("*").order("created_at", { ascending: false }).range(from, to),
     ),
-    // Mesmo padrão de atualização automática do Transporte/Passagens Aéreas — sem Realtime,
-    // só uma checagem periódica, pra tela do fluxo de aprovação não ficar parada.
-    refetchInterval: 10000,
   });
 }
 
@@ -100,16 +100,6 @@ function useReembolsoItensQuery(reembolsoId: string | null) {
   });
 }
 
-function useReembolsoHistoricoQuery(reembolsoId: string | null) {
-  return useQuery<ReembolsoStatusHistory[]>({
-    queryKey: ["reembolso-historico", reembolsoId],
-    queryFn: () => selectAllPages<ReembolsoStatusHistory>((from, to) =>
-      supabase.from("reembolso_status_history").select("*").eq("reembolso_id", reembolsoId).order("changed_at", { ascending: false }).range(from, to),
-    ),
-    enabled: !!reembolsoId,
-  });
-}
-
 function useReembolsoAnexosQuery(reembolsoId: string | null) {
   return useQuery<ReembolsoAnexo[]>({
     queryKey: ["reembolso-anexos", reembolsoId],
@@ -120,8 +110,50 @@ function useReembolsoAnexosQuery(reembolsoId: string | null) {
   });
 }
 
+// ─── Relatório Excel por período (pedido dela, 2026-10-20: não existia antes) — uma linha por
+// item de despesa, juntando com o cabeçalho (reembolso) pra trazer Código/Solicitante/Unidade.
+export async function buscarLinhasRelatorioReembolsos(dataInicio?: string, dataFim?: string) {
+  const itens = await selectAllPages<ReembolsoItem>((from, to) => {
+    let q = supabase.from("reembolso_itens").select("*").order("data_despesa").range(from, to);
+    if (dataInicio) q = q.gte("data_despesa", dataInicio);
+    if (dataFim) q = q.lte("data_despesa", dataFim);
+    return q;
+  });
+  const reembolsoIds = Array.from(new Set(itens.map((it) => it.reembolso_id)));
+  const reembolsos = reembolsoIds.length === 0
+    ? []
+    : await selectAllPages<Reembolso>((from, to) =>
+        supabase.from("reembolsos").select("*").in("id", reembolsoIds).range(from, to),
+      );
+  const reembolsoPorId = new Map(reembolsos.map((r) => [r.id, r]));
+  return itens.map((it) => {
+    const r = reembolsoPorId.get(it.reembolso_id);
+    return {
+      Código: r?.codigo ?? "—",
+      "Data da despesa": fmt(it.data_despesa),
+      Solicitante: r?.solicitante ?? "—",
+      "Colaborador beneficiário": r?.colaborador_beneficiario ?? "—",
+      Unidade: r?.unidade ?? "—",
+      BSP: it.bsp,
+      Motivo: it.motivo ?? "—",
+      Categoria: it.categoria === "Outros" ? (it.categoria_outro ?? "Outros") : it.categoria,
+      Valor: it.valor,
+      "Valor total do pedido": r?.valor_total ?? 0,
+      Observações: r?.observacoes ?? "—",
+    };
+  });
+}
+
+export async function generateRelatorioReembolsos(dataInicio?: string, dataFim?: string): Promise<void> {
+  const rows = await buscarLinhasRelatorioReembolsos(dataInicio, dataFim);
+  const ws = planilhaColoridaComCabecalho(rows, "Relatório de Reembolsos");
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Reembolsos");
+  XLSX.writeFile(wb, `reembolsos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 // ─── Anexos (upload/download direto via Supabase Storage — sem server function, mesmo
-// padrão do único outro módulo do repositório que já faz isso, o BM Mob/Desmob) ────────────
+// padrão do BM Mob/Desmob) ──────────────────────────────────────────────────────────────────
 async function uploadReembolsoAnexo(params: {
   reembolsoId: string; itemId: string | null; tipo: TipoAnexoReembolso; file: File; enviadoPor: string;
 }): Promise<void> {
@@ -253,7 +285,10 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
         const { error } = await supabase.from("reembolsos").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("reembolsos").insert({ ...payload, status_fluxo: "solicitado" });
+        // Não seta status_fluxo/codigo aqui de propósito — o banco cuida sozinho (DEFAULT
+        // 'solicitado' e o trigger assign_reembolso_codigo), já que a tela nova não tem mais
+        // fluxo de aprovação (pedido dela, 2026-10-20).
+        const { error } = await supabase.from("reembolsos").insert(payload);
         if (error) throw error;
       }
     },
@@ -323,10 +358,11 @@ function ReembolsoFormDialog({ open, onOpenChange, editing, periodosE, colaborad
   );
 }
 
-// ─── Dialog: Gerenciar (itens, anexos, fluxo, histórico) ────────────────────────────────
-const NOVO_ITEM_VAZIO = { dataDespesa: "", bsp: "", categoria: "Alimentação" as CategoriaReembolso, categoriaOutro: "", valor: "" };
+// ─── Dialog: itens de despesa + anexos (fluxo de aprovação removido, pedido dela 2026-10-20 —
+// itens sempre editáveis, inclusive em solicitações antigas que tinham outro status) ─────────
+const NOVO_ITEM_VAZIO = { dataDespesa: "", bsp: "", motivo: "", categoria: "Alimentação" as CategoriaReembolso, categoriaOutro: "", valor: "" };
 
-function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, onEditarCabecalho }: {
+function ReembolsoItensDialog({ reembolso, open, onOpenChange, periodosE, onEditarCabecalho }: {
   reembolso: Reembolso | null; open: boolean; onOpenChange: (o: boolean) => void;
   periodosE: HistNovoPeriodo[]; onEditarCabecalho: () => void;
 }) {
@@ -336,18 +372,15 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
   const reembolsoId = reembolso?.id ?? null;
 
   const { data: itens = [] } = useReembolsoItensQuery(reembolsoId);
-  const { data: historico = [] } = useReembolsoHistoricoQuery(reembolsoId);
   const { data: anexos = [] } = useReembolsoAnexosQuery(reembolsoId);
 
   const [novoItem, setNovoItem] = useState(NOVO_ITEM_VAZIO);
   const [editandoItemId, setEditandoItemId] = useState<string | null>(null);
-  const [comentario, setComentario] = useState("");
-  const [dataPagamento, setDataPagamento] = useState("");
   const [bound, setBound] = useState<string | null>(null);
 
   if (open && reembolso && bound !== reembolso.id) {
     setNovoItem({ ...NOVO_ITEM_VAZIO, bsp: reembolso.bsp });
-    setEditandoItemId(null); setComentario(""); setDataPagamento(reembolso.data_pagamento ?? "");
+    setEditandoItemId(null);
     setBound(reembolso.id);
   }
   if (!open && bound !== null) setBound(null);
@@ -363,12 +396,13 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
     mutationFn: async () => {
       if (!reembolso) return;
       if (!novoItem.dataDespesa) throw new Error("Informe a data da despesa.");
-      if (!novoItem.bsp) throw new Error("Selecione o BSP.");
+      if (!novoItem.bsp) throw new Error("Selecione o centro de custo (BSP).");
       const valorItem = parseValorForm(novoItem.valor) ?? 0;
       if (!novoItem.valor || valorItem <= 0) throw new Error("Informe um valor válido.");
       if (novoItem.categoria === "Outros" && !novoItem.categoriaOutro.trim()) throw new Error("Descreva a categoria em \"Outros\".");
       const payload = {
         reembolso_id: reembolso.id, data_despesa: novoItem.dataDespesa, bsp: novoItem.bsp,
+        motivo: novoItem.motivo.trim() || null,
         categoria: novoItem.categoria, categoria_outro: novoItem.categoria === "Outros" ? novoItem.categoriaOutro.trim() : null,
         valor: valorItem,
       };
@@ -416,28 +450,6 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
     onError: (e: any) => notify.error(e.message),
   });
 
-  const avancar = useMutation({
-    mutationFn: async ({ novoStatus, extra, notes }: { novoStatus: StatusFluxoReembolso; extra?: Record<string, unknown>; notes?: string }) => {
-      if (!reembolso) return;
-      const { error } = await supabase.from("reembolsos").update({ status_fluxo: novoStatus, ...extra }).eq("id", reembolso.id);
-      if (error) throw error;
-      const { error: he } = await supabase.from("reembolso_status_history").insert({
-        reembolso_id: reembolso.id, status: novoStatus, changed_by_name: displayName, notes: notes || null,
-      });
-      if (he) throw he;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["reembolsos"] });
-      qc.invalidateQueries({ queryKey: ["reembolso-historico", reembolsoId] });
-      notify.success("Etapa atualizada");
-      setComentario("");
-    },
-    onError: (e: any) => notify.error(e.message),
-  });
-
-  // useMemo precisa vir antes de qualquer "return" condicional (regras dos Hooks) — por isso
-  // fica aqui em cima, mesmo dependendo só de `anexos` (que já é [] quando reembolso é null,
-  // já que useReembolsoAnexosQuery fica `enabled: false` nesse caso).
   const anexosPorItem = useMemo(() => {
     const m = new Map<string, ReembolsoAnexo[]>();
     anexos.filter((a) => a.item_id).forEach((a) => m.set(a.item_id!, [...(m.get(a.item_id!) ?? []), a]));
@@ -445,40 +457,17 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
   }, [anexos]);
 
   if (!reembolso) return null;
-  const status = reembolso.status_fluxo;
-  const editavel = status === "solicitado";
   const anexosGerais = anexos.filter((a) => !a.item_id);
-  const temComprovantePagamento = anexos.some((a) => a.tipo === "comprovante_pagamento");
-  const itensSemNota = itens.filter((it) => !(anexosPorItem.get(it.id)?.length));
-
-  const statusParaStepper = status === "rejeitado" ? "em_analise" : status;
-  const idxAtual = STATUS_FLUXO_REEMBOLSO_ORDER.indexOf(statusParaStepper);
-
-  const aprovar = () => {
-    if (itensSemNota.length > 0 && !window.confirm(`${itensSemNota.length} item(ns) sem nota fiscal anexada. Aprovar mesmo assim?`)) return;
-    avancar.mutate({ novoStatus: "aprovado", extra: { aprovado_por: displayName, aprovado_em: new Date().toISOString(), comentario_aprovacao: null } });
-  };
-  const rejeitar = () => {
-    if (!comentario.trim()) { notify.error("Descreva o motivo da rejeição."); return; }
-    avancar.mutate({ novoStatus: "rejeitado", extra: { comentario_aprovacao: comentario.trim() }, notes: comentario.trim() });
-  };
-  const marcarReembolsado = () => {
-    if (!dataPagamento) { notify.error("Informe a data do pagamento."); return; }
-    if (!temComprovantePagamento && !window.confirm("Nenhum comprovante de pagamento anexado. Confirmar reembolso mesmo assim?")) return;
-    avancar.mutate({ novoStatus: "reembolsado", extra: { data_pagamento: dataPagamento } });
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            Reembolso — {reembolso.colaborador_beneficiario}
-            {editavel && (
-              <Button variant="ghost" size="icon" className="h-6 w-6" title="Editar cabeçalho" onClick={onEditarCabecalho}>
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-            )}
+            {reembolso.codigo} — {reembolso.colaborador_beneficiario}
+            <Button variant="ghost" size="icon" className="h-6 w-6" title="Editar cabeçalho" onClick={onEditarCabecalho}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
@@ -487,45 +476,6 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
           </p>
           {reembolso.observacoes && <p className="text-xs italic text-muted-foreground">{reembolso.observacoes}</p>}
 
-          {/* Barra de etapas */}
-          <div className="flex items-start">
-            {STATUS_FLUXO_REEMBOLSO_ORDER.map((s, i) => {
-              const atual = i === idxAtual;
-              const passada = i < idxAtual;
-              return (
-                <div key={s} className="flex flex-1 flex-col items-center last:flex-none">
-                  <div className="flex w-full items-center">
-                    <div className={cn(
-                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
-                      atual ? `${STATUS_FLUXO_REEMBOLSO_COLOR[s].bg} ${STATUS_FLUXO_REEMBOLSO_COLOR[s].text} ring-2 ring-offset-1 ring-current`
-                        : passada ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground/60",
-                    )}>
-                      {passada ? <Check className="h-3 w-3" /> : i + 1}
-                    </div>
-                    {i < STATUS_FLUXO_REEMBOLSO_ORDER.length - 1 && (
-                      <div className={cn("mx-1 h-0.5 flex-1", passada ? "bg-emerald-600" : "bg-muted")} />
-                    )}
-                  </div>
-                  <span className={cn("mt-1 max-w-16 text-center text-[10px] leading-tight", atual ? "font-semibold text-foreground" : "text-muted-foreground")}>
-                    {STATUS_FLUXO_REEMBOLSO_LABEL[s]}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {status === "rejeitado" ? (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-              <p className="font-semibold">Rejeitado</p>
-              {reembolso.comentario_aprovacao && <p className="mt-0.5">{reembolso.comentario_aprovacao}</p>}
-            </div>
-          ) : status !== "concluido" && (
-            <p className="text-xs text-muted-foreground">
-              Responsável agora: <strong className="text-foreground">{STATUS_FLUXO_REEMBOLSO_RESPONSAVEL[status]}</strong>
-              {" · "}Próxima ação: {STATUS_FLUXO_REEMBOLSO_PROXIMA_ACAO[status]}
-            </p>
-          )}
-
           {/* Itens de despesa */}
           <div className="space-y-2 rounded-md border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Itens de despesa</p>
@@ -533,111 +483,102 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
             <div className="space-y-2">
               {itens.map((it) => {
                 const anexosItem = anexosPorItem.get(it.id) ?? [];
-                const semNota = anexosItem.length === 0;
                 return (
-                  <div key={it.id} className={cn("space-y-1.5 rounded-md border p-2", semNota && "border-amber-300 bg-amber-50")}>
+                  <div key={it.id} className="space-y-1.5 rounded-md border p-2">
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{fmt(it.data_despesa)}</span>
                         <span className="text-muted-foreground">BSP {it.bsp}</span>
+                        {it.motivo && <span className="text-muted-foreground">{it.motivo}</span>}
                         <span className="text-muted-foreground">{it.categoria === "Outros" ? it.categoria_outro : it.categoria}</span>
-                        {semNota && (
-                          <span className="flex items-center gap-1 text-amber-700">
-                            <AlertTriangle className="h-3 w-3" />Sem nota fiscal
-                          </span>
-                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-semibold">{fmtMoney(it.valor)}</span>
-                        {editavel && (
-                          <>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
-                              setEditandoItemId(it.id);
-                              setNovoItem({ dataDespesa: it.data_despesa, bsp: it.bsp, categoria: it.categoria, categoriaOutro: it.categoria_outro ?? "", valor: String(it.valor) });
-                            }}>
-                              <Pencil className="h-3 w-3" />
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                          setEditandoItemId(it.id);
+                          setNovoItem({ dataDespesa: it.data_despesa, bsp: it.bsp, motivo: it.motivo ?? "", categoria: it.categoria, categoriaOutro: it.categoria_outro ?? "", valor: String(it.valor) });
+                        }}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive">
+                              <Trash2 className="h-3 w-3" />
                             </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive">
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
-                                  <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluirItem.mutate(it.id)}>
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </>
-                        )}
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+                              <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluirItem.mutate(it.id)}>
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {anexosItem.map((a) => (
-                        <AnexoChip key={a.id} anexo={a} onDelete={editavel ? () => excluirAnexo.mutate(a) : undefined} />
+                        <AnexoChip key={a.id} anexo={a} onDelete={() => excluirAnexo.mutate(a)} />
                       ))}
-                      {editavel && (
-                        <BotoesAnexo onSelect={(file) => enviarAnexo.mutate({ itemId: it.id, tipo: "nota_fiscal", file })} />
-                      )}
+                      <BotoesAnexo onSelect={(file) => enviarAnexo.mutate({ itemId: it.id, tipo: "nota_fiscal", file })} />
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {editavel && (
-              <div className="grid grid-cols-1 gap-2 border-t pt-2 sm:grid-cols-5 sm:items-end">
-                <div>
-                  <Label className="text-[10px]">Data</Label>
-                  <Input type="date" className="h-8 text-xs" value={novoItem.dataDespesa} onChange={(e) => setNovoItem({ ...novoItem, dataDespesa: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-[10px]">BSP</Label>
-                  <Select value={novoItem.bsp} onValueChange={(v) => setNovoItem({ ...novoItem, bsp: v })}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                    <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-[10px]">Categoria</Label>
-                  <Select value={novoItem.categoria} onValueChange={(v) => setNovoItem({ ...novoItem, categoria: v as CategoriaReembolso })}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>{CATEGORIAS_REEMBOLSO.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                {novoItem.categoria === "Outros" ? (
-                  <div>
-                    <Label className="text-[10px]">Descrição</Label>
-                    <Input className="h-8 text-xs" placeholder="Descreva a despesa" value={novoItem.categoriaOutro} onChange={(e) => setNovoItem({ ...novoItem, categoriaOutro: e.target.value })} />
-                  </div>
-                ) : <div />}
-                <div className="flex gap-1">
-                  <div className="flex-1">
-                    <Label className="text-[10px]">Valor</Label>
-                    <Input type="text" inputMode="decimal" className="h-8 text-xs" value={novoItem.valor} onChange={(e) => setNovoItem({ ...novoItem, valor: e.target.value })} />
-                  </div>
-                  <Button
-                    size="sm" className="h-8 shrink-0" onClick={() => salvarItem.mutate()} disabled={salvarItem.isPending}
-                    aria-label={editandoItemId ? "Salvar item" : "Adicionar item"}
-                  >
-                    {editandoItemId ? "Salvar" : <Plus className="h-4 w-4" />}
-                  </Button>
-                  {editandoItemId && (
-                    <Button size="sm" variant="ghost" className="h-8 shrink-0" onClick={() => { setEditandoItemId(null); setNovoItem({ ...NOVO_ITEM_VAZIO, bsp: reembolso.bsp }); }}>
-                      Cancelar
-                    </Button>
-                  )}
-                </div>
+            <div className="grid grid-cols-1 gap-2 border-t pt-2 sm:grid-cols-6 sm:items-end">
+              <div>
+                <Label className="text-[10px]">Data</Label>
+                <Input type="date" className="h-8 text-xs" value={novoItem.dataDespesa} onChange={(e) => setNovoItem({ ...novoItem, dataDespesa: e.target.value })} />
               </div>
-            )}
+              <div>
+                <Label className="text-[10px]">Centro de custo (BSP)</Label>
+                <Select value={novoItem.bsp} onValueChange={(v) => setNovoItem({ ...novoItem, bsp: v })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>{bspOptions.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[10px]">Motivo</Label>
+                <MotivoField value={novoItem.motivo} onChange={(v) => setNovoItem({ ...novoItem, motivo: v })} options={MOTIVOS_REEMBOLSO} />
+              </div>
+              <div>
+                <Label className="text-[10px]">Com o que foi utilizado</Label>
+                <Select value={novoItem.categoria} onValueChange={(v) => setNovoItem({ ...novoItem, categoria: v as CategoriaReembolso })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{CATEGORIAS_REEMBOLSO.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {novoItem.categoria === "Outros" ? (
+                <div>
+                  <Label className="text-[10px]">Descrição</Label>
+                  <Input className="h-8 text-xs" placeholder="Descreva a despesa" value={novoItem.categoriaOutro} onChange={(e) => setNovoItem({ ...novoItem, categoriaOutro: e.target.value })} />
+                </div>
+              ) : <div />}
+              <div className="flex gap-1">
+                <div className="flex-1">
+                  <Label className="text-[10px]">Valor</Label>
+                  <Input type="text" inputMode="decimal" className="h-8 text-xs" value={novoItem.valor} onChange={(e) => setNovoItem({ ...novoItem, valor: e.target.value })} />
+                </div>
+                <Button
+                  size="sm" className="h-8 shrink-0" onClick={() => salvarItem.mutate()} disabled={salvarItem.isPending}
+                  aria-label={editandoItemId ? "Salvar item" : "Adicionar item"}
+                >
+                  {editandoItemId ? "Salvar" : <Plus className="h-4 w-4" />}
+                </Button>
+                {editandoItemId && (
+                  <Button size="sm" variant="ghost" className="h-8 shrink-0" onClick={() => { setEditandoItemId(null); setNovoItem({ ...NOVO_ITEM_VAZIO, bsp: reembolso.bsp }); }}>
+                    Cancelar
+                  </Button>
+                )}
+              </div>
+            </div>
 
             <div className="flex items-center justify-between border-t pt-2 text-sm font-semibold">
               <span>Total</span><span>{fmtMoney(reembolso.valor_total)}</span>
@@ -654,64 +595,6 @@ function GerenciarReembolsoDialog({ reembolso, open, onOpenChange, periodosE, on
               <BotoesAnexo onSelect={(file) => enviarAnexo.mutate({ itemId: null, tipo: "formulario", file })} />
             </div>
           </div>
-
-          {/* Ações por etapa */}
-          <div className="space-y-2 rounded-md border p-3">
-            {status === "solicitado" && (
-              <Button size="sm" onClick={() => avancar.mutate({ novoStatus: "em_analise" })}>Marcar em análise</Button>
-            )}
-            {status === "em_analise" && (
-              <div className="space-y-2">
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={aprovar}>Aprovar</Button>
-                </div>
-                <div className="flex gap-2">
-                  <Textarea placeholder="Motivo da rejeição" value={comentario} onChange={(e) => setComentario(e.target.value)} rows={2} className="text-xs" />
-                  <Button size="sm" variant="destructive" onClick={rejeitar} className="shrink-0 self-start">Rejeitar</Button>
-                </div>
-              </div>
-            )}
-            {status === "aprovado" && (
-              <Button size="sm" onClick={() => avancar.mutate({ novoStatus: "aguardando_pagamento" })}>Marcar aguardando pagamento</Button>
-            )}
-            {status === "rejeitado" && (
-              <Button size="sm" onClick={() => avancar.mutate({ novoStatus: "solicitado", notes: "Reaberto para correção" })}>Reabrir para correção</Button>
-            )}
-            {status === "aguardando_pagamento" && (
-              <div className="space-y-2">
-                <div>
-                  <Label className="text-[10px]">Data do pagamento</Label>
-                  <Input type="date" className="h-8 w-40 text-xs" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} />
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {anexosGerais.filter((a) => a.tipo === "comprovante_pagamento").map((a) => (
-                    <AnexoChip key={a.id} anexo={a} onDelete={() => excluirAnexo.mutate(a)} />
-                  ))}
-                  <BotoesAnexo onSelect={(file) => enviarAnexo.mutate({ itemId: null, tipo: "comprovante_pagamento", file })} />
-                </div>
-                <Button size="sm" onClick={marcarReembolsado}>Marcar reembolsado</Button>
-              </div>
-            )}
-            {status === "reembolsado" && (
-              <Button size="sm" onClick={() => avancar.mutate({ novoStatus: "concluido" })}>Concluir</Button>
-            )}
-            {status === "concluido" && <p className="text-xs text-muted-foreground">Solicitação concluída.</p>}
-          </div>
-
-          {/* Histórico */}
-          {historico.length > 0 && (
-            <div className="space-y-1.5 rounded-md border p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Histórico</p>
-              <div className="space-y-1 text-xs">
-                {historico.map((h) => (
-                  <div key={h.id} className="flex flex-wrap justify-between gap-x-2 text-muted-foreground">
-                    <span>{new Date(h.changed_at).toLocaleString("pt-BR")} · {h.changed_by_name} · {STATUS_FLUXO_REEMBOLSO_LABEL[h.status]}</span>
-                    {h.notes && <span className="italic">{h.notes}</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -724,9 +607,7 @@ function ReembolsoCard({ r, onOpen }: { r: Reembolso; onOpen: () => void }) {
     <Card className="cursor-pointer space-y-1.5 p-3" onClick={onOpen}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-sm font-medium">{r.colaborador_beneficiario}</span>
-        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", STATUS_FLUXO_REEMBOLSO_COLOR[r.status_fluxo].bg, STATUS_FLUXO_REEMBOLSO_COLOR[r.status_fluxo].text)}>
-          {STATUS_FLUXO_REEMBOLSO_LABEL[r.status_fluxo]}
-        </span>
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{r.codigo}</span>
       </div>
       <p className="text-xs text-muted-foreground">{r.unidade} · BSP {r.bsp}</p>
       <div className="flex items-center justify-between text-xs">
@@ -737,10 +618,10 @@ function ReembolsoCard({ r, onOpen }: { r: Reembolso; onOpen: () => void }) {
   );
 }
 
-// ─── Página ──────────────────────────────────────────────────────────────────
-type ReembolsosSortColumn = "unidade" | "bsp" | "nome" | "periodo" | "total" | "status";
+// ─── Aba Reembolsos (quadro detalhado: filtro por período + lançamento + exportar) ──────────
+type ReembolsosSortColumn = "codigo" | "unidade" | "bsp" | "nome" | "periodo" | "total";
 
-function RelatoriosReembolsosTab() {
+function ReembolsosTab() {
   const qc = useQueryClient();
   const { data: reembolsos = [], isLoading: l1 } = useReembolsosQuery();
   const { data: periodos = [], isLoading: l2 } = usePeriodosEQuery();
@@ -757,19 +638,18 @@ function RelatoriosReembolsosTab() {
 
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
   const [filterNome, setFilterNome] = useState("");
   const [filterPeriodoDe, setFilterPeriodoDe] = useState("");
   const [filterPeriodoAte, setFilterPeriodoAte] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Reembolso | null>(null);
-  // Guarda só o id — deriva o registro "ao vivo" da lista (que já é atualizada por
-  // refetchInterval/invalidateQueries), pra o total recalculado pelo trigger aparecer na
-  // hora dentro do próprio dialog, sem depender de reabrir.
+  // Guarda só o id — deriva o registro "ao vivo" da lista, pra o total recalculado pelo
+  // trigger aparecer na hora dentro do próprio dialog, sem depender de reabrir.
   const [gerenciandoId, setGerenciandoId] = useState<string | null>(null);
   const gerenciando = useMemo(() => reembolsos.find((r) => r.id === gerenciandoId) ?? null, [reembolsos, gerenciandoId]);
   const setGerenciando = (r: Reembolso | null) => setGerenciandoId(r?.id ?? null);
   const [gerenciarOpen, setGerenciarOpen] = useState(false);
+  const [exportando, setExportando] = useState(false);
 
   const { sortColumn, sortDirection, toggleSort } = useTableSort<ReembolsosSortColumn>();
   const bspOptions = useMemo(() => bspOptionsForUnidade(periodosE, filterUnidade), [periodosE, filterUnidade]);
@@ -786,7 +666,6 @@ function RelatoriosReembolsosTab() {
   const filtradas = useMemo(() => reembolsos.filter((r) =>
     (filterUnidade === "all" || r.unidade === filterUnidade) &&
     (filterBsp === "all" || r.bsp === filterBsp) &&
-    (filterStatus === "all" || r.status_fluxo === filterStatus) &&
     (!filterNome || matchesNameSearch(r.colaborador_beneficiario, filterNome)) &&
     (!filterPeriodoDe || r.periodo_fim >= filterPeriodoDe) &&
     (!filterPeriodoAte || r.periodo_inicio <= filterPeriodoAte),
@@ -794,18 +673,27 @@ function RelatoriosReembolsosTab() {
     if (!sortColumn) return 0;
     const dir = sortDirection === "asc" ? 1 : -1;
     switch (sortColumn) {
+      case "codigo": return a.codigo.localeCompare(b.codigo) * dir;
       case "unidade": return a.unidade.localeCompare(b.unidade) * dir;
       case "bsp": return a.bsp.localeCompare(b.bsp) * dir;
       case "nome": return a.colaborador_beneficiario.localeCompare(b.colaborador_beneficiario) * dir;
       case "periodo": return a.periodo_inicio.localeCompare(b.periodo_inicio) * dir;
       case "total": return (a.valor_total - b.valor_total) * dir;
-      case "status": return (
-        STATUS_FLUXO_REEMBOLSO_ORDER.indexOf(a.status_fluxo === "rejeitado" ? "em_analise" : a.status_fluxo)
-        - STATUS_FLUXO_REEMBOLSO_ORDER.indexOf(b.status_fluxo === "rejeitado" ? "em_analise" : b.status_fluxo)
-      ) * dir;
       default: return 0;
     }
-  }), [reembolsos, filterUnidade, filterBsp, filterStatus, filterNome, filterPeriodoDe, filterPeriodoAte, sortColumn, sortDirection]);
+  }), [reembolsos, filterUnidade, filterBsp, filterNome, filterPeriodoDe, filterPeriodoAte, sortColumn, sortDirection]);
+
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      await generateRelatorioReembolsos(filterPeriodoDe || undefined, filterPeriodoAte || undefined);
+      notify.success("Relatório exportado.");
+    } catch (e: any) {
+      notify.error(e.message || "Erro ao exportar.");
+    } finally {
+      setExportando(false);
+    }
+  };
 
   if (l1 || l2 || l3) {
     return (
@@ -813,7 +701,7 @@ function RelatoriosReembolsosTab() {
         <Card className="p-3"><div className="flex gap-2"><Skeleton className="h-8 w-44" /><Skeleton className="h-8 w-40" /><Skeleton className="h-8 w-48" /></div></Card>
         <Card>
           <Table>
-            <TableHeader><TableRow><TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Nome</TableHead><TableHead>Período</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Unidade</TableHead><TableHead>BSP</TableHead><TableHead>Nome</TableHead><TableHead>Período</TableHead><TableHead>Total</TableHead></TableRow></TableHeader>
             <TableSkeleton rows={6} cols={6} />
           </Table>
         </Card>
@@ -845,18 +733,6 @@ function RelatoriosReembolsosTab() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-0.5 w-44">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Status</Label>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">Todos</SelectItem>
-                {(Object.keys(STATUS_FLUXO_REEMBOLSO_LABEL) as StatusFluxoReembolso[]).map((s) => (
-                  <SelectItem key={s} value={s} className="text-xs">{STATUS_FLUXO_REEMBOLSO_LABEL[s]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <div className="space-y-0.5 w-52">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Colaborador</Label>
             <Input className="h-8 text-xs" placeholder="Buscar por nome..." value={filterNome} onChange={(e) => setFilterNome(e.target.value)} />
@@ -870,6 +746,9 @@ function RelatoriosReembolsosTab() {
             <Input type="date" className="h-8 w-36 text-xs" value={filterPeriodoAte} onChange={(e) => setFilterPeriodoAte(e.target.value)} />
           </div>
           <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={exportar} disabled={exportando}>
+              <Download className="mr-1.5 h-4 w-4" />{exportando ? "Exportando..." : "Exportar"}
+            </Button>
             <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
               <Plus className="mr-1.5 h-4 w-4" />Nova solicitação
             </Button>
@@ -883,12 +762,12 @@ function RelatoriosReembolsosTab() {
           <Table>
             <TableHeader>
               <TableRow>
+                <SortableHead label="Código" column="codigo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
                 <SortableHead label="Unidade" column="unidade" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
                 <SortableHead label="BSP" column="bsp" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
                 <SortableHead label="Nome" column="nome" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
                 <SortableHead label="Período" column="periodo" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
                 <SortableHead label="Total" column="total" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} className="text-right" />
-                <SortableHead label="Status" column="status" sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort} />
                 <TableHead className="w-24" />
               </TableRow>
             </TableHeader>
@@ -897,42 +776,36 @@ function RelatoriosReembolsosTab() {
                 <EmptyStateRow colSpan={7} icon={Wallet} title="Nenhuma solicitação encontrada" />
               ) : filtradas.map((r) => (
                 <TableRow key={r.id} className="cursor-pointer" onClick={() => { setGerenciando(r); setGerenciarOpen(true); }}>
+                  <TableCell className="font-mono text-xs">{r.codigo}</TableCell>
                   <TableCell>{r.unidade}</TableCell>
                   <TableCell>{r.bsp}</TableCell>
                   <TableCell>{r.colaborador_beneficiario}</TableCell>
                   <TableCell>{fmt(r.periodo_inicio)} – {fmt(r.periodo_fim)}</TableCell>
                   <TableCell className="text-right font-medium">{fmtMoney(r.valor_total)}</TableCell>
-                  <TableCell>
-                    <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", STATUS_FLUXO_REEMBOLSO_COLOR[r.status_fluxo].bg, STATUS_FLUXO_REEMBOLSO_COLOR[r.status_fluxo].text)}>
-                      {STATUS_FLUXO_REEMBOLSO_LABEL[r.status_fluxo]}
-                    </span>
-                  </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Gerenciar" onClick={() => { setGerenciando(r); setGerenciarOpen(true); }}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver itens" onClick={() => { setGerenciando(r); setGerenciarOpen(true); }}>
                         <ListChecks className="h-3.5 w-3.5" />
                       </Button>
-                      {r.status_fluxo === "solicitado" && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Excluir solicitação?</AlertDialogTitle>
-                              <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(r.id)}>
-                                Excluir
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
+                            <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluir.mutate(r.id)}>
+                              Excluir
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -955,7 +828,7 @@ function RelatoriosReembolsosTab() {
         open={dialogOpen} onOpenChange={setDialogOpen} editing={editing}
         periodosE={periodosE} colaboradores={colaboradores} unidadeOptions={unidadeOptions}
       />
-      <GerenciarReembolsoDialog
+      <ReembolsoItensDialog
         reembolso={gerenciando} open={gerenciarOpen} onOpenChange={setGerenciarOpen} periodosE={periodosE}
         onEditarCabecalho={() => { setEditing(gerenciando); setGerenciarOpen(false); setDialogOpen(true); }}
       />
@@ -963,28 +836,26 @@ function RelatoriosReembolsosTab() {
   );
 }
 
-function ReembolsosPage() {
+function DespesasExtrasPage() {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div className="flex items-center gap-2">
         <Wallet className="h-6 w-6 text-muted-foreground" />
-        <h1 className="text-2xl font-semibold">Reembolsos</h1>
+        <h1 className="text-2xl font-semibold">Despesas Extras</h1>
       </div>
 
-      <Tabs defaultValue="relatorios">
+      <Tabs defaultValue="reembolsos">
         <TabsList>
-          <TabsTrigger value="relatorios">Relatórios de Reembolsos</TabsTrigger>
-          <TabsTrigger value="notas-debito">Notas de Débitos</TabsTrigger>
+          <TabsTrigger value="reembolsos">Reembolsos</TabsTrigger>
+          <TabsTrigger value="notas-debito">Nota de Débito</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="relatorios" className="mt-4">
-          <RelatoriosReembolsosTab />
+        <TabsContent value="reembolsos" className="mt-4">
+          <ReembolsosTab />
         </TabsContent>
 
         <TabsContent value="notas-debito" className="mt-4">
-          <Card className="p-8">
-            <EmptyState icon={Wallet} title="Em breve" description="Notas de Débitos entra na próxima etapa deste módulo." />
-          </Card>
+          <NotaDebitoTab />
         </TabsContent>
       </Tabs>
     </div>

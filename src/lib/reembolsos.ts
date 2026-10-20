@@ -1,6 +1,7 @@
 export interface Reembolso {
   id: string;
   created_at: string;
+  codigo: string;
   solicitante: string;
   colaborador_beneficiario: string;
   unidade: string;
@@ -9,6 +10,9 @@ export interface Reembolso {
   periodo_fim: string;
   observacoes: string | null;
   valor_total: number;
+  // Fluxo de aprovação removido da tela (pedido dela, 2026-10-20: lançamento simples, igual
+  // Transporte/Hospedagem/Passagens) — os campos abaixo continuam existindo no banco (com
+  // DEFAULT) só porque já tinham dado lançado; a UI nova nunca lê nem escreve neles.
   status_fluxo: StatusFluxoReembolso;
   aprovado_por: string | null;
   aprovado_em: string | null;
@@ -21,11 +25,25 @@ export interface ReembolsoItem {
   reembolso_id: string;
   data_despesa: string;
   bsp: string;
+  motivo: string | null;
   categoria: CategoriaReembolso;
   categoria_outro: string | null;
   valor: number;
   criado_em: string;
 }
+
+// Lista própria do módulo (não reaproveita MOTIVOS_LOGISTICA, que é pensada pra embarque/
+// logística e não tem "Reunião") — pedido dela, 2026-10-20.
+export const MOTIVOS_REEMBOLSO = [
+  "Reunião",
+  "Viagem",
+  "Embarque",
+  "Desembarque",
+  "Treinamento/Curso",
+  "Deslocamento Local",
+  "Outros",
+] as const;
+export type MotivoReembolso = (typeof MOTIVOS_REEMBOLSO)[number];
 
 export interface ReembolsoStatusHistory {
   id: string;

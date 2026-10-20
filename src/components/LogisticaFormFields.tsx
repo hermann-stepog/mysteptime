@@ -109,10 +109,19 @@ export function NomeUsuarioField({ value, onChange, colaboradores }: {
   );
 }
 
-// Combobox de Motivo (lista + "Outro" pra digitar) — mesma lista MOTIVOS_LOGISTICA em todos os
-// módulos que usam esse campo.
-export function MotivoField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [manual, setManual] = useState(value !== "" && !MOTIVOS_LOGISTICA.includes(value));
+// Combobox de Motivo (lista + "Outro" pra digitar) — MOTIVOS_LOGISTICA por padrão (Transporte/
+// Hospedagem/Passagens), mas aceita uma lista própria via `options` (ex.: MOTIVOS_REEMBOLSO em
+// Despesas Extras, que tem "Reunião" e não faz sentido misturar com a lista de embarque).
+export function MotivoField({
+  value,
+  onChange,
+  options = MOTIVOS_LOGISTICA,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options?: readonly string[];
+}) {
+  const [manual, setManual] = useState(value !== "" && !options.includes(value));
   if (manual) {
     return (
       <div className="flex gap-1">
@@ -125,7 +134,7 @@ export function MotivoField({ value, onChange }: { value: string; onChange: (v: 
     <SearchableSelect
       value={value}
       onValueChange={(v) => { if (v === "__outro__") { setManual(true); return; } onChange(v); }}
-      options={[...MOTIVOS_LOGISTICA, { value: "__outro__", label: "Outro (digitar)..." }]}
+      options={[...options, { value: "__outro__", label: "Outro (digitar)..." }]}
       placeholder="Selecione"
     />
   );

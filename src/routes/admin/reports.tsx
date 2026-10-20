@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 import { useState, type ElementType } from "react";
-import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2, Hotel, Plane, Layers } from "lucide-react";
+import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2, Hotel, Plane, Layers, Wallet, Receipt } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
 import { tituloRelatorio } from "@/lib/reportHeader";
 import { generateRelatorioTransporte, buscarLinhasRelatorioTransporte } from "./transport";
@@ -20,6 +20,8 @@ import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateR
 import { generateRelatorioCustos } from "./costs";
 import { generateRelatorioHospedagem, buscarLinhasRelatorioHospedagem } from "./hospedagem";
 import { generateRelatorioPassagensAereas, buscarLinhasRelatorioPassagensAereas } from "./passagens-aereas";
+import { generateRelatorioReembolsos } from "./reembolsos";
+import { generateRelatorioNotasDebito } from "@/components/despesasExtras/NotaDebitoTab";
 
 // Consolida Transporte + Hospedagem + Passagens Aéreas numa única planilha (pedido dela: uma
 // aba só, não uma por módulo), mantendo só as colunas que existem nos 3 módulos (pedido dela,
@@ -387,6 +389,8 @@ const REPORT_CARDS: ReportCard[] = [
   { id: "medicao", label: "Relatório Medição", description: "Horas por colaborador/BSP no período", icon: Ruler, run: (i, f) => generateRelatorioMedicao(i, f) },
   { id: "timesheets-lancados", label: "Timesheets Lançados", description: "Um lançamento por dia, com jornada, hora extra e evento", icon: ClipboardList, run: (i, f) => generateRelatorioTimesheetsLancados(i, f) },
   { id: "custos", label: "Custos", description: "Lançamentos no período em CSV", icon: DollarSign, run: (i, f) => generateRelatorioCustos(i, f) },
+  { id: "reembolsos", label: "Reembolsos", description: "Despesas de reembolso no período em Excel", icon: Wallet, run: (i, f) => generateRelatorioReembolsos(i, f) },
+  { id: "notas-debito", label: "Nota de Débito", description: "Notas de débito no período em Excel", icon: Receipt, run: (i, f) => generateRelatorioNotasDebito(i, f) },
 ];
 
 function DateRangeFilter({ dataInicio, dataFim, onChange }: {
