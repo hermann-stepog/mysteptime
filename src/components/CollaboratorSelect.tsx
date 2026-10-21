@@ -9,7 +9,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Check, ChevronsUpDown, Plus, X, UserPlus, MapPin, Pencil } from "lucide-react";
-import { cn, matchesNameSearch } from "@/lib/utils";
+import { cn, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 
 export type Collaborator = { id: string; full_name: string; role: string | null; city: string | null; unit: string | null; active: boolean };
@@ -139,6 +139,7 @@ export function CollaboratorMultiSelect({
   const [search, setSearch] = useState("");
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
   const selected = value.map((id) => collaborators.find((c) => c.id === id)).filter(Boolean) as Collaborator[];
+  const ordenados = useOrdemComSelecionadosFixados(collaborators, open, (c) => value.includes(c.id));
 
   return (
     <div className="space-y-2">
@@ -162,7 +163,7 @@ export function CollaboratorMultiSelect({
             <CommandList>
               <CommandEmpty>Nenhum encontrado.</CommandEmpty>
               <CommandGroup>
-                {collaborators.map((c) => (
+                {ordenados.map((c) => (
                   <CommandItem key={c.id} value={`${c.full_name} ${c.city ?? ""}`} onSelect={() => toggle(c.id)}>
                     <Check className={cn("mr-2 h-4 w-4", value.includes(c.id) ? "opacity-100" : "opacity-0")} />
                     <span className="flex-1">{c.full_name}</span>

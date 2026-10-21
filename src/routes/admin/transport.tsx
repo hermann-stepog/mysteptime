@@ -116,7 +116,7 @@ import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtDate, fmtDateTime, fmtMoney, toDisplayCase, parseValorForm } from "@/lib/format";
-import { cn, matchesNameSearch } from "@/lib/utils";
+import { cn, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import {
   PieChart,
   Pie,
@@ -3802,6 +3802,7 @@ function ColaboradorFiltroCombobox({
   const { data: collaborators = [] } = useCollaboratorsQuery();
   const [open, setOpen] = useState(false);
   const selected = collaborators.find((c) => c.id === value);
+  const ordenados = useOrdemComSelecionadosFixados(collaborators, open, (c) => c.id === value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -3827,7 +3828,7 @@ function ColaboradorFiltroCombobox({
                 <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
                 Todos
               </CommandItem>
-              {collaborators.map((c) => (
+              {ordenados.map((c) => (
                 <CommandItem
                   key={c.id}
                   value={c.full_name}
@@ -3867,6 +3868,7 @@ function NfFiltroCombobox({
   options: string[];
 }) {
   const [open, setOpen] = useState(false);
+  const ordenadas = useOrdemComSelecionadosFixados(options, open, (nf) => nf === value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -3909,7 +3911,7 @@ function NfFiltroCombobox({
                 />
                 Sem NF
               </CommandItem>
-              {options.map((nf) => (
+              {ordenadas.map((nf) => (
                 <CommandItem
                   key={nf}
                   value={nf}

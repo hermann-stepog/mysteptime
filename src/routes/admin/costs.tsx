@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtDate, fmtMoney, downloadCSV } from "@/lib/format";
 import {
   DollarSign, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
-  BedDouble, Car, Plane, Wallet, Hotel, MapPin,
+  BedDouble, Car, Plane, Wallet, Hotel, FileText,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
@@ -30,8 +30,9 @@ import { SearchableSelect } from "@/components/SearchableSelect";
 import { FunnelChart } from "@/components/charts/funnel-chart";
 import {
   PieChart as RechartsPieChart, Pie, Cell, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
+  ComposedChart, Line,
 } from "recharts";
-import { ChartContainer, ChartTooltip as ShadcnChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { ChartContainer, ChartTooltip as ShadcnChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 
 export const Route = createFileRoute("/admin/costs")({ head: () => pageTitle("Custos"), component: CostsPage });
 
@@ -562,11 +563,25 @@ function VisaoConsolidadaTab() {
 // "Aeroporto não informado" — nunca escondido por falta de cadastro.
 const visaoDetalhadaChartConfig = {} satisfies ChartConfig;
 
+function mesLabelCustos(mes: string): string {
+  const [ano, m] = mes.split("-");
+  const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  return `${nomes[parseInt(m, 10) - 1] ?? mes}/${ano.slice(2)}`;
+}
+
+// Pedido dela, 2026-10-21: uma cor por mês (mais antigo → mais recente) — mesmos 3 tons de
+// TIPO_CUSTO_COLOR abaixo (azul-marinho → azul → ciano, degradê do ícone da STEP); valores
+// literais aqui (não uma referência) só pra não depender da ordem de declaração no arquivo.
+const MES_CORES = ["#1b3c66", "#1878c4", "#3bc4d9"];
+
 function VisaoDetalhadaTab() {
   const [periodoDe, setPeriodoDe] = useState(primeiroDiaMes);
   const [periodoAte, setPeriodoAte] = useState(ultimoDiaMes);
   const [filterProjeto, setFilterProjeto] = useState("all");
   const [filterRegiao, setFilterRegiao] = useState("all");
+  // Pedido dela, 2026-10-21: "gráfico geral de todos os meses do ano" com filtro de módulo —
+  // independe dos filtros de Projeto/Região acima (sempre o ano inteiro, os 3 tipos de custo).
+  const [filterModuloAnual, setFilterModuloAnual] = useState<TipoCusto>("hospedagem");
 
   const { brutos: todosBrutos, isLoading: l1 } = useCustosBrutosQuery();
   const { data: hoteis = [], isLoading: l2 } = useHoteisFornecedoresQuery();
@@ -590,6 +605,7 @@ function VisaoDetalhadaTab() {
             hotelNome: hotel?.nome ?? "Hotel não cadastrado",
             aeroporto: hotel?.aeroporto_proximo?.trim() || "Aeroporto não informado",
             valor: b.item.valor,
+            mes: b.item.data.slice(0, 7),
           };
         }),
     [todosBrutos, hoteisPorId, periodoDe, periodoAte],
@@ -623,49 +639,118 @@ function VisaoDetalhadaTab() {
       .slice(0, 10);
   }, [filtradas]);
 
-  const porRegiao = useMemo(() => {
-    const m = new Map<string, number>();
-    filtradas.forEach((l) => m.set(l.regiao, (m.get(l.regiao) ?? 0) + l.valor));
-    return Array.from(m.entries())
-      .map(([regiao, total]) => ({ regiao, total }))
-      .sort((a, b) => b.total - a.total);
-  }, [filtradas]);
+  // "Gráfico geral dos últimos 3 meses" (pedido dela, 2026-10-21, ajustado no mesmo dia de "o
+  // ano inteiro" pra só os últimos 3) — módulo escolhido no filtro (Hospedagem/Transporte/
+  // Passagem Aérea), sempre os 3 meses mais recentes a partir de hoje (0 onde não há
+  // lançamento, nunca pula mês, mesmo atravessando virada de ano).
+  const ultimos3MesesChave = useMemo(() => {
+    const hoje = new Date();
+    return Array.from({ length: 3 }, (_, i) => {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - (2 - i), 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    });
+  }, []);
+  const evolucaoAnual = useMemo(() => {
+    const porMes = new Map<string, number>();
+    todosBrutos.forEach((b) => {
+      if (b.item.tipo !== filterModuloAnual) return;
+      const mes = b.item.data.slice(0, 7);
+      if (!ultimos3MesesChave.includes(mes)) return;
+      porMes.set(mes, (porMes.get(mes) ?? 0) + b.item.valor);
+    });
+    return ultimos3MesesChave.map((mes) => ({ mes, mesLabel: mesLabelCustos(mes), total: porMes.get(mes) ?? 0 }));
+  }, [todosBrutos, filterModuloAnual, ultimos3MesesChave]);
 
-  const arvore = useMemo(() => {
-    const porProjetoM = new Map<string, { cliente: string; porRegiao: Map<string, Map<string, { aeroporto: string; total: number }>> }>();
+  // Resumo por escrito da Evolução mensal acima (pedido dela, 2026-10-21) — texto muda sozinho
+  // conforme o filtro de módulo escolhido, sem precisar ela mesma ler o gráfico pra tirar a
+  // conclusão.
+  const resumoAnual = useMemo(() => {
+    const rotulo = TIPO_CUSTO_LABEL[filterModuloAnual].toLowerCase();
+    const comValor = evolucaoAnual.filter((m) => m.total > 0);
+    if (comValor.length === 0) {
+      return `Nenhum custo de ${rotulo} lançado nos últimos 3 meses.`;
+    }
+    const totalAno = comValor.reduce((a, m) => a + m.total, 0);
+    const media = totalAno / comValor.length;
+    const maior = comValor.reduce((a, b) => (b.total > a.total ? b : a));
+    const menor = comValor.reduce((a, b) => (b.total < a.total ? b : a));
+    let tendencia = "";
+    if (comValor.length >= 2) {
+      const anterior = comValor[comValor.length - 2];
+      const atual = comValor[comValor.length - 1];
+      const variacao = anterior.total > 0 ? ((atual.total - anterior.total) / anterior.total) * 100 : 0;
+      if (variacao > 1) tendencia = ` Em ${atual.mesLabel}, o custo subiu ${variacao.toFixed(0)}% em relação a ${anterior.mesLabel}.`;
+      else if (variacao < -1) tendencia = ` Em ${atual.mesLabel}, o custo caiu ${Math.abs(variacao).toFixed(0)}% em relação a ${anterior.mesLabel}.`;
+      else tendencia = ` O custo se manteve estável entre ${anterior.mesLabel} e ${atual.mesLabel}.`;
+    }
+    return `${TIPO_CUSTO_LABEL[filterModuloAnual]} nos últimos 3 meses: total de ${fmtMoney(totalAno)} em ${comValor.length} mês(es) com lançamento, média de ${fmtMoney(media)} por mês. Mês de maior custo: ${maior.mesLabel} (${fmtMoney(maior.total)}). Mês de menor custo: ${menor.mesLabel} (${fmtMoney(menor.total)}).${tendencia}`;
+  }, [evolucaoAnual, filterModuloAnual]);
+
+  // Últimos 3 meses com lançamento dentro do período filtrado (pedido dela, 2026-10-21: "medir
+  // os últimos 3 meses, de cada hotel para cada unidade") — se o período filtrado tiver menos de
+  // 3 meses distintos, mostra só os que existem, nunca inventa mês vazio.
+  const ultimosTresMeses = useMemo(
+    () => Array.from(new Set(filtradas.map((l) => l.mes))).sort().slice(-3),
+    [filtradas],
+  );
+
+  const arvoreMensal = useMemo(() => {
+    const porProjetoM = new Map<string, { cliente: string; porHotel: Map<string, Map<string, number>> }>();
     filtradas.forEach((l) => {
-      if (!porProjetoM.has(l.projeto)) porProjetoM.set(l.projeto, { cliente: l.cliente, porRegiao: new Map() });
+      if (!ultimosTresMeses.includes(l.mes)) return;
+      if (!porProjetoM.has(l.projeto)) porProjetoM.set(l.projeto, { cliente: l.cliente, porHotel: new Map() });
       const entry = porProjetoM.get(l.projeto)!;
-      if (!entry.porRegiao.has(l.regiao)) entry.porRegiao.set(l.regiao, new Map());
-      const porHotel = entry.porRegiao.get(l.regiao)!;
-      const atual = porHotel.get(l.hotelNome) ?? { aeroporto: l.aeroporto, total: 0 };
-      atual.total += l.valor;
-      porHotel.set(l.hotelNome, atual);
+      if (!entry.porHotel.has(l.hotelNome)) entry.porHotel.set(l.hotelNome, new Map());
+      const porMes = entry.porHotel.get(l.hotelNome)!;
+      porMes.set(l.mes, (porMes.get(l.mes) ?? 0) + l.valor);
     });
     return Array.from(porProjetoM.entries())
-      .map(([projeto, { cliente, porRegiao: porRegiaoM }]) => {
-        const regioes = Array.from(porRegiaoM.entries())
-          .map(([regiao, porHotel]) => {
-            const hoteisArr = Array.from(porHotel.entries())
-              .map(([hotel, v]) => ({ hotel, aeroporto: v.aeroporto, total: v.total }))
-              .sort((a, b) => b.total - a.total);
-            return { regiao, total: hoteisArr.reduce((a, h) => a + h.total, 0), hoteis: hoteisArr };
+      .map(([projeto, { cliente, porHotel }]) => {
+        const hoteis = Array.from(porHotel.entries())
+          .map(([hotel, porMes]) => {
+            const meses = ultimosTresMeses.map((mes) => ({
+              mes, mesLabel: mesLabelCustos(mes), total: porMes.get(mes) ?? 0,
+            }));
+            return { hotel, total: meses.reduce((a, m) => a + m.total, 0), meses };
           })
           .sort((a, b) => b.total - a.total);
-        return { projeto, cliente, total: regioes.reduce((a, r) => a + r.total, 0), regioes };
+        return { projeto, cliente, total: hoteis.reduce((a, h) => a + h.total, 0), hoteis };
       })
       .sort((a, b) => b.total - a.total);
-  }, [filtradas]);
+  }, [filtradas, ultimosTresMeses]);
 
-  const [collapsedProjetos, setCollapsedProjetos] = useState<Set<string>>(new Set());
-  const [collapsedRegioes, setCollapsedRegioes] = useState<Set<string>>(new Set());
-  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
-    setter((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
+  // Pedido dela, 2026-10-21: "um gráfico só", diferenciando bem hotel e unidade — pivota
+  // Projeto → Hotel → [até 3 meses] numa linha por hotel, com uma coluna numérica fixa por mês
+  // (mes1/mes2/mes3) pra virar barras agrupadas lado a lado num BarChart só. Chave composta
+  // (hotel + projeto) evita colidir hotéis de mesmo nome em unidades diferentes.
+  const consolidadoMensal = useMemo(
+    () =>
+      arvoreMensal
+        .flatMap((p) =>
+          p.hoteis.map((h) => ({
+            chave: `${h.hotel}__${p.projeto}`,
+            hotel: h.hotel,
+            projetoRotulo: `${p.projeto} (${p.cliente})`,
+            total: h.total,
+            mes1: h.meses[0]?.total ?? 0,
+            mes2: h.meses[1]?.total ?? 0,
+            mes3: h.meses[2]?.total ?? 0,
+          })),
+        )
+        .sort((a, b) => b.total - a.total),
+    [arvoreMensal],
+  );
+  const consolidadoPorChave = useMemo(
+    () => new Map(consolidadoMensal.map((r) => [r.chave, r])),
+    [consolidadoMensal],
+  );
+  const mensalChartConfig = useMemo(() => {
+    const cfg: Record<string, { label: string; color: string }> = {};
+    ultimosTresMeses.forEach((mes, i) => {
+      cfg[`mes${i + 1}`] = { label: mesLabelCustos(mes), color: MES_CORES[i % MES_CORES.length] };
     });
-  };
+    return cfg satisfies ChartConfig;
+  }, [ultimosTresMeses]);
 
   if (isLoading) {
     return (
@@ -736,85 +821,96 @@ function VisaoDetalhadaTab() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="text-base font-semibold">Custo por Região</h2>
-          <div className="mt-3" style={{ height: Math.max(220, porRegiao.length * 42) }}>
-            {porRegiao.length === 0 ? (
-              <EmptyState icon={MapPin} title="Nenhum custo encontrado" className="h-full" />
-            ) : (
-              <ChartContainer config={visaoDetalhadaChartConfig} className="aspect-auto h-full w-full">
-                <RechartsBarChart data={porRegiao} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid horizontal={false} />
-                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
-                  <YAxis type="category" dataKey="regiao" tickLine={false} axisLine={false} fontSize={11} width={160} />
-                  <ShadcnChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel formatter={(value) => fmtMoney(Number(value))} />} />
-                  <Bar dataKey="total" radius={[0, 6, 6, 0]}>
-                    {porRegiao.map((item, i) => <Cell key={item.regiao} fill={CLIENTE_CORES[i % CLIENTE_CORES.length]} />)}
-                    <LabelList dataKey="total" position="right" fontSize={11} fill="hsl(var(--foreground))" formatter={(v: number) => fmtMoney(v)} />
-                  </Bar>
-                </RechartsBarChart>
-              </ChartContainer>
-            )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold">Evolução mensal — últimos 3 meses</h2>
+            <div className="w-48">
+              <Select value={filterModuloAnual} onValueChange={(v) => setFilterModuloAnual(v as TipoCusto)}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TIPO_CUSTO_ORDER.map((t) => <SelectItem key={t} value={t} className="text-xs">{TIPO_CUSTO_LABEL[t]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="mt-3 h-64">
+            <ChartContainer config={visaoDetalhadaChartConfig} className="aspect-auto h-full w-full">
+              <RechartsBarChart data={evolucaoAnual} margin={{ top: 20 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="mesLabel" tickLine={false} axisLine={false} fontSize={11} />
+                <YAxis tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} width={80} />
+                <ShadcnChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel formatter={(value) => fmtMoney(Number(value))} />} />
+                <Bar dataKey="total" radius={[4, 4, 0, 0]} fill={TIPO_CUSTO_COLOR[filterModuloAnual]}>
+                  <LabelList dataKey="total" position="top" fontSize={10} fill="hsl(var(--foreground))" formatter={(v: number) => (v > 0 ? fmtMoney(v) : "")} />
+                </Bar>
+              </RechartsBarChart>
+            </ChartContainer>
           </div>
         </Card>
       </div>
 
-      {arvore.length === 0 ? (
+      <Card className="p-5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <FileText className="h-4 w-4" />
+          Resumo da análise — {TIPO_CUSTO_LABEL[filterModuloAnual]}
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed">{resumoAnual}</p>
+      </Card>
+
+      {consolidadoMensal.length === 0 ? (
         <Card className="p-8"><EmptyStateRow colSpan={1} icon={Hotel} title="Nenhum custo de hospedagem encontrado no período" /></Card>
       ) : (
-        <Card className="overflow-hidden">
-          {arvore.map((p) => {
-            const projetoAberto = !collapsedProjetos.has(p.projeto);
-            return (
-              <div key={p.projeto} className="border-b last:border-b-0">
-                <button
-                  type="button" className="flex w-full flex-wrap items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
-                  aria-expanded={projetoAberto} onClick={() => toggleSet(setCollapsedProjetos, p.projeto)}
-                >
-                  <span className="flex min-w-0 items-center gap-2 font-semibold">
-                    {projetoAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                    <Ship className="h-4 w-4 shrink-0 text-primary" />
-                    <span className="truncate">{p.projeto}</span>
-                    <span className="text-xs font-normal text-muted-foreground">({p.cliente})</span>
-                  </span>
-                  <span className="shrink-0 text-sm font-semibold">{fmtMoney(p.total)}</span>
-                </button>
-                {projetoAberto && p.regioes.map((r) => {
-                  const regiaoKey = `${p.projeto}::${r.regiao}`;
-                  const regiaoAberta = !collapsedRegioes.has(regiaoKey);
-                  return (
-                    <div key={regiaoKey}>
-                      <button
-                        type="button" className="flex w-full flex-wrap items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
-                        aria-expanded={regiaoAberta} onClick={() => toggleSet(setCollapsedRegioes, regiaoKey)}
-                      >
-                        <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
-                          {regiaoAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                          <MapPin className="h-4 w-4 shrink-0 text-sky-700" />
-                          <span className="truncate">{r.regiao}</span>
-                          <span className="text-xs font-normal text-muted-foreground">({r.hoteis.length} hotel(is))</span>
-                        </span>
-                        <span className="shrink-0 text-sm font-medium">{fmtMoney(r.total)}</span>
-                      </button>
-                      {regiaoAberta && (
-                        <div className="divide-y border-t bg-emerald-50/40 pl-16">
-                          {r.hoteis.map((h) => (
-                            <div key={h.hotel} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
-                              <div className="flex min-w-0 items-center gap-1.5">
-                                <Hotel className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <span className="truncate font-medium">{h.hotel}</span>
-                                <span className="shrink-0 text-muted-foreground">· ✈ {h.aeroporto}</span>
-                              </div>
-                              <span className="shrink-0 font-semibold">{fmtMoney(h.total)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+        // Pedido dela (2026-10-21): "um gráfico só" em vez de um por hotel — barras agrupadas
+        // (uma cor por mês) numa linha por hotel, com Hotel + Projeto/Cliente escritos juntos no
+        // eixo (HotelUnidadeTick abaixo) pra separar bem quem é quem sem precisar de vários cards.
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Custo de hospedagem por hotel — últimos meses</h2>
+          <div className="mt-3" style={{ height: Math.max(320, consolidadoMensal.length * 52) }}>
+            <ChartContainer config={mensalChartConfig} className="aspect-auto h-full w-full">
+              <RechartsBarChart data={consolidadoMensal} layout="vertical" margin={{ left: 8, right: 56, top: 8 }}>
+                <CartesianGrid horizontal={false} />
+                <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
+                <YAxis
+                  type="category"
+                  dataKey="chave"
+                  tickLine={false}
+                  axisLine={false}
+                  width={190}
+                  interval={0}
+                  tick={(props: any) => {
+                    const row = consolidadoPorChave.get(props.payload.value);
+                    if (!row) return <g />;
+                    return (
+                      <g transform={`translate(${props.x},${props.y})`}>
+                        <text x={-6} y={-3} textAnchor="end" fontSize={11} fontWeight={600} fill="hsl(var(--foreground))">
+                          {row.hotel}
+                        </text>
+                        <text x={-6} y={11} textAnchor="end" fontSize={10} fill="hsl(var(--muted-foreground))">
+                          {row.projetoRotulo}
+                        </text>
+                      </g>
+                    );
+                  }}
+                />
+                <ShadcnChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      labelFormatter={(_, payload) => {
+                        const row = consolidadoPorChave.get(payload?.[0]?.payload?.chave);
+                        return row ? `${row.hotel} — ${row.projetoRotulo}` : "";
+                      }}
+                      formatter={(value, name) => [fmtMoney(Number(value)), mensalChartConfig[name as string]?.label ?? name]}
+                    />
+                  }
+                />
+                <ChartLegend content={<ChartLegendContent />} />
+                {Object.keys(mensalChartConfig).map((key) => (
+                  <Bar key={key} dataKey={key} fill={`var(--color-${key})`} radius={[0, 4, 4, 0]}>
+                    <LabelList dataKey={key} position="right" fontSize={12} fontWeight={600} fill="hsl(var(--foreground))" formatter={(v: number) => (v > 0 ? fmtMoney(v) : "")} />
+                  </Bar>
+                ))}
+              </RechartsBarChart>
+            </ChartContainer>
+          </div>
         </Card>
       )}
     </div>

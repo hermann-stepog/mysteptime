@@ -23,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Check, ChevronsUpDown, Printer, AlertTriangle, Pencil, Trash2, Clock, Ship, CheckCircle2, Upload, History } from "lucide-react";
-import { cn, focusNextOnEnter, matchesNameSearch } from "@/lib/utils";
+import { cn, focusNextOnEnter, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { computeDayStatus, generateDateRange, DRAKE_DATA_CUTOFF, ORIGEM_PROGRAMADO, bspOptionsForUnidade, buildUnidadeCanonMap, canonUnidade, type HistNovoColaborador, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import {
@@ -633,6 +633,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
   const [newOpen, setNewOpen] = useState(false);
   const [nf, setNf] = useState({ matricula: "", nome: "", empresa: "", funcao: "", funcao_operacao: "" });
   const selected = colaboradores.find((c) => c.id === value);
+  const ordenados = useOrdemComSelecionadosFixados(colaboradores, open, (c) => c.id === value);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -671,7 +672,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
             <CommandList>
               <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
               <CommandGroup>
-                {colaboradores.map((c) => (
+                {ordenados.map((c) => (
                   <CommandItem key={c.id} value={`${c.nome} ${c.matricula}`} onSelect={() => { onChange(c.id); setOpen(false); }}>
                     <Check className={cn("mr-2 h-4 w-4", value === c.id ? "opacity-100" : "opacity-0")} />
                     <span className="flex-1 truncate">{c.nome}</span>

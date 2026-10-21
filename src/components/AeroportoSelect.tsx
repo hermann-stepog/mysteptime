@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { AEROPORTO_OPTIONS, AEROPORTO_SEARCH } from "@/lib/aeroportos";
 
 // Select de aeroporto (origem/destino de Passagens Aéreas) com busca por IATA, cidade,
@@ -22,6 +22,7 @@ export function AeroportoSelect({
     () => (value && !AEROPORTO_OPTIONS.includes(value) ? [value, ...AEROPORTO_OPTIONS] : AEROPORTO_OPTIONS),
     [value],
   );
+  const ordenados = useOrdemComSelecionadosFixados(options, open, (opt) => opt === value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -52,7 +53,7 @@ export function AeroportoSelect({
                   <span className="text-muted-foreground">Limpar seleção</span>
                 </CommandItem>
               ) : null}
-              {options.map((opt) => (
+              {ordenados.map((opt) => (
                 <CommandItem key={opt} value={opt} onSelect={() => { onValueChange(opt); setOpen(false); }}>
                   <Check className={cn("mr-2 h-4 w-4", value === opt ? "opacity-100" : "opacity-0")} />
                   {opt}

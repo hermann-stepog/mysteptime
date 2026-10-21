@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 
 export type Tag = { id: string; name: string; color: string };
@@ -41,6 +41,7 @@ export function TagMultiSelect({ value, onChange }: { value: string[]; onChange:
   const selected = tags.filter((t) => value.includes(t.id));
 
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  const ordenadas = useOrdemComSelecionadosFixados(tags, open, (t) => value.includes(t.id));
 
   const create = useMutation({
     mutationFn: async (name: string) => {
@@ -73,7 +74,7 @@ export function TagMultiSelect({ value, onChange }: { value: string[]; onChange:
             <CommandList>
               <CommandEmpty>Nenhuma etiqueta.</CommandEmpty>
               <CommandGroup>
-                {tags.map((t) => (
+                {ordenadas.map((t) => (
                   <CommandItem key={t.id} value={t.name} onSelect={() => toggle(t.id)}>
                     <Check className={cn("mr-2 h-4 w-4", value.includes(t.id) ? "opacity-100" : "opacity-0")} />
                     <TagBadge tag={t} />

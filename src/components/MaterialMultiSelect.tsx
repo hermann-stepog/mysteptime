@@ -9,7 +9,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Check, ChevronsUpDown, Plus, X, PackagePlus } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 
 export type Material = {
@@ -113,6 +113,7 @@ export function MaterialQuantitySelect({ value, onChange, placeholder = "Selecio
   };
   const setQty = (id: string, q: number) => onChange(value.map((v) => v.material_id === id ? { ...v, quantidade: Math.max(1, q || 1) } : v));
   const remove = (id: string) => onChange(value.filter((v) => v.material_id !== id));
+  const ordenados = useOrdemComSelecionadosFixados(materials, open, (m) => selectedIds.includes(m.id));
 
   return (
     <div className="space-y-2">
@@ -129,7 +130,7 @@ export function MaterialQuantitySelect({ value, onChange, placeholder = "Selecio
             <CommandList>
               <CommandEmpty>Nenhum encontrado.</CommandEmpty>
               <CommandGroup>
-                {materials.map((m) => (
+                {ordenados.map((m) => (
                   <CommandItem key={m.id} value={`${m.volume ?? ""} ${m.descricao ?? ""} ${m.categoria ?? ""}`} onSelect={() => toggle(m.id)}>
                     <Check className={cn("mr-2 h-4 w-4", selectedIds.includes(m.id) ? "opacity-100" : "opacity-0")} />
                     <span className="flex-1">{materialLabel(m)}</span>
