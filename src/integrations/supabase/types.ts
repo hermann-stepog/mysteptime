@@ -1854,30 +1854,36 @@ export type Database = {
       }
       hoteis_fornecedores: {
         Row: {
+          aeroporto_proximo: string | null
           cidade: string
           created_at: string
           endereco: string | null
           estado: string
           id: string
           nome: string
+          regiao: string | null
           telefone: string | null
         }
         Insert: {
+          aeroporto_proximo?: string | null
           cidade: string
           created_at?: string
           endereco?: string | null
           estado: string
           id?: string
           nome: string
+          regiao?: string | null
           telefone?: string | null
         }
         Update: {
+          aeroporto_proximo?: string | null
           cidade?: string
           created_at?: string
           endereco?: string | null
           estado?: string
           id?: string
           nome?: string
+          regiao?: string | null
           telefone?: string | null
         }
         Relationships: []
@@ -2345,6 +2351,154 @@ export type Database = {
             columns: ["colaborador_id"]
             isOneToOne: false
             referencedRelation: "hist_novo_colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notas_debito: {
+        Row: {
+          bsp: string
+          contato: string[] | null
+          created_at: string
+          data_lancamento: string
+          emitente_cidade: string | null
+          emitente_cnpj: string | null
+          emitente_endereco: string | null
+          emitente_inscricao_estadual: string | null
+          emitente_inscricao_municipal: string | null
+          emitente_razao_social: string
+          emitente_uf: string | null
+          forma_pagamento: string | null
+          id: string
+          numero_fornecedor: string
+          observacoes: string | null
+          sacado_cidade: string
+          sacado_cnpj: string
+          sacado_endereco: string
+          sacado_inscricao_estadual: string
+          sacado_razao_social: string
+          sacado_uf: string
+          unidade: string | null
+          valor_total: number
+          vencimento: string | null
+        }
+        Insert: {
+          bsp: string
+          contato?: string[] | null
+          created_at?: string
+          data_lancamento?: string
+          emitente_cidade?: string | null
+          emitente_cnpj?: string | null
+          emitente_endereco?: string | null
+          emitente_inscricao_estadual?: string | null
+          emitente_inscricao_municipal?: string | null
+          emitente_razao_social: string
+          emitente_uf?: string | null
+          forma_pagamento?: string | null
+          id?: string
+          numero_fornecedor: string
+          observacoes?: string | null
+          sacado_cidade?: string
+          sacado_cnpj?: string
+          sacado_endereco?: string
+          sacado_inscricao_estadual?: string
+          sacado_razao_social?: string
+          sacado_uf?: string
+          unidade?: string | null
+          valor_total?: number
+          vencimento?: string | null
+        }
+        Update: {
+          bsp?: string
+          contato?: string[] | null
+          created_at?: string
+          data_lancamento?: string
+          emitente_cidade?: string | null
+          emitente_cnpj?: string | null
+          emitente_endereco?: string | null
+          emitente_inscricao_estadual?: string | null
+          emitente_inscricao_municipal?: string | null
+          emitente_razao_social?: string
+          emitente_uf?: string | null
+          forma_pagamento?: string | null
+          id?: string
+          numero_fornecedor?: string
+          observacoes?: string | null
+          sacado_cidade?: string
+          sacado_cnpj?: string
+          sacado_endereco?: string
+          sacado_inscricao_estadual?: string
+          sacado_razao_social?: string
+          sacado_uf?: string
+          unidade?: string | null
+          valor_total?: number
+          vencimento?: string | null
+        }
+        Relationships: []
+      }
+      notas_debito_anexos: {
+        Row: {
+          enviado_em: string
+          enviado_por: string
+          id: string
+          nome_original: string
+          nota_debito_id: string
+          storage_path: string
+        }
+        Insert: {
+          enviado_em?: string
+          enviado_por: string
+          id?: string
+          nome_original: string
+          nota_debito_id: string
+          storage_path: string
+        }
+        Update: {
+          enviado_em?: string
+          enviado_por?: string
+          id?: string
+          nome_original?: string
+          nota_debito_id?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notas_debito_anexos_nota_debito_id_fkey"
+            columns: ["nota_debito_id"]
+            isOneToOne: false
+            referencedRelation: "notas_debito"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notas_debito_itens: {
+        Row: {
+          criado_em: string
+          descricao: string
+          id: string
+          nota_debito_id: string
+          valor: number
+        }
+        Insert: {
+          criado_em?: string
+          descricao: string
+          id?: string
+          nota_debito_id: string
+          valor: number
+        }
+        Update: {
+          criado_em?: string
+          descricao?: string
+          id?: string
+          nota_debito_id?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notas_debito_itens_nota_debito_id_fkey"
+            columns: ["nota_debito_id"]
+            isOneToOne: false
+            referencedRelation: "notas_debito"
             referencedColumns: ["id"]
           },
         ]
@@ -3067,6 +3221,7 @@ export type Database = {
           criado_em: string
           data_despesa: string
           id: string
+          motivo: string | null
           reembolso_id: string
           valor: number
         }
@@ -3077,6 +3232,7 @@ export type Database = {
           criado_em?: string
           data_despesa: string
           id?: string
+          motivo?: string | null
           reembolso_id: string
           valor: number
         }
@@ -3087,6 +3243,7 @@ export type Database = {
           criado_em?: string
           data_despesa?: string
           id?: string
+          motivo?: string | null
           reembolso_id?: string
           valor?: number
         }
@@ -3140,7 +3297,8 @@ export type Database = {
           aprovado_em: string | null
           aprovado_por: string | null
           bsp: string
-          colaborador_beneficiario: string
+          codigo: string
+          colaborador_beneficiario: string[]
           comentario_aprovacao: string | null
           created_at: string
           data_pagamento: string | null
@@ -3157,7 +3315,8 @@ export type Database = {
           aprovado_em?: string | null
           aprovado_por?: string | null
           bsp: string
-          colaborador_beneficiario: string
+          codigo: string
+          colaborador_beneficiario?: string[]
           comentario_aprovacao?: string | null
           created_at?: string
           data_pagamento?: string | null
@@ -3174,7 +3333,8 @@ export type Database = {
           aprovado_em?: string | null
           aprovado_por?: string | null
           bsp?: string
-          colaborador_beneficiario?: string
+          codigo?: string
+          colaborador_beneficiario?: string[]
           comentario_aprovacao?: string | null
           created_at?: string
           data_pagamento?: string | null
@@ -3708,6 +3868,7 @@ export type Database = {
           external_ref: string | null
           faturado: boolean | null
           forma_pagamento: string | null
+          fornecedor: string | null
           id: string
           motivo: string | null
           nf: string | null
@@ -3719,6 +3880,7 @@ export type Database = {
           status: Database["public"]["Enums"]["transport_trip_status"]
           status_lancamento: string | null
           tipo: Database["public"]["Enums"]["transport_tipo"]
+          tipo_transporte: string | null
           uber_solicitado_via: string | null
           unidade: string | null
           unidades: string[]
@@ -3749,6 +3911,7 @@ export type Database = {
           external_ref?: string | null
           faturado?: boolean | null
           forma_pagamento?: string | null
+          fornecedor?: string | null
           id?: string
           motivo?: string | null
           nf?: string | null
@@ -3760,6 +3923,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["transport_trip_status"]
           status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
+          tipo_transporte?: string | null
           uber_solicitado_via?: string | null
           unidade?: string | null
           unidades?: string[]
@@ -3790,6 +3954,7 @@ export type Database = {
           external_ref?: string | null
           faturado?: boolean | null
           forma_pagamento?: string | null
+          fornecedor?: string | null
           id?: string
           motivo?: string | null
           nf?: string | null
@@ -3801,6 +3966,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["transport_trip_status"]
           status_lancamento?: string | null
           tipo?: Database["public"]["Enums"]["transport_tipo"]
+          tipo_transporte?: string | null
           uber_solicitado_via?: string | null
           unidade?: string | null
           unidades?: string[]
