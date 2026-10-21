@@ -1060,7 +1060,6 @@ const FORNECEDORES_FIXOS = [
   "Táxi",
   "Future",
   "Transfer",
-  "Carro",
   "CAU Transportes",
   "Oliveira",
   "Step",
@@ -1464,13 +1463,18 @@ function TripDialog({
   // car_number continua existindo por baixo (título do card, ordenação, export "Carro") — a
   // partir de 2026-10-20 é só calculado de Fornecedor + Número, nunca mais digitado direto.
   const setTipoTransporte = (v: string) => setF({ ...f, tipo_transporte: v });
-  const setFornecedor = (v: string) =>
+  const setFornecedor = (v: string) => {
+    // Número só existe pro fornecedor "Future" (pedido dela) — trocando pra outro fornecedor,
+    // descarta um número que tivesse ficado de um "Future" selecionado antes.
+    const numero = v === "Future" ? f.numero : "";
     setF({
       ...f,
       fornecedor: v,
-      car_number: [v, f.numero].filter(Boolean).join(" "),
+      numero,
+      car_number: [v, numero].filter(Boolean).join(" "),
       uber_solicitado_via: v === "Uber" ? f.uber_solicitado_via : "",
     });
+  };
   const setNumero = (v: string) =>
     setF({ ...f, numero: v, car_number: [f.fornecedor, v].filter(Boolean).join(" ") });
 
@@ -1501,9 +1505,12 @@ function TripDialog({
             normalmente (overflow-y-auto se mantém), só o "trilho" cinza deixa de aparecer. */}
         <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <div className="flex gap-2">
-                <div className="flex-1">
+            {/* Pedido dela (2026-10-21): esse bloco tem 3 campos (Tipo/Fornecedor/Número) e não
+                cabia espremido numa coluna só de 2 — o Número ficava estourando por cima do
+                campo Motivo ao lado. Ocupa a largura toda do diálogo agora. */}
+            <div className="sm:col-span-2">
+              <div className="flex flex-wrap gap-2">
+                <div className="flex-1 min-w-[140px]">
                   <Label>Tipo de Transporte</Label>
                   <SearchableSelect
                     value={f.tipo_transporte}
@@ -1512,7 +1519,7 @@ function TripDialog({
                     placeholder="Selecione"
                   />
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-[140px]">
                   <Label>Fornecedor</Label>
                   <ListaDigitavelField
                     value={f.fornecedor}
@@ -1522,11 +1529,9 @@ function TripDialog({
                     manualPlaceholder="Nome do fornecedor"
                   />
                 </div>
-                {/* Pedido dela (2026-10-21): quando o fornecedor é "Future", mantém a opção de
-                    número do carro como já existia (lista 1-20) em vez de texto livre — pros
-                    demais fornecedores (que também têm número às vezes, ex. "Carro 01"), continua
-                    como campo de texto livre opcional. */}
-                {f.fornecedor === "Future" ? (
+                {/* Pedido dela (2026-10-21): o campo Número só aparece pro fornecedor "Future",
+                    lista 1-20 como já existia antes. */}
+                {f.fornecedor === "Future" && (
                   <div className="w-20">
                     <Label>Número</Label>
                     <SearchableSelect
@@ -1536,17 +1541,6 @@ function TripDialog({
                       placeholder="Nº"
                     />
                   </div>
-                ) : (
-                  f.fornecedor && (
-                    <div className="w-20">
-                      <Label>Número</Label>
-                      <Input
-                        value={f.numero}
-                        onChange={(e) => setNumero(e.target.value)}
-                        placeholder="Opcional"
-                      />
-                    </div>
-                  )
                 )}
               </div>
               {f.fornecedor === "Uber" && (
