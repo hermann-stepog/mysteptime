@@ -110,6 +110,7 @@ import {
   useRateioPercentual,
   RateioPercentualPanel,
   FormaPagamentoField,
+  ListaDigitavelField,
 } from "@/components/LogisticaFormFields";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
@@ -185,7 +186,13 @@ type Column = { id: string; name: string; position: number };
 type Trip = {
   id: string;
   car_number: string;
-  // Só preenchido quando car_number é "Uber" — de onde a corrida foi solicitada.
+  // Tipo de transporte (lista fechada) e fornecedor (lista + "Outro") — separados de
+  // car_number a partir de 2026-10-20 (antes vinham misturados numa string só). car_number
+  // continua existindo como identificador de exibição/ordenação, calculado a partir desses dois
+  // + o número da unidade.
+  tipo_transporte: string | null;
+  fornecedor: string | null;
+  // Só preenchido quando fornecedor é "Uber" — de onde a corrida foi solicitada.
   uber_solicitado_via: string | null;
   column_id: string | null;
   scheduled_at: string;
@@ -304,6 +311,8 @@ function tripToRelatorioRow(
   return {
     Data: fmtDate(t.scheduled_at),
     Carro: t.car_number,
+    "Tipo de Transporte": t.tipo_transporte ?? "—",
+    Fornecedor: t.fornecedor ?? "—",
     "Uber solicitado via": t.uber_solicitado_via ?? "",
     Tipo: t.tipo === "material" ? "Material" : "Pessoas",
     Cliente: t.cliente ?? "",
@@ -508,7 +517,10 @@ function TripCard({
               );
             })
           : trip.motivo && (
-              <span className="rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-medium text-white">
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                style={{ backgroundColor: corDoMotivo(trip.motivo) }}
+              >
                 {trip.motivo}
               </span>
             )}
@@ -983,6 +995,29 @@ function tituloCaseMotivo(s: string): string {
     .join(" ");
 }
 
+// Cor do selo de Motivo no Kanban (pedido dela, 2026-10-20) — uma cor fixa por motivo, igual
+// etiqueta colorida tinha antes. Embarque/Desembarque casam por prefixo (cobre variantes
+// compostas, ex. "Embarque - Hotel", sempre verde) — o resto é nome exato. Motivo sem regra
+// definida cai no indigo antigo (nunca fica sem cor nenhuma).
+const MOTIVO_COR_FIXA: Record<string, string> = {
+  "VIAGEM": "#b8860b", // amarelo
+  "TRABALHO EXTERNO": "#78350f", // marrom
+  "TREINAMENTO": "#ea580c", // laranja
+  "ASO SMS": "#7c3aed", // roxo
+  "EMERGENCIA SMS": "#78350f", // marrom
+  "COLETA": "#64748b", // cinza
+  "NO SHOW": "#7f1d1d", // vinho
+  "REUNIAO": "#18181b", // preto
+  "VIAGEM CANCELADA": "#db2777", // rosa
+};
+
+function corDoMotivo(motivo: string): string {
+  const chave = normalizarTextoMotivo(motivo);
+  if (chave.startsWith("EMBARQUE")) return "#16a34a"; // verde
+  if (chave.startsWith("DESEMBARQUE")) return "#dc2626"; // vermelho
+  return MOTIVO_COR_FIXA[chave] ?? "#6366f1";
+}
+
 function nomesEtiquetasParaMotivo(etiquetas: { name: string }[]): string[] {
   const vistos = new Map<string, string>(); // chave normalizada -> nome de exibição escolhido
   for (const e of etiquetas) {
@@ -994,8 +1029,38 @@ function nomesEtiquetasParaMotivo(etiquetas: { name: string }[]): string[] {
   return Array.from(vistos.values());
 }
 
+// CARRO_PRESETS continua existindo só pra parseCarro/nomeTransporte (usados no filtro "Transporte"
+// antigo do Quadro Detalhado e nas mensagens de log) — o formulário de lançamento não usa mais
+// esse combobox, ver TIPOS_TRANSPORTE_FIXOS/FORNECEDORES_FIXOS abaixo.
 const CARRO_PRESETS = ["Uber", "Transfer", "Transporte Step", "Rodoviário"];
-const CARRO_OPCOES = [...CARRO_PRESETS, "Future", "Outro"];
+
+// Tipo de Transporte (pedido dela, 2026-10-20): lista fechada, igual ao glossário físico que ela
+// mandou — reclassificação de tudo que já existia foi feita por migration
+// (20261020000004_transport_tipo_fornecedor.sql), aqui é só o que o formulário oferece daqui pra
+// frente.
+const TIPOS_TRANSPORTE_FIXOS = [
+  "Transporte Executivo",
+  "Transporte Aplicativo",
+  "Transporte Rodoviário",
+  "Transporte Step",
+  "Fretado",
+];
+
+// Fornecedor (campo novo, pedido dela, 2026-10-20) — lista com todos os nomes que já apareciam
+// misturados no campo "Transporte" antigo, mais "99"/"Táxi" do glossário físico (sem lançamento
+// ainda, mas disponível pra quando usarem). ListaDigitavelField já cobre o escape "Outro".
+const FORNECEDORES_FIXOS = [
+  "Uber",
+  "99",
+  "Táxi",
+  "Future",
+  "Transfer",
+  "Carro",
+  "CAU Transportes",
+  "Oliveira",
+  "Step",
+  "Rodoviário",
+];
 
 const UBER_SOLICITADO_VIA_OPCOES = ["Computador", "Celular"];
 // Sentinela do filtro do Quadro Detalhado pra achar as viagens de Uber ainda sem esse campo
@@ -1078,10 +1143,9 @@ function TripDialog({
   type FormState = {
     id?: string;
     car_number: string;
-    carro_opcao: string;
-    carro_future_num: string;
-    carro_outro: string;
-    carro_outro_num: string;
+    tipo_transporte: string;
+    fornecedor: string;
+    numero: string;
     uber_solicitado_via: string;
     column_id: string;
     scheduled_at: string;
@@ -1117,11 +1181,17 @@ function TripDialog({
     materials: MaterialQty[];
   };
   const init = (t: Trip | null, cols: Column[]): FormState => {
-    if (t)
+    if (t) {
+      // Número vem embutido em car_number ("Future 5", "Carro 01"...) — reaproveita parseCarro
+      // só pra extrair esse número de volta pro campo próprio do formulário (tipo_transporte e
+      // fornecedor já vêm prontos das colunas novas, não precisam mais ser adivinhados daqui).
+      const { carro_future_num, carro_outro_num } = parseCarro(t.car_number);
       return {
         id: t.id,
         car_number: t.car_number,
-        ...parseCarro(t.car_number),
+        tipo_transporte: t.tipo_transporte ?? "",
+        fornecedor: t.fornecedor ?? "",
+        numero: carro_future_num || carro_outro_num,
         uber_solicitado_via: t.uber_solicitado_via ?? "",
         column_id: t.column_id ?? cols[0]?.id ?? "",
         scheduled_at: (t.scheduled_at ?? "").slice(0, 10),
@@ -1161,12 +1231,12 @@ function TripDialog({
           quantidade: x.quantidade ?? 1,
         })),
       };
+    }
     return {
       car_number: "",
-      carro_opcao: "",
-      carro_future_num: "",
-      carro_outro: "",
-      carro_outro_num: "",
+      tipo_transporte: "",
+      fornecedor: "",
+      numero: "",
       uber_solicitado_via: "",
       column_id: cols[0]?.id ?? "",
       scheduled_at: new Date().toISOString().slice(0, 10),
@@ -1293,10 +1363,14 @@ function TripDialog({
       if (f.unidades.filter((u) => u.trim()).length === 0) throw new Error("Selecione a unidade.");
       if (!f.motivo.trim()) throw new Error("Selecione o motivo.");
       if (!f.forma_pagamento) throw new Error("Selecione a forma de pagamento.");
+      if (!f.tipo_transporte) throw new Error("Selecione o tipo de transporte.");
+      if (!f.fornecedor.trim()) throw new Error("Selecione o fornecedor.");
       const isNew = !f.id;
       const payload = {
         car_number: f.car_number.trim(),
-        uber_solicitado_via: f.carro_opcao === "Uber" ? f.uber_solicitado_via || null : null,
+        tipo_transporte: f.tipo_transporte,
+        fornecedor: f.fornecedor.trim(),
+        uber_solicitado_via: f.fornecedor === "Uber" ? f.uber_solicitado_via || null : null,
         column_id: f.column_id || null,
         scheduled_at: `${f.scheduled_at}T12:00:00.000Z`,
         departure_time: f.departure_time || null,
@@ -1382,41 +1456,18 @@ function TripDialog({
     onError: (e: any) => notify.error(e.message),
   });
 
-  const setCarroOpcao = (opcao: string) => {
-    if (opcao === "Future")
-      setF({
-        ...f,
-        carro_opcao: opcao,
-        car_number: f.carro_future_num ? `Future ${f.carro_future_num}` : "",
-      });
-    else if (opcao === "Outro")
-      setF({
-        ...f,
-        carro_opcao: opcao,
-        car_number: [f.carro_outro, f.carro_outro_num].filter(Boolean).join(" "),
-      });
-    else
-      setF({
-        ...f,
-        carro_opcao: opcao,
-        car_number: opcao,
-        uber_solicitado_via: opcao === "Uber" ? f.uber_solicitado_via : "",
-      });
-  };
-  const setCarroFutureNum = (num: string) =>
-    setF({ ...f, carro_future_num: num, car_number: `Future ${num}` });
-  const setCarroOutro = (val: string) =>
+  // car_number continua existindo por baixo (título do card, ordenação, export "Carro") — a
+  // partir de 2026-10-20 é só calculado de Fornecedor + Número, nunca mais digitado direto.
+  const setTipoTransporte = (v: string) => setF({ ...f, tipo_transporte: v });
+  const setFornecedor = (v: string) =>
     setF({
       ...f,
-      carro_outro: val,
-      car_number: [val, f.carro_outro_num].filter(Boolean).join(" "),
+      fornecedor: v,
+      car_number: [v, f.numero].filter(Boolean).join(" "),
+      uber_solicitado_via: v === "Uber" ? f.uber_solicitado_via : "",
     });
-  const setCarroOutroNum = (num: string) =>
-    setF({
-      ...f,
-      carro_outro_num: num,
-      car_number: [f.carro_outro, num].filter(Boolean).join(" "),
-    });
+  const setNumero = (v: string) =>
+    setF({ ...f, numero: v, car_number: [f.fornecedor, v].filter(Boolean).join(" ") });
 
   const del = useMutation({
     mutationFn: async () => {
@@ -1448,52 +1499,38 @@ function TripDialog({
             <div>
               <div className="flex gap-2">
                 <div className="flex-1">
-                  <Label>Transporte</Label>
+                  <Label>Tipo de Transporte</Label>
                   <SearchableSelect
-                    value={f.carro_opcao}
-                    onValueChange={setCarroOpcao}
-                    options={[...CARRO_OPCOES]}
+                    value={f.tipo_transporte}
+                    onValueChange={setTipoTransporte}
+                    options={[...TIPOS_TRANSPORTE_FIXOS]}
                     placeholder="Selecione"
                   />
                 </div>
-                {f.carro_opcao === "Future" && (
-                  <div className="w-20">
-                    <Label>Número</Label>
-                    <SearchableSelect
-                      value={f.carro_future_num}
-                      onValueChange={setCarroFutureNum}
-                      options={Array.from({ length: 20 }, (_, i) => String(i + 1))}
-                      placeholder="Nº"
-                    />
-                  </div>
-                )}
-                {f.carro_opcao === "Uber" && (
-                  <div className="w-40">
-                    <Label>Solicitado via</Label>
-                    <SearchableSelect
-                      value={f.uber_solicitado_via}
-                      onValueChange={(v) => setF({ ...f, uber_solicitado_via: v })}
-                      options={[...UBER_SOLICITADO_VIA_OPCOES]}
-                      placeholder="Selecione"
-                    />
-                  </div>
-                )}
-              </div>
-              {f.carro_opcao === "Outro" && (
-                <div className="mt-2 flex gap-2">
-                  <Input
-                    className="flex-1"
-                    value={f.carro_outro}
-                    onChange={(e) => setCarroOutro(e.target.value)}
-                    placeholder="Especifique o transporte"
+                <div className="flex-1">
+                  <Label>Fornecedor</Label>
+                  <ListaDigitavelField
+                    value={f.fornecedor}
+                    onChange={setFornecedor}
+                    options={FORNECEDORES_FIXOS}
+                    placeholder="Selecione"
+                    manualPlaceholder="Nome do fornecedor"
                   />
-                  <div className="w-20">
-                    <Input
-                      value={f.carro_outro_num}
-                      onChange={(e) => setCarroOutroNum(e.target.value)}
-                      placeholder="Número"
-                    />
-                  </div>
+                </div>
+                <div className="w-20">
+                  <Label>Número</Label>
+                  <Input value={f.numero} onChange={(e) => setNumero(e.target.value)} placeholder="Opcional" />
+                </div>
+              </div>
+              {f.fornecedor === "Uber" && (
+                <div className="mt-2 w-40">
+                  <Label>Solicitado via</Label>
+                  <SearchableSelect
+                    value={f.uber_solicitado_via}
+                    onValueChange={(v) => setF({ ...f, uber_solicitado_via: v })}
+                    options={[...UBER_SOLICITADO_VIA_OPCOES]}
+                    placeholder="Selecione"
+                  />
                 </div>
               )}
             </div>
@@ -2317,16 +2354,18 @@ function buildPernas(trips: Trip[]): PernaCusto[] {
   return pernas;
 }
 
-type AgrupamentoCusto = "tipo" | "bsp" | "unidade";
+type AgrupamentoCusto = "tipo" | "fornecedor" | "bsp" | "unidade";
 
 const AGRUPAMENTO_LABEL: Record<AgrupamentoCusto, string> = {
   tipo: "Tipo de transporte",
+  fornecedor: "Fornecedor",
   bsp: "Centro de custo (BSP)",
   unidade: "Unidade",
 };
 
 function rotuloDimensao(p: PernaCusto, dim: AgrupamentoCusto): string {
-  if (dim === "tipo") return toDisplayCase(nomeTransporte(p.trip.car_number)) || "Não informado";
+  if (dim === "tipo") return p.trip.tipo_transporte ?? "Não informado";
+  if (dim === "fornecedor") return p.trip.fornecedor ?? "Não informado";
   if (dim === "bsp") return p.bsp;
   return p.trip.unidade?.trim() || "Sem unidade";
 }
@@ -2374,11 +2413,11 @@ function buildComparativoMensalPorTipo(trips: Trip[], ano: string) {
   const doAno = trips.filter((t) => t.scheduled_at.slice(0, 4) === ano);
   // Identidade categórica (cada tipo sempre com a mesma cor, mês a mês) — ordem fixa alfabética,
   // nunca por rank/magnitude (ao contrário do gráfico de ranking acima).
-  const tipos = Array.from(new Set(doAno.map((t) => toDisplayCase(nomeTransporte(t.car_number))))).sort();
+  const tipos = Array.from(new Set(doAno.map((t) => t.tipo_transporte ?? "Não informado"))).sort();
   const porMesTipo = new Map<string, Map<string, number>>();
   doAno.forEach((t) => {
     const mes = t.scheduled_at.slice(5, 7);
-    const tipo = toDisplayCase(nomeTransporte(t.car_number));
+    const tipo = t.tipo_transporte ?? "Não informado";
     if (!porMesTipo.has(mes)) porMesTipo.set(mes, new Map());
     const porTipo = porMesTipo.get(mes)!;
     porTipo.set(tipo, (porTipo.get(tipo) ?? 0) + (custoTotal(t) ?? 0));
@@ -2425,8 +2464,7 @@ function CustosTab({ trips }: { trips: Trip[] }) {
     [trips],
   );
   const tipoOptions = useMemo(
-    () =>
-      Array.from(new Set(trips.map((t) => toDisplayCase(nomeTransporte(t.car_number))))).sort(),
+    () => Array.from(new Set(trips.map((t) => t.tipo_transporte).filter((v): v is string => !!v))).sort(),
     [trips],
   );
 
@@ -2439,7 +2477,7 @@ function CustosTab({ trips }: { trips: Trip[] }) {
           (!periodoAte || dia <= periodoAte) &&
           (filterUnidade === "all" || t.unidade === filterUnidade) &&
           (filterBsp === "all" || [t.bsp, t.bsp_2, t.bsp_3].includes(filterBsp)) &&
-          (filterTipo === "all" || toDisplayCase(nomeTransporte(t.car_number)) === filterTipo)
+          (filterTipo === "all" || t.tipo_transporte === filterTipo)
         );
       }),
     [trips, periodoDe, periodoAte, filterUnidade, filterBsp, filterTipo],
@@ -2610,6 +2648,9 @@ function CustosTab({ trips }: { trips: Trip[] }) {
             <TabsList className="h-8">
               <TabsTrigger value="tipo" className="text-xs">
                 Tipo de transporte
+              </TabsTrigger>
+              <TabsTrigger value="fornecedor" className="text-xs">
+                Fornecedor
               </TabsTrigger>
               <TabsTrigger value="bsp" className="text-xs">
                 Centro de custo
@@ -3904,6 +3945,8 @@ function DetailView({
   const [cliente, setCliente] = useState<string[]>(() => (initialCliente ? [initialCliente] : []));
   const [tipo, setTipo] = useState<string[]>(() => (initialTipo ? [initialTipo] : []));
   const [carro, setCarro] = useState<string[]>([]);
+  const [tipoTransporteFiltro, setTipoTransporteFiltro] = useState<string[]>([]);
+  const [fornecedorFiltro, setFornecedorFiltro] = useState<string[]>([]);
   const [bsp, setBsp] = useState<string[]>([]);
   const [uberVia, setUberVia] = useState<string[]>([]);
   const [formaPagamento, setFormaPagamento] = useState<string[]>([]);
@@ -3934,6 +3977,25 @@ function DetailView({
       Array.from(
         new Set((trips as Trip[]).map((t) => toDisplayCase(nomeTransporte(t.car_number)))),
       ).sort(compareCarNumber),
+    [trips],
+  );
+
+  // Tipo de Transporte / Fornecedor (campos novos, pedido dela 2026-10-20) — lista fechada de
+  // verdade (vem da coluna tipo_transporte/fornecedor, não mais adivinhada do texto livre do
+  // car_number como o filtro "Transporte" acima, que continua existindo pra quem quiser filtrar
+  // pelo identificador específico, ex. "Future 5").
+  const tipoTransporteOptions = useMemo(
+    () =>
+      Array.from(
+        new Set((trips as Trip[]).map((t) => t.tipo_transporte).filter((v): v is string => !!v)),
+      ).sort(),
+    [trips],
+  );
+  const fornecedorOptions = useMemo(
+    () =>
+      Array.from(
+        new Set((trips as Trip[]).map((t) => t.fornecedor).filter((v): v is string => !!v)),
+      ).sort(),
     [trips],
   );
 
@@ -3976,14 +4038,17 @@ function DetailView({
       if (tipo.length > 0 && !tipo.includes(t.tipo)) return false;
       if (carro.length > 0 && !carro.includes(toDisplayCase(nomeTransporte(t.car_number))))
         return false;
+      if (tipoTransporteFiltro.length > 0 && !tipoTransporteFiltro.includes(t.tipo_transporte ?? ""))
+        return false;
+      if (fornecedorFiltro.length > 0 && !fornecedorFiltro.includes(t.fornecedor ?? ""))
+        return false;
       if (
         bsp.length > 0 &&
         ![t.bsp, t.bsp_2, t.bsp_3].some((b) => b && bsp.includes(b))
       )
         return false;
       if (uberVia.length > 0) {
-        const ehVazioUber =
-          nomeTransporte(t.car_number) === "Uber" && !t.uber_solicitado_via?.trim();
+        const ehVazioUber = t.fornecedor === "Uber" && !t.uber_solicitado_via?.trim();
         const bate =
           (uberVia.includes(UBER_VIA_FILTRO_VAZIO) && ehVazioUber) ||
           (!!t.uber_solicitado_via && uberVia.includes(t.uber_solicitado_via));
@@ -4070,6 +4135,8 @@ function DetailView({
     cliente,
     tipo,
     carro,
+    tipoTransporteFiltro,
+    fornecedorFiltro,
     bsp,
     uberVia,
     formaPagamento,
@@ -4146,6 +4213,22 @@ function DetailView({
         <div>
           <Label className="text-xs">Transporte</Label>
           <SearchableMultiSelect value={carro} onValueChange={setCarro} options={carroOptions} />
+        </div>
+        <div>
+          <Label className="text-xs">Tipo de Transporte</Label>
+          <SearchableMultiSelect
+            value={tipoTransporteFiltro}
+            onValueChange={setTipoTransporteFiltro}
+            options={tipoTransporteOptions}
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Fornecedor</Label>
+          <SearchableMultiSelect
+            value={fornecedorFiltro}
+            onValueChange={setFornecedorFiltro}
+            options={fornecedorOptions}
+          />
         </div>
         <div>
           <Label className="text-xs">BSP</Label>
