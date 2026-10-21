@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtDate, fmtMoney, downloadCSV } from "@/lib/format";
 import {
   DollarSign, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
-  BedDouble, Car, Plane, Wallet,
+  BedDouble, Car, Plane, Wallet, Hotel, MapPin,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
@@ -20,7 +20,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { CLIENTES, clienteDaUnidade, unidadeCanonica } from "@/lib/clientes";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
-import { rateiosDaHospedagem } from "@/lib/hospedagem";
+import { rateiosDaHospedagem, type HotelFornecedor } from "@/lib/hospedagem";
+import { selectAllPages } from "@/lib/supabasePaginate";
+import { SearchableSelect } from "@/components/SearchableSelect";
 // Funil do registry customizado @bklit (visx + d3) — o Bar/Pie desse mesmo registry batem num
 // bug real da versão alpha de @visx/responsive nesse projeto (ParentSize nunca mede o
 // container, gráfico fica em branco) — só o Funnel, que não depende desse hook, funciona.
@@ -78,6 +80,7 @@ function CostsPage() {
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="consolidada">Visão Consolidada</TabsTrigger>
+          <TabsTrigger value="detalhada">Visão Detalhada</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4">
@@ -86,6 +89,10 @@ function CostsPage() {
 
         <TabsContent value="consolidada" className="mt-4">
           <VisaoConsolidadaTab />
+        </TabsContent>
+
+        <TabsContent value="detalhada" className="mt-4">
+          <VisaoDetalhadaTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -106,7 +113,12 @@ const TIPO_CUSTO_ORDER: TipoCusto[] = ["hospedagem", "transporte", "passagens"];
 
 // dataFim cobre estadias/viagens que atravessam mais de um dia (hospedagem, ida e volta) —
 // pra filtro de período por sobreposição, não só pela data de início.
-interface ItemConsolidado { tipo: TipoCusto; data: string; dataFim: string; descricao: string; valor: number; }
+interface ItemConsolidado {
+  tipo: TipoCusto; data: string; dataFim: string; descricao: string; valor: number;
+  // Só preenchido pros itens de hospedagem — base da aba "Visão Detalhada" (custo por hotel/
+  // região), pedido dela 2026-10-21.
+  hotelId?: string;
+}
 interface LancamentoBruto { cliente: string; unidade: string; bsp: string; item: ItemConsolidado; }
 
 function primeiroDiaMes(): string {
@@ -142,7 +154,7 @@ function useCustosBrutosQuery() {
   const { data: ratesMap = new Map(), isLoading: l1 } = useRatesBspMapQuery();
   const { data: hospedagens = [], isLoading: l2 } = useQuery({
     queryKey: ["consolidada-hospedagens"],
-    queryFn: async () => (await db.from("hospedagens").select("id, check_in, check_out, unidade, unidade_2, unidade_3, bsp, bsp_2, bsp_3, nome_usuario, valor_total, valor_2, valor_3")).data ?? [],
+    queryFn: async () => (await db.from("hospedagens").select("id, check_in, check_out, unidade, unidade_2, unidade_3, bsp, bsp_2, bsp_3, nome_usuario, valor_total, valor_2, valor_3, hotel_id")).data ?? [],
   });
   const { data: trips = [], isLoading: l3 } = useQuery({
     queryKey: ["consolidada-transport-trips"],
@@ -180,6 +192,7 @@ function useCustosBrutosQuery() {
           item: {
             tipo: "hospedagem", data: h.check_in, dataFim: h.check_out || h.check_in,
             descricao: `${h.nome_usuario} · ${fmtDate(h.check_in)} – ${fmtDate(h.check_out)}`, valor,
+            hotelId: h.hotel_id ?? undefined,
           },
         });
       });
@@ -223,6 +236,19 @@ function useCustosBrutosQuery() {
   }, [hospedagens, passagens, trips, ratesMap]);
 
   return { brutos, isLoading: l1 || l2 || l3 || l4 };
+}
+
+// Cadastro de hotéis (nome/cidade/estado/região/aeroporto próximo) — base da aba "Visão
+// Detalhada" (pedido dela, 2026-10-21). selectAllPages evita o corte de 1000 linhas do
+// PostgREST, mesmo padrão já usado em todo o projeto.
+function useHoteisFornecedoresQuery() {
+  return useQuery<HotelFornecedor[]>({
+    queryKey: ["hoteis-fornecedores"],
+    queryFn: () =>
+      selectAllPages<HotelFornecedor>((from, to) =>
+        db.from("hoteis_fornecedores").select("*").order("nome").range(from, to),
+      ),
+  });
 }
 
 function VisaoConsolidadaTab() {
@@ -523,6 +549,273 @@ function VisaoConsolidadaTab() {
             })}
           </Card>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Aba "Visão Detalhada" — custo de hospedagem por Projeto (Unidade + Cliente), Região e
+// Hotel, com o aeroporto mais próximo de cada hotel (pedido dela, 2026-10-21). "Projeto" aqui é
+// a Unidade (embarcação/base), mesma dimensão usada em todo o sistema — Cliente é só mostrado
+// junto, derivado automaticamente. Região/Aeroporto vêm do cadastro de Hotéis (aba Hotéis, dentro
+// de Hospedagem); hotel sem esses campos ainda preenchidos aparece como "Região não informada"/
+// "Aeroporto não informado" — nunca escondido por falta de cadastro.
+const visaoDetalhadaChartConfig = {} satisfies ChartConfig;
+
+function VisaoDetalhadaTab() {
+  const [periodoDe, setPeriodoDe] = useState(primeiroDiaMes);
+  const [periodoAte, setPeriodoAte] = useState(ultimoDiaMes);
+  const [filterProjeto, setFilterProjeto] = useState("all");
+  const [filterRegiao, setFilterRegiao] = useState("all");
+
+  const { brutos: todosBrutos, isLoading: l1 } = useCustosBrutosQuery();
+  const { data: hoteis = [], isLoading: l2 } = useHoteisFornecedoresQuery();
+  const isLoading = l1 || l2;
+
+  const hoteisPorId = useMemo(() => new Map(hoteis.map((h) => [h.id, h])), [hoteis]);
+
+  // Uma linha por "perna" de hospedagem que já caiu num hotel cadastrado — hospedagem sem
+  // hotel_id (lançamento muito antigo) não entra aqui, já que não tem como saber região/aeroporto.
+  const linhas = useMemo(
+    () =>
+      todosBrutos
+        .filter((b) => b.item.tipo === "hospedagem" && b.item.hotelId)
+        .filter((b) => b.item.dataFim >= periodoDe && b.item.data <= periodoAte)
+        .map((b) => {
+          const hotel = hoteisPorId.get(b.item.hotelId!);
+          return {
+            projeto: b.unidade,
+            cliente: b.cliente,
+            regiao: hotel?.regiao?.trim() || "Região não informada",
+            hotelNome: hotel?.nome ?? "Hotel não cadastrado",
+            aeroporto: hotel?.aeroporto_proximo?.trim() || "Aeroporto não informado",
+            valor: b.item.valor,
+          };
+        }),
+    [todosBrutos, hoteisPorId, periodoDe, periodoAte],
+  );
+
+  const projetoOptions = useMemo(() => Array.from(new Set(linhas.map((l) => l.projeto))).sort(), [linhas]);
+  const regiaoOptions = useMemo(() => Array.from(new Set(linhas.map((l) => l.regiao))).sort(), [linhas]);
+
+  const filtradas = useMemo(
+    () =>
+      linhas.filter(
+        (l) =>
+          (filterProjeto === "all" || l.projeto === filterProjeto) &&
+          (filterRegiao === "all" || l.regiao === filterRegiao),
+      ),
+    [linhas, filterProjeto, filterRegiao],
+  );
+
+  const totalGeral = useMemo(() => filtradas.reduce((a, l) => a + l.valor, 0), [filtradas]);
+
+  const porProjeto = useMemo(() => {
+    const m = new Map<string, { cliente: string; total: number }>();
+    filtradas.forEach((l) => {
+      const atual = m.get(l.projeto) ?? { cliente: l.cliente, total: 0 };
+      atual.total += l.valor;
+      m.set(l.projeto, atual);
+    });
+    return Array.from(m.entries())
+      .map(([projeto, v]) => ({ rotulo: `${projeto} (${v.cliente})`, total: v.total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+  }, [filtradas]);
+
+  const porRegiao = useMemo(() => {
+    const m = new Map<string, number>();
+    filtradas.forEach((l) => m.set(l.regiao, (m.get(l.regiao) ?? 0) + l.valor));
+    return Array.from(m.entries())
+      .map(([regiao, total]) => ({ regiao, total }))
+      .sort((a, b) => b.total - a.total);
+  }, [filtradas]);
+
+  const arvore = useMemo(() => {
+    const porProjetoM = new Map<string, { cliente: string; porRegiao: Map<string, Map<string, { aeroporto: string; total: number }>> }>();
+    filtradas.forEach((l) => {
+      if (!porProjetoM.has(l.projeto)) porProjetoM.set(l.projeto, { cliente: l.cliente, porRegiao: new Map() });
+      const entry = porProjetoM.get(l.projeto)!;
+      if (!entry.porRegiao.has(l.regiao)) entry.porRegiao.set(l.regiao, new Map());
+      const porHotel = entry.porRegiao.get(l.regiao)!;
+      const atual = porHotel.get(l.hotelNome) ?? { aeroporto: l.aeroporto, total: 0 };
+      atual.total += l.valor;
+      porHotel.set(l.hotelNome, atual);
+    });
+    return Array.from(porProjetoM.entries())
+      .map(([projeto, { cliente, porRegiao: porRegiaoM }]) => {
+        const regioes = Array.from(porRegiaoM.entries())
+          .map(([regiao, porHotel]) => {
+            const hoteisArr = Array.from(porHotel.entries())
+              .map(([hotel, v]) => ({ hotel, aeroporto: v.aeroporto, total: v.total }))
+              .sort((a, b) => b.total - a.total);
+            return { regiao, total: hoteisArr.reduce((a, h) => a + h.total, 0), hoteis: hoteisArr };
+          })
+          .sort((a, b) => b.total - a.total);
+        return { projeto, cliente, total: regioes.reduce((a, r) => a + r.total, 0), regioes };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [filtradas]);
+
+  const [collapsedProjetos, setCollapsedProjetos] = useState<Set<string>>(new Set());
+  const [collapsedRegioes, setCollapsedRegioes] = useState<Set<string>>(new Set());
+  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
+            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
+            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+          </div>
+          <div className="space-y-0.5 w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Projeto</Label>
+            <SearchableSelect
+              value={filterProjeto}
+              onValueChange={setFilterProjeto}
+              options={[{ value: "all", label: "Todos" }, ...projetoOptions]}
+            />
+          </div>
+          <div className="space-y-0.5 w-56">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Região</Label>
+            <SearchableSelect
+              value={filterRegiao}
+              onValueChange={setFilterRegiao}
+              options={[{ value: "all", label: "Todas" }, ...regiaoOptions]}
+            />
+          </div>
+        </div>
+      </Card>
+
+      <Card className="flex items-center justify-between p-4">
+        <span className="text-sm font-medium text-muted-foreground">Total de hospedagem no período</span>
+        <span className="text-xl font-bold">{fmtMoney(totalGeral)}</span>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Custo por Projeto</h2>
+          <div className="mt-3" style={{ height: Math.max(220, porProjeto.length * 42) }}>
+            {porProjeto.length === 0 ? (
+              <EmptyState icon={Ship} title="Nenhum custo encontrado" className="h-full" />
+            ) : (
+              <ChartContainer config={visaoDetalhadaChartConfig} className="aspect-auto h-full w-full">
+                <RechartsBarChart data={porProjeto} layout="vertical" margin={{ left: 8, right: 24 }}>
+                  <CartesianGrid horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
+                  <YAxis type="category" dataKey="rotulo" tickLine={false} axisLine={false} fontSize={11} width={160} />
+                  <ShadcnChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel formatter={(value) => fmtMoney(Number(value))} />} />
+                  <Bar dataKey="total" radius={[0, 6, 6, 0]}>
+                    {porProjeto.map((item, i) => <Cell key={item.rotulo} fill={CLIENTE_CORES[i % CLIENTE_CORES.length]} />)}
+                    <LabelList dataKey="total" position="right" fontSize={11} fill="hsl(var(--foreground))" formatter={(v: number) => fmtMoney(v)} />
+                  </Bar>
+                </RechartsBarChart>
+              </ChartContainer>
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-base font-semibold">Custo por Região</h2>
+          <div className="mt-3" style={{ height: Math.max(220, porRegiao.length * 42) }}>
+            {porRegiao.length === 0 ? (
+              <EmptyState icon={MapPin} title="Nenhum custo encontrado" className="h-full" />
+            ) : (
+              <ChartContainer config={visaoDetalhadaChartConfig} className="aspect-auto h-full w-full">
+                <RechartsBarChart data={porRegiao} layout="vertical" margin={{ left: 8, right: 24 }}>
+                  <CartesianGrid horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
+                  <YAxis type="category" dataKey="regiao" tickLine={false} axisLine={false} fontSize={11} width={160} />
+                  <ShadcnChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel formatter={(value) => fmtMoney(Number(value))} />} />
+                  <Bar dataKey="total" radius={[0, 6, 6, 0]}>
+                    {porRegiao.map((item, i) => <Cell key={item.regiao} fill={CLIENTE_CORES[i % CLIENTE_CORES.length]} />)}
+                    <LabelList dataKey="total" position="right" fontSize={11} fill="hsl(var(--foreground))" formatter={(v: number) => fmtMoney(v)} />
+                  </Bar>
+                </RechartsBarChart>
+              </ChartContainer>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {arvore.length === 0 ? (
+        <Card className="p-8"><EmptyStateRow colSpan={1} icon={Hotel} title="Nenhum custo de hospedagem encontrado no período" /></Card>
+      ) : (
+        <Card className="overflow-hidden">
+          {arvore.map((p) => {
+            const projetoAberto = !collapsedProjetos.has(p.projeto);
+            return (
+              <div key={p.projeto} className="border-b last:border-b-0">
+                <button
+                  type="button" className="flex w-full flex-wrap items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-left"
+                  aria-expanded={projetoAberto} onClick={() => toggleSet(setCollapsedProjetos, p.projeto)}
+                >
+                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                    {projetoAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                    <Ship className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="truncate">{p.projeto}</span>
+                    <span className="text-xs font-normal text-muted-foreground">({p.cliente})</span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold">{fmtMoney(p.total)}</span>
+                </button>
+                {projetoAberto && p.regioes.map((r) => {
+                  const regiaoKey = `${p.projeto}::${r.regiao}`;
+                  const regiaoAberta = !collapsedRegioes.has(regiaoKey);
+                  return (
+                    <div key={regiaoKey}>
+                      <button
+                        type="button" className="flex w-full flex-wrap items-center justify-between gap-2 border-t bg-sky-50/60 px-4 py-2.5 pl-9 text-left"
+                        aria-expanded={regiaoAberta} onClick={() => toggleSet(setCollapsedRegioes, regiaoKey)}
+                      >
+                        <span className="flex min-w-0 items-center gap-2 font-medium text-sky-950">
+                          {regiaoAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                          <MapPin className="h-4 w-4 shrink-0 text-sky-700" />
+                          <span className="truncate">{r.regiao}</span>
+                          <span className="text-xs font-normal text-muted-foreground">({r.hoteis.length} hotel(is))</span>
+                        </span>
+                        <span className="shrink-0 text-sm font-medium">{fmtMoney(r.total)}</span>
+                      </button>
+                      {regiaoAberta && (
+                        <div className="divide-y border-t bg-emerald-50/40 pl-16">
+                          {r.hoteis.map((h) => (
+                            <div key={h.hotel} className="flex flex-wrap items-center justify-between gap-2 py-2 pr-4 text-xs">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <Hotel className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <span className="truncate font-medium">{h.hotel}</span>
+                                <span className="shrink-0 text-muted-foreground">· ✈ {h.aeroporto}</span>
+                              </div>
+                              <span className="shrink-0 font-semibold">{fmtMoney(h.total)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </Card>
       )}
     </div>
   );

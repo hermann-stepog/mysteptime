@@ -2162,7 +2162,9 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<HotelFornecedor | null>(null);
   const [creating, setCreating] = useState(false);
-  const [f, setF] = useState({ nome: "", cidade: "", estado: "", endereco: "", telefone: "" });
+  const [f, setF] = useState({
+    nome: "", cidade: "", estado: "", endereco: "", telefone: "", regiao: "", aeroportoProximo: "",
+  });
   const [bound, setBound] = useState<string | null>(null);
   const { sortColumn, sortDirection, toggleSort } = useTableSort<HoteisSortColumn>();
 
@@ -2173,11 +2175,13 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
       estado: editing.estado,
       endereco: editing.endereco ?? "",
       telefone: editing.telefone ?? "",
+      regiao: editing.regiao ?? "",
+      aeroportoProximo: editing.aeroporto_proximo ?? "",
     });
     setBound(editing.id);
   }
   if (creating && bound !== "novo") {
-    setF({ nome: "", cidade: "", estado: "", endereco: "", telefone: "" });
+    setF({ nome: "", cidade: "", estado: "", endereco: "", telefone: "", regiao: "", aeroportoProximo: "" });
     setBound("novo");
   }
 
@@ -2189,6 +2193,8 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
         estado: f.estado.trim().toUpperCase(),
         endereco: f.endereco.trim() || null,
         telefone: f.telefone.trim() || null,
+        regiao: f.regiao.trim() || null,
+        aeroporto_proximo: f.aeroportoProximo.trim() || null,
       };
       if (editing) {
         const { error } = await supabase
@@ -2285,12 +2291,14 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
               />
               <TableHead>Endereço</TableHead>
               <TableHead>Telefone</TableHead>
+              <TableHead>Região</TableHead>
+              <TableHead>Aeroporto Próximo</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {ordenados.length === 0 ? (
-              <EmptyStateRow colSpan={6} icon={Hotel} title="Nenhum hotel cadastrado" />
+              <EmptyStateRow colSpan={8} icon={Hotel} title="Nenhum hotel cadastrado" />
             ) : (
               ordenados.map((h) => (
                 <TableRow key={h.id}>
@@ -2301,6 +2309,8 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
                     {h.endereco ?? "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{h.telefone ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{h.regiao ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{h.aeroporto_proximo ?? "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button
@@ -2383,6 +2393,22 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
               <Input
                 value={f.telefone}
                 onChange={(e) => setF({ ...f, telefone: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Região</Label>
+              <Input
+                value={f.regiao}
+                onChange={(e) => setF({ ...f, regiao: e.target.value })}
+                placeholder="Ex.: Bacia de Campos"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Aeroporto Próximo</Label>
+              <Input
+                value={f.aeroportoProximo}
+                onChange={(e) => setF({ ...f, aeroportoProximo: e.target.value })}
+                placeholder="Ex.: Aeroporto de Macaé"
               />
             </div>
           </div>

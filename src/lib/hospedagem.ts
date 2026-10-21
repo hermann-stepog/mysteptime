@@ -8,6 +8,10 @@ export interface HotelFornecedor {
   estado: string;
   endereco: string | null;
   telefone: string | null;
+  // Pedido dela, 2026-10-21 — base da aba "Visão Detalhada" de Custos (custo por região/
+  // aeroporto). Texto livre, ela decide a nomenclatura das regiões; preenchido aos poucos.
+  regiao: string | null;
+  aeroporto_proximo: string | null;
 }
 
 export interface Hospedagem {
