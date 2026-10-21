@@ -1463,13 +1463,18 @@ function TripDialog({
   // car_number continua existindo por baixo (título do card, ordenação, export "Carro") — a
   // partir de 2026-10-20 é só calculado de Fornecedor + Número, nunca mais digitado direto.
   const setTipoTransporte = (v: string) => setF({ ...f, tipo_transporte: v });
-  const setFornecedor = (v: string) =>
+  const setFornecedor = (v: string) => {
+    // Número só existe pro fornecedor "Future" (pedido dela) — trocando pra outro fornecedor,
+    // descarta um número que tivesse ficado de um "Future" selecionado antes.
+    const numero = v === "Future" ? f.numero : "";
     setF({
       ...f,
       fornecedor: v,
-      car_number: [v, f.numero].filter(Boolean).join(" "),
+      numero,
+      car_number: [v, numero].filter(Boolean).join(" "),
       uber_solicitado_via: v === "Uber" ? f.uber_solicitado_via : "",
     });
+  };
   const setNumero = (v: string) =>
     setF({ ...f, numero: v, car_number: [f.fornecedor, v].filter(Boolean).join(" ") });
 
@@ -1524,11 +1529,9 @@ function TripDialog({
                     manualPlaceholder="Nome do fornecedor"
                   />
                 </div>
-                {/* Pedido dela (2026-10-21): quando o fornecedor é "Future", mantém a opção de
-                    número do carro como já existia (lista 1-20) em vez de texto livre — pros
-                    demais fornecedores (que também têm número às vezes, ex. "Carro 01"), continua
-                    como campo de texto livre opcional. */}
-                {f.fornecedor === "Future" ? (
+                {/* Pedido dela (2026-10-21): o campo Número só aparece pro fornecedor "Future",
+                    lista 1-20 como já existia antes. */}
+                {f.fornecedor === "Future" && (
                   <div className="w-20">
                     <Label>Número</Label>
                     <SearchableSelect
@@ -1538,17 +1541,6 @@ function TripDialog({
                       placeholder="Nº"
                     />
                   </div>
-                ) : (
-                  f.fornecedor && (
-                    <div className="w-20">
-                      <Label>Número</Label>
-                      <Input
-                        value={f.numero}
-                        onChange={(e) => setNumero(e.target.value)}
-                        placeholder="Opcional"
-                      />
-                    </div>
-                  )
                 )}
               </div>
               {f.fornecedor === "Uber" && (
