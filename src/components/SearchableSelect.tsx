@@ -10,7 +10,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
-import { cn, matchesNameSearch } from "@/lib/utils";
+import { cn, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 
 // Select de opção única com busca por texto — o <Select> do shadcn não filtra pelo que é
 // digitado, só pula pra primeira opção que começa com a letra (comportamento nativo do
@@ -39,6 +39,7 @@ export function SearchableSelect({
 }) {
   const [open, setOpen] = useState(false);
   const selecionado = options.find((opt) => valorDe(opt) === value);
+  const ordenadas = useOrdemComSelecionadosFixados(options, open, (opt) => valorDe(opt) === value);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -66,7 +67,7 @@ export function SearchableSelect({
           <CommandList className={options.length <= 6 ? "max-h-none overflow-visible" : undefined}>
             <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
             <CommandGroup>
-              {options.map((opt) => {
+              {ordenadas.map((opt) => {
                 const v = valorDe(opt);
                 const label = labelDe(opt);
                 return (
@@ -116,6 +117,7 @@ export function SearchableMultiSelect({
   const [open, setOpen] = useState(false);
   const toggle = (v: string) =>
     onValueChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  const ordenadas = useOrdemComSelecionadosFixados(options, open, (opt) => value.includes(valorDe(opt)));
   const rotulo =
     value.length === 0
       ? placeholder
@@ -146,7 +148,7 @@ export function SearchableMultiSelect({
           <CommandList className={options.length <= 6 ? "max-h-none overflow-visible" : undefined}>
             <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
             <CommandGroup>
-              {options.map((opt) => {
+              {ordenadas.map((opt) => {
                 const v = valorDe(opt);
                 const label = labelDe(opt);
                 return (

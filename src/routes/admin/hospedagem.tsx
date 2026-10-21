@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
-import { matchesNameSearch } from "@/lib/utils";
+import { matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { parseValorForm } from "@/lib/format";
 // hoteis_fornecedores/hospedagens ainda não estão nos tipos gerados (types.ts não é
 // regerado automaticamente neste projeto — ver mesmo padrão em nominations.tsx); cast local
@@ -286,6 +286,7 @@ function HotelCombobox({
   const [newOpen, setNewOpen] = useState(false);
   const [nf, setNf] = useState({ nome: "", cidade: "", estado: "" });
   const selected = hoteis.find((h) => h.id === value);
+  const ordenados = useOrdemComSelecionadosFixados(hoteis, open, (h) => h.id === value);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -326,7 +327,7 @@ function HotelCombobox({
             <CommandList>
               <CommandEmpty>Nenhum hotel encontrado.</CommandEmpty>
               <CommandGroup>
-                {hoteis.map((h) => (
+                {ordenados.map((h) => (
                   <CommandItem
                     key={h.id}
                     value={`${h.nome} ${h.cidade}`}

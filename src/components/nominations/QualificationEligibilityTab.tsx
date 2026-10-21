@@ -69,7 +69,7 @@ import {
   type QualificationFilterOption,
 } from "@/lib/qualification-eligibility/repository";
 import { groupQualificationJobs } from "@/lib/qualification-eligibility/job-groups";
-import { cn } from "@/lib/utils";
+import { cn, useOrdemComSelecionadosFixados } from "@/lib/utils";
 
 const STATUS_LABEL: Record<EligibilityStatus, string> = {
   fit: "Apto",
@@ -932,6 +932,7 @@ function SearchableFilterSelect({
 }) {
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.id === value);
+  const ordenadas = useOrdemComSelecionadosFixados(options, open, (option) => option.id === value);
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
@@ -957,7 +958,7 @@ function SearchableFilterSelect({
             <CommandList>
               <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
               <CommandGroup>
-                {options.map((option) => (
+                {ordenadas.map((option) => (
                   <CommandItem
                     key={option.id}
                     value={option.name}

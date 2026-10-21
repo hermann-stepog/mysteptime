@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/command";
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import { MOTIVOS_LOGISTICA, FORMAS_PAGAMENTO } from "@/lib/logistica";
-import { cn, matchesNameSearch } from "@/lib/utils";
+import { cn, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { parseValorForm } from "@/lib/format";
 
@@ -163,6 +163,7 @@ export function ColaboradoresDrakeMultiField({ value, onChange, colaboradores, p
   const [search, setSearch] = useState("");
   const colaboradoresUnicos = useMemo(() => colaboradoresUnicosPorNome(colaboradores), [colaboradores]);
   const toggle = (nome: string) => onChange(value.includes(nome) ? value.filter((v) => v !== nome) : [...value, nome]);
+  const ordenados = useOrdemComSelecionadosFixados(colaboradoresUnicos, open, (c) => value.includes(c.nome));
 
   return (
     <div className="space-y-2">
@@ -182,7 +183,7 @@ export function ColaboradoresDrakeMultiField({ value, onChange, colaboradores, p
             <CommandList className="max-h-64">
               <CommandEmpty>Nenhum encontrado.</CommandEmpty>
               <CommandGroup>
-                {colaboradoresUnicos.map((c) => (
+                {ordenados.map((c) => (
                   <CommandItem key={c.id} value={c.nome} onSelect={() => toggle(c.nome)}>
                     <Check className={cn("mr-2 h-4 w-4", value.includes(c.nome) ? "opacity-100" : "opacity-0")} />
                     <span className="flex-1">{c.nome}</span>

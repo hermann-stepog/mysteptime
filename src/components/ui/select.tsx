@@ -83,6 +83,16 @@ const SelectContent = React.forwardRef<
           position === "popper" &&
             "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]",
         )}
+        // Pedido dela (2026-10-21): mesma correção de scroll-lock já aplicada ao CommandList
+        // (src/components/ui/command.tsx) — o bloqueio de rolagem do fundo da página que o Radix
+        // Dialog liga enquanto está aberto pode interceptar a roda do mouse mesmo dentro de um
+        // Select por cima dele. Rola a própria lista na mão e impede o evento de chegar nesse
+        // bloqueio, "definitivamente" em toda lista do sistema que usa esse componente.
+        onWheel={(e) => {
+          e.currentTarget.scrollTop += e.deltaY;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
       >
         {children}
       </SelectPrimitive.Viewport>

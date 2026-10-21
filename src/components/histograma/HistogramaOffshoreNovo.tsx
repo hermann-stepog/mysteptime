@@ -110,7 +110,7 @@ import {
   ChevronRight,
   Lock,
 } from "lucide-react";
-import { cn, matchesNameSearch } from "@/lib/utils";
+import { cn, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import {
   TIPO_ORDER,
   TIPO_ORDER_ATRIBUIVEL,
@@ -466,6 +466,7 @@ function ColaboradorCombobox({
     funcao_operacao: "",
   });
   const selected = colaboradores.find((c) => c.id === value);
+  const ordenados = useOrdemComSelecionadosFixados(colaboradores, open, (c) => c.id === value);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -510,7 +511,7 @@ function ColaboradorCombobox({
             <CommandList>
               <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
               <CommandGroup>
-                {colaboradores.map((c) => (
+                {ordenados.map((c) => (
                   <CommandItem
                     key={c.id}
                     value={`${c.nome} ${c.matricula}`}
@@ -618,6 +619,7 @@ function ColaboradoresMultiCombobox({
   const selected = colaboradores.filter((c) => value.includes(c.id));
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  const ordenados = useOrdemComSelecionadosFixados(colaboradores, open, (c) => value.includes(c.id));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -672,7 +674,7 @@ function ColaboradoresMultiCombobox({
           <CommandList>
             <CommandEmpty>Nenhum colaborador encontrado.</CommandEmpty>
             <CommandGroup>
-              {colaboradores.map((c) => {
+              {ordenados.map((c) => {
                 const isSelected = value.includes(c.id);
                 return (
                   <CommandItem
@@ -719,6 +721,7 @@ function BspCombobox({
   onManual: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const ordenados = useOrdemComSelecionadosFixados(options, open, (b) => b === value);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -741,7 +744,7 @@ function BspCombobox({
           <CommandList>
             <CommandEmpty>Nenhum BSP encontrado.</CommandEmpty>
             <CommandGroup>
-              {options.map((b) => (
+              {ordenados.map((b) => (
                 <CommandItem
                   key={b}
                   value={b}
@@ -800,6 +803,7 @@ export function StringMultiCombobox({
   const [open, setOpen] = useState(false);
   const toggle = (o: string) =>
     onChange(value.includes(o) ? value.filter((v) => v !== o) : [...value, o]);
+  const ordenadas = useOrdemComSelecionadosFixados(options, open, (o) => value.includes(o));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -825,7 +829,7 @@ export function StringMultiCombobox({
           <CommandList>
             <CommandEmpty>{emptyLabel}</CommandEmpty>
             <CommandGroup>
-              {options.map((o) => {
+              {ordenadas.map((o) => {
                 const isSelected = value.includes(o);
                 return (
                   <CommandItem key={o} value={o} onSelect={() => toggle(o)} className="text-xs">
@@ -859,6 +863,7 @@ function EventoMultiCombobox({
   const toggle = (v: string) =>
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   const selectedLabels = options.filter((o) => value.includes(o.value)).map((o) => o.label);
+  const ordenadas = useOrdemComSelecionadosFixados(options, open, (o) => value.includes(o.value));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -886,7 +891,7 @@ function EventoMultiCombobox({
           <CommandList>
             <CommandEmpty>Nenhum evento encontrado.</CommandEmpty>
             <CommandGroup>
-              {options.map((o) => {
+              {ordenadas.map((o) => {
                 const isSelected = value.includes(o.value);
                 return (
                   <CommandItem
