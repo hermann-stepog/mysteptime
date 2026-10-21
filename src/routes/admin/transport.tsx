@@ -1060,7 +1060,6 @@ const FORNECEDORES_FIXOS = [
   "Táxi",
   "Future",
   "Transfer",
-  "Carro",
   "CAU Transportes",
   "Oliveira",
   "Step",
@@ -1501,9 +1500,12 @@ function TripDialog({
             normalmente (overflow-y-auto se mantém), só o "trilho" cinza deixa de aparecer. */}
         <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <div className="flex gap-2">
-                <div className="flex-1">
+            {/* Pedido dela (2026-10-21): esse bloco tem 3 campos (Tipo/Fornecedor/Número) e não
+                cabia espremido numa coluna só de 2 — o Número ficava estourando por cima do
+                campo Motivo ao lado. Ocupa a largura toda do diálogo agora. */}
+            <div className="sm:col-span-2">
+              <div className="flex flex-wrap gap-2">
+                <div className="flex-1 min-w-[140px]">
                   <Label>Tipo de Transporte</Label>
                   <SearchableSelect
                     value={f.tipo_transporte}
@@ -1512,7 +1514,7 @@ function TripDialog({
                     placeholder="Selecione"
                   />
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-[140px]">
                   <Label>Fornecedor</Label>
                   <ListaDigitavelField
                     value={f.fornecedor}
