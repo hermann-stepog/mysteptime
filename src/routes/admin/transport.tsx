@@ -473,6 +473,11 @@ function TripCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="font-semibold">{trip.car_number}</div>
+          {trip.tipo_transporte && (
+            <span className="inline-block rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              {trip.tipo_transporte}
+            </span>
+          )}
           {trip.tipo === "material" ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
               <Package className="h-3 w-3" />
@@ -1517,10 +1522,32 @@ function TripDialog({
                     manualPlaceholder="Nome do fornecedor"
                   />
                 </div>
-                <div className="w-20">
-                  <Label>Número</Label>
-                  <Input value={f.numero} onChange={(e) => setNumero(e.target.value)} placeholder="Opcional" />
-                </div>
+                {/* Pedido dela (2026-10-21): quando o fornecedor é "Future", mantém a opção de
+                    número do carro como já existia (lista 1-20) em vez de texto livre — pros
+                    demais fornecedores (que também têm número às vezes, ex. "Carro 01"), continua
+                    como campo de texto livre opcional. */}
+                {f.fornecedor === "Future" ? (
+                  <div className="w-20">
+                    <Label>Número</Label>
+                    <SearchableSelect
+                      value={f.numero}
+                      onValueChange={setNumero}
+                      options={Array.from({ length: 20 }, (_, i) => String(i + 1))}
+                      placeholder="Nº"
+                    />
+                  </div>
+                ) : (
+                  f.fornecedor && (
+                    <div className="w-20">
+                      <Label>Número</Label>
+                      <Input
+                        value={f.numero}
+                        onChange={(e) => setNumero(e.target.value)}
+                        placeholder="Opcional"
+                      />
+                    </div>
+                  )
+                )}
               </div>
               {f.fornecedor === "Uber" && (
                 <div className="mt-2 w-40">
@@ -3546,14 +3573,21 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
     return Array.from(m.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([d, list]) => {
-        const byCar = new Map<string, Trip[]>();
+        // Agrupa por Fornecedor (pedido dela, 2026-10-21 — antes agrupava por car_number
+        // específico, "Future 1"/"Future 2" separados; agora "Future 1"/"Future 2"/"Future 3"
+        // caem juntos no mesmo grupo "Future", e cada cartão continua mostrando o car_number
+        // específico dele por dentro).
+        const byFornecedor = new Map<string, Trip[]>();
         for (const t of list) {
-          if (!byCar.has(t.car_number)) byCar.set(t.car_number, []);
-          byCar.get(t.car_number)!.push(t);
+          const chave = t.fornecedor || t.car_number;
+          if (!byFornecedor.has(chave)) byFornecedor.set(chave, []);
+          byFornecedor.get(chave)!.push(t);
         }
         return {
           data: d,
-          carros: Array.from(byCar.entries()).sort(([a], [b]) => compareCarNumber(a, b)),
+          carros: Array.from(byFornecedor.entries()).sort(([a], [b]) =>
+            a.localeCompare(b, "pt-BR"),
+          ),
         };
       });
   }, [rangeTrips]);
@@ -3667,6 +3701,13 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                         · {t.tipo === "material" ? "Material" : "Pessoas"}
                         {t.cliente ? ` · ${t.cliente}` : ""}
                       </div>
+                      {t.tipo_transporte && (
+                        <div className="mt-1">
+                          <span className="inline-block rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                            {t.tipo_transporte}
+                          </span>
+                        </div>
+                      )}
                       {(t.departure_time || t.arrival_time) && (
                         <div className="text-[11px] text-muted-foreground">
                           {t.departure_time && <span>Partida: {t.departure_time}</span>}
@@ -3675,20 +3716,29 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                         </div>
                       )}
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {t.tags.map((x) => {
-                          const tag = tagsById.get(x.tag_id);
-                          return (
-                            tag && (
+                        {t.tags.length > 0
+                          ? t.tags.map((x) => {
+                              const tag = tagsById.get(x.tag_id);
+                              return (
+                                tag && (
+                                  <span
+                                    key={x.tag_id}
+                                    className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                                    style={{ backgroundColor: tag.color }}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                )
+                              );
+                            })
+                          : t.motivo && (
                               <span
-                                key={x.tag_id}
                                 className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
-                                style={{ backgroundColor: tag.color }}
+                                style={{ backgroundColor: corDoMotivo(t.motivo) }}
                               >
-                                {tag.name}
+                                {t.motivo}
                               </span>
-                            )
-                          );
-                        })}
+                            )}
                       </div>
                       {[t.bsp, t.bsp_2, t.bsp_3].some(Boolean) && (
                         <div className="mt-1 flex flex-wrap gap-1">
