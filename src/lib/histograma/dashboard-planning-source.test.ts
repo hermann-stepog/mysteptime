@@ -22,11 +22,16 @@ describe("cartões do dashboard e Planejamento de Embarque", () => {
     expect(result.rows.filter((row) => row.status === "FOLGA")).toHaveLength(1);
   });
 
-  it("preserva as datas e fotos nas consultas históricas", () => {
+  it("não aplica médias nem fotos históricas aos cartões quando o filtro é passado", () => {
     const dates = ["2026-10-19", "2026-10-20"];
-    expect(dashboardStatusDates(dates, "2026-10-20", today)).toEqual(dates);
+    expect(dashboardStatusDates(dates, "2026-10-20", today)).toEqual([today]);
     const historical = [{ snapshot_date: "2026-10-20", status: "FOLGA" }];
     expect(dashboardPlanningRows("2026-10-20", today, [{ status: "EMBARCADO" }], historical))
-      .toEqual({ source: "snapshot", rows: historical });
+      .toEqual({ source: "live", rows: [{ status: "EMBARCADO" }] });
+  });
+
+  it("mantém os totais do planejamento mesmo em filtros futuros ou anteriores a setembro", () => {
+    expect(dashboardStatusDates(["2026-11-01", "2026-11-02"], "2026-11-02", today)).toEqual([today]);
+    expect(dashboardStatusDates(["2026-08-01", "2026-08-02"], "2026-08-02", today)).toEqual([today]);
   });
 });
