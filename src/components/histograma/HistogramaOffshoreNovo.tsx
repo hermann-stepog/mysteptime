@@ -180,6 +180,7 @@ import { KpiValue } from "@/components/KpiValue";
 import { ProximosEventosCard } from "@/components/histograma/ProximosEventosCard";
 import { DrakeSyncLogList } from "@/components/histograma/DrakeSyncLogList";
 import { selectAllPages } from "@/lib/supabasePaginate";
+import { dashboardPlanningRows, dashboardStatusDates } from "@/lib/histograma/dashboard-planning-source";
 import {
   fetchHistogramCollaborators,
   fetchHistogramEmbarkations,
@@ -4371,7 +4372,8 @@ function DashboardTab({
   // vira fatia na rosquinha amarela (só na vermelha de "Bloqueados").
   const CORTE_PLANEJAMENTO = "2026-09-01";
   const statusReferenceDate = useMemo(() => {
-    const diasFiltro = dates.length > 0 ? dates : [pobReferenceDate];
+    // Quando o intervalo inclui hoje, os cartões mostram o planejamento atual, não a média mensal.
+    const diasFiltro = dashboardStatusDates(dates, pobReferenceDate, today);
     const soma = {
       total: 0,
       embarcados: 0,
@@ -4449,11 +4451,11 @@ function DashboardTab({
           else addOutros(STATUS_LABEL[result.status] ?? String(result.status), c.nome);
         });
       } else {
-        const foto = planejamentoSnapshots.filter((s) => s.snapshot_date === dia);
+        const fonte = dashboardPlanningRows(dia, today, planejamentoEmbarque, planejamentoSnapshots);
         const linhas: { nome: string; status: string | null; rh_bloqueado: boolean }[] =
-          foto.length > 0
-            ? foto.map((f) => ({ nome: f.colaborador_nome, status: f.status, rh_bloqueado: false }))
-            : planejamentoEmbarque.map((r) => ({
+          fonte.source === "snapshot"
+            ? fonte.rows.map((f) => ({ nome: f.colaborador_nome, status: f.status, rh_bloqueado: false }))
+            : fonte.rows.map((r) => ({
                 nome: r.nome,
                 status: r.status,
                 rh_bloqueado: r.rh_bloqueado,
@@ -4560,6 +4562,7 @@ function DashboardTab({
   }, [
     dates,
     pobReferenceDate,
+    today,
     colaboradoresComMultiploEmbarque,
     periodosByColaborador,
     planejamentoSnapshots,
