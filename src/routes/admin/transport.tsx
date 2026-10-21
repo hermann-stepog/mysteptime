@@ -1847,37 +1847,12 @@ function TripDialog({
             <Label>NF</Label>
             <Input value={f.nf} onChange={(e) => setF({ ...f, nf: e.target.value })} />
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label>Forma de pagamento</Label>
-              <FormaPagamentoField
-                value={f.forma_pagamento}
-                onChange={(v) => setF({ ...f, forma_pagamento: v })}
-              />
-            </div>
-            <div>
-              {f.forma_pagamento === "Cartão de Crédito" ? (
-                <>
-                  <Label>Mês de referência</Label>
-                  <Input
-                    type="month"
-                    value={f.data_faturamento.slice(0, 7)}
-                    onChange={(e) =>
-                      setF({ ...f, data_faturamento: e.target.value ? `${e.target.value}-01` : "" })
-                    }
-                  />
-                </>
-              ) : (
-                <>
-                  <Label>Data Faturamento</Label>
-                  <Input
-                    type="date"
-                    value={f.data_faturamento}
-                    onChange={(e) => setF({ ...f, data_faturamento: e.target.value })}
-                  />
-                </>
-              )}
-            </div>
+          <div>
+            <Label>Forma de pagamento</Label>
+            <FormaPagamentoField
+              value={f.forma_pagamento}
+              onChange={(v) => setF({ ...f, forma_pagamento: v })}
+            />
           </div>
 
           <div>
@@ -3576,6 +3551,12 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
           const chave = t.fornecedor || t.car_number;
           if (!byFornecedor.has(chave)) byFornecedor.set(chave, []);
           byFornecedor.get(chave)!.push(t);
+        }
+        // Dentro de cada fornecedor, mantém a ordenação de sempre por car_number (Future 01,
+        // Future 02...) — ela pediu pra não perder essa organização quando os números do mesmo
+        // fornecedor passaram a ficar juntos no mesmo grupo.
+        for (const trips of byFornecedor.values()) {
+          trips.sort((a, b) => compareCarNumber(a.car_number, b.car_number));
         }
         return {
           data: d,
