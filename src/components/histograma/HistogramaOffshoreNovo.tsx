@@ -4372,7 +4372,7 @@ function DashboardTab({
   // vira fatia na rosquinha amarela (só na vermelha de "Bloqueados").
   const CORTE_PLANEJAMENTO = "2026-09-01";
   const statusReferenceDate = useMemo(() => {
-    // Quando o intervalo inclui hoje, os cartões mostram o planejamento atual, não a média mensal.
+    // Cartões e rosquinhas usam o planejamento atual em qualquer intervalo; média só no mensal.
     const diasFiltro = dashboardStatusDates(dates, pobReferenceDate, today);
     const soma = {
       total: 0,
@@ -5203,9 +5203,7 @@ function DashboardTab({
             />
           </div>
           <p className="w-full pb-1 text-xs text-muted-foreground">
-            De/Até define quem conta como "ativo" nos KPIs e no "Status por Unidade" (e alimenta os
-            gráficos de unidade/semana). Os indicadores acompanham os filtros; POB por Mês sempre
-            mostra do início do ano até hoje.
+            Status atual: Planejamento de Embarque. Média mensal: Taxa de Ocupação por Mês.
           </p>
         </div>
       </Card>
@@ -5313,10 +5311,7 @@ function DashboardTab({
           </Popover>
         </div>
         <p className="text-xs text-muted-foreground mb-3">
-          {pobReferenceDate === today
-            ? "Status de hoje"
-            : `Status em ${fmtDiaCurto(pobReferenceDate)}`}
-          , por colaborador ativo no período filtrado
+          Status atual do Planejamento de Embarque
         </p>
         <div className="grid gap-6 lg:grid-cols-4">
           <div className="flex flex-col items-center gap-2">
