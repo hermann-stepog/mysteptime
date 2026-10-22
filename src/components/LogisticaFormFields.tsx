@@ -42,11 +42,19 @@ export function ListaDigitavelField({ value, onChange, options, placeholder = "S
   );
 }
 
+// hist_novo_colaboradores tem registros "sujos" vindos de contratos antigos sem nome
+// identificado de verdade (tipo "[LEGADO NÃO IDENTIFICADO]900322_3") — nunca são uma pessoa de
+// carne e osso, então nunca devem aparecer como sugestão em nenhum campo de nome (pedido dela,
+// 2026-10-22). Detecta pelo colchete no início, que nome real nunca tem.
+function ehNomeInvalido(nome: string): boolean {
+  return nome.trim().startsWith("[");
+}
+
 function nomesUnicos(colaboradores: { nome: string }[]): string[] {
   const vistos = new Set<string>(); const out: string[] = [];
   for (const c of colaboradores) {
     const n = c.nome.trim(); const k = n.toUpperCase();
-    if (!n || vistos.has(k)) continue; vistos.add(k); out.push(n);
+    if (!n || ehNomeInvalido(n) || vistos.has(k)) continue; vistos.add(k); out.push(n);
   }
   return out.sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
@@ -58,7 +66,7 @@ function colaboradoresUnicosPorNome(colaboradores: { id: string; nome: string }[
   const vistos = new Set<string>();
   return colaboradores.filter((c) => {
     const chave = c.nome.trim().toUpperCase();
-    if (!c.nome.trim() || vistos.has(chave)) return false;
+    if (!c.nome.trim() || ehNomeInvalido(c.nome) || vistos.has(chave)) return false;
     vistos.add(chave);
     return true;
   });
