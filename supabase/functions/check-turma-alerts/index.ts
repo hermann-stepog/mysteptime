@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import nodemailer from "npm:nodemailer@6";
+import nodemailer from "https://esm.sh/nodemailer@6";
 
 // Roda 1x por dia via pg_cron (ver migration 20260826000000_schedule_turma_alerts.sql).
 // Avisa logisticapessoal@step-og.com quando alguma equipe embarcada está a exatamente 5 dias
