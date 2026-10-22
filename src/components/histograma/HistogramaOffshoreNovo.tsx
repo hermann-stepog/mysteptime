@@ -4357,21 +4357,22 @@ function DashboardTab({
     return dataFim || today;
   }, [dataInicio, dataFim, today]);
 
-  // ── Headcount Total/Embarcados/Programados/etc (cartões + as 3 rosquinhas) — segue o filtro
-  // De/Até de cima em vez de sempre olhar pra hoje (pedido dela). Quando o filtro cobre vários
-  // dias, cada categoria vira a MÉDIA por dia do período (pedido dela: "tem que bater" com a
-  // média mostrada em "Taxa de Ocupação por mês" quando o período filtrado é um mês inteiro);
-  // pra um único dia, a média é simplesmente o valor daquele dia (comportamento de sempre). Cada
-  // dia usa o Drake de verdade quando cai em Jan-Ago/2026 (antes do Planejamento de Embarque
-  // existir como fonte viva — mesma régua de "Taxa de Ocupação por mês"), ou a foto do dia
-  // (planejamento_embarque_snapshots)/lista viva de hoje de Set/2026 em diante. Todo mundo cai em
-  // EXATAMENTE um balde por dia (Embarcados/Programados/Folga/Disponível/Na Base/Bloqueio
-  // Temporário/Bloqueio RH/Outros) — garante que as 3 rosquinhas sempre somem 100% do Headcount
-  // (pedido dela). "Bloqueio RH" soma também no card "Não Disponíveis" (pedido dela), mas não
-  // vira fatia na rosquinha amarela (só na vermelha de "Bloqueados").
+  // ── Headcount Total/Embarcados/Programados/etc (cartões + as 3 rosquinhas) — SEMPRE a foto de
+  // hoje (pedido dela, 2026-10-21: o combinado é o Dashboard puxar hoje, não o período — reverte
+  // a média por dia do período que existia antes). O filtro De/Até de cima continua definindo
+  // quem conta como "ativo" (ver activeColaboradores) e alimentando os gráficos "por dia"
+  // (Status por Unidade, POB x Unidade, Mão de Obra por Semana), só não entra mais aqui. Usa
+  // pobReferenceDate (hoje, ou dataFim se hoje estiver fora do período filtrado) como o único dia
+  // avaliado. Esse dia usa o Drake de verdade quando cai em Jan-Ago/2026 (antes do Planejamento de
+  // Embarque existir como fonte viva), ou a foto do dia (planejamento_embarque_snapshots)/lista
+  // viva de hoje de Set/2026 em diante. Todo mundo cai em EXATAMENTE um balde
+  // (Embarcados/Programados/Folga/Disponível/Na Base/Bloqueio Temporário/Bloqueio RH/Outros) —
+  // garante que as 3 rosquinhas sempre somem 100% do Headcount (pedido dela). "Bloqueio RH" soma
+  // também no card "Não Disponíveis" (pedido dela), mas não vira fatia na rosquinha amarela (só
+  // na vermelha de "Bloqueados").
   const CORTE_PLANEJAMENTO = "2026-09-01";
   const statusReferenceDate = useMemo(() => {
-    const diasFiltro = dates.length > 0 ? dates : [pobReferenceDate];
+    const diasFiltro = [pobReferenceDate];
     const soma = {
       total: 0,
       embarcados: 0,
@@ -4449,7 +4450,11 @@ function DashboardTab({
           else addOutros(STATUS_LABEL[result.status] ?? String(result.status), c.nome);
         });
       } else {
-        const foto = planejamentoSnapshots.filter((s) => s.snapshot_date === dia);
+        // Hoje nunca usa a foto (pedido dela, 2026-10-21): a foto é tirada 1x por dia, então
+        // qualquer edição feita depois do horário da foto ficava de fora e o Dashboard divergia
+        // da aba Planejamento de Embarque, que sempre mostra a lista ao vivo. Só dias passados
+        // (que a tabela viva já sobrescreveu com a reimportação seguinte) usam a foto.
+        const foto = dia === today ? [] : planejamentoSnapshots.filter((s) => s.snapshot_date === dia);
         const linhas: { nome: string; status: string | null; rh_bloqueado: boolean }[] =
           foto.length > 0
             ? foto.map((f) => ({ nome: f.colaborador_nome, status: f.status, rh_bloqueado: false }))
@@ -4558,7 +4563,7 @@ function DashboardTab({
       naoDispComStatus,
     };
   }, [
-    dates,
+    today,
     pobReferenceDate,
     colaboradoresComMultiploEmbarque,
     periodosByColaborador,
