@@ -1,6 +1,6 @@
 export const CLIENTES = [
   "SBM", "Altera", "PRIO", "Perenco", "Seadrill", "Yinson", "BW", "Trident",
-  "BW Energy", "Karoon", "MSI", "Poseidon", "Qualitech",
+  "BW Energy", "Karoon", "MSI", "Poseidon", "Qualitech", "Saipem",
 ] as const;
 export type Cliente = (typeof CLIENTES)[number];
 
@@ -37,6 +37,9 @@ export const CLIENTE_POR_UNIDADE: Readonly<Record<string, Cliente>> = {
   MAGNA: "BW",
   "PCH-1": "Perenco",
   "PCH-2": "Perenco",
+  // BSP 26-663-02 (confirmado por ela, 2026-10-21).
+  "PPG-1": "Perenco",
+  PPG1: "Perenco",
   "CIDADE DE ITAJAI": "Altera",
   "PIONEIRO DE LIBRA": "Altera",
   "SAFE ZEPHYRUS": "Qualitech",
@@ -46,6 +49,10 @@ export const CLIENTE_POR_UNIDADE: Readonly<Record<string, Cliente>> = {
   // ("Qualitech") em vez do nome da embarcação (Safe Zephyrus) — sem essa chave, caía em
   // "Cliente não identificado" com "QUALITECH" aparecendo como se fosse a própria unidade.
   QUALITECH: "Qualitech",
+  // BSP 26-1055 (confirmado por ela, 2026-10-21) — mesma embarcação grafada de duas formas
+  // diferentes entre os lançamentos ("SAIPEM P-79" e "ATLAS P-55").
+  "SAIPEM P-79": "Saipem",
+  "ATLAS P-55": "Saipem",
 };
 
 // Al\u00e9m de mai\u00fascula/acento, ignora conectivos ("DE"/"DO"/"DA") pra casar grafias que s\u00f3

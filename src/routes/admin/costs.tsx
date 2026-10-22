@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtDate, fmtMoney, downloadCSV } from "@/lib/format";
 import {
   DollarSign, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Building2, Ship, Layers3,
-  BedDouble, Car, Plane, Wallet, Hotel, FileText,
+  BedDouble, Car, Plane, Wallet, Hotel, FileText, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
@@ -20,7 +20,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { CLIENTES, clienteDaUnidade, unidadeCanonica } from "@/lib/clientes";
 import { normalizeBmBspKey } from "@/lib/bmUnitResolver";
-import { rateiosDaHospedagem, type HotelFornecedor } from "@/lib/hospedagem";
+import { rateiosDaHospedagem, localizacaoHotel, type HotelFornecedor } from "@/lib/hospedagem";
+import { bspDoPeriodo, type HistNovoPeriodo } from "@/lib/histogramaNovo";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SearchableSelect } from "@/components/SearchableSelect";
 // Funil do registry customizado @bklit (visx + d3) — o Bar/Pie desse mesmo registry batem num
@@ -81,7 +82,6 @@ function CostsPage() {
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="consolidada">Visão Consolidada</TabsTrigger>
-          <TabsTrigger value="detalhada">Visão Detalhada</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4">
@@ -90,10 +90,6 @@ function CostsPage() {
 
         <TabsContent value="consolidada" className="mt-4">
           <VisaoConsolidadaTab />
-        </TabsContent>
-
-        <TabsContent value="detalhada" className="mt-4">
-          <VisaoDetalhadaTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -119,6 +115,13 @@ interface ItemConsolidado {
   // Só preenchido pros itens de hospedagem — base da aba "Visão Detalhada" (custo por hotel/
   // região), pedido dela 2026-10-21.
   hotelId?: string;
+  // Só preenchidos pros itens de transporte — base do quadro "Transporte por tipo" do Dashboard
+  // (pedido dela 2026-10-21, cascata tipo → fornecedor igual à de Hospedagem por cidade → hotel).
+  tipoTransporte?: string | null;
+  fornecedor?: string | null;
+  // Só preenchido pros itens de passagens — base do quadro "Principais rotas" do Dashboard,
+  // mesmo pedido.
+  rota?: string;
 }
 interface LancamentoBruto { cliente: string; unidade: string; bsp: string; item: ItemConsolidado; }
 
@@ -131,16 +134,37 @@ function ultimoDiaMes(): string {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 }
 
-function useRatesBspMapQuery() {
+// Pedido dela, 2026-10-21: o fallback de Cliente/Unidade por BSP não vem mais do cadastro de
+// Rates (incompleto — deixava um monte de custo em "Não informado" sem necessidade) — vem do
+// hist_novo_periodos, a mesma base sincronizada do Drake que já alimenta Histograma Offshore/
+// Planejamento de Embarque, bem mais completa (tem um período pra cada BSP que já embarcou de
+// verdade, sem precisar ninguém cadastrar nada à mão). bspDoPeriodo já prioriza a correção
+// manual (`bsp`) sobre o valor bruto do Drake (`centro_de_custo`), mesma regra usada em todo o
+// resto do sistema pra esse campo.
+function useBspParaUnidadeDrakeQuery() {
   return useQuery({
-    queryKey: ["rates-bsp-map"],
+    queryKey: ["hist-novo-periodos-bsp-unidade"],
     queryFn: async () => {
-      const { data, error } = await db.from("rates").select("bsp, client, vessel").eq("active", true);
-      if (error) throw error;
-      const map = new Map<string, { client: string; vessel: string }>();
-      (data ?? []).forEach((r: any) => {
-        const key = normalizeBmBspKey(r.bsp);
-        if (key && !map.has(key)) map.set(key, { client: r.client, vessel: r.vessel });
+      const periodos = await selectAllPages<HistNovoPeriodo>((from, to) =>
+        db.from("hist_novo_periodos").select("bsp, centro_de_custo, unidade_operacional").range(from, to),
+      );
+      // Um BSP pode aparecer com a unidade grafada de formas diferentes ao longo do tempo —
+      // usa a mais frequente (moda), mais resistente a ruído de digitação do que "a primeira
+      // que aparecer".
+      const contagem = new Map<string, Map<string, number>>();
+      periodos.forEach((p) => {
+        const bsp = bspDoPeriodo(p);
+        if (!bsp || !p.unidade_operacional) return;
+        const key = normalizeBmBspKey(bsp);
+        if (!key) return;
+        if (!contagem.has(key)) contagem.set(key, new Map());
+        const porUnidade = contagem.get(key)!;
+        porUnidade.set(p.unidade_operacional, (porUnidade.get(p.unidade_operacional) ?? 0) + 1);
+      });
+      const map = new Map<string, string>();
+      contagem.forEach((porUnidade, key) => {
+        const maisFrequente = Array.from(porUnidade.entries()).sort((a, b) => b[1] - a[1])[0][0];
+        map.set(key, maisFrequente);
       });
       return map;
     },
@@ -151,15 +175,16 @@ function useRatesBspMapQuery() {
 // Cliente/Unidade/BSP — sem filtro de período (cada consumidor filtra do jeito que precisa:
 // Visão Consolidada e Dashboard têm cada um seu próprio seletor De/Até). Reaproveitado pelas
 // duas abas do módulo Custos pra não duplicar a lógica de junção por BSP.
+
 function useCustosBrutosQuery() {
-  const { data: ratesMap = new Map(), isLoading: l1 } = useRatesBspMapQuery();
+  const { data: bspParaUnidadeDrake = new Map(), isLoading: l1 } = useBspParaUnidadeDrakeQuery();
   const { data: hospedagens = [], isLoading: l2 } = useQuery({
     queryKey: ["consolidada-hospedagens"],
     queryFn: async () => (await db.from("hospedagens").select("id, check_in, check_out, unidade, unidade_2, unidade_3, bsp, bsp_2, bsp_3, nome_usuario, valor_total, valor_2, valor_3, hotel_id")).data ?? [],
   });
   const { data: trips = [], isLoading: l3 } = useQuery({
     queryKey: ["consolidada-transport-trips"],
-    queryFn: async () => (await db.from("transport_trips").select("id, scheduled_at, car_number, origin, destination, unidade, bsp, bsp_2, bsp_3, cliente, cliente_2, cliente_3, custo, custo_2, custo_3")).data ?? [],
+    queryFn: async () => (await db.from("transport_trips").select("id, scheduled_at, car_number, origin, destination, unidade, bsp, bsp_2, bsp_3, cliente, cliente_2, cliente_3, custo, custo_2, custo_3, tipo_transporte, fornecedor")).data ?? [],
   });
   const { data: passagens = [], isLoading: l4 } = useQuery({
     queryKey: ["consolidada-passagens"],
@@ -167,18 +192,21 @@ function useCustosBrutosQuery() {
   });
 
   // clienteDaUnidade (CLIENTE_POR_UNIDADE) é a fonte PRIORITÁRIA confirmada pela operação —
-  // mesma que já vale pra cascata de Nomeações (ver src/lib/clientes.ts) — só cai pro cadastro
-  // de Rates quando a unidade não está nessa lista ainda.
+  // mesma que já vale pra cascata de Nomeações (ver src/lib/clientes.ts) — só cai pro
+  // hist_novo_periodos quando a unidade não está nessa lista ainda. Pedido dela, 2026-10-21:
+  // "Não informado" nunca mais aparece — tudo que não resolve cliente (com bsp ou sem) vira
+  // "Interno" direto; quem precisar investigar um cadastro faltando usa a árvore da Visão
+  // Consolidada, onde o bsp real continua visível no nível de baixo.
   const clienteDoBsp = (bsp: string | null, unidadeNativa: string | null): string =>
-    clienteDaUnidade(unidadeNativa) || ratesMap.get(normalizeBmBspKey(bsp))?.client || "Não informado";
-  // O que não é embarcação de verdade (setor interno tipo Comercial/RH/Produção, ou unidade
-  // sem cadastro nenhum) vira "BASE" (matriz) — só mantém o nome quando é uma embarcação
-  // reconhecida (CLIENTE_POR_UNIDADE, ou vessel confirmado no cadastro de Rates).
+    clienteDaUnidade(unidadeNativa) || clienteDaUnidade(bspParaUnidadeDrake.get(normalizeBmBspKey(bsp))) || "Interno";
+  // Mesma régua pra unidade: sem resolver em lugar nenhum, mantém o nome original (unidade/base
+  // de onde veio o lançamento) em vez do genérico "BASE", pra continuar identificável dentro do
+  // balde "Interno".
   const unidadeDoBsp = (bsp: string | null, unidadeNativa: string | null): string => {
-    const vesselRates = ratesMap.get(normalizeBmBspKey(bsp))?.vessel;
-    if (vesselRates) return unidadeCanonica(vesselRates)!;
+    const unidadeViaDrake = bspParaUnidadeDrake.get(normalizeBmBspKey(bsp));
+    if (unidadeViaDrake && clienteDaUnidade(unidadeViaDrake)) return unidadeCanonica(unidadeViaDrake)!;
     if (unidadeNativa && clienteDaUnidade(unidadeNativa)) return unidadeCanonica(unidadeNativa)!;
-    return "BASE";
+    return unidadeNativa?.trim() || "BASE";
   };
 
   const brutos = useMemo(() => {
@@ -210,6 +238,7 @@ function useCustosBrutosQuery() {
           item: {
             tipo: "passagens", data: p.data_ida, dataFim: p.data_volta || p.data_ida,
             descricao: `${p.nome_usuario} · ${p.origem ?? "—"} → ${p.destino ?? "—"}`, valor,
+            rota: `${p.origem ?? "—"} → ${p.destino ?? "—"}`,
           },
         });
       });
@@ -228,13 +257,13 @@ function useCustosBrutosQuery() {
           cliente: cliente?.trim() || clienteDoBsp(bsp, null),
           unidade: unidadeDoBsp(bsp, t.unidade),
           bsp: bsp?.trim() || "Não informado",
-          item: { tipo: "transporte", data: dia, dataFim: dia, descricao: `${t.car_number} · ${t.origin} → ${t.destination}`, valor: custo ?? 0 },
+          item: { tipo: "transporte", data: dia, dataFim: dia, descricao: `${t.car_number} · ${t.origin} → ${t.destination}`, valor: custo ?? 0, tipoTransporte: t.tipo_transporte, fornecedor: t.fornecedor },
         });
       });
     });
 
     return out;
-  }, [hospedagens, passagens, trips, ratesMap]);
+  }, [hospedagens, passagens, trips, bspParaUnidadeDrake]);
 
   return { brutos, isLoading: l1 || l2 || l3 || l4 };
 }
@@ -373,7 +402,7 @@ function VisaoConsolidadaTab() {
               <SelectContent>
                 <SelectItem value="all" className="text-xs">Todos</SelectItem>
                 {CLIENTES.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}
-                <SelectItem value="Não informado" className="text-xs">Não informado</SelectItem>
+                <SelectItem value="Interno" className="text-xs">Interno</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -555,12 +584,8 @@ function VisaoConsolidadaTab() {
   );
 }
 
-// ─── Aba "Visão Detalhada" — custo de hospedagem por Projeto (Unidade + Cliente), Região e
-// Hotel, com o aeroporto mais próximo de cada hotel (pedido dela, 2026-10-21). "Projeto" aqui é
-// a Unidade (embarcação/base), mesma dimensão usada em todo o sistema — Cliente é só mostrado
-// junto, derivado automaticamente. Região/Aeroporto vêm do cadastro de Hotéis (aba Hotéis, dentro
-// de Hospedagem); hotel sem esses campos ainda preenchidos aparece como "Região não informada"/
-// "Aeroporto não informado" — nunca escondido por falta de cadastro.
+// Config vazio reaproveitado pelos gráficos de barra do Dashboard que usam <Cell> com cor
+// própria por item, sem precisar de variáveis --color-* por dataKey.
 const visaoDetalhadaChartConfig = {} satisfies ChartConfig;
 
 function mesLabelCustos(mes: string): string {
@@ -569,353 +594,21 @@ function mesLabelCustos(mes: string): string {
   return `${nomes[parseInt(m, 10) - 1] ?? mes}/${ano.slice(2)}`;
 }
 
+// "YYYY-MM" dos n meses mais recentes a partir de hoje (mais antigo primeiro), sem pular mês
+// mesmo atravessando virada de ano — mesmo critério usado em "Evolução mensal" da Visão
+// Detalhada, reaproveitado aqui pro bloco "Últimos 3 meses" do Dashboard.
+function ultimosNMeses(n: number): string[] {
+  const hoje = new Date();
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() - (n - 1 - i), 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
 // Pedido dela, 2026-10-21: uma cor por mês (mais antigo → mais recente) — mesmos 3 tons de
 // TIPO_CUSTO_COLOR abaixo (azul-marinho → azul → ciano, degradê do ícone da STEP); valores
 // literais aqui (não uma referência) só pra não depender da ordem de declaração no arquivo.
 const MES_CORES = ["#1b3c66", "#1878c4", "#3bc4d9"];
-
-function VisaoDetalhadaTab() {
-  const [periodoDe, setPeriodoDe] = useState(primeiroDiaMes);
-  const [periodoAte, setPeriodoAte] = useState(ultimoDiaMes);
-  const [filterProjeto, setFilterProjeto] = useState("all");
-  const [filterRegiao, setFilterRegiao] = useState("all");
-  // Pedido dela, 2026-10-21: "gráfico geral de todos os meses do ano" com filtro de módulo —
-  // independe dos filtros de Projeto/Região acima (sempre o ano inteiro, os 3 tipos de custo).
-  const [filterModuloAnual, setFilterModuloAnual] = useState<TipoCusto>("hospedagem");
-
-  const { brutos: todosBrutos, isLoading: l1 } = useCustosBrutosQuery();
-  const { data: hoteis = [], isLoading: l2 } = useHoteisFornecedoresQuery();
-  const isLoading = l1 || l2;
-
-  const hoteisPorId = useMemo(() => new Map(hoteis.map((h) => [h.id, h])), [hoteis]);
-
-  // Uma linha por "perna" de hospedagem que já caiu num hotel cadastrado — hospedagem sem
-  // hotel_id (lançamento muito antigo) não entra aqui, já que não tem como saber região/aeroporto.
-  const linhas = useMemo(
-    () =>
-      todosBrutos
-        .filter((b) => b.item.tipo === "hospedagem" && b.item.hotelId)
-        .filter((b) => b.item.dataFim >= periodoDe && b.item.data <= periodoAte)
-        .map((b) => {
-          const hotel = hoteisPorId.get(b.item.hotelId!);
-          return {
-            projeto: b.unidade,
-            cliente: b.cliente,
-            regiao: hotel?.regiao?.trim() || "Região não informada",
-            hotelNome: hotel?.nome ?? "Hotel não cadastrado",
-            aeroporto: hotel?.aeroporto_proximo?.trim() || "Aeroporto não informado",
-            valor: b.item.valor,
-            mes: b.item.data.slice(0, 7),
-          };
-        }),
-    [todosBrutos, hoteisPorId, periodoDe, periodoAte],
-  );
-
-  const projetoOptions = useMemo(() => Array.from(new Set(linhas.map((l) => l.projeto))).sort(), [linhas]);
-  const regiaoOptions = useMemo(() => Array.from(new Set(linhas.map((l) => l.regiao))).sort(), [linhas]);
-
-  const filtradas = useMemo(
-    () =>
-      linhas.filter(
-        (l) =>
-          (filterProjeto === "all" || l.projeto === filterProjeto) &&
-          (filterRegiao === "all" || l.regiao === filterRegiao),
-      ),
-    [linhas, filterProjeto, filterRegiao],
-  );
-
-  const totalGeral = useMemo(() => filtradas.reduce((a, l) => a + l.valor, 0), [filtradas]);
-
-  const porProjeto = useMemo(() => {
-    const m = new Map<string, { cliente: string; total: number }>();
-    filtradas.forEach((l) => {
-      const atual = m.get(l.projeto) ?? { cliente: l.cliente, total: 0 };
-      atual.total += l.valor;
-      m.set(l.projeto, atual);
-    });
-    return Array.from(m.entries())
-      .map(([projeto, v]) => ({ rotulo: `${projeto} (${v.cliente})`, total: v.total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 10);
-  }, [filtradas]);
-
-  // "Gráfico geral dos últimos 3 meses" (pedido dela, 2026-10-21, ajustado no mesmo dia de "o
-  // ano inteiro" pra só os últimos 3) — módulo escolhido no filtro (Hospedagem/Transporte/
-  // Passagem Aérea), sempre os 3 meses mais recentes a partir de hoje (0 onde não há
-  // lançamento, nunca pula mês, mesmo atravessando virada de ano).
-  const ultimos3MesesChave = useMemo(() => {
-    const hoje = new Date();
-    return Array.from({ length: 3 }, (_, i) => {
-      const d = new Date(hoje.getFullYear(), hoje.getMonth() - (2 - i), 1);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    });
-  }, []);
-  const evolucaoAnual = useMemo(() => {
-    const porMes = new Map<string, number>();
-    todosBrutos.forEach((b) => {
-      if (b.item.tipo !== filterModuloAnual) return;
-      const mes = b.item.data.slice(0, 7);
-      if (!ultimos3MesesChave.includes(mes)) return;
-      porMes.set(mes, (porMes.get(mes) ?? 0) + b.item.valor);
-    });
-    return ultimos3MesesChave.map((mes) => ({ mes, mesLabel: mesLabelCustos(mes), total: porMes.get(mes) ?? 0 }));
-  }, [todosBrutos, filterModuloAnual, ultimos3MesesChave]);
-
-  // Resumo por escrito da Evolução mensal acima (pedido dela, 2026-10-21) — texto muda sozinho
-  // conforme o filtro de módulo escolhido, sem precisar ela mesma ler o gráfico pra tirar a
-  // conclusão.
-  const resumoAnual = useMemo(() => {
-    const rotulo = TIPO_CUSTO_LABEL[filterModuloAnual].toLowerCase();
-    const comValor = evolucaoAnual.filter((m) => m.total > 0);
-    if (comValor.length === 0) {
-      return `Nenhum custo de ${rotulo} lançado nos últimos 3 meses.`;
-    }
-    const totalAno = comValor.reduce((a, m) => a + m.total, 0);
-    const media = totalAno / comValor.length;
-    const maior = comValor.reduce((a, b) => (b.total > a.total ? b : a));
-    const menor = comValor.reduce((a, b) => (b.total < a.total ? b : a));
-    let tendencia = "";
-    if (comValor.length >= 2) {
-      const anterior = comValor[comValor.length - 2];
-      const atual = comValor[comValor.length - 1];
-      const variacao = anterior.total > 0 ? ((atual.total - anterior.total) / anterior.total) * 100 : 0;
-      if (variacao > 1) tendencia = ` Em ${atual.mesLabel}, o custo subiu ${variacao.toFixed(0)}% em relação a ${anterior.mesLabel}.`;
-      else if (variacao < -1) tendencia = ` Em ${atual.mesLabel}, o custo caiu ${Math.abs(variacao).toFixed(0)}% em relação a ${anterior.mesLabel}.`;
-      else tendencia = ` O custo se manteve estável entre ${anterior.mesLabel} e ${atual.mesLabel}.`;
-    }
-    return `${TIPO_CUSTO_LABEL[filterModuloAnual]} nos últimos 3 meses: total de ${fmtMoney(totalAno)} em ${comValor.length} mês(es) com lançamento, média de ${fmtMoney(media)} por mês. Mês de maior custo: ${maior.mesLabel} (${fmtMoney(maior.total)}). Mês de menor custo: ${menor.mesLabel} (${fmtMoney(menor.total)}).${tendencia}`;
-  }, [evolucaoAnual, filterModuloAnual]);
-
-  // Últimos 3 meses com lançamento dentro do período filtrado (pedido dela, 2026-10-21: "medir
-  // os últimos 3 meses, de cada hotel para cada unidade") — se o período filtrado tiver menos de
-  // 3 meses distintos, mostra só os que existem, nunca inventa mês vazio.
-  const ultimosTresMeses = useMemo(
-    () => Array.from(new Set(filtradas.map((l) => l.mes))).sort().slice(-3),
-    [filtradas],
-  );
-
-  const arvoreMensal = useMemo(() => {
-    const porProjetoM = new Map<string, { cliente: string; porHotel: Map<string, Map<string, number>> }>();
-    filtradas.forEach((l) => {
-      if (!ultimosTresMeses.includes(l.mes)) return;
-      if (!porProjetoM.has(l.projeto)) porProjetoM.set(l.projeto, { cliente: l.cliente, porHotel: new Map() });
-      const entry = porProjetoM.get(l.projeto)!;
-      if (!entry.porHotel.has(l.hotelNome)) entry.porHotel.set(l.hotelNome, new Map());
-      const porMes = entry.porHotel.get(l.hotelNome)!;
-      porMes.set(l.mes, (porMes.get(l.mes) ?? 0) + l.valor);
-    });
-    return Array.from(porProjetoM.entries())
-      .map(([projeto, { cliente, porHotel }]) => {
-        const hoteis = Array.from(porHotel.entries())
-          .map(([hotel, porMes]) => {
-            const meses = ultimosTresMeses.map((mes) => ({
-              mes, mesLabel: mesLabelCustos(mes), total: porMes.get(mes) ?? 0,
-            }));
-            return { hotel, total: meses.reduce((a, m) => a + m.total, 0), meses };
-          })
-          .sort((a, b) => b.total - a.total);
-        return { projeto, cliente, total: hoteis.reduce((a, h) => a + h.total, 0), hoteis };
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [filtradas, ultimosTresMeses]);
-
-  // Pedido dela, 2026-10-21: "um gráfico só", diferenciando bem hotel e unidade — pivota
-  // Projeto → Hotel → [até 3 meses] numa linha por hotel, com uma coluna numérica fixa por mês
-  // (mes1/mes2/mes3) pra virar barras agrupadas lado a lado num BarChart só. Chave composta
-  // (hotel + projeto) evita colidir hotéis de mesmo nome em unidades diferentes.
-  const consolidadoMensal = useMemo(
-    () =>
-      arvoreMensal
-        .flatMap((p) =>
-          p.hoteis.map((h) => ({
-            chave: `${h.hotel}__${p.projeto}`,
-            hotel: h.hotel,
-            projetoRotulo: `${p.projeto} (${p.cliente})`,
-            total: h.total,
-            mes1: h.meses[0]?.total ?? 0,
-            mes2: h.meses[1]?.total ?? 0,
-            mes3: h.meses[2]?.total ?? 0,
-          })),
-        )
-        .sort((a, b) => b.total - a.total),
-    [arvoreMensal],
-  );
-  const consolidadoPorChave = useMemo(
-    () => new Map(consolidadoMensal.map((r) => [r.chave, r])),
-    [consolidadoMensal],
-  );
-  const mensalChartConfig = useMemo(() => {
-    const cfg: Record<string, { label: string; color: string }> = {};
-    ultimosTresMeses.forEach((mes, i) => {
-      cfg[`mes${i + 1}`] = { label: mesLabelCustos(mes), color: MES_CORES[i % MES_CORES.length] };
-    });
-    return cfg satisfies ChartConfig;
-  }, [ultimosTresMeses]);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-32 w-full" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
-            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
-          </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
-            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
-          </div>
-          <div className="space-y-0.5 w-56">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Projeto</Label>
-            <SearchableSelect
-              value={filterProjeto}
-              onValueChange={setFilterProjeto}
-              options={[{ value: "all", label: "Todos" }, ...projetoOptions]}
-            />
-          </div>
-          <div className="space-y-0.5 w-56">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Região</Label>
-            <SearchableSelect
-              value={filterRegiao}
-              onValueChange={setFilterRegiao}
-              options={[{ value: "all", label: "Todas" }, ...regiaoOptions]}
-            />
-          </div>
-        </div>
-      </Card>
-
-      <Card className="flex items-center justify-between p-4">
-        <span className="text-sm font-medium text-muted-foreground">Total de hospedagem no período</span>
-        <span className="text-xl font-bold">{fmtMoney(totalGeral)}</span>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-5">
-          <h2 className="text-base font-semibold">Custo por Projeto</h2>
-          <div className="mt-3" style={{ height: Math.max(220, porProjeto.length * 42) }}>
-            {porProjeto.length === 0 ? (
-              <EmptyState icon={Ship} title="Nenhum custo encontrado" className="h-full" />
-            ) : (
-              <ChartContainer config={visaoDetalhadaChartConfig} className="aspect-auto h-full w-full">
-                <RechartsBarChart data={porProjeto} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid horizontal={false} />
-                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
-                  <YAxis type="category" dataKey="rotulo" tickLine={false} axisLine={false} fontSize={11} width={160} />
-                  <ShadcnChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel formatter={(value) => fmtMoney(Number(value))} />} />
-                  <Bar dataKey="total" radius={[0, 6, 6, 0]}>
-                    {porProjeto.map((item, i) => <Cell key={item.rotulo} fill={CLIENTE_CORES[i % CLIENTE_CORES.length]} />)}
-                    <LabelList dataKey="total" position="right" fontSize={11} fill="hsl(var(--foreground))" formatter={(v: number) => fmtMoney(v)} />
-                  </Bar>
-                </RechartsBarChart>
-              </ChartContainer>
-            )}
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold">Evolução mensal — últimos 3 meses</h2>
-            <div className="w-48">
-              <Select value={filterModuloAnual} onValueChange={(v) => setFilterModuloAnual(v as TipoCusto)}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIPO_CUSTO_ORDER.map((t) => <SelectItem key={t} value={t} className="text-xs">{TIPO_CUSTO_LABEL[t]}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="mt-3 h-64">
-            <ChartContainer config={visaoDetalhadaChartConfig} className="aspect-auto h-full w-full">
-              <RechartsBarChart data={evolucaoAnual} margin={{ top: 20 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey="mesLabel" tickLine={false} axisLine={false} fontSize={11} />
-                <YAxis tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} width={80} />
-                <ShadcnChartTooltip cursor={{ fill: "var(--color-muted)" }} content={<ChartTooltipContent hideLabel formatter={(value) => fmtMoney(Number(value))} />} />
-                <Bar dataKey="total" radius={[4, 4, 0, 0]} fill={TIPO_CUSTO_COLOR[filterModuloAnual]}>
-                  <LabelList dataKey="total" position="top" fontSize={10} fill="hsl(var(--foreground))" formatter={(v: number) => (v > 0 ? fmtMoney(v) : "")} />
-                </Bar>
-              </RechartsBarChart>
-            </ChartContainer>
-          </div>
-        </Card>
-      </div>
-
-      <Card className="p-5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-          <FileText className="h-4 w-4" />
-          Resumo da análise — {TIPO_CUSTO_LABEL[filterModuloAnual]}
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed">{resumoAnual}</p>
-      </Card>
-
-      {consolidadoMensal.length === 0 ? (
-        <Card className="p-8"><EmptyStateRow colSpan={1} icon={Hotel} title="Nenhum custo de hospedagem encontrado no período" /></Card>
-      ) : (
-        // Pedido dela (2026-10-21): "um gráfico só" em vez de um por hotel — barras agrupadas
-        // (uma cor por mês) numa linha por hotel, com Hotel + Projeto/Cliente escritos juntos no
-        // eixo (HotelUnidadeTick abaixo) pra separar bem quem é quem sem precisar de vários cards.
-        <Card className="p-5">
-          <h2 className="text-base font-semibold">Custo de hospedagem por hotel — últimos meses</h2>
-          <div className="mt-3" style={{ height: Math.max(320, consolidadoMensal.length * 52) }}>
-            <ChartContainer config={mensalChartConfig} className="aspect-auto h-full w-full">
-              <RechartsBarChart data={consolidadoMensal} layout="vertical" margin={{ left: 8, right: 56, top: 8 }}>
-                <CartesianGrid horizontal={false} />
-                <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
-                <YAxis
-                  type="category"
-                  dataKey="chave"
-                  tickLine={false}
-                  axisLine={false}
-                  width={190}
-                  interval={0}
-                  tick={(props: any) => {
-                    const row = consolidadoPorChave.get(props.payload.value);
-                    if (!row) return <g />;
-                    return (
-                      <g transform={`translate(${props.x},${props.y})`}>
-                        <text x={-6} y={-3} textAnchor="end" fontSize={11} fontWeight={600} fill="hsl(var(--foreground))">
-                          {row.hotel}
-                        </text>
-                        <text x={-6} y={11} textAnchor="end" fontSize={10} fill="hsl(var(--muted-foreground))">
-                          {row.projetoRotulo}
-                        </text>
-                      </g>
-                    );
-                  }}
-                />
-                <ShadcnChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      labelFormatter={(_, payload) => {
-                        const row = consolidadoPorChave.get(payload?.[0]?.payload?.chave);
-                        return row ? `${row.hotel} — ${row.projetoRotulo}` : "";
-                      }}
-                      formatter={(value, name) => [fmtMoney(Number(value)), mensalChartConfig[name as string]?.label ?? name]}
-                    />
-                  }
-                />
-                <ChartLegend content={<ChartLegendContent />} />
-                {Object.keys(mensalChartConfig).map((key) => (
-                  <Bar key={key} dataKey={key} fill={`var(--color-${key})`} radius={[0, 4, 4, 0]}>
-                    <LabelList dataKey={key} position="right" fontSize={12} fontWeight={600} fill="hsl(var(--foreground))" formatter={(v: number) => (v > 0 ? fmtMoney(v) : "")} />
-                  </Bar>
-                ))}
-              </RechartsBarChart>
-            </ChartContainer>
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-}
 
 // ─── Aba "Dashboard" — visão gráfica dos mesmos três custos (Hospedagem/Transporte/Passagens
 // Aéreas), sobre a mesma base de dados de useCustosBrutosQuery. Substituiu a antiga aba
@@ -933,13 +626,32 @@ const porTipoChartConfig = {
 } satisfies ChartConfig;
 
 function DashboardCustosTab() {
-  const [periodoDe, setPeriodoDe] = useState(primeiroDiaMes);
-  const [periodoAte, setPeriodoAte] = useState(ultimoDiaMes);
+  const { brutos: todosBrutos, isLoading: l1 } = useCustosBrutosQuery();
+  const { data: hoteis = [], isLoading: l2 } = useHoteisFornecedoresQuery();
+  const isLoading = l1 || l2;
+  const hoteisPorId = useMemo(() => new Map(hoteis.map((h) => [h.id, h])), [hoteis]);
+  const [cidadesAbertas, setCidadesAbertas] = useState<Set<string>>(new Set());
+  const toggleCidade = (cidade: string) =>
+    setCidadesAbertas((cur) => {
+      const next = new Set(cur);
+      if (next.has(cidade)) next.delete(cidade); else next.add(cidade);
+      return next;
+    });
+  const [tiposTransporteAbertos, setTiposTransporteAbertos] = useState<Set<string>>(new Set());
+  const toggleTipoTransporte = (tipo: string) =>
+    setTiposTransporteAbertos((cur) => {
+      const next = new Set(cur);
+      if (next.has(tipo)) next.delete(tipo); else next.add(tipo);
+      return next;
+    });
 
-  const { brutos: todosBrutos, isLoading } = useCustosBrutosQuery();
+  // Pedido dela, 2026-10-21: tirou o filtro De/Até — o Dashboard inteiro passa a mostrar sempre
+  // o último trimestre (últimos 3 meses a partir de hoje), mesma janela que já valia só pro
+  // bloco "Avaliação trimestral" e pros quadros por módulo logo abaixo.
+  const ultimos3MesesDash = useMemo(() => ultimosNMeses(3), []);
   const brutos = useMemo(
-    () => todosBrutos.filter((b) => b.item.dataFim >= periodoDe && b.item.data <= periodoAte),
-    [todosBrutos, periodoDe, periodoAte],
+    () => todosBrutos.filter((b) => ultimos3MesesDash.includes(b.item.data.slice(0, 7))),
+    [todosBrutos, ultimos3MesesDash],
   );
 
   const totalGeral = useMemo(() => brutos.reduce((a, b) => a + b.item.valor, 0), [brutos]);
@@ -990,6 +702,173 @@ function DashboardCustosTab() {
     return [...top, { cliente: "Outros", total: outros }];
   }, [brutos]);
 
+  const evolucao3MesesPorTipo = useMemo(() => {
+    const porMes = new Map<string, Record<TipoCusto, number>>();
+    ultimos3MesesDash.forEach((mes) => porMes.set(mes, { hospedagem: 0, transporte: 0, passagens: 0 }));
+    todosBrutos.forEach((b) => {
+      const mes = b.item.data.slice(0, 7);
+      const bucket = porMes.get(mes);
+      if (!bucket) return;
+      bucket[b.item.tipo] += b.item.valor;
+    });
+    return ultimos3MesesDash.map((mes) => {
+      const bucket = porMes.get(mes)!;
+      return { mes, mesLabel: mesLabelCustos(mes), ...bucket, total: bucket.hospedagem + bucket.transporte + bucket.passagens };
+    });
+  }, [todosBrutos, ultimos3MesesDash]);
+
+  const total3Meses = useMemo(() => evolucao3MesesPorTipo.reduce((a, m) => a + m.total, 0), [evolucao3MesesPorTipo]);
+
+  // Variação contra o trimestre imediatamente anterior (mesmos 3 meses, só deslocados pra trás) —
+  // base do indicador de tendência pro plano de ação.
+  const variacao3Meses = useMemo(() => {
+    const [maisAntigo] = ultimos3MesesDash;
+    const [ano, mes] = maisAntigo.split("-").map(Number);
+    const mesesAnteriores = Array.from({ length: 3 }, (_, i) => {
+      const d = new Date(ano, mes - 1 - (3 - i), 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    });
+    const totalAnterior = todosBrutos
+      .filter((b) => mesesAnteriores.includes(b.item.data.slice(0, 7)))
+      .reduce((a, b) => a + b.item.valor, 0);
+    if (totalAnterior <= 0) return null;
+    return ((total3Meses - totalAnterior) / totalAnterior) * 100;
+  }, [todosBrutos, ultimos3MesesDash, total3Meses]);
+
+  // Ranking de cliente/unidade nos últimos 3 meses — os maiores custos, pra apontar onde focar o
+  // plano de ação (top 6 + "Outros").
+  const topUnidades3Meses = useMemo(() => {
+    const m = new Map<string, { cliente: string; total: number }>();
+    todosBrutos
+      .filter((b) => ultimos3MesesDash.includes(b.item.data.slice(0, 7)))
+      .forEach((b) => {
+        const atual = m.get(b.unidade) ?? { cliente: b.cliente, total: 0 };
+        atual.total += b.item.valor;
+        m.set(b.unidade, atual);
+      });
+    return Array.from(m.entries())
+      .map(([unidade, v]) => ({ unidade, rotulo: `${unidade} (${v.cliente})`, total: v.total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 11);
+  }, [todosBrutos, ultimos3MesesDash]);
+
+  // Texto pronto pra colar numa apresentação — destaca tendência e maior concentração de custo.
+  const resumo3Meses = useMemo(() => {
+    const comValor = evolucao3MesesPorTipo.filter((m) => m.total > 0);
+    if (comValor.length === 0) return "Nenhum custo lançado nos últimos 3 meses.";
+    const tipoMaisPesado = TIPO_CUSTO_ORDER
+      .map((tipo) => ({ tipo, total: evolucao3MesesPorTipo.reduce((a, m) => a + m[tipo], 0) }))
+      .sort((a, b) => b.total - a.total)[0];
+    const pctTipoMaisPesado = total3Meses > 0 ? Math.round((tipoMaisPesado.total / total3Meses) * 100) : 0;
+    const maiorUnidade = topUnidades3Meses[0];
+    const pctMaiorUnidade = total3Meses > 0 && maiorUnidade ? Math.round((maiorUnidade.total / total3Meses) * 100) : 0;
+    let tendencia = "sem trimestre anterior pra comparar";
+    if (variacao3Meses !== null) {
+      tendencia = variacao3Meses > 1
+        ? `alta de ${variacao3Meses.toFixed(0)}% em relação ao trimestre anterior`
+        : variacao3Meses < -1
+          ? `queda de ${Math.abs(variacao3Meses).toFixed(0)}% em relação ao trimestre anterior`
+          : "estável em relação ao trimestre anterior";
+    }
+    return `De ${evolucao3MesesPorTipo[0].mesLabel} a ${evolucao3MesesPorTipo[evolucao3MesesPorTipo.length - 1].mesLabel}, o custo total foi de ${fmtMoney(total3Meses)}, ${tendencia}. ${TIPO_CUSTO_LABEL[tipoMaisPesado.tipo]} concentra a maior parte (${pctTipoMaisPesado}%).${maiorUnidade ? ` Maior concentração por projeto: ${maiorUnidade.rotulo} com ${fmtMoney(maiorUnidade.total)} (${pctMaiorUnidade}% do trimestre) — ponto de partida pro plano de ação.` : ""}`;
+  }, [evolucao3MesesPorTipo, total3Meses, variacao3Meses, topUnidades3Meses]);
+
+  // Pedido dela, 2026-10-21: 3 quadros de resumo por módulo (Hospedagem/Transporte/Passagens),
+  // pra apresentação — mesma janela dos últimos 3 meses do bloco "Avaliação trimestral" acima.
+
+  // Hospedagem — top 3 cidades por custo, cada uma com o detalhe por hotel por baixo (pedido
+  // dela, 2026-10-21: cascata recolhida, abre no clique da setinha).
+  const top3CidadesHospedagem = useMemo(() => {
+    const porCidade = new Map<string, number>();
+    // cidade -> hotel -> mes -> valor
+    const hoteisPorCidade = new Map<string, Map<string, Map<string, number>>>();
+    let totalHospedagem = 0;
+    todosBrutos
+      .filter((b) => b.item.tipo === "hospedagem" && ultimos3MesesDash.includes(b.item.data.slice(0, 7)))
+      .forEach((b) => {
+        const hotel = b.item.hotelId ? hoteisPorId.get(b.item.hotelId) : undefined;
+        const cidade = hotel ? localizacaoHotel(hotel) : "Hotel não cadastrado";
+        const nomeHotel = hotel?.nome ?? "Hotel não cadastrado";
+        const mes = b.item.data.slice(0, 7);
+        porCidade.set(cidade, (porCidade.get(cidade) ?? 0) + b.item.valor);
+        if (!hoteisPorCidade.has(cidade)) hoteisPorCidade.set(cidade, new Map());
+        const porHotel = hoteisPorCidade.get(cidade)!;
+        if (!porHotel.has(nomeHotel)) porHotel.set(nomeHotel, new Map());
+        const porMes = porHotel.get(nomeHotel)!;
+        porMes.set(mes, (porMes.get(mes) ?? 0) + b.item.valor);
+        totalHospedagem += b.item.valor;
+      });
+    const top3 = Array.from(porCidade.entries())
+      .map(([cidade, total]) => ({
+        cidade, total, pct: totalHospedagem > 0 ? Math.round((total / totalHospedagem) * 100) : 0,
+        hoteis: Array.from((hoteisPorCidade.get(cidade) ?? new Map<string, Map<string, number>>()).entries())
+          .map(([nome, porMes]) => ({
+            nome,
+            valor: Array.from(porMes.values()).reduce((a, v) => a + v, 0),
+            porMes: ultimos3MesesDash.map((mes) => ({ mesLabel: mesLabelCustos(mes), valor: porMes.get(mes) ?? 0 })),
+          }))
+          .sort((a, b) => b.valor - a.valor),
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 3);
+    return { top3, totalHospedagem };
+  }, [todosBrutos, ultimos3MesesDash, hoteisPorId]);
+
+  // Transporte — top 3 tipos de transporte por custo, cada um com o detalhe por fornecedor por
+  // baixo (pedido dela, 2026-10-21: mesmo molde do quadro de Hospedagem por cidade → hotel).
+  const top3TiposTransporte = useMemo(() => {
+    const porTipo = new Map<string, number>();
+    // tipo -> fornecedor -> mes -> valor
+    const fornecedoresPorTipo = new Map<string, Map<string, Map<string, number>>>();
+    let totalTransporte = 0;
+    todosBrutos
+      .filter((b) => b.item.tipo === "transporte" && ultimos3MesesDash.includes(b.item.data.slice(0, 7)))
+      .forEach((b) => {
+        const tipo = b.item.tipoTransporte?.trim() || "Tipo não informado";
+        const fornecedor = b.item.fornecedor?.trim() || "Fornecedor não informado";
+        const mes = b.item.data.slice(0, 7);
+        porTipo.set(tipo, (porTipo.get(tipo) ?? 0) + b.item.valor);
+        if (!fornecedoresPorTipo.has(tipo)) fornecedoresPorTipo.set(tipo, new Map());
+        const porFornecedor = fornecedoresPorTipo.get(tipo)!;
+        if (!porFornecedor.has(fornecedor)) porFornecedor.set(fornecedor, new Map());
+        const porMes = porFornecedor.get(fornecedor)!;
+        porMes.set(mes, (porMes.get(mes) ?? 0) + b.item.valor);
+        totalTransporte += b.item.valor;
+      });
+    const top3 = Array.from(porTipo.entries())
+      .map(([tipo, total]) => ({
+        tipo, total, pct: totalTransporte > 0 ? Math.round((total / totalTransporte) * 100) : 0,
+        fornecedores: Array.from((fornecedoresPorTipo.get(tipo) ?? new Map<string, Map<string, number>>()).entries())
+          .map(([nome, porMes]) => ({
+            nome,
+            valor: Array.from(porMes.values()).reduce((a, v) => a + v, 0),
+            porMes: ultimos3MesesDash.map((mes) => ({ mesLabel: mesLabelCustos(mes), valor: porMes.get(mes) ?? 0 })),
+          }))
+          .sort((a, b) => b.valor - a.valor),
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 3);
+    return { top3, totalTransporte };
+  }, [todosBrutos, ultimos3MesesDash]);
+
+  // Passagens Aéreas — top 3 rotas por custo.
+  const top3RotasPassagens = useMemo(() => {
+    const m = new Map<string, number>();
+    let totalPassagens = 0;
+    todosBrutos
+      .filter((b) => b.item.tipo === "passagens" && ultimos3MesesDash.includes(b.item.data.slice(0, 7)))
+      .forEach((b) => {
+        const rota = b.item.rota ?? "Rota não informada";
+        m.set(rota, (m.get(rota) ?? 0) + b.item.valor);
+        totalPassagens += b.item.valor;
+      });
+    const top3 = Array.from(m.entries())
+      .map(([rota, total]) => ({ rota, total, pct: totalPassagens > 0 ? Math.round((total / totalPassagens) * 100) : 0 }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 3);
+    return { top3, totalPassagens };
+  }, [todosBrutos, ultimos3MesesDash]);
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -1004,15 +883,63 @@ function DashboardCustosTab() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - de</Label>
-            <Input type="date" className="h-8 w-36 text-xs" value={periodoDe} onChange={(e) => setPeriodoDe(e.target.value)} />
+      <Card className="border-l-4 p-5" style={{ borderLeftColor: TIPO_CUSTO_COLOR.passagens }}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Avaliação trimestral</h2>
+            <p className="text-xs text-muted-foreground">
+              {evolucao3MesesPorTipo[0]?.mesLabel} a {evolucao3MesesPorTipo[evolucao3MesesPorTipo.length - 1]?.mesLabel} · sempre os 3 meses mais recentes
+            </p>
           </div>
-          <div className="space-y-0.5">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Período - até</Label>
-            <Input type="date" className="h-8 w-36 text-xs" min={periodoDe || undefined} value={periodoAte} onChange={(e) => setPeriodoAte(e.target.value)} />
+          <div className="text-right">
+            <div className="text-2xl font-semibold"><KpiValue value={total3Meses} format={{ style: "currency", currency: "BRL" }} locales="pt-BR" /></div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
+          <div className="lg:col-span-3">
+            <div className="h-72">
+              <ChartContainer config={porTipoChartConfig} className="aspect-auto h-full w-full">
+                <RechartsBarChart data={evolucao3MesesPorTipo} margin={{ top: 30 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="mesLabel" tickLine={false} axisLine={false} fontSize={12} fontWeight={600} />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v) => fmtMoney(v)} width={70} />
+                  <ShadcnChartTooltip content={<ChartTooltipContent formatter={(value) => fmtMoney(Number(value))} />} />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  <Bar dataKey="hospedagem" fill="var(--color-hospedagem)" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="hospedagem" position="top" fontSize={13} fontWeight={700} fill="hsl(var(--foreground))" formatter={(v: number) => (v > 0 ? fmtMoney(v) : "")} />
+                  </Bar>
+                  <Bar dataKey="transporte" fill="var(--color-transporte)" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="transporte" position="top" fontSize={13} fontWeight={700} fill="hsl(var(--foreground))" formatter={(v: number) => (v > 0 ? fmtMoney(v) : "")} />
+                  </Bar>
+                  <Bar dataKey="passagens" fill="var(--color-passagens)" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="passagens" position="top" fontSize={13} fontWeight={700} fill="hsl(var(--foreground))" formatter={(v: number) => (v > 0 ? fmtMoney(v) : "")} />
+                  </Bar>
+                </RechartsBarChart>
+              </ChartContainer>
+            </div>
+            <p className="mt-3 rounded-md bg-muted/40 p-3 text-sm leading-relaxed">{resumo3Meses}</p>
+          </div>
+
+          <div className="lg:col-span-2">
+            <h3 className="text-sm font-semibold">Maiores custos por projeto</h3>
+            <p className="text-xs text-muted-foreground">Soma dos 3 meses, do maior pro menor</p>
+            <div className="mt-2 h-[26rem]">
+              {topUnidades3Meses.length === 0 ? <EmptyState icon={DollarSign} title="Sem dados" className="h-full" /> : (
+                <ChartContainer config={visaoDetalhadaChartConfig} className="aspect-auto h-full w-full">
+                  <RechartsBarChart data={topUnidades3Meses} layout="vertical" margin={{ left: 8, right: 24 }}>
+                    <CartesianGrid horizontal={false} />
+                    <XAxis type="number" domain={[0, (max: number) => max * 1.15]} tickLine={false} axisLine={false} fontSize={11} tickFormatter={(v) => fmtMoney(v)} />
+                    <YAxis type="category" dataKey="rotulo" tickLine={false} axisLine={false} fontSize={10} width={130} />
+                    <ShadcnChartTooltip content={<ChartTooltipContent formatter={(value) => fmtMoney(Number(value))} />} />
+                    <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+                      {topUnidades3Meses.map((u, i) => <Cell key={u.unidade} fill={CLIENTE_CORES[i % CLIENTE_CORES.length]} />)}
+                      <LabelList dataKey="total" position="right" fontSize={11} fontWeight={700} fill="hsl(var(--foreground))" formatter={(v: number) => fmtMoney(v)} />
+                    </Bar>
+                  </RechartsBarChart>
+                </ChartContainer>
+              )}
+            </div>
           </div>
         </div>
       </Card>
@@ -1044,6 +971,132 @@ function DashboardCustosTab() {
             </FadeInView>
           );
         })}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="border-l-4 p-5" style={{ borderLeftColor: TIPO_CUSTO_COLOR.hospedagem }}>
+          <div className="flex items-center gap-2">
+            <BedDouble className="h-5 w-5" style={{ color: TIPO_CUSTO_COLOR.hospedagem }} />
+            <h2 className="text-lg font-bold">Hospedagem — por cidade</h2>
+          </div>
+          <p className="text-xs text-muted-foreground">Últimos 3 meses · 3 cidades de maior custo</p>
+          <div className="mt-4 space-y-3">
+            {top3CidadesHospedagem.top3.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem lançamentos de hospedagem no período.</p>
+            ) : top3CidadesHospedagem.top3.map((c, i) => {
+              const aberta = cidadesAbertas.has(c.cidade);
+              return (
+                <div key={c.cidade} className="rounded-md bg-muted/40">
+                  <button
+                    type="button" className="flex w-full items-center justify-between gap-2 p-3 text-left"
+                    aria-expanded={aberta} onClick={() => toggleCidade(c.cidade)}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      {aberta ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white" style={{ backgroundColor: MES_CORES[i % MES_CORES.length] }}>{i + 1}</span>
+                      <span className="truncate text-base font-semibold">{c.cidade}</span>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-xl font-bold">{fmtMoney(c.total)}</div>
+                      <div className="text-xs font-medium text-muted-foreground">{c.pct}% do módulo</div>
+                    </div>
+                  </button>
+                  {aberta && (
+                    <div className="space-y-2 border-t px-3 py-2 pl-11">
+                      {c.hoteis.map((h) => (
+                        <div key={h.nome} className="text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-muted-foreground">{h.nome}</span>
+                            <span className="shrink-0 font-semibold">{fmtMoney(h.valor)}</span>
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs font-medium text-muted-foreground">
+                            {h.porMes.map((m) => (
+                              <span key={m.mesLabel}>{m.mesLabel}: {fmtMoney(m.valor)}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Card className="border-l-4 p-5" style={{ borderLeftColor: TIPO_CUSTO_COLOR.transporte }}>
+          <div className="flex items-center gap-2">
+            <Car className="h-5 w-5" style={{ color: TIPO_CUSTO_COLOR.transporte }} />
+            <h2 className="text-lg font-bold">Transporte — por tipo</h2>
+          </div>
+          <p className="text-xs text-muted-foreground">Últimos 3 meses · 3 tipos de maior custo</p>
+          <div className="mt-4 space-y-3">
+            {top3TiposTransporte.top3.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem lançamentos de transporte no período.</p>
+            ) : top3TiposTransporte.top3.map((t, i) => {
+              const aberto = tiposTransporteAbertos.has(t.tipo);
+              return (
+                <div key={t.tipo} className="rounded-md bg-muted/40">
+                  <button
+                    type="button" className="flex w-full items-center justify-between gap-2 p-3 text-left"
+                    aria-expanded={aberto} onClick={() => toggleTipoTransporte(t.tipo)}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      {aberto ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white" style={{ backgroundColor: MES_CORES[i % MES_CORES.length] }}>{i + 1}</span>
+                      <span className="truncate text-base font-semibold">{t.tipo}</span>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-xl font-bold">{fmtMoney(t.total)}</div>
+                      <div className="text-xs font-medium text-muted-foreground">{t.pct}% do módulo</div>
+                    </div>
+                  </button>
+                  {aberto && (
+                    <div className="space-y-2 border-t px-3 py-2 pl-11">
+                      {t.fornecedores.map((f) => (
+                        <div key={f.nome} className="text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-muted-foreground">{f.nome}</span>
+                            <span className="shrink-0 font-semibold">{fmtMoney(f.valor)}</span>
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs font-medium text-muted-foreground">
+                            {f.porMes.map((m) => (
+                              <span key={m.mesLabel}>{m.mesLabel}: {fmtMoney(m.valor)}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Card className="border-l-4 p-5" style={{ borderLeftColor: TIPO_CUSTO_COLOR.passagens }}>
+          <div className="flex items-center gap-2">
+            <Plane className="h-5 w-5" style={{ color: TIPO_CUSTO_COLOR.passagens }} />
+            <h2 className="text-lg font-bold">Passagens — principais rotas</h2>
+          </div>
+          <p className="text-xs text-muted-foreground">Últimos 3 meses · 3 rotas de maior custo</p>
+          <div className="mt-4 space-y-3">
+            {top3RotasPassagens.top3.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem lançamentos de passagens no período.</p>
+            ) : top3RotasPassagens.top3.map((r, i) => (
+              <div key={r.rota} className="flex items-center justify-between gap-2 rounded-md bg-muted/40 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white" style={{ backgroundColor: MES_CORES[i % MES_CORES.length] }}>{i + 1}</span>
+                  <span className="text-base font-semibold">{r.rota}</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-bold">{fmtMoney(r.total)}</div>
+                  <div className="text-xs font-medium text-muted-foreground">{r.pct}% do módulo</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
