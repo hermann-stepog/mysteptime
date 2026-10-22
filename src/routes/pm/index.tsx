@@ -121,11 +121,9 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
           if (error) throw error;
         }),
       );
-      // "Aprovação PM" vai direto pra "Briefing" (Validação SMS/RH já ficam bem mais cedo no
-      // fluxo, logo depois de Simulação) — mesmo alvo que o equivalente da Logística já usa em
-      // AprovacaoPmSection (NominationsPage.tsx). Isso aqui mandava pra "validacao_sms_aso" por
-      // engano, sobra de antes dessa reordenação (canMoveToColumn nem chegava a barrar, porque
-      // aquele alvo fica ANTES de aprovacao_pm na ordem nova — virava sempre { ok: true }).
+      // "Aprovação PM" vai direto pra "Briefing" (Validação SMS/RH/Qualidade já ficaram pra trás
+      // no fluxo, antes de Nomeados) — mesmo alvo que o equivalente da Logística já usa em
+      // AprovacaoPmSection (NominationsPage.tsx).
       const merged = ativos.map((n) => ({ ...n, pm_decision: decisionFor(n) }));
       const gate = canMoveToColumn(nomination, "briefing_sms", merged);
       if (!gate.ok) throw new Error(gate.reason ?? "Não é possível avançar ainda.");

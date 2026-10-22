@@ -481,14 +481,9 @@ function AprovacaoTecnicaSection({
       notify.error("Selecione ao menos um candidato antes de avançar.");
       return;
     }
-    const gate = canMoveToColumn(nomination, "nomeados", nominees);
-    if (!gate.ok) {
-      notify.error(gate.reason ?? "Não é possível avançar.");
-      return;
-    }
     advance.mutate({
       nomination,
-      target: "nomeados",
+      target: "validacao_sms_aso",
       note: `${selecionados.length} nomeado(s) selecionado(s)`,
     });
   };
@@ -560,7 +555,7 @@ function AprovacaoTecnicaSection({
       </div>
       {canAct && nomination.current_status === "aprovacao_tecnica" && (
         <Button size="sm" onClick={confirmar} loading={advance.isPending}>
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar seleção e avançar para Nomeados
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar seleção e avançar para Validação SMS (ASO)
         </Button>
       )}
     </div>
@@ -578,11 +573,8 @@ function NomeadosSection({
   const canAct = FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "");
   const advance = useAdvanceStage();
   const selecionados = nominees.filter((n) => n.is_active && n.technical_selected_at);
-  // Validação de Qualidade só é obrigatória quando a solicitação exige (soldador) — caso
-  // contrário pula direto pra Aprovação PM, sem o card nunca parar naquela coluna.
-  const proximaEtapa: NominationStatus = nomination.requires_quality_validation
-    ? "validacao_qualidade"
-    : "aprovacao_pm";
+  // Validação de Qualidade (quando exigida, soldador) agora acontece antes de chegar aqui — ver
+  // o ramo condicional em ValidacaoRhSection. Nomeados sempre segue direto pra Validação PM.
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">Nomeados ({selecionados.length})</p>
@@ -596,21 +588,18 @@ function NomeadosSection({
       {canAct && nomination.current_status === "nomeados" && (
         <Button
           size="sm"
-          onClick={() => advance.mutate({ nomination, target: proximaEtapa })}
+          onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })}
           loading={advance.isPending}
         >
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
-          {nomination.requires_quality_validation
-            ? "Enviar para Validação de Qualidade"
-            : "Enviar para Validação PM"}
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação PM
         </Button>
       )}
     </div>
   );
 }
 
-// Só chega aqui quando a solicitação exige (soldador) — NomeadosSection já pula direto pra
-// Aprovação PM quando não exige. A Qualidade decide olhando o escopo do serviço anexado pelo
+// Só chega aqui quando a solicitação exige (soldador) — ValidacaoRhSection já pula direto pra
+// Nomeados quando não exige. A Qualidade decide olhando o escopo do serviço anexado pelo
 // solicitante, não um tipo de solda/material escolhido em lista.
 function ValidacaoQualidadeSection({
   nomination,
@@ -632,7 +621,6 @@ function ValidacaoQualidadeSection({
   };
   // Igual ao SMS: a Qualidade analisa o documento e responde, por colaborador, se ele está apto
   // para o tipo de solda da solicitação. Só dá pra aprovar depois de responder todos.
-  // Qualidade vem antes da Aprovação Técnica: avalia todos os candidatos ativos da simulação.
   const avaliados = nominees.filter((n) => n.is_active);
   const todosRespondidos =
     avaliados.length > 0 && avaliados.every((n) => (n as any).quality_apto_solda != null);
@@ -851,10 +839,10 @@ function ValidacaoQualidadeSection({
       {canAct && nomination.quality_status === "aprovado" && (
         <Button
           size="sm"
-          onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })}
+          onClick={() => advance.mutate({ nomination, target: "nomeados" })}
           loading={advance.isPending}
         >
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação PM
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Nomeados
         </Button>
       )}
       {canAct && nomination.quality_status === "reprovado" && (
@@ -1026,8 +1014,8 @@ function AprovacaoPmSection({
 }
 
 // Validação SMS (ASO) — mesmo papel (sms) que já cuida do Briefing mais à frente. Vem logo
-// depois de Simulação agora (pedido dela) — checklist por todo nomeado simulado, ainda antes
-// de qualquer seleção da Aprovação Técnica ou decisão do PM.
+// depois de Aprovação Técnica agora (pedido dela, 2026-10-22) — checklist só de quem a Técnica
+// selecionou, não mais todo nomeado simulado.
 function ValidacaoSmsAsoSection({
   nomination,
   nominees,
@@ -1039,9 +1027,8 @@ function ValidacaoSmsAsoSection({
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
   const advance = useAdvanceStage();
-  // Vem logo depois de Simulação agora — checa todo mundo que foi simulado, não só quem o PM
-  // já aprovou (isso só acontece bem mais adiante no fluxo).
-  const aprovados = nominees.filter((n) => n.is_active);
+  // Só quem a Aprovação Técnica selecionou (technical_selected_at) — não todo mundo simulado.
+  const aprovados = nominees.filter((n) => n.is_active && n.technical_selected_at);
 
   // "Bloqueio de saúde" e "ASO em dia" (Sim/Não). O nomeado conta como checado (sms_aso_checked)
   // quando os dois foram respondidos — é isso que libera o avanço (gate em canMoveToColumn).
@@ -1156,9 +1143,8 @@ function ValidacaoRhSection({
   const qc = useQueryClient();
   const canAct = useCanActOnStage(nomination.current_status);
   const advance = useAdvanceStage();
-  // Mesmo motivo do ValidacaoSmsAsoSection acima: checa todo mundo simulado, não só quem já foi
-  // decidido pelo PM (etapa que só acontece mais adiante agora).
-  const aprovados = nominees.filter((n) => n.is_active);
+  // Mesmo motivo do ValidacaoSmsAsoSection acima: só quem a Aprovação Técnica selecionou.
+  const aprovados = nominees.filter((n) => n.is_active && n.technical_selected_at);
   const [divergenceDraft, setDivergenceDraft] = useState<Record<string, string>>({});
 
   const validate = useMutation({
@@ -1229,6 +1215,11 @@ function ValidacaoRhSection({
 
   const podeAvancar =
     aprovados.length > 0 && aprovados.every((n) => n.rh_validated && !n.aptidao_divergence);
+  // Validação de Qualidade só é obrigatória quando a solicitação exige (soldador) — caso
+  // contrário pula direto pra Nomeados, sem o card nunca parar naquela coluna.
+  const proximaEtapa: NominationStatus = nomination.requires_quality_validation
+    ? "validacao_qualidade"
+    : "nomeados";
 
   return (
     <div className="space-y-3">
@@ -1325,10 +1316,13 @@ function ValidacaoRhSection({
         <Button
           size="sm"
           disabled={!podeAvancar}
-          onClick={() => advance.mutate({ nomination, target: "aprovacao_tecnica" })}
+          onClick={() => advance.mutate({ nomination, target: proximaEtapa })}
           loading={advance.isPending}
         >
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Avançar para Aprovação Técnica
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
+          {nomination.requires_quality_validation
+            ? "Avançar para Validação de Qualidade"
+            : "Avançar para Nomeados"}
         </Button>
       )}
     </div>
@@ -1919,12 +1913,12 @@ function ManageDialog({
                 <Button
                   size="sm"
                   onClick={() => {
-                    advance.mutate({ nomination, target: "validacao_sms_aso" });
-                    advanceGroupTo("validacao_sms_aso");
+                    advance.mutate({ nomination, target: "aprovacao_tecnica" });
+                    advanceGroupTo("aprovacao_tecnica");
                   }}
                   loading={advance.isPending}
                 >
-                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação SMS (ASO)
+                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação Técnica
                 </Button>
               )}
               {canOperate && showRevert && earlierStages.length > 0 && (
