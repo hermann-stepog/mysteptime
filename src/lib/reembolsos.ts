@@ -1,13 +1,23 @@
+// Pedido dela, 2026-10-22: "Colaborador" (lançamento normal) ou "Nota de Débito" (quando é a
+// Rio Lab quem recebe, por ter adiantado o custo de um colaborador) — mesmo padrão do toggle
+// "Tipo de Transporte" (Pessoas/Material) já existente em Transporte.
+export type TipoReembolso = "colaborador" | "nota_debito";
+
 export interface Reembolso {
   id: string;
   created_at: string;
   codigo: string;
+  tipo: TipoReembolso;
+  // Só preenchido quando tipo === "nota_debito".
+  numero_nota_debito: string | null;
   solicitante: string;
-  // Vários colaboradores beneficiados por lançamento (pedido dela, 2026-10-20) — texto livre
-  // vindo do Drake, sem FK, igual já era quando era um nome só.
+  // Sempre [solicitante] agora (pedido dela, 2026-10-22: tirou o campo de beneficiário separado
+  // do cabeçalho — a coluna continua existindo só pra não quebrar leitura/ordenação da listagem).
   colaborador_beneficiario: string[];
   unidade: string;
-  bsp: string;
+  // Pedido dela, 2026-10-22: BSP saiu do cabeçalho — cada item de despesa tem o seu próprio BSP
+  // (reembolso_itens.bsp), já que itens diferentes do mesmo lançamento podem ter BSPs diferentes.
+  bsp: string | null;
   periodo_inicio: string;
   periodo_fim: string;
   observacoes: string | null;
