@@ -142,9 +142,10 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
 // são a dele.
 // Quem recebe o alerta ao chegar em cada etapa (definido pela usuária):
 // - recebido_logistica → Projetos ADM (solicitante_master)
-// - validacao_sms_aso → SMS + o PM da solicitação (é o momento em que ele fica sabendo quem foi simulado)
+// - aprovacao_tecnica → Aprovação Técnica (produção) + o PM da solicitação (é o momento em que
+//   ele fica sabendo quem foi simulado, agora que a Técnica é a 1ª etapa depois da Simulação)
+// - validacao_sms_aso → SMS
 // - validacao_rh → DP (papel "rh")
-// - aprovacao_tecnica → Aprovação Técnica (produção)
 // - validacao_qualidade → Qualidade, só quando a função tem "soldador"
 // - aprovacao_pm → o PM da solicitação
 // - briefing_sms → SMS
@@ -159,7 +160,7 @@ const STAGE_RECIPIENT_ROLES: Partial<Record<NominationStatus, string[]>> = {
   validacao_qualidade: ["qualidade"],
   briefing_sms: ["sms"],
 };
-const STAGES_WITH_PM: NominationStatus[] = ["validacao_sms_aso", "aprovacao_pm"];
+const STAGES_WITH_PM: NominationStatus[] = ["aprovacao_tecnica", "aprovacao_pm"];
 // Contas que nunca recebem alertas de Nomeações (pedido da usuária).
 const NUNCA_RECEBEM = ["gabriel.sales@sttep-og.com", "fernando.v.junger@gmail.com"];
 
