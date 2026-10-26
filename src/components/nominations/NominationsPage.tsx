@@ -574,7 +574,8 @@ function NomeadosSection({
   const advance = useAdvanceStage();
   const selecionados = nominees.filter((n) => n.is_active && n.technical_selected_at);
   // Validação de Qualidade (quando exigida, soldador) agora acontece antes de chegar aqui — ver
-  // o ramo condicional em ValidacaoRhSection. Nomeados sempre segue direto pra Validação PM.
+  // o ramo condicional em ValidacaoRhSection. Nomeados segue direto pro Briefing (a coluna
+  // Validação PM saiu do kanban, pedido dela, 2026-10-26).
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">Nomeados ({selecionados.length})</p>
@@ -588,10 +589,10 @@ function NomeadosSection({
       {canAct && nomination.current_status === "nomeados" && (
         <Button
           size="sm"
-          onClick={() => advance.mutate({ nomination, target: "aprovacao_pm" })}
+          onClick={() => advance.mutate({ nomination, target: "briefing_sms" })}
           loading={advance.isPending}
         >
-          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Validação PM
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Briefing
         </Button>
       )}
     </div>
@@ -4319,7 +4320,6 @@ function MapaNomeacoesTab({
         const caminho: NominationStatus[] = [
           ...(isWelder ? (["validacao_qualidade"] as NominationStatus[]) : []),
           "nomeados",
-          "aprovacao_pm",
           "validacao_sms_aso",
           "validacao_rh",
           "briefing_sms",

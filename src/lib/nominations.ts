@@ -161,6 +161,8 @@ export interface WeldMaterialConfig {
 // duas etapas em canMoveToColumn. "Validação de Qualidade" (só soldador) agora vem entre RH e
 // Nomeados (antes vinha depois de Nomeados) — ver o ramo condicional em ValidacaoRhSection
 // (NominationsPage.tsx).
+// "Validação PM" saiu do kanban (pedido dela, 2026-10-26) — Nomeados segue direto pro Briefing;
+// quem decide quem segue é a Aprovação Técnica.
 export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; text: string }[] = [
   { id: "solicitacao", label: "Solicitação", bg: "#F1EFE8", text: "#2C2C2A" },
   { id: "recebido_logistica", label: "Recebido pela Logística", bg: "#EFEDE3", text: "#4A4636" },
@@ -170,7 +172,6 @@ export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; 
   { id: "validacao_rh", label: "Validação - DP", bg: "#E8F5E9", text: "#1B5E20" },
   { id: "validacao_qualidade", label: "Validação de Qualidade", bg: "#F0E7FC", text: "#5B21B6" },
   { id: "nomeados", label: "Nomeados", bg: "#F3E8FD", text: "#5B2A8C" },
-  { id: "aprovacao_pm", label: "Validação PM", bg: "#FAEEDA", text: "#633806" },
   { id: "briefing_sms", label: "Briefing", bg: "#E0F7F5", text: "#0F5E59" },
   { id: "equipe_formada", label: "Equipe Formada", bg: "#DCFCE7", text: "#166534" },
 ];
@@ -187,6 +188,7 @@ export const STATUS_LABELS: Record<NominationStatus, string> = {
   >),
   aptidao: "Aptidão",
   aptidao_rh: "Aptidão (DP)",
+  aprovacao_pm: "Validação PM",
 };
 
 export const STATUS_BADGE: Record<NominationStatus, { bg: string; text: string }> = {
@@ -196,6 +198,7 @@ export const STATUS_BADGE: Record<NominationStatus, { bg: string; text: string }
   >),
   aptidao: { bg: "#FDEBEA", text: "#8C2F26" },
   aptidao_rh: { bg: "#FDEBEA", text: "#8C2F26" },
+  aprovacao_pm: { bg: "#FAEEDA", text: "#633806" },
 };
 
 export const ALL_STATUSES: NominationStatus[] = [...COLUMN_ORDER];
@@ -244,30 +247,6 @@ export function canMoveToColumn(
         reason:
           "Sem escopo do serviço anexado — descreva em Observações o tipo de obra/serviço a ser executado a bordo antes de avançar.",
       };
-    }
-  }
-
-  const aprovacaoPmIdx = COLUMN_ORDER.indexOf("aprovacao_pm");
-  const saiDeAprovacaoPm = currentIdx <= aprovacaoPmIdx && targetIdx > aprovacaoPmIdx;
-  if (saiDeAprovacaoPm) {
-    // O PM decide só em cima de quem a Aprovação Técnica de fato selecionou
-    // (technical_selected_at) — não em cima de todo mundo que já passou pela Simulação como
-    // candidato. Quem escolhe quem "concorre" é a Técnica; o PM só aprova ou reprova.
-    const ativos = activeNominees(nominees).filter((n) => n.technical_selected_at);
-    if (ativos.length === 0) {
-      return {
-        ok: false,
-        reason: "Nenhum colaborador selecionado pela Aprovação Técnica nesta solicitação.",
-      };
-    }
-    if (ativos.some((n) => n.pm_decision === "pendente")) {
-      return {
-        ok: false,
-        reason: "Aguardando o PM decidir todos os selecionados antes de avançar.",
-      };
-    }
-    if (!ativos.some((n) => n.pm_decision === "aprovado")) {
-      return { ok: false, reason: "Nenhum selecionado foi aprovado pelo PM." };
     }
   }
 

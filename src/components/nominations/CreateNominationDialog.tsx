@@ -89,22 +89,29 @@ export async function uploadScopeDocument(file: File): Promise<{ path: string; n
 // Dados de referência do formulário — um só lugar pra não duplicar as mesmas consultas entre
 // quem usa este diálogo (Solicitante e Logística).
 export function useNominationFormData() {
-  // Função: catálogo acumulado (pedido dela) — a lista vem do Planejamento de Embarque, mas
-  // nunca "esquece" uma função que já apareceu por lá, mesmo que ela suma do Planejamento
-  // depois. Um gatilho no banco grava cada função nova vista em planejamento_embarque neste
-  // catálogo pra sempre (ver migração nomination_funcao_catalog); o formulário lê daqui, não
-  // direto de planejamento_embarque.
-  const { data: funcaoCatalogo = [] } = useQuery<{ funcao: string }[]>({
-    queryKey: ["nomination-funcao-catalogo"],
-    queryFn: () =>
-      selectAllPages((from, to) =>
-        supabase.from("nomination_funcao_catalog").select("funcao").order("funcao").range(from, to),
-      ),
+  // Função: exatamente as funções do Planejamento de Embarque — o de hoje mais todo o histórico
+  // de fotos diárias (pedido dela, 2026-10-26), porque é de lá que a Simulação tira a
+  // disponibilidade; uma função que não existe no Planejamento (ex.: "Fitter" quando lá está
+  // "Caldeireiro") não acha ninguém. Ver migração nomination_funcoes_planejamento. A mesma função
+  // grafada com caixa/acento diferente vira uma entrada só, preferindo a grafia de hoje.
+  const { data: funcoesPlanejamento = [] } = useQuery<{ funcao: string; atual: boolean }[]>({
+    queryKey: ["nomination-funcoes-planejamento"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("nomination_funcoes_planejamento");
+      if (error) throw error;
+      return data ?? [];
+    },
   });
-  const funcaoOptions = useMemo(
-    () => funcaoCatalogo.map((f) => f.funcao).filter((f) => !isInspetor(f)).sort((a, b) => a.localeCompare(b, "pt-BR")),
-    [funcaoCatalogo],
-  );
+  const funcaoOptions = useMemo(() => {
+    const porChave = new Map<string, { funcao: string; atual: boolean }>();
+    funcoesPlanejamento.forEach((f) => {
+      if (isInspetor(f.funcao)) return;
+      const chave = f.funcao.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ");
+      const atual = porChave.get(chave);
+      if (!atual || (f.atual && !atual.atual)) porChave.set(chave, f);
+    });
+    return Array.from(porChave.values(), (f) => f.funcao).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [funcoesPlanejamento]);
 
   // Unidade/BSP também passam a vir do Planejamento de Embarque (pedido dela), em vez do Drake.
   // O campo Unidade de lá é texto livre e vem sujo — grafias repetidas da mesma unidade,
