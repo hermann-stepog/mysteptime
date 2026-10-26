@@ -93,8 +93,8 @@ function BotaoLimparBusca({ search, onClear }: { search: string; onClear: () => 
 // scroll-lock do Radix Dialog que o CommandList compartilhado já tem (onWheel manual), aplicada
 // aqui também, sem reestruturar o campo pra dentro de um Command/cmdk (continua sendo texto
 // livre — digitar qualquer coisa fora da lista é aceito, não é obrigatório escolher da lista).
-export function NomeUsuarioField({ value, onChange, colaboradores }: {
-  value: string; onChange: (v: string) => void; colaboradores: { id: string; nome: string }[];
+export function NomeUsuarioField({ value, onChange, colaboradores, placeholder = "Nome de quem vai utilizar", inputClassName }: {
+  value: string; onChange: (v: string) => void; colaboradores: { id: string; nome: string }[]; placeholder?: string; inputClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const colaboradoresUnicos = useMemo(() => colaboradoresUnicosPorNome(colaboradores), [colaboradores]);
@@ -121,9 +121,9 @@ export function NomeUsuarioField({ value, onChange, colaboradores }: {
                 setOpen(false);
               }
             }}
-            placeholder="Nome de quem vai utilizar"
+            placeholder={placeholder}
             autoComplete="off"
-            className={value ? "pr-7" : undefined}
+            className={cn(inputClassName, value && "pr-7")}
           />
           {value && (
             <button

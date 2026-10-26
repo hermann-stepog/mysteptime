@@ -1809,11 +1809,13 @@ function ConsolidadoTab({
   periodosE,
   unidadeOptions,
   onEdit,
+  colaboradores,
 }: {
   passagens: PassagemAerea[];
   periodosE: HistNovoPeriodo[];
   unidadeOptions: string[];
   onEdit: (p: PassagemAerea) => void;
+  colaboradores: { id: string; nome: string }[];
 }) {
   const [filterUnidade, setFilterUnidade] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
@@ -1964,11 +1966,12 @@ function ConsolidadoTab({
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Nome do usuário
             </Label>
-            <Input
-              className="h-8 text-xs"
-              placeholder="Buscar por nome..."
+            <NomeUsuarioField
               value={filterNome}
-              onChange={(e) => setFilterNome(e.target.value)}
+              onChange={setFilterNome}
+              colaboradores={colaboradores}
+              placeholder="Buscar por nome..."
+              inputClassName="h-8 text-xs"
             />
           </div>
           <div className="space-y-0.5 w-36">
@@ -2460,6 +2463,7 @@ export function PassagensAereasPage({
               passagens={passagens}
               periodosE={periodosE}
               unidadeOptions={unidadeOptions}
+              colaboradores={colaboradores}
               onEdit={(p) => {
                 setEditing(p);
                 setDialogOpen(true);
@@ -2543,11 +2547,12 @@ export function PassagensAereasPage({
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
                     Nome do usuário
                   </Label>
-                  <Input
-                    className="h-8 text-xs"
-                    placeholder="Buscar por nome..."
+                  <NomeUsuarioField
                     value={filterNome}
-                    onChange={(e) => setFilterNome(e.target.value)}
+                    onChange={setFilterNome}
+                    colaboradores={colaboradores}
+                    placeholder="Buscar por nome..."
+                    inputClassName="h-8 text-xs"
                   />
                 </div>
                 <div className="space-y-0.5 w-36">

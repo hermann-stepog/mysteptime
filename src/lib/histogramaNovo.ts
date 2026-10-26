@@ -290,6 +290,19 @@ const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
   "ILHA BELA": "CDI - CIDADE ILHA BELA",
   "MARICA": "FPMR - CIDADE DE MARICA",
   "MARICÁ": "FPMR - CIDADE DE MARICA",
+  // Pedido dela, 2026-10-23: CVIT (BW) e MSI Vitória (MSI) são unidades/clientes diferentes —
+  // cada grafia informal vai pro nome oficial da sua, nunca uma pra outra (ver clientes.ts e
+  // bmUnitResolver.ts, que separam MSI::VITORIA de BWENERGY::VITORIA).
+  "CIDADE DE VITORIA": "CVIT - CIDADE DE VITORIA",
+  "CIDADE DE VITÓRIA": "CVIT - CIDADE DE VITORIA",
+  "CIDADE VITORIA": "CVIT - CIDADE DE VITORIA",
+  "CIDADE VITÓRIA": "CVIT - CIDADE DE VITORIA",
+  "CVIT - CIDADE DE VITÓRIA": "CVIT - CIDADE DE VITORIA",
+  "MSI - VITORIA": "MSI - CIDADE DE VITORIA",
+  "MSI - VITÓRIA": "MSI - CIDADE DE VITORIA",
+  "MSI VITORIA": "MSI - CIDADE DE VITORIA",
+  "MSI VITÓRIA": "MSI - CIDADE DE VITORIA",
+  "MSI - CIDADE DE VITÓRIA": "MSI - CIDADE DE VITORIA",
 };
 
 export function normalizeUnidadeOperacional(raw: string | null | undefined): string | null {

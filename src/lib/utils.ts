@@ -41,15 +41,22 @@ const FOCUSABLE_SELECTOR = 'input:not([disabled]), textarea:not([disabled]), sel
 // Pedido dela (2026-10-21): em todo campo de selecionar um ou mais, assim que uma opção é
 // marcada ela fica fixada no topo da lista — mesmo comportamento pra todos os comboboxes do
 // sistema (SearchableSelect, SearchableMultiSelect, Colaboradores, Etiquetas, Materiais etc.).
-// Congela a ordem só enquanto o popover está aberto (snapshot tirado no momento em que abre) —
-// senão o item marcado pularia pro topo no meio do clique, debaixo do cursor, a cada seleção
-// dentro da mesma sessão de uso. Fecha e reabre: recalcula com o que está selecionado agora.
+// Por padrão (live=false) congela a ordem enquanto o popover está aberto (snapshot tirado no
+// momento em que abre) — senão o item marcado pularia pro topo no meio do clique, debaixo do
+// cursor, a cada seleção dentro da mesma sessão de uso. Fecha e reabre: recalcula com o que está
+// selecionado agora. live=true (pedido dela, 2026-10-23, BSP do filtro de Transporte: quer ver
+// quem já marcou sem rolar a lista) desliga esse congelamento — reordena a cada seleção, mesmo
+// com o popover ainda aberto.
 export function useOrdemComSelecionadosFixados<T>(
   options: T[],
   open: boolean,
   estaSelecionado: (opt: T) => boolean,
+  live = false,
 ): T[] {
   const congelado = useRef<T[] | null>(null);
+  if (live) {
+    return open ? [...options].sort((a, b) => Number(estaSelecionado(b)) - Number(estaSelecionado(a))) : options;
+  }
   if (open && !congelado.current) {
     congelado.current = [...options].sort(
       (a, b) => Number(estaSelecionado(b)) - Number(estaSelecionado(a)),
