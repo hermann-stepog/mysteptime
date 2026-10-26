@@ -42,7 +42,7 @@ function ChangePasswordFields({ submitLabel, onSuccess }: { submitLabel: string;
         <Label className="text-xs">Nova senha</Label>
         <div className="relative">
           <Input
-            type={mostrar ? "text" : "password"} value={senha} onChange={(e) => setSenha(e.target.value)}
+            type={mostrar ? "text" : "password"} autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)}
             placeholder="Mínimo 8 caracteres" className="pr-9"
           />
           <button
@@ -55,7 +55,7 @@ function ChangePasswordFields({ submitLabel, onSuccess }: { submitLabel: string;
       </div>
       <div>
         <Label className="text-xs">Confirmar nova senha</Label>
-        <Input type={mostrar ? "text" : "password"} value={confirmar} onChange={(e) => setConfirmar(e.target.value)} />
+        <Input type={mostrar ? "text" : "password"} autoComplete="new-password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} />
       </div>
       <Button
         className="w-full" disabled={!senha || !confirmar} loading={salvar.isPending}

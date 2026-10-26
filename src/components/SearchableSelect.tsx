@@ -106,6 +106,7 @@ export function SearchableMultiSelect({
   placeholder = "Todos",
   searchPlaceholder = "Buscar...",
   disabled,
+  pinSelectedLive = false,
 }: {
   value: string[];
   onValueChange: (v: string[]) => void;
@@ -113,11 +114,14 @@ export function SearchableMultiSelect({
   placeholder?: string;
   searchPlaceholder?: string;
   disabled?: boolean;
+  // Pedido dela, 2026-10-23 (BSP do filtro de Transporte): reordena a cada clique, mesmo com o
+  // popover ainda aberto, em vez de esperar fechar e reabrir — ver useOrdemComSelecionadosFixados.
+  pinSelectedLive?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const toggle = (v: string) =>
     onValueChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
-  const ordenadas = useOrdemComSelecionadosFixados(options, open, (opt) => value.includes(valorDe(opt)));
+  const ordenadas = useOrdemComSelecionadosFixados(options, open, (opt) => value.includes(valorDe(opt)), pinSelectedLive);
   const rotulo =
     value.length === 0
       ? placeholder

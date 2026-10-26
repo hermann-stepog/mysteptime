@@ -349,6 +349,10 @@ function NewUserForm() {
     mutationFn: async () => {
       if (!fullName.trim()) throw new Error("Informe o nome.");
       if (!email.trim()) throw new Error("Informe o e-mail.");
+      // Sem autoComplete="new-password" o gerenciador de senhas do navegador tratava isto como
+      // tela de login e mexia nos campos (Senha ficava vazio, só Confirmar preenchido) — e o
+      // erro de "8 caracteres" aparecia mesmo com a senha digitada certa (bug reportado 2026-10-26).
+      if (!password) throw new Error("Preencha o campo Senha (não só o Confirmar senha).");
       if (password.length < 8) throw new Error("A senha precisa ter pelo menos 8 caracteres.");
       if (password !== confirmPassword) throw new Error("As senhas não conferem.");
       return adminCreateUser({
@@ -379,13 +383,14 @@ function NewUserForm() {
       </div>
       <div>
         <Label>E-mail</Label>
-        <Input type="email" placeholder="pessoa@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Input type="email" autoComplete="off" placeholder="pessoa@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
       <div>
         <Label>Senha</Label>
         <div className="relative">
           <Input
             type={showPassword ? "text" : "password"} placeholder="Pelo menos 8 caracteres"
+            autoComplete="new-password"
             className="pr-9" value={password} onChange={(e) => setPassword(e.target.value)}
           />
           <button
@@ -401,6 +406,7 @@ function NewUserForm() {
         <Label>Confirmar senha</Label>
         <Input
           type={showPassword ? "text" : "password"} placeholder="Repita a senha"
+          autoComplete="new-password"
           value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
         />
       </div>

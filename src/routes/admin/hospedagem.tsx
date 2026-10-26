@@ -108,9 +108,19 @@ import {
   buildUnidadeCanonMap,
   canonUnidade,
   DRAKE_DATA_CUTOFF,
+  normalizeUnidadeOperacional,
   type HistNovoPeriodo,
 } from "@/lib/histogramaNovo";
 import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
+
+// Comparação por chave normalizada (caixa + apelidos de normalizeUnidadeOperacional) — assim um
+// lançamento gravado como "MSI - Vitoria" aparece ao filtrar por "MSI - CIDADE DE VITORIA".
+function mesmaUnidade(a: string, b: string): boolean {
+  return (
+    (normalizeUnidadeOperacional(a) ?? "").toUpperCase() ===
+    (normalizeUnidadeOperacional(b) ?? "").toUpperCase()
+  );
+}
 import {
   computeDiarias,
   localizacaoHotel,
@@ -1247,10 +1257,7 @@ function LancamentosTab({
             // gravados com uma grafia diferente da mesma unidade (ex.: "Safe Zephyrus" antes de existir
             // a lista fixa "SAFE ZEPHYRUS") sumiriam do filtro mesmo sendo a unidade certa.
             (filterUnidade === "all" ||
-              rateiosDaHospedagem(h).some(
-                (rateio) =>
-                  rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase(),
-              )) &&
+              rateiosDaHospedagem(h).some((rateio) => mesmaUnidade(rateio.unidade, filterUnidade))) &&
             (filterBsp === "all" ||
               rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
             (filterHotel === "all" || h.hotel_id === filterHotel) &&
@@ -1450,11 +1457,12 @@ function LancamentosTab({
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Nome do usuário
             </Label>
-            <Input
-              className="h-8 text-xs"
-              placeholder="Buscar por nome..."
+            <NomeUsuarioField
               value={filterNome}
-              onChange={(e) => setFilterNome(e.target.value)}
+              onChange={setFilterNome}
+              colaboradores={colaboradores}
+              placeholder="Buscar por nome..."
+              inputClassName="h-8 text-xs"
             />
           </div>
           <div className="space-y-0.5 w-32">
@@ -1768,11 +1776,13 @@ function ConsolidadoTab({
   hospedagens,
   periodosE,
   unidadeOptions,
+  colaboradores,
 }: {
   hoteis: HotelFornecedor[];
   hospedagens: Hospedagem[];
   periodosE: HistNovoPeriodo[];
   unidadeOptions: string[];
+  colaboradores: { id: string; nome: string }[];
 }) {
   const [periodoDe, setPeriodoDe] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
   const [periodoAte, setPeriodoAte] = useState(() => new Date().toISOString().slice(0, 10));
@@ -1799,10 +1809,7 @@ function ConsolidadoTab({
           (!periodoDe || h.check_out >= periodoDe) &&
           (!periodoAte || h.check_in <= periodoAte) &&
           (filterUnidade === "all" ||
-            rateiosDaHospedagem(h).some(
-              (rateio) =>
-                rateio.unidade.trim().toUpperCase() === filterUnidade.trim().toUpperCase(),
-            )) &&
+            rateiosDaHospedagem(h).some((rateio) => mesmaUnidade(rateio.unidade, filterUnidade))) &&
           (filterBsp === "all" ||
             rateiosDaHospedagem(h).some((rateio) => rateio.bsp === filterBsp)) &&
           (filterHotel === "all" || h.hotel_id === filterHotel) &&
@@ -1957,11 +1964,12 @@ function ConsolidadoTab({
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
               Nome do usuário
             </Label>
-            <Input
-              className="h-8 text-xs"
-              placeholder="Buscar por nome..."
+            <NomeUsuarioField
               value={filterNome}
-              onChange={(e) => setFilterNome(e.target.value)}
+              onChange={setFilterNome}
+              colaboradores={colaboradores}
+              placeholder="Buscar por nome..."
+              inputClassName="h-8 text-xs"
             />
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -2159,6 +2167,13 @@ function ConsolidadoTab({
 // ─── Aba Hotéis (CRUD) ──────────────────────────────────────────────────────
 type HoteisSortColumn = "nome" | "cidade" | "estado";
 
+// Pedido dela, 2026-10-23: nome/cidade/endereço/região/aeroporto sempre salvos como "Primeira
+// Letra De Cada Palavra Maiúscula" — nunca mais em caixa alta despadronizada (estado continua
+// de fora, sigla fica em maiúscula mesmo). Limite de palavra = espaço, hífen ou barra.
+function toTitleCase(s: string): string {
+  return s.toLowerCase().replace(/(^|[\s\-/])\p{L}/gu, (m) => m.toUpperCase());
+}
+
 function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<HotelFornecedor | null>(null);
@@ -2189,13 +2204,13 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
   const salvar = useMutation({
     mutationFn: async () => {
       const payload = {
-        nome: f.nome.trim(),
-        cidade: f.cidade.trim(),
+        nome: toTitleCase(f.nome.trim()),
+        cidade: toTitleCase(f.cidade.trim()),
         estado: f.estado.trim().toUpperCase(),
-        endereco: f.endereco.trim() || null,
+        endereco: f.endereco.trim() ? toTitleCase(f.endereco.trim()) : null,
         telefone: f.telefone.trim() || null,
-        regiao: f.regiao.trim() || null,
-        aeroporto_proximo: f.aeroportoProximo.trim() || null,
+        regiao: f.regiao.trim() ? toTitleCase(f.regiao.trim()) : null,
+        aeroporto_proximo: f.aeroportoProximo.trim() ? toTitleCase(f.aeroportoProximo.trim()) : null,
       };
       if (editing) {
         const { error } = await supabase
@@ -2538,6 +2553,7 @@ function HospedagemPage() {
             hospedagens={hospedagens}
             periodosE={periodosE}
             unidadeOptions={unidadeOptions}
+            colaboradores={colaboradores}
           />
         </TabsContent>
         <TabsContent value="hoteis" className="mt-4">
