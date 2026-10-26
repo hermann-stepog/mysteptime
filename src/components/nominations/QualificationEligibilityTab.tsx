@@ -239,14 +239,14 @@ export function QualificationEligibilityTab({
 
   // Só roda no modo recrutamento (focusGroup) — não busca nem renderiza nada fora dele, pra
   // não mudar em nada o comportamento padrão da aba (consulta livre, sem solicitação). Nomeado
-  // aqui é quem o PM já aprovou pra essa função (mesmo critério usado no resto do fluxo desde
-  // a correção da Aprovação PM — não é todo mundo que já passou pela Simulação como candidato).
-  const { data: focusNominees = [] } = useQuery<{ colaborador_nome: string; is_active: boolean; pm_decision: string }[]>({
+  // aqui é quem a Aprovação Técnica selecionou (technical_selected_at) — mesmo critério de SMS/DP;
+  // antes era a decisão do PM, mas a Validação PM saiu do kanban (2026-10-26).
+  const { data: focusNominees = [] } = useQuery<{ colaborador_nome: string; is_active: boolean; technical_selected_at: string | null }[]>({
     queryKey: ["aptidao-rh-nomeados", activeFocus?.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("nomination_nominees")
-        .select("colaborador_nome, is_active, pm_decision")
+        .select("colaborador_nome, is_active, technical_selected_at")
         .eq("nomination_id", activeFocus!.id);
       if (error) throw error;
       return data ?? [];
@@ -254,7 +254,7 @@ export function QualificationEligibilityTab({
     enabled: Boolean(focusGroup && focusGroup.length > 0 && activeFocus),
   });
   const nomeadosDaSolicitacao = useMemo(
-    () => focusNominees.filter((n) => n.is_active && n.pm_decision === "aprovado"),
+    () => focusNominees.filter((n) => n.is_active && !!n.technical_selected_at),
     [focusNominees],
   );
   const workerParaNomeado = (nomeColaborador: string): WorkerEligibility | null =>
