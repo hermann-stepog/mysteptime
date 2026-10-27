@@ -14,6 +14,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // cast local para não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
+import { FULL_NOMINATIONS_ACCESS_ROLES as fullNominationRoles, hasSystemAdminAccess } from "@/lib/access-roles";
 import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import {
   type Nomination,
@@ -211,7 +212,7 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
 // Pessoal, fallback/admin), `administrador` (acesso total ao sistema todo, pedido dela em
 // 2026-09-30) e `adm_master` (acesso equivalente, mas só dentro de Nomeações — usado para dar
 // autonomia de teste a alguém sem torná-lo operador logístico de verdade).
-const FULL_NOMINATIONS_ACCESS_ROLES = ["logistics_operator", "administrador", "adm_master"];
+const FULL_NOMINATIONS_ACCESS_ROLES: readonly string[] = fullNominationRoles;
 
 // Papel logado pode agir na etapa atual da solicitação? Quem está em FULL_NOMINATIONS_ACCESS_ROLES
 // sempre pode; os demais papéis só na própria etapa (ver STAGE_ROLE em lib/nominations.ts,
@@ -1217,7 +1218,7 @@ function AdminExcluirCandidatoSection({
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir candidato."),
   });
 
-  if (role !== "administrador" || ativos.length === 0) return null;
+  if (!hasSystemAdminAccess(role) || ativos.length === 0) return null;
 
   return (
     <div className="space-y-2 rounded-md border border-dashed border-red-200 p-3">

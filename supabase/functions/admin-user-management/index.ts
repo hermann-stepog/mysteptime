@@ -46,7 +46,7 @@ serve(async (req) => {
       .eq("user_id", userData.user.id)
       .maybeSingle();
     if (roleErr) return fail(roleErr.message);
-    if (roleRow?.role !== "logistics_operator" && roleRow?.role !== "administrador") return fail("Sem permissão para gerenciar usuários.");
+    if (!["logistics_operator", "administrador", "diretoria"].includes(roleRow?.role ?? "")) return fail("Sem permissão para gerenciar usuários.");
 
     const body = await req.json();
 

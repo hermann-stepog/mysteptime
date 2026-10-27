@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { hasSystemAdminAccess } from "@/lib/access-roles";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { EnvironmentCredentialsDrakeAuthProvider } from "@/lib/drake/auth/environment-credentials-auth.server";
 import { createDrakeHttpClientFromAuthenticatedSession } from "@/lib/drake/http/create-drake-http-client.server";
@@ -13,7 +14,7 @@ import {
 async function assertAdministrador(supabase: any, userId: string) {
   const { data: roleRow, error } = await supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
   if (error) throw new Error(error.message);
-  if (roleRow?.role !== "administrador") throw new Error("Sem permissão pra essa consulta ao Drake.");
+  if (!hasSystemAdminAccess(roleRow?.role)) throw new Error("Sem permissão pra essa consulta ao Drake.");
 }
 
 function normalizeMatricula(m: string | null | undefined): string | null {

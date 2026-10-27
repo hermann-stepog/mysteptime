@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { sendEmail } from "@/lib/email.server";
+import { hasOperatorAccess } from "@/lib/access-roles";
 
 const appRole = z.enum([
   "pending",
@@ -27,7 +28,7 @@ async function assertOperator(supabase: any, userId: string) {
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
   const roles: string[] = (roleRows ?? []).map((r: { role: string }) => r.role);
-  if (!roles.includes("logistics_operator") && !roles.includes("administrador")) {
+  if (!roles.some(hasOperatorAccess)) {
     throw new Error("Sem permissão para gerenciar usuários.");
   }
 }

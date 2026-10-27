@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { hasSystemAdminAccess } from "@/lib/access-roles";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 // "xlsx-js-style" no lugar da "xlsx" normal pra exportar com cor (pedido dela, 2026-10-20,
 // mesmo visual do Relatório Consolidado) — é um fork com a mesma API, serve tanto pra ler a
@@ -1739,7 +1740,7 @@ export function PlanejamentoEmbarqueTab() {
 
   return (
     <div className="space-y-3">
-      {role === "administrador" && <PlanejamentoStatusAuditoria registros={registros} />}
+      {hasSystemAdminAccess(role) && <PlanejamentoStatusAuditoria registros={registros} />}
       <Card className="p-3 space-y-3">
         <div
           className="flex flex-wrap items-end gap-2"

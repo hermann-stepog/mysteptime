@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { notify } from "@/lib/notify";
 import { useAuth } from "@/hooks/useAuth";
+import { hasOperatorAccess } from "@/lib/access-roles";
 import { supabase } from "@/integrations/supabase/client";
 import {
   DRAKE_REPORT_STATUS_LABEL,
@@ -93,7 +94,7 @@ function messageFromErrorPayload(event: DrakeProgressEvent): string {
 export function DrakeUpdateCard() {
   const { role } = useAuth();
   const qc = useQueryClient();
-  const canUpdate = role === "logistics_operator" || role === "administrador";
+  const canUpdate = hasOperatorAccess(role);
 
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
