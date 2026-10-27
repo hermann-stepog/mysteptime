@@ -1,4 +1,5 @@
 - [x] Corrigir retirada de candidatos não aprovados antes da troca de etapa; cinco testes passaram e Nomeações abriu com sessão autenticada sem erros.
 - [x] Corrigir vínculos ativos indevidos nas solicitações já avançadas, preservando histórico; dois corrigidos e nenhum indevido restante.
-- [ ] Investigar aviso DELINEADOR 3D e corrigir pontos de envio verificáveis.
+- [x] Corrigir pontos verificáveis: resultado com ID de aceitação, registro no servidor, fallback de template e chave estável para evitar duplicidade; 11 testes e envio autenticado com repetição validaram o mesmo ID.
+- [ ] Confirmar causa do aviso original DELINEADOR 3D; bloqueado porque as chaves disponíveis permitem envio, mas recusam leitura do histórico (401 restricted_api_key), e não há registro da tentativa original.
 - [ ] Reenviar aviso DELINEADOR 3D somente se confirmada a não entrega; bloqueado pela falta de acesso ao histórico de entrega.
