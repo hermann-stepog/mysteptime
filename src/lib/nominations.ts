@@ -250,6 +250,19 @@ export function canMoveToColumn(
     }
   }
 
+  // Mesmo limite do botão da Aprovação Técnica, valendo também pro arrastar do card: não sai
+  // da Técnica com mais aprovados do que a quantidade pedida (pedido dela, 2026-10-27).
+  if (saiDaAprovacaoTecnica(columnIdForStatus(nom.current_status), target)) {
+    const aprovados = activeNominees(nominees).filter((n) => n.technical_selected_at).length;
+    const limite = Math.max(1, nom.quantidade || 1);
+    if (aprovados > limite) {
+      return {
+        ok: false,
+        reason: `${nom.funcao}: ${aprovados} aprovados para ${limite} pedido(s) — desmarque o excedente na Aprovação Técnica.`,
+      };
+    }
+  }
+
   // "Validação SMS (ASO)" e "Validação RH" vêm depois de "Aprovação Técnica" agora (pedido dela,
   // 2026-10-22) — checam só quem a Técnica selecionou (technical_selected_at), não mais todo
   // mundo simulado: SMS/RH não devem gastar esforço validando quem a Técnica já descartou.

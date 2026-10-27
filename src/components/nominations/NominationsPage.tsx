@@ -490,9 +490,18 @@ function AprovacaoTecnicaSection({
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
   });
 
+  // Pedido dela, 2026-10-27: a Técnica marcava "Aprovado" em todo apto (22 aprovados pra 2
+  // Fitters) e todos seguiam pro SMS. Aprovação limitada à quantidade pedida na solicitação.
+  const limite = Math.max(1, nomination.quantidade || 1);
+  const limiteAtingido = selecionados.length >= limite;
+
   const confirmar = () => {
     if (selecionados.length === 0) {
       notify.error("Selecione ao menos um candidato antes de avançar.");
+      return;
+    }
+    if (selecionados.length > limite) {
+      notify.error(`A solicitação pede ${limite} — desmarque ${selecionados.length - limite} antes de avançar.`);
       return;
     }
     advance.mutate({
@@ -522,6 +531,9 @@ function AprovacaoTecnicaSection({
       ) : (
         <p className="text-xs text-muted-foreground">Nenhum documento anexado pelo solicitante.</p>
       )}
+      <p className={`text-xs font-medium ${selecionados.length > limite ? "text-red-700" : "text-muted-foreground"}`}>
+        {selecionados.length} de {limite} aprovado(s) — aprove só a quantidade pedida na solicitação.
+      </p>
       <p className="text-xs font-medium">
         Aprovado para o serviço a bordo
         {nomination.weld_type
@@ -548,7 +560,8 @@ function AprovacaoTecnicaSection({
                   size="sm"
                   variant={aprovado ? "default" : "outline"}
                   className="h-7 px-2 text-xs"
-                  disabled={!canAct}
+                  disabled={!canAct || (!aprovado && limiteAtingido)}
+                  title={!aprovado && limiteAtingido ? `Limite de ${limite} aprovado(s) atingido` : undefined}
                   onClick={() => toggleSelect.mutate({ nominee: n, selected: true })}
                 >
                   <Check className="mr-1 h-3 w-3" /> Aprovado
@@ -1145,6 +1158,127 @@ function ValidacaoSmsAsoSection({
   );
 }
 
+// Pedido dela, 2026-10-27: só a administradora vê — exclui qualquer candidato em qualquer
+// etapa, com justificativa obrigatória, e devolve esta função (só esta nomeação, não as outras
+// da solicitação) pra Simulação pra simular um substituto. Mesmo esquema da divergência do DP:
+// o excluído sai do fluxo (is_active=false, fica no Histórico com a justificativa) e os demais
+// mantêm o que já foi validado. Da nomeação em si, desfaz o que é das etapas puladas
+// (Qualidade/Briefing — ver computeRevertClearing), mas sem apagar os outros nomeados.
+function AdminExcluirCandidatoSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
+  const { role, profile } = useAuth();
+  const qc = useQueryClient();
+  const registrarLog = useRegistrarLog("nomeacoes");
+  const [alvo, setAlvo] = useState<NominationNominee | null>(null);
+  const [justificativa, setJustificativa] = useState("");
+  const ativos = nominees.filter((n) => n.is_active);
+
+  const excluir = useMutation({
+    mutationFn: async ({ nominee, motivo }: { nominee: NominationNominee; motivo: string }) => {
+      const { error } = await supabase
+        .from("nomination_nominees")
+        .update({ is_active: false })
+        .eq("id", nominee.id);
+      if (error) throw error;
+      const voltaPraSimulacao =
+        ALL_STATUSES.indexOf(nomination.current_status) > ALL_STATUSES.indexOf("simulacao");
+      if (voltaPraSimulacao) {
+        const clearing = computeRevertClearing(nomination.current_status, "simulacao");
+        const { error: statusErr } = await supabase
+          .from("nominations")
+          .update({ current_status: "simulacao", ...clearing?.nominationPatch })
+          .eq("id", nomination.id);
+        if (statusErr) throw statusErr;
+      }
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id,
+        nominee_id: nominee.id,
+        status: voltaPraSimulacao ? "simulacao" : nomination.current_status,
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Administração",
+        notes: `Candidato excluído pela administração: ${nominee.colaborador_nome} — ${motivo}`,
+      });
+      registrarLog(
+        `Excluiu ${nominee.colaborador_nome} de ${nomination.funcao} (${nomination.unidade ?? "—"}): ${motivo}`,
+      );
+    },
+    onSuccess: (_d, { nominee }) => {
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nomination-nominees-all"] });
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+      notify.success(`${nominee.colaborador_nome} excluído — ${nomination.funcao} está em Simulação para substituição.`);
+      setAlvo(null);
+      setJustificativa("");
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao excluir candidato."),
+  });
+
+  if (role !== "administrador" || ativos.length === 0) return null;
+
+  return (
+    <div className="space-y-2 rounded-md border border-dashed border-red-200 p-3">
+      <p className="text-xs font-semibold text-red-800">Administração — excluir candidato</p>
+      <p className="text-[11px] text-muted-foreground">
+        Só você vê isto. O candidato sai do fluxo e esta função volta para Simulação.
+      </p>
+      <div className="space-y-1">
+        {ativos.map((n) => (
+          <div key={n.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm">
+            <span>{n.colaborador_nome}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs text-red-700 hover:text-red-700"
+              onClick={() => {
+                setAlvo(n);
+                setJustificativa("");
+              }}
+            >
+              <Trash2 className="mr-1 h-3 w-3" /> Excluir
+            </Button>
+          </div>
+        ))}
+      </div>
+      {alvo && (
+        <Dialog open onOpenChange={(o) => !o && setAlvo(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Excluir {alvo.colaborador_nome}</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted-foreground">
+              {nomination.funcao} volta para Simulação para simular um substituto. A justificativa
+              fica registrada no Histórico.
+            </p>
+            <Textarea
+              placeholder="Justificativa da exclusão (obrigatória)"
+              value={justificativa}
+              onChange={(e) => setJustificativa(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setAlvo(null)}>
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={!justificativa.trim()}
+                loading={excluir.isPending}
+                onClick={() => excluir.mutate({ nominee: alvo, motivo: justificativa.trim() })}
+              >
+                Excluir e voltar para Simulação
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
 // Validação RH — inclui a checklist de Aptidão por nomeado (aptidao_checked/aptidao_divergence)
 // além da validação/divergência de RH que já existia.
 function ValidacaoRhSection({
@@ -1193,6 +1327,14 @@ function ValidacaoRhSection({
     mutationFn: async (nominee: NominationNominee) => {
       const text = divergenceDraft[nominee.id]?.trim();
       if (!text) throw new Error("Descreva a divergência.");
+      // Pedido dela, 2026-10-27: divergência sinalizada devolve SÓ esta função (esta nomeação;
+      // as outras funções da solicitação ficam onde estão) pra Simulação, pra simular um
+      // substituto. Quem divergiu sai do fluxo (is_active=false, a divergência fica registrada);
+      // os demais nomeados continuam com o que já foi validado (Técnica/SMS/DP) — não passa por
+      // computeRevertClearing, que apagaria todos os nomeados ao voltar pra Simulação. Assim,
+      // ao avançar de novo, só o substituto precisa passar pelas validações.
+      // Ordem importa por causa do RLS do DP: o nomeado só pode ser alterado enquanto a
+      // nomeação ainda está em validacao_rh, então ele vem antes da mudança de status.
       const { error } = await supabase
         .from("nomination_nominees")
         .update({
@@ -1200,14 +1342,30 @@ function ValidacaoRhSection({
           aptidao_divergence_text: text,
           aptidao_divergence_flagged_at: new Date().toISOString(),
           rh_validated: false,
+          is_active: false,
         })
         .eq("id", nominee.id);
       if (error) throw error;
+      const { error: statusErr } = await supabase
+        .from("nominations")
+        .update({ current_status: "simulacao" })
+        .eq("id", nomination.id);
+      if (statusErr) throw statusErr;
+      await supabase.from("nomination_status_history").insert({
+        nomination_id: nomination.id,
+        nominee_id: nominee.id,
+        status: "simulacao",
+        changed_by_name: profile?.full_name ?? profile?.email ?? "Sistema",
+        notes: `Divergência em ${nominee.colaborador_nome}: ${text} — devolvida pra Simulação pra substituição`,
+      });
       await notifyAptitudeDivergence(nomination, nominee.colaborador_nome, text, false);
     },
     onSuccess: (_d, nominee) => {
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["nomination-nominees-all"] });
       qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
       setDivergenceDraft((prev) => ({ ...prev, [nominee.id]: "" }));
+      notify.success(`${nomination.funcao} voltou para Simulação — simule um substituto para ${nominee.colaborador_nome}.`);
     },
     onError: (err: Error) => notify.error(err.message),
   });
@@ -2194,6 +2352,7 @@ function ManageDialog({
                 Nada a fazer nesta aba ainda — use os botões em Detalhes para avançar.
               </p>
             )}
+            <AdminExcluirCandidatoSection nomination={nomination} nominees={nominees} />
           </TabsContent>
 
           {/* ── Histórico ── */}
