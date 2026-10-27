@@ -1,0 +1,2 @@
+- [x] Corrigir retirada de candidatos não aprovados antes da troca de etapa; cinco testes passaram e Nomeações abriu com sessão autenticada sem erros.
+- [x] Corrigir vínculos ativos indevidos nas solicitações já avançadas, preservando histórico; dois corrigidos e nenhum indevido restante.
