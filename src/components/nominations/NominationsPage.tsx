@@ -34,9 +34,9 @@ import {
   fmtDate,
   fmtDatetime,
   isSoldador,
+  matchesSimulationFunction,
   requestTitle,
 } from "@/lib/nominations";
-import { isInspetor } from "@/lib/nominations";
 import {
   notifyStageAdvance,
   notifyAptitudeDivergence,
@@ -3084,11 +3084,7 @@ function SimulacaoTab({
   // nominees.colaborador_id é uma FK obrigatória pra hist_novo_colaboradores — sem esse
   // vínculo não tem como gravar o nomeado no banco); quem não tem correspondência no Drake
   // ainda aparece na lista, só não pode ser adicionado ainda (ver "Adicionar" desabilitado).
-  const { data: planejamentoSimTodos = [] } = usePlanejamentoEmbarqueQuery();
-  const planejamentoSim = useMemo(
-    () => planejamentoSimTodos.filter((r) => !isInspetor(r.funcao)),
-    [planejamentoSimTodos],
-  );
+  const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
   const { data: colaboradoresDrake = [] } = useQuery<{ id: string; nome: string }[]>({
     queryKey: ["sim-colaboradores-drake-ids"],
     queryFn: () =>
@@ -3138,11 +3134,7 @@ function SimulacaoTab({
         })
         // Função exatamente igual à do Planejamento de Embarque (sem agrupar "SOLDADOR" com
         // "SOLDADOR IRATA N1" etc.) — pedido dela, 2026-10-07.
-        .filter(
-          (l) =>
-            filterFuncao === "all" ||
-            l.funcao.trim().toUpperCase() === filterFuncao.trim().toUpperCase(),
-        )
+        .filter((l) => matchesSimulationFunction(l.funcao, filterFuncao))
         .filter((l) => matchesNameSearch(l.nome, searchNome))
         .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
     );

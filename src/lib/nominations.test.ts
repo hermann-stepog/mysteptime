@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { nomineeExclusionFilters, computeRevertClearing } from "./nominations";
+import { nomineeExclusionFilters, computeRevertClearing, matchesSimulationFunction } from "./nominations";
+
+describe("inspetores do planejamento na simulação", () => {
+  it("inclui inspetores ao listar todas as funções", () => {
+    expect(matchesSimulationFunction("INSPETOR", "all")).toBe(true);
+  });
+  it("inclui inspetores no filtro da sua função sem misturar outras funções", () => {
+    expect(matchesSimulationFunction(" Inspetor ", "INSPETOR")).toBe(true);
+    expect(matchesSimulationFunction("SOLDADOR", "INSPETOR")).toBe(false);
+  });
+});
 
 describe("candidatos não aprovados não seguem para a próxima etapa", () => {
   it("retira os não selecionados ao entrar em SMS, mas preserva a simulação e avaliação técnica", () => {
