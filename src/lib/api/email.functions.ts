@@ -22,9 +22,14 @@ export const sendResendTemplatedEmail = createServerFn({ method: "POST" })
     to: z.string().email(),
     cc: z.array(z.string().email()).optional(),
     templateId: z.string().min(1),
+    idempotencyKey: z.string().min(1).max(256).optional(),
     variables: z.record(z.string(), z.string()),
   }))
   .handler(async ({ data, context }) => {
-    await sendResendTemplateEmail(data, context.supabase);
-    return { sent: true };
+    try {
+      return await sendResendTemplateEmail(data, context.supabase);
+    } catch (error) {
+      console.error("[nomination-email] failed", { idempotencyKey: data.idempotencyKey ?? null, error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   });

@@ -1,7 +1,8 @@
 import { loadResendConfig, EMAILS_PAUSED } from "./emailSettings.server";
+import { acceptedEmailResult, type EmailSendResult } from "./nomination-email-delivery";
 
 const esc = (s: string) =>
-  s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+  s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
 
 // Monta o alerta em HTML no próprio app (o template antigo do Resend tinha um cabeçalho vazio
 // e um rodapé com textos embolados que não dava para editar por aqui). Mesmas variáveis.
@@ -54,16 +55,17 @@ ${row("BSP", g("NOMINATION_BSP"))}
 // banco); se não houver, cai em API_RESEND/RESEND_FROM das variáveis de ambiente.
 // templateId continua no contrato por compatibilidade, mas o HTML é gerado aqui.
 export async function sendResendTemplateEmail(
-  { to, cc, variables }: {
+  { to, cc, variables, idempotencyKey }: {
     to: string;
     cc?: string[];
     templateId: string;
     variables: Record<string, string>;
+    idempotencyKey?: string;
   },
   supabase: any,
-) {
+) : Promise<EmailSendResult> {
   // PAUSA TEMPORÁRIA pedida pelo usuário (27/10/2026): nenhum e-mail é enviado até reativar.
-  if (EMAILS_PAUSED) return { id: null, paused: true } as any;
+  if (EMAILS_PAUSED) return { sent: false, id: null, reason: "paused" };
   const cfg = await loadResendConfig(supabase);
   if (!cfg) throw new Error("Avisos por e-mail não configurados/ativados em Configurações.");
   const { html, text, subject } = renderAlert(variables);
@@ -73,6 +75,7 @@ export async function sendResendTemplateEmail(
     headers: {
       Authorization: `Bearer ${cfg.apiKey}`,
       "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: JSON.stringify({
       from: cfg.from,
@@ -83,10 +86,9 @@ export async function sendResendTemplateEmail(
       text,
     }),
   });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Resend recusou o envio (${response.status}): ${body || "sem detalhes"}`);
-  }
+  const result = await acceptedEmailResult(response);
+  console.info("[nomination-email] accepted", { id: result.id, idempotencyKey: idempotencyKey ?? null });
+  return result;
 }
 
 export { renderAlert as renderNominationAlert };
