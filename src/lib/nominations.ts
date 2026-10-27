@@ -280,6 +280,14 @@ export function canMoveToColumn(
   return { ok: true };
 }
 
+// Avanço que cruza a Aprovação Técnica (de qualquer etapa até ela pra qualquer etapa depois).
+export function saiDaAprovacaoTecnica(from: NominationStatus, to: NominationStatus): boolean {
+  const tecnicaIdx = COLUMN_ORDER.indexOf("aprovacao_tecnica");
+  const fromIdx = COLUMN_ORDER.indexOf(from);
+  const toIdx = COLUMN_ORDER.indexOf(to);
+  return fromIdx !== -1 && toIdx !== -1 && fromIdx <= tecnicaIdx && toIdx > tecnicaIdx;
+}
+
 // O que fica "marcado" em cada etapa, enquanto o card fica parado nela, antes de avançar pra
 // próxima — usado só por computeRevertClearing pra saber o que desfazer quando o card
 // retrocede. Simulação não tem campo próprio: o "marcado" dela é a própria existência dos
@@ -309,7 +317,9 @@ function nominationFieldsMarkedAt(stage: NominationStatus): Record<string, unkno
 function nomineeFieldsMarkedAt(stage: NominationStatus): Record<string, unknown> | null {
   switch (stage) {
     case "aprovacao_tecnica":
-      return { technical_selected_at: null, technical_selected_by: null };
+      // is_active volta a true: quem foi tirado do fluxo por não ter sido aprovado (ver
+      // saiDaAprovacaoTecnica) reaparece pra ser reavaliado quando o card retrocede.
+      return { technical_selected_at: null, technical_selected_by: null, is_active: true };
     case "aprovacao_pm":
       return { pm_decision: "pendente", pm_decided_at: null, pm_decided_by: null };
     // "aptidao" não é mais alcançável como current_status (virou checklist dentro de

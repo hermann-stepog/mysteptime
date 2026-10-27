@@ -30,6 +30,7 @@ import {
   columnIdForStatus,
   canMoveToColumn,
   computeRevertClearing,
+  saiDaAprovacaoTecnica,
   fmtDate,
   fmtDatetime,
   isSoldador,
@@ -266,6 +267,19 @@ function useAdvanceStage() {
           .update(clearing.nomineePatch)
           .eq("nomination_id", nomination.id);
         if (nomErr) throw nomErr;
+      }
+      // Pedido dela, 2026-10-27: quem a Aprovação Técnica não aprovou sai do fluxo no momento
+      // em que a solicitação avança — senão continuava "ativo" e era arrastado pras etapas
+      // seguintes (Equipe, mapa, bloqueio em outras nomeações). Fica is_active=false (não apaga),
+      // e volta a ativo se o card retroceder pra Aprovação Técnica (ver nomineeFieldsMarkedAt).
+      if (saiDaAprovacaoTecnica(nomination.current_status, target)) {
+        const { error: inativarErr } = await supabase
+          .from("nomination_nominees")
+          .update({ is_active: false })
+          .eq("nomination_id", nomination.id)
+          .eq("is_active", true)
+          .is("technical_selected_at", null);
+        if (inativarErr) throw inativarErr;
       }
       await supabase.from("nomination_status_history").insert({
         nomination_id: nomination.id,

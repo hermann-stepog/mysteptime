@@ -255,8 +255,7 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
 
   const excluir = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("nominations").delete().eq("id", nom.id);
-      if (error) throw error;
+      await excluirSolicitacoes([nom.id]);
     },
     onSuccess: () => {
       notify.success("Solicitação excluída.");
@@ -536,6 +535,19 @@ async function baixarEscopoDocumento(path: string, nomeOriginal: string): Promis
 
 // ── Minhas Solicitações (aba padrão do ambiente do Solicitante) ────────────────
 
+// Bug reportado 2026-10-26 (PM não conseguia excluir): quando o RLS bloqueia o DELETE, o
+// Supabase não devolve erro — só apaga 0 linhas — e a tela dizia "excluída" sem ter apagado
+// nada. Confere quantas linhas saíram de fato e avisa o motivo quando não sai tudo.
+async function excluirSolicitacoes(ids: string[]): Promise<void> {
+  const { data, error } = await supabase.from("nominations").delete().in("id", ids).select("id");
+  if (error) throw error;
+  if ((data?.length ?? 0) < ids.length) {
+    throw new Error(
+      "Não foi possível excluir: a solicitação já saiu da etapa \"Solicitação\" ou foi criada por outro usuário. Peça à Logística para excluir.",
+    );
+  }
+}
+
 // Status "representante" de um grupo de funções da mesma solicitação — a etapa mais atrasada
 // entre elas, porque a solicitação como um todo só está de fato adiantada quando TODAS as
 // funções chegarem lá (não faz sentido mostrar "Equipe Formada" se uma das funções ainda
@@ -562,8 +574,7 @@ function MinhasSolicitacoesTab() {
   // disso avisa por quê, em vez de simplesmente não fazer nada.
   const excluirDaLista = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase.from("nominations").delete().in("id", ids);
-      if (error) throw error;
+      await excluirSolicitacoes(ids);
     },
     onSuccess: () => {
       notify.success("Solicitação excluída.");
@@ -782,8 +793,7 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
 
   const excluirTudo = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("nominations").delete().in("id", items.map((n) => n.id));
-      if (error) throw error;
+      await excluirSolicitacoes(items.map((n) => n.id));
     },
     onSuccess: () => {
       notify.success("Solicitação excluída.");
