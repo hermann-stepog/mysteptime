@@ -186,7 +186,7 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
     await sendAlert({
       to: toFinal[0],
       cc: Array.from(new Set([...toFinal.slice(1), ...cc])).filter((e) => e !== toFinal[0]),
-      tituloAlerta: `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
+      tituloAlerta: stage === "equipe_formada" ? `Equipe formada — ${nomination.funcao}` : `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
       colaboradorNome: await nomineeNames(nomination),
       nomination,
       detalhesLabel: respostas.length > 0 ? "Período e validações" : "Período",
