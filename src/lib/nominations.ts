@@ -478,9 +478,12 @@ export const STAGE_ROLE: Partial<Record<NominationStatus, string | string[]>> = 
 
 export const QUALIDADE_ROLE = "qualidade";
 
-// Inspetores não entram no fluxo de Nomeações (pedido dela, 2026-10-07): nem na solicitação
-// nem no painel de simulação.
+// Identifica funções de inspetor para a opção fixa no formulário de solicitação.
 export function isInspetor(fn: string | null | undefined) {
   const f = (fn ?? "").toUpperCase();
   return f.includes("INSPETOR") || f.includes("INSPECTOR");
+}
+
+export function matchesSimulationFunction(funcao: string, filtro: string) {
+  return filtro === "all" || funcao.trim().toUpperCase() === filtro.trim().toUpperCase();
 }
