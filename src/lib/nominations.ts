@@ -123,6 +123,9 @@ export interface NominationNominee {
   sms_aso_checked: boolean;
   sms_aso_checked_at: string | null;
   sms_aso_checked_by: string | null;
+  sms_bloqueio_saude?: boolean | null;
+  sms_aso_em_dia?: boolean | null;
+  quality_apto_solda?: boolean | null;
   created_at: string;
 }
 
@@ -286,6 +289,27 @@ export function saiDaAprovacaoTecnica(from: NominationStatus, to: NominationStat
   const fromIdx = COLUMN_ORDER.indexOf(from);
   const toIdx = COLUMN_ORDER.indexOf(to);
   return fromIdx !== -1 && toIdx !== -1 && fromIdx <= tecnicaIdx && toIdx > tecnicaIdx;
+}
+
+// Aplicado antes de mudar a etapa: as permissões de escrita dos candidatos dependem
+// da etapa atual. As condições só entram depois da respectiva avaliação.
+export function nomineeExclusionFilters(target: NominationStatus): string[] {
+  const targetIdx = COLUMN_ORDER.indexOf(target);
+  if (targetIdx === -1) return [];
+  const filters: string[] = [];
+  if (targetIdx > COLUMN_ORDER.indexOf("aprovacao_tecnica")) {
+    filters.push("technical_selected_at.is.null");
+  }
+  if (targetIdx > COLUMN_ORDER.indexOf("validacao_sms_aso")) {
+    filters.push("sms_bloqueio_saude.eq.true", "sms_aso_em_dia.eq.false");
+  }
+  if (targetIdx > COLUMN_ORDER.indexOf("validacao_qualidade")) {
+    filters.push("quality_apto_solda.eq.false");
+  }
+  if (targetIdx >= COLUMN_ORDER.indexOf("briefing_sms")) {
+    filters.push("pm_decision.eq.reprovado");
+  }
+  return filters;
 }
 
 // O que fica "marcado" em cada etapa, enquanto o card fica parado nela, antes de avançar pra

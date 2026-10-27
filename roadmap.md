@@ -1,0 +1,2 @@
+- [ ] Corrigir retirada de candidatos não aprovados antes da troca de etapa e testar.
+- [ ] Corrigir vínculos ativos indevidos nas solicitações já avançadas, preservando histórico.
