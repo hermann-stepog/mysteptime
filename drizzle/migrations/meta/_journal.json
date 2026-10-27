@@ -15,6 +15,13 @@
       "when": 1791469070427,
       "tag": "0001_passagens_data_lancamento",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793129860782,
+      "tag": "0002_diretoria_full_system_access",
+      "breakpoints": true
     }
   ]
 }
