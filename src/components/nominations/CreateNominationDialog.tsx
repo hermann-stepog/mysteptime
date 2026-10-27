@@ -188,8 +188,14 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
 
   const create = useMutation({
     mutationFn: async () => {
+      // Bug reportado 2026-10-26 (PM pediu 3 mecânicos + 1 supervisor, só o supervisor foi
+      // criado): linha sem Função escolhida na lista (ex.: digitou na busca e não clicou na
+      // opção) era descartada em silêncio. Agora bloqueia o envio dizendo qual linha falta.
+      const semFuncao = linhas.findIndex((l) => !l.funcao.trim());
+      if (semFuncao !== -1 && linhas.length > 1)
+        throw new Error(`Selecione a função da linha ${semFuncao + 1} na lista (ou remova a linha).`);
       const validas = linhas.filter((l) => l.funcao.trim());
-      if (validas.length === 0) throw new Error("Adicione ao menos uma função.");
+      if (validas.length === 0) throw new Error("Selecione a função na lista.");
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp.trim()) throw new Error("Selecione a BSP.");
       if (!pmResponsavel.trim()) throw new Error("Informe o PM responsável.");
