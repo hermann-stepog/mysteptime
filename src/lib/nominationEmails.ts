@@ -151,32 +151,31 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
 // - briefing_sms → SMS
 // - solicitacao → Logística de Pessoal (aviso de nova solicitação)
 // Demais etapas não geram alerta. Quando a etapa trava (observacao informada), PM e Projetos ADM recebem.
-const STAGE_RECIPIENT_ROLES: Partial<Record<NominationStatus, string[]>> = {
-  solicitacao: ["logistics_operator"],
-  recebido_logistica: ["solicitante_master"],
-  validacao_sms_aso: ["sms"],
-  validacao_rh: ["rh"],
-  aprovacao_tecnica: ["aprovacao_tecnica"],
-  validacao_qualidade: ["qualidade"],
-  briefing_sms: ["sms"],
+// Fluxo definido pelo usuário (2026-10-27) para reduzir volume: um único destino por etapa.
+// Endereços fixos = caixas de cada área; null = papel (Aprovação Técnica); "pm" = PM solicitante.
+const STAGE_RECIPIENTS: Partial<Record<NominationStatus, { fixed?: string; role?: string; pm?: boolean }>> = {
+  solicitacao: { fixed: "logisticapessoal@step-og.com" },
+  aprovacao_tecnica: { role: "aprovacao_tecnica" },
+  validacao_sms_aso: { fixed: "sms@step-og.com" },
+  validacao_rh: { fixed: "dp@step-og.com" },
+  validacao_qualidade: { fixed: "qualidade@step-og.com" },
+  briefing_sms: { fixed: "sms@step-og.com" },
+  equipe_formada: { pm: true },
 };
-const STAGES_WITH_PM: NominationStatus[] = ["aprovacao_tecnica", "aprovacao_pm"];
 // Contas que nunca recebem alertas de Nomeações (pedido da usuária).
 const NUNCA_RECEBEM = ["gabriel.sales@sttep-og.com", "fernando.v.junger@gmail.com"];
 
 export async function notifyStageAdvance(nomination: Nomination, stage: NominationStatus, observacao?: string): Promise<void> {
   try {
-    const travou = !!observacao;
     if (stage === "validacao_qualidade" && !isSoldador(nomination.funcao ?? "")) return;
-    const roles = [...(STAGE_RECIPIENT_ROLES[stage] ?? []), ...(travou ? ["solicitante_master"] : [])];
-    const incluiPm = travou || STAGES_WITH_PM.includes(stage);
-    if (roles.length === 0 && !incluiPm) return;
-    const [roleLists, pm, respostas] = await Promise.all([
-      Promise.all(Array.from(new Set(roles)).map(emailsForRole)),
-      incluiPm ? pmEmail(nomination) : Promise.resolve(null),
+    const rule = STAGE_RECIPIENTS[stage];
+    if (!rule) return;
+    const [roleList, pm, respostas] = await Promise.all([
+      rule.role ? emailsForRole(rule.role) : Promise.resolve([] as string[]),
+      rule.pm ? pmEmail(nomination) : Promise.resolve(null),
       stageAnswers(nomination),
     ]);
-    const todos = Array.from(new Set([...roleLists.flat(), ...(pm ? [pm] : [])]))
+    const todos = Array.from(new Set([...(rule.fixed ? [rule.fixed] : []), ...roleList, ...(pm ? [pm] : [])]))
       .filter((e) => !NUNCA_RECEBEM.includes(e.toLowerCase()));
     if (todos.length === 0) return;
     const toFinal = todos;
@@ -187,7 +186,7 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
     await sendAlert({
       to: toFinal[0],
       cc: Array.from(new Set([...toFinal.slice(1), ...cc])).filter((e) => e !== toFinal[0]),
-      tituloAlerta: `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
+      tituloAlerta: stage === "equipe_formada" ? `Equipe formada — ${nomination.funcao}` : `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
       colaboradorNome: await nomineeNames(nomination),
       nomination,
       detalhesLabel: respostas.length > 0 ? "Período e validações" : "Período",
