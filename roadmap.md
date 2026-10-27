@@ -1,2 +1,4 @@
 - [x] Corrigir retirada de candidatos não aprovados antes da troca de etapa; cinco testes passaram e Nomeações abriu com sessão autenticada sem erros.
 - [x] Corrigir vínculos ativos indevidos nas solicitações já avançadas, preservando histórico; dois corrigidos e nenhum indevido restante.
+- [ ] Investigar aviso DELINEADOR 3D e corrigir pontos de envio verificáveis.
+- [ ] Reenviar aviso DELINEADOR 3D somente se confirmada a não entrega; bloqueado pela falta de acesso ao histórico de entrega.

@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { sendResendTemplatedEmail } from "@/lib/api/email.functions";
 import { STATUS_LABELS, isSoldador, type Nomination, type NominationStatus } from "@/lib/nominations";
+import { nominationCreationEmailKey } from "./nomination-email-delivery";
 
 const supabaseAny: any = supabase;
 
@@ -31,11 +32,11 @@ async function nomineeNames(nomination: Nomination): Promise<string> {
 // evento. Sem SMTP configurado (era só um placeholder no .env, nunca funcionou de verdade),
 // o Resend passou a ser o único jeito real de mandar esses e-mails.
 function alertTemplateId(): string | undefined {
-  return import.meta.env.VITE_RESEND_ALERT_TEMPLATE_ID as string | undefined;
+  return (import.meta.env.VITE_RESEND_ALERT_TEMPLATE_ID as string | undefined) || "alert-notification";
 }
 
 async function sendAlert(
-  { to, cc, tituloAlerta, colaboradorNome, nomination, detalhesLabel, detalhes, rodapeTexto }: {
+  { to, cc, tituloAlerta, colaboradorNome, nomination, detalhesLabel, detalhes, rodapeTexto, idempotencyKey }: {
     to: string;
     cc: string[];
     tituloAlerta: string;
@@ -44,6 +45,7 @@ async function sendAlert(
     detalhesLabel: string;
     detalhes: string;
     rodapeTexto: string;
+    idempotencyKey?: string;
   },
 ): Promise<void> {
   const templateId = alertTemplateId();
@@ -51,11 +53,12 @@ async function sendAlert(
     console.warn("VITE_RESEND_ALERT_TEMPLATE_ID não configurado — alerta não enviado:", tituloAlerta);
     return;
   }
-  await sendResendTemplatedEmail({
+  const result = await sendResendTemplatedEmail({
     data: {
       to,
       cc,
       templateId,
+      idempotencyKey,
       variables: {
         TITULO_ALERTA: tituloAlerta,
         COLABORADOR_NOME: colaboradorNome,
@@ -68,6 +71,7 @@ async function sendAlert(
       },
     },
   });
+  if (!result.sent) console.warn("Alerta de nomeação não enviado:", result.reason);
 }
 
 // Resolve quem recebe o e-mail de uma etapa: `to` = usuários com o papel dono daquela etapa
@@ -187,6 +191,7 @@ export async function notifyStageAdvance(nomination: Nomination, stage: Nominati
       to: toFinal[0],
       cc: Array.from(new Set([...toFinal.slice(1), ...cc])).filter((e) => e !== toFinal[0]),
       tituloAlerta: stage === "equipe_formada" ? `Equipe formada — ${nomination.funcao}` : `${STATUS_LABELS[stage]} — ${nomination.funcao}`,
+      idempotencyKey: stage === "solicitacao" ? nominationCreationEmailKey(nomination.id) : undefined,
       colaboradorNome: await nomineeNames(nomination),
       nomination,
       detalhesLabel: respostas.length > 0 ? "Período e validações" : "Período",
