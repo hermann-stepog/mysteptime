@@ -1,4 +1,4 @@
-import { loadResendConfig } from "./emailSettings.server";
+import { loadResendConfig, EMAILS_PAUSED } from "./emailSettings.server";
 
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
