@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
+import { hasOperatorAccess } from "@/lib/access-roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,10 +26,10 @@ function AuthPage() {
       // cai na área do colaborador e fica preso no carregamento.
       if (!roleLoaded) return;
       if (!role || role === "pending") navigate({ to: "/pending" });
-      else if (role === "logistics_operator") navigate({ to: "/admin/histograma-novo" });
+      else if (hasOperatorAccess(role)) navigate({ to: "/admin/histograma-novo" });
       else if (role === "pm") navigate({ to: "/pm" });
       else if (role === "rh" || role === "sms") navigate({ to: "/rh-sms" });
-      else if (role === "visitante" || role === "diretoria") navigate({ to: "/admin/transport" });
+      else if (role === "visitante") navigate({ to: "/admin/transport" });
       else if (role === "medicao") navigate({ to: "/admin/bm" });
       else if (role === "orcamentos_projetos") navigate({ to: "/admin/cost-simulator" });
       else if (role === "qualidade" || role === "aprovacao_tecnica") navigate({ to: "/admin/nominations" });

@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
+import { hasSystemAdminAccess } from "@/lib/access-roles";
 import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
@@ -102,7 +103,7 @@ function AdminLayout() {
   const navRole = viewAsRole ?? role;
   const visibleNav = navRole === "qualidade"
     ? nav.filter((n) => n.to === "/admin/nominations")
-    : navRole === "visitante" || navRole === "diretoria"
+    : navRole === "visitante"
     ? nav.filter((n) => VISITANTE_PATHS.includes(n.to))
     : navRole === "medicao"
     ? nav.filter((n) => MEDICAO_PATHS.includes(n.to))
@@ -115,8 +116,8 @@ function AdminLayout() {
         : STAGE_ROLES.includes(navRole ?? "")
           ? nav.filter((n) => STAGE_ROLE_PATHS.includes(n.to) || ((navRole === "rh" || navRole === "sms") && RH_SMS_EXTRA_PATHS.includes(n.to)))
           : nav;
-  // Flow Track: exclusivo do perfil Administrador (real, nunca pelo "Ver como").
-  const visibleNavFinal = visibleNav.filter((n) => n.to !== "/admin/flow-track" || (role === "administrador" && !viewAsRole));
+  // Flow Track: Administrador e Diretoria reais; pré-visualização não concede acesso.
+  const visibleNavFinal = visibleNav.filter((n) => n.to !== "/admin/flow-track" || (hasSystemAdminAccess(role) && (!viewAsRole || hasSystemAdminAccess(viewAsRole))));
   const viewAsLabel = VIEW_AS_ROLES.find((r) => r.value === viewAsRole)?.label;
 
   return (

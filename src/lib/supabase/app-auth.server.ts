@@ -18,6 +18,7 @@ import {
   encodeAppAuthError,
 } from "./app-auth-errors";
 import { supabaseServerFetch } from "./supabase-server-fetch";
+import { hasOperatorAccess } from "@/lib/access-roles";
 
 const LOCAL_DEV_USER_ID = "local-development";
 
@@ -201,7 +202,7 @@ async function assertOperator(client: SupabaseClient, userId: string): Promise<v
     if (infra) throw new AppAuthError(infra);
     throw new Error("Não foi possível validar a permissão do usuário.");
   }
-  if (data?.role !== "logistics_operator" && data?.role !== "administrador") {
+  if (!hasOperatorAccess(data?.role)) {
     throw new Error("Sem permissão para atualizar dados do Drake.");
   }
 }

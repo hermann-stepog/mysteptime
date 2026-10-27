@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { hasOperatorAccess } from "@/lib/access-roles";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const SYSTEM = `Você é um especialista em entrega de e-mails transacionais do app "My Step Time" (logística de pessoal, STEP).
@@ -20,7 +21,7 @@ export const diagnoseEmailAlert = createServerFn({ method: "POST" })
     // Cast pra string: "administrador" ainda não está no types.ts gerado (não é regerado
     // automaticamente neste projeto — mesmo caso já visto com "medicao"/"diretoria").
     const roleAtual = roleRow?.role as string | undefined;
-    if (roleAtual !== "logistics_operator" && roleAtual !== "administrador") throw new Error("Sem permissão.");
+    if (!hasOperatorAccess(roleAtual)) throw new Error("Sem permissão.");
 
     const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("Serviço de IA não configurado.");
