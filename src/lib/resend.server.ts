@@ -1,4 +1,4 @@
-import { loadResendConfig } from "./emailSettings.server";
+import { loadResendConfig, EMAILS_PAUSED } from "./emailSettings.server";
 
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
@@ -62,6 +62,8 @@ export async function sendResendTemplateEmail(
   },
   supabase: any,
 ) {
+  // PAUSA TEMPORÁRIA pedida pelo usuário (27/10/2026): nenhum e-mail é enviado até reativar.
+  if (EMAILS_PAUSED) return { id: null, paused: true } as any;
   const cfg = await loadResendConfig(supabase);
   if (!cfg) throw new Error("Avisos por e-mail não configurados/ativados em Configurações.");
   const { html, text, subject } = renderAlert(variables);
