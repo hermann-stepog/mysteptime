@@ -2460,7 +2460,6 @@ function NominationCard({
             <span className="font-medium">{first.pm_responsavel}</span>
           </p>
         )}
-        {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
         {first.period_start && first.period_end && (
           <p className="mt-0.5 text-xs text-muted-foreground">
             {fmtDate(first.period_start)} – {fmtDate(first.period_end)}

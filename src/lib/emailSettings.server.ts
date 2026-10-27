@@ -64,7 +64,7 @@ export async function checkResendDomain(apiKey: string, domain: string): Promise
 }
 
 // PAUSA TEMPORÁRIA pedida pelo usuário: mude para false para voltar a enviar e-mails.
-export const EMAILS_PAUSED = true;
+export const EMAILS_PAUSED = false;
 
 export async function sendResendHtml(cfg: ResendConfig, to: string, subject: string, html: string, text: string) {
   if (EMAILS_PAUSED) return { id: null, paused: true } as any;
