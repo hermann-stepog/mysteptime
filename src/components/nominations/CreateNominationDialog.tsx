@@ -6,7 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import { type Nomination, isSoldador, isInspetor } from "@/lib/nominations";
-import { notifyStageAdvance } from "@/lib/nominationEmails";
+import { notifyRequestCreated } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { ehUnidadeNaoOperacional } from "@/lib/histogramaNovo";
@@ -268,10 +268,11 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
           });
           if (fixoError) throw fixoError;
         } else {
-          await notifyStageAdvance(data as Nomination, "solicitacao");
+          paraAvisar.push(data as Nomination);
         }
         criadas.push(`${l.funcao.trim()} (${unidade}/${bsp.trim()})`);
       }
+      await notifyRequestCreated(paraAvisar);
       return criadas;
     },
     onSuccess: (criadas) => {
