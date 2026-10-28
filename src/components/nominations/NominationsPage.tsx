@@ -778,7 +778,7 @@ function ValidacaoQualidadeSection({
           >
             Nenhum escopo do serviço anexado pelo solicitante.
             {faltaDescricaoObra &&
-              " Só dá pra avançar se as Observações descreverem o tipo de obra/serviço a bordo."}
+              " Só dá pra avançar se o Tipo de serviço descrever a obra/serviço a bordo."}
           </p>
         )}
         <div className="space-y-1.5 pt-1">
@@ -2282,6 +2282,7 @@ function ManageDialog({
 
           {/* ── Etapa atual ── */}
           <TabsContent value="etapa" className="space-y-4 pt-2">
+            <NominationObservations nomination={nomination} label="Tipo de serviço" />
             {nomination.requires_quality_validation &&
               ALL_STATUSES.indexOf(nomination.current_status) >
                 ALL_STATUSES.indexOf("validacao_qualidade") && (
@@ -2361,7 +2362,7 @@ function ManageDialog({
             )}
           </TabsContent>
         </Tabs>
-        <NominationObservations nomination={nomination} />
+        {tab !== "etapa" && <NominationObservations nomination={nomination} />}
       </DialogContent>
     </Dialog>
   );

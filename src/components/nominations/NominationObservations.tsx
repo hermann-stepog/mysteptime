@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-export function NominationObservations({ nomination }: { nomination: Nomination }) {
+export function NominationObservations({ nomination, label = "Observações" }: { nomination: Nomination; label?: string }) {
   const { user, role } = useAuth();
   const qc = useQueryClient();
   const id = useId();
@@ -51,11 +51,11 @@ export function NominationObservations({ nomination }: { nomination: Nomination 
   return (
     <section className="space-y-2 border-t pt-3">
       <div className="flex items-center justify-between gap-2">
-        <Label htmlFor={editing ? id : undefined}>Observações</Label>
+        <Label htmlFor={editing ? id : undefined}>{label}</Label>
         {canEdit && !editing && (
           <Button variant="outline" size="sm" onClick={() => { setNotes(savedNotes); setEditing(true); }}>
             <Pencil className="mr-1.5 h-3.5 w-3.5" />
-            {savedNotes ? "Editar observações" : "Incluir observações"}
+            {savedNotes ? `Editar ${label.toLocaleLowerCase("pt-BR")}` : `Incluir ${label.toLocaleLowerCase("pt-BR")}`}
           </Button>
         )}
       </div>
@@ -65,7 +65,7 @@ export function NominationObservations({ nomination }: { nomination: Nomination 
             onChange={(event) => setNotes(event.target.value)} placeholder="Tipo de serviço a ser executado" />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
-              <Save className="mr-1.5 h-3.5 w-3.5" /> Salvar observações
+              <Save className="mr-1.5 h-3.5 w-3.5" /> Salvar {label.toLocaleLowerCase("pt-BR")}
             </Button>
             <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => setEditing(false)}>Cancelar</Button>
           </div>
