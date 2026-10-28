@@ -37,6 +37,7 @@ import { gerarSemanasEDias } from "@/lib/timesheetAutoGen";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { pageTitle } from "@/lib/pageTitle";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import pdfExtractData from "@/data/pdfTimesheetExtract.json";
 
 export const Route = createFileRoute("/admin/timesheet-offshore")({ head: () => pageTitle("Timesheet Offshore"), component: TimesheetOffshore });
@@ -632,6 +633,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
   const [open, setOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [nf, setNf] = useState({ matricula: "", nome: "", empresa: "", funcao: "", funcao_operacao: "" });
+  const rascunhoColab = useRascunho(newOpen ? "timesheet:colaborador:novo" : null, nf, setNf);
   const selected = colaboradores.find((c) => c.id === value);
   const ordenados = useOrdemComSelecionadosFixados(colaboradores, open, (c) => c.id === value);
 
@@ -650,6 +652,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
     onSuccess: (c) => {
       qc.invalidateQueries({ queryKey: ["hist-novo-colaboradores"] });
       notify.success("Colaborador cadastrado");
+      void rascunhoColab.limpar();
       setNf({ matricula: "", nome: "", empresa: "", funcao: "", funcao_operacao: "" });
       setNewOpen(false);
       onChange(c.id);
@@ -693,6 +696,7 @@ function ColaboradorCombobox({ colaboradores, value, onChange }: {
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Novo colaborador</DialogTitle></DialogHeader>
+          <RascunhoAviso rascunho={rascunhoColab} />
           <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
             <div><Label className="text-xs">Matrícula</Label><Input value={nf.matricula} onChange={(e) => setNf({ ...nf, matricula: e.target.value })} /></div>
             <div><Label className="text-xs">Nome</Label><Input value={nf.nome} onChange={(e) => setNf({ ...nf, nome: e.target.value })} /></div>
@@ -729,6 +733,14 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
   useEffect(() => {
     if (!open) { setF({ colaboradorId: "", unidade_operacional: "", bsp: "", funcao_embarque: "", data_inicio: "", data_fim: "" }); setBspManual(false); }
   }, [open]);
+  const rascunho = useRascunho(
+    open ? "timesheet:embarque:novo" : null,
+    { f, bspManual },
+    (v) => {
+      setF(v.f);
+      setBspManual(v.bspManual);
+    },
+  );
 
   const onSelectColaborador = (id: string) => {
     const c = colaboradores.find((x) => x.id === id);
@@ -791,6 +803,7 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
       qc.invalidateQueries({ queryKey: ["timesheet-semanas-all"] });
       qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       notify.success("Embarque lançado");
+      void rascunho.limpar();
       onOpenChange(false);
       onCreated?.(embarque);
     },
@@ -801,6 +814,7 @@ function NovoEmbarqueDialog({ open, onOpenChange, colaboradores, periodos, unida
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Novo embarque</DialogTitle></DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
           <div>
             <Label className="text-xs">Colaborador</Label>
@@ -1526,6 +1540,14 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
     setBound(embarque.id);
   }
   if (!open && bound !== null) setBound(null);
+  const rascunho = useRascunho(
+    open && embarque && bound === embarque.id ? `timesheet:embarque:${embarque.id}` : null,
+    { f, bspManual },
+    (v) => {
+      setF(v.f);
+      setBspManual(v.bspManual);
+    },
+  );
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -1542,6 +1564,7 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
       notify.success("Embarque atualizado");
+      void rascunho.limpar();
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -1551,6 +1574,7 @@ function EditarEmbarqueDialog({ embarque, open, onOpenChange, colaboradorNome, p
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Editar embarque — {colaboradorNome}</DialogTitle></DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid gap-3" onKeyDownCapture={focusNextOnEnter}>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1854,6 +1878,14 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
   const [editandoSemana, setEditandoSemana] = useState<TimesheetSemana | null>(null);
   const [novaDataInicio, setNovaDataInicio] = useState("");
   const [novaDataFim, setNovaDataFim] = useState("");
+  const rascunhoSemana = useRascunho(
+    editandoSemana ? `timesheet:semana:${editandoSemana.id}` : null,
+    { novaDataInicio, novaDataFim },
+    (v) => {
+      setNovaDataInicio(v.novaDataInicio);
+      setNovaDataFim(v.novaDataFim);
+    },
+  );
 
   const { data: semanas = [] } = useQuery({
     queryKey: ["timesheet-semanas", embarque.id],
@@ -1940,6 +1972,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
       qc.invalidateQueries({ queryKey: ["timesheet-dias", semana.id] });
       qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       notify.success("Semana atualizada");
+      void rascunhoSemana.limpar();
       setEditandoSemana(null);
     },
     onError: (e: any) => notify.error(e.message),
@@ -2056,6 +2089,7 @@ function EmbarqueTimesheetPanel({ embarque, colaborador, periodo, periodos, dias
       <Dialog open={!!editandoSemana} onOpenChange={(o) => !o && setEditandoSemana(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar semana</DialogTitle></DialogHeader>
+          <RascunhoAviso rascunho={rascunhoSemana} />
           <div className="grid grid-cols-2 gap-3" onKeyDownCapture={focusNextOnEnter}>
             <div>
               <Label className="text-xs">De</Label>
@@ -2239,7 +2273,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
     onError: (e: any) => notify.error(e.message),
   });
 
-  const { data: dias = EMPTY_DIAS } = useQuery({
+  const { data: dias = EMPTY_DIAS, isSuccess: diasCarregados } = useQuery({
     queryKey: ["timesheet-dias", semana.id],
     queryFn: async () => {
       const { data, error } = await supabase.from("timesheet_dias").select("*").eq("semana_id", semana.id).order("data");
@@ -2249,7 +2283,16 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
   });
 
   const [draft, setDraft] = useState<TimesheetDia[]>([]);
-  useEffect(() => { setDraft(dias); }, [dias]);
+  // Só liga o rascunho depois que a grade recebeu os dias do banco — senão o rascunho
+  // restaurado seria sobrescrito pela carga dos dias logo em seguida.
+  const [gradePronta, setGradePronta] = useState(false);
+  useEffect(() => { setDraft(dias); if (diasCarregados) setGradePronta(true); }, [dias, diasCarregados]);
+  // Rascunho automático (ver useRascunho) das horas digitadas e ainda não salvas na semana.
+  const rascunhoGrade = useRascunho(
+    gradePronta && !readOnly ? `timesheet:grade:${semana.id}` : null,
+    draft,
+    setDraft,
+  );
 
   const editarCampo = (id: string, patch: Partial<TimesheetDia>) => {
     setDraft((prev) => prev.map((d) => {
@@ -2313,6 +2356,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
       qc.invalidateQueries({ queryKey: ["timesheet-dias-all"] });
       qc.invalidateQueries({ queryKey: ["timesheet-semanas", embarque.id] });
       qc.invalidateQueries({ queryKey: ["timesheet-embarques"] });
+      void rascunhoGrade.limpar();
       notify.success("Semana salva");
     },
     onError: (e: any) => notify.error(e.message),
@@ -2332,6 +2376,7 @@ function SemanaGrid({ semana, colaborador, periodo, periodos, embarque, readOnly
 
   return (
     <Card className="p-4 space-y-4">
+      <RascunhoAviso rascunho={rascunhoGrade} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm space-y-0.5">
           <div className="flex flex-wrap items-center gap-x-1">

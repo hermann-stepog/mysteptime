@@ -44,6 +44,7 @@ import {
   type CategoriaReembolso, type TipoAnexoReembolso, type TipoReembolso,
 } from "@/lib/reembolsos";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { NotaDebitoTab } from "@/components/despesasExtras/NotaDebitoTab";
 
@@ -323,6 +324,17 @@ function ReembolsoDialog({ open, onOpenChange, editing, periodosE, colaboradores
     setEditandoItemId(null);
     setItemBound(reembolsoId);
   }
+  // Rascunho automático (ver useRascunho) do cabeçalho e do item que está sendo digitado —
+  // anexo escolhido e ainda não enviado não entra (o navegador não deixa guardar arquivo).
+  const rascunho = useRascunho(
+    !open || bound === null ? null : reembolsoId ? `reembolso:${reembolsoId}` : "reembolso:novo",
+    { f, novoItem, editandoItemId },
+    (v) => {
+      setF(v.f);
+      setNovoItem(v.novoItem);
+      setEditandoItemId(v.editandoItemId);
+    },
+  );
 
   const enviarAnexo = useMutation({
     mutationFn: async (params: { itemId: string | null; tipo: TipoAnexoReembolso; file: File }) => {
@@ -372,6 +384,7 @@ function ReembolsoDialog({ open, onOpenChange, editing, periodosE, colaboradores
     },
     onSuccess: async (id) => {
       qc.invalidateQueries({ queryKey: ["reembolsos"] });
+      void rascunho.limpar();
       if (!editing) setCriadoId(id);
       // Anexo escolhido antes de existir o registro (lançamento novo) só sobe depois do 1º
       // Salvar, já com o id gerado (pedido dela, 2026-10-20: anexar PDF no formulário mesmo).
@@ -414,6 +427,7 @@ function ReembolsoDialog({ open, onOpenChange, editing, periodosE, colaboradores
     },
     onSuccess: () => {
       invalidarItens();
+      void rascunho.limpar();
       setNovoItem(NOVO_ITEM_VAZIO);
       setEditandoItemId(null);
     },
@@ -435,6 +449,7 @@ function ReembolsoDialog({ open, onOpenChange, editing, periodosE, colaboradores
         <DialogHeader>
           <DialogTitle>{reembolsoAtual ? reembolsoAtual.codigo : "Novo lançamento de reembolso"}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="space-y-4">
           <div className="grid gap-3 rounded-md border p-3">
             <div>

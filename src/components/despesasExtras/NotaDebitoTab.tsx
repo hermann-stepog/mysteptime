@@ -34,6 +34,7 @@ import { UNIDADES_OPERACIONAIS_FIXAS } from "@/lib/timesheetOffshore";
 import { clienteDaUnidade, agruparUnidadesPorCliente } from "@/lib/clientes";
 import { ColaboradoresDrakeMultiField } from "@/components/LogisticaFormFields";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { type NotaDebito, type NotaDebitoItem, type NotaDebitoAnexo, SACADO_FIXO } from "@/lib/notasDebito";
 
@@ -276,6 +277,12 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing, periodosE, colabora
   }
   if (open && !editing && bound !== "novo") { setF(FORM_VAZIO_NOTA); setPendingFile(null); setBound("novo"); }
   if (!open && bound !== null) setBound(null);
+  // Rascunho automático (ver useRascunho) — anexo ainda não enviado não entra.
+  const rascunho = useRascunho(
+    !open || bound === null ? null : editing ? `nota-debito:${editing.id}` : "nota-debito:nova",
+    f,
+    setF,
+  );
 
   // Cascata Cliente → Unidade → BSP (pedido dela, 2026-10-20) — mesmo padrão do Reembolso:
   // Cliente é só um filtro de UI (não persistido), Unidade/BSP vêm do Drake.
@@ -345,6 +352,7 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing, periodosE, colabora
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notas-debito"] });
       notify.success(editing ? "Nota atualizada" : "Nota lançada");
+      void rascunho.limpar();
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -354,6 +362,7 @@ function NotaDebitoFormDialog({ open, onOpenChange, editing, periodosE, colabora
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{editing ? "Editar lançamento" : "Novo lançamento de nota de débito"}</DialogTitle></DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid gap-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -529,6 +538,14 @@ function NotaDebitoItensDialog({ nota, open, onOpenChange, onEditarCabecalho }: 
     setBound(nota.id);
   }
   if (!open && bound !== null) setBound(null);
+  const rascunhoItem = useRascunho(
+    open && nota && bound === nota.id ? `nota-debito:itens:${nota.id}` : null,
+    { novoItem, editandoItemId },
+    (v) => {
+      setNovoItem(v.novoItem);
+      setEditandoItemId(v.editandoItemId);
+    },
+  );
 
   const invalidarItens = () => {
     qc.invalidateQueries({ queryKey: ["nota-debito-itens", notaId] });
@@ -552,6 +569,7 @@ function NotaDebitoItensDialog({ nota, open, onOpenChange, onEditarCabecalho }: 
     },
     onSuccess: () => {
       invalidarItens();
+      void rascunhoItem.limpar();
       setNovoItem(NOVO_ITEM_VAZIO);
       setEditandoItemId(null);
     },
@@ -580,6 +598,7 @@ function NotaDebitoItensDialog({ nota, open, onOpenChange, onEditarCabecalho }: 
             </Button>
           </DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunhoItem} />
         <div className="space-y-4">
           <p className="text-xs text-muted-foreground">
             BSP {nota.bsp} · Lançado em {fmt(nota.data_lancamento)}

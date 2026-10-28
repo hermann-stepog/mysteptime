@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, ChevronsUpDown, Plus, X, PackagePlus } from "lucide-react";
 import { cn, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { notify } from "@/lib/notify";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 export type Material = {
   id: string;
@@ -46,6 +47,7 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState<{ volume: string; qtd: number; categoria: string }>({ volume: "Caixa", qtd: 1, categoria: "" });
+  const rascunho = useRascunho(open ? "material:novo" : null, f, setF);
   const create = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.from("materials").insert({
@@ -61,6 +63,7 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
       notify.success("Material adicionado");
       qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["materials-all"] });
+      void rascunho.limpar();
       setF({ volume: "Caixa", qtd: 1, categoria: "" });
       setOpen(false);
       onCreated?.(m);
@@ -75,6 +78,7 @@ export function NewMaterialDialog({ children, onCreated }: { children?: React.Re
       </DialogTrigger>
       <DialogContent>
         <DialogHeader><DialogTitle>Novo material</DialogTitle></DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid gap-3">
           <div className="grid grid-cols-[1fr_120px] gap-3">
             <div>

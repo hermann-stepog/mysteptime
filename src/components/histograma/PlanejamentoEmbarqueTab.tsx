@@ -67,6 +67,7 @@ import {
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import { MultiSortableHead, useMultiTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { PlanejamentoStatusAuditoria } from "@/components/histograma/PlanejamentoStatusAuditoria";
 import {
   Search,
@@ -746,6 +747,15 @@ function PlanejamentoEditDialog({
     programado_2: row?.programado_2 ?? "",
     observacoes: row?.observacoes ?? "",
   });
+  // Rascunho automático (ver useRascunho): cadastro novo e edição (por registro) separados.
+  const rascunho = useRascunho(
+    row ? `planejamento:${row.id}` : "planejamento:novo",
+    { form, statusManual },
+    (v) => {
+      setForm(v.form);
+      setStatusManual(v.statusManual);
+    },
+  );
 
   // Recalcula Desembarque/Início Folga/Fim Folga sozinho sempre que Embarque ou Duração
   // mudam (mesma fórmula da planilha dela — ver calcularDatasPorDuracao) — ela continua
@@ -797,6 +807,7 @@ function PlanejamentoEditDialog({
       registrarLog(
         row ? `Editou registro de ${form.nome.trim()}` : `Cadastrou ${form.nome.trim()}`,
       );
+      void rascunho.limpar();
       onClose();
     },
     onError: (e: any) => notify.error(e.message),
@@ -808,6 +819,7 @@ function PlanejamentoEditDialog({
         <DialogHeader>
           <DialogTitle>{row ? "Editar registro" : "Novo colaborador"}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div>

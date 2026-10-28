@@ -128,6 +128,7 @@ import {
   type HotelFornecedor,
   type Hospedagem,
 } from "@/lib/hospedagem";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 interface HospedagemSearch {
   prefillUnidade?: string;
@@ -295,6 +296,7 @@ function HotelCombobox({
   const [open, setOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [nf, setNf] = useState({ nome: "", cidade: "", estado: "" });
+  const rascunhoHotel = useRascunho(newOpen ? "hospedagem:hotel:novo" : null, nf, setNf);
   const selected = hoteis.find((h) => h.id === value);
   const ordenados = useOrdemComSelecionadosFixados(hoteis, open, (h) => h.id === value);
 
@@ -315,6 +317,7 @@ function HotelCombobox({
     onSuccess: (h: HotelFornecedor) => {
       qc.invalidateQueries({ queryKey: ["hoteis-fornecedores"] });
       notify.success("Hotel cadastrado");
+      void rascunhoHotel.limpar();
       setNf({ nome: "", cidade: "", estado: "" });
       setNewOpen(false);
       onChange(h.id);
@@ -380,6 +383,7 @@ function HotelCombobox({
           <DialogHeader>
             <DialogTitle>Novo hotel</DialogTitle>
           </DialogHeader>
+          <RascunhoAviso rascunho={rascunhoHotel} />
           <div className="grid gap-3">
             <div>
               <Label className="text-xs">Nome</Label>
@@ -527,6 +531,34 @@ function HospedagemDialog({
   }
   if (!open && bound !== null) setBound(null);
 
+  // Rascunho automático (ver useRascunho): nova hospedagem, edição (por id) e a que chega
+  // preenchida de outro módulo (por colaborador/BSP) têm rascunhos separados.
+  const rascunho = useRascunho(
+    !open || bound === null
+      ? null
+      : editing
+        ? `hospedagem:${editing.id}`
+        : prefill
+          ? `hospedagem:nova:${prefill.nomeUsuario ?? ""}:${prefill.bsp ?? ""}`
+          : "hospedagem:nova",
+    {
+      f,
+      valorPrincipal,
+      valor2,
+      valor3,
+      pessoas: pessoas.pessoas,
+      unidades: unidades.unidades,
+    },
+    (v) => {
+      setF(v.f);
+      setValorPrincipal(v.valorPrincipal);
+      setValor2(v.valor2);
+      setValor3(v.valor3);
+      pessoas.replace(v.pessoas);
+      unidades.replace(v.unidades);
+    },
+  );
+
   const bspOptions = useMemo(
     () => bspOptionsForUnidade(periodosE, f.unidade || "all"),
     [periodosE, f.unidade],
@@ -620,6 +652,7 @@ function HospedagemDialog({
       registrarLog(
         `${editing ? "Editou" : "Lançou"} hospedagem de ${f.nomeUsuario.trim()} (${f.unidade}/${f.bsp}, ${fmt(f.checkIn)} a ${fmt(f.checkOut)})`,
       );
+      void rascunho.limpar();
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -631,6 +664,7 @@ function HospedagemDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Editar hospedagem" : "Nova hospedagem"}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <NomeUsuarioMultiField
             label="Nome do colaborador"
@@ -2200,6 +2234,11 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
     setF({ nome: "", cidade: "", estado: "", endereco: "", telefone: "", regiao: "", aeroportoProximo: "" });
     setBound("novo");
   }
+  const rascunho = useRascunho(
+    bound === null ? null : editing ? `hospedagem:hotel:${editing.id}` : "hospedagem:hotel:novo",
+    f,
+    setF,
+  );
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -2226,6 +2265,7 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hoteis-fornecedores"] });
       notify.success(editing ? "Hotel atualizado" : "Hotel cadastrado");
+      void rascunho.limpar();
       setEditing(null);
       setCreating(false);
       setBound(null);
@@ -2380,6 +2420,7 @@ function HoteisTab({ hoteis }: { hoteis: HotelFornecedor[] }) {
           <DialogHeader>
             <DialogTitle>{editing ? "Editar hotel" : "Novo hotel"}</DialogTitle>
           </DialogHeader>
+          <RascunhoAviso rascunho={rascunho} />
           <div className="grid gap-3">
             <div>
               <Label className="text-xs">Nome</Label>

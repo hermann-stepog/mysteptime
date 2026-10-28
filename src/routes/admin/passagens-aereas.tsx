@@ -128,6 +128,7 @@ import {
   type StatusFluxo,
 } from "@/lib/passagensAereas";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { AeroportoSelect } from "@/components/AeroportoSelect";
 
@@ -409,6 +410,33 @@ function PassagemDialog({
   }
   if (!open && bound !== null) setBound(null);
 
+  // Rascunho automático (ver useRascunho): nova passagem e edição (por id) separadas.
+  const rascunho = useRascunho(
+    !open || bound === null ? null : editing ? `passagem:${editing.id}` : "passagem:nova",
+    {
+      f,
+      rateio: {
+        ativo: rateio.ativo,
+        bsp2: rateio.bsp2,
+        percentual2: rateio.percentual2,
+        bsp3: rateio.bsp3,
+        percentual3: rateio.percentual3,
+      },
+      pessoas: pessoas.pessoas,
+      unidades: unidades.unidades,
+    },
+    (v) => {
+      setF(v.f);
+      rateio.setAtivo(v.rateio.ativo);
+      rateio.setBsp2(v.rateio.bsp2);
+      rateio.setPercentual2(v.rateio.percentual2);
+      rateio.setBsp3(v.rateio.bsp3);
+      rateio.setPercentual3(v.rateio.percentual3);
+      pessoas.replace(v.pessoas);
+      unidades.replace(v.unidades);
+    },
+  );
+
   const bspOptions = useMemo(
     () => bspOptionsPassagem(periodosE, f.unidade || "all"),
     [periodosE, f.unidade],
@@ -490,6 +518,7 @@ function PassagemDialog({
       registrarLog(
         `${editing ? "Editou" : "Lançou"} passagem de ${f.nomeUsuario.trim()} (${f.unidade}/${f.bsp}, ${fmt(f.dataIda)})`,
       );
+      void rascunho.limpar();
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -501,6 +530,7 @@ function PassagemDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Editar passagem" : "Nova passagem"}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="-mr-2 grid gap-3 overflow-y-auto pr-2">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -860,6 +890,19 @@ function GerenciarFluxoDialog({
     setBound(passagem.id);
   }
   if (!open && bound !== null) setBound(null);
+  // Rascunho automático (ver useRascunho) do que ainda não foi gravado nesta solicitação.
+  const rascunho = useRascunho(
+    open && passagem && bound === passagem.id ? `passagem:fluxo:${passagem.id}` : null,
+    { textoAgencia, novaOpcao, opcaoSelecionada, comentario, precoConfirmado, diferencaPreco },
+    (v) => {
+      setTextoAgencia(v.textoAgencia);
+      setNovaOpcao(v.novaOpcao);
+      setOpcaoSelecionada(v.opcaoSelecionada);
+      setComentario(v.comentario);
+      setPrecoConfirmado(v.precoConfirmado);
+      setDiferencaPreco(v.diferencaPreco);
+    },
+  );
 
   const salvarTexto = useMutation({
     mutationFn: async () => {
@@ -870,7 +913,10 @@ function GerenciarFluxoDialog({
         .eq("id", passagem.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["passagens-aereas"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
+      void rascunho.limpar();
+    },
     onError: (e: any) => notify.error(e.message),
   });
 
@@ -891,6 +937,7 @@ function GerenciarFluxoDialog({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["passagem-opcoes", passagemId] });
+      void rascunho.limpar();
       setNovaOpcao(OPCAO_VAZIA);
     },
     onError: (e: any) => notify.error(e.message),
@@ -933,6 +980,7 @@ function GerenciarFluxoDialog({
       qc.invalidateQueries({ queryKey: ["passagens-aereas"] });
       qc.invalidateQueries({ queryKey: ["passagem-historico", passagemId] });
       notify.success("Etapa atualizada");
+      void rascunho.limpar();
       setComentario("");
     },
     onError: (e: any) => notify.error(e.message),
@@ -947,6 +995,7 @@ function GerenciarFluxoDialog({
         <DialogHeader>
           <DialogTitle>Solicitação — {passagem.nome_usuario}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="space-y-4">
           <p className="text-xs text-muted-foreground">
             {passagem.unidade} · BSP {passagem.bsp} · {passagem.origem ?? "—"} →{" "}

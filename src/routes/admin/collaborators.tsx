@@ -22,6 +22,7 @@ import { EmptyStateRow } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 export const Route = createFileRoute("/admin/collaborators")({ head: () => pageTitle("Colaboradores"), component: CollaboratorsPage });
 
@@ -193,6 +194,7 @@ function CollaboratorsPage() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Row | null>(null);
+  const rascunho = useRascunho(editing ? `colaboradores:pagina:${editing.id}` : null, editing, setEditing);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["collaborators-all"],
@@ -271,6 +273,7 @@ function CollaboratorsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
       qc.invalidateQueries({ queryKey: ["collaborators"] });
+      void rascunho.limpar();
       setEditing(null);
       notify.success("Atualizado");
     },
@@ -386,6 +389,7 @@ function CollaboratorsPage() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar colaborador</DialogTitle></DialogHeader>
+          <RascunhoAviso rascunho={rascunho} />
           {editing && (
             <div className="grid gap-3">
               <div><Label>Nome</Label><Input value={editing.full_name} onChange={(e) => setEditing({ ...editing, full_name: e.target.value })} /></div>
