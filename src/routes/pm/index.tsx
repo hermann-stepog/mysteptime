@@ -938,6 +938,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
         if (error) throw error;
       }
 
+      const novas: Nomination[] = [];
       for (const l of validas) {
         const isWelder = isSoldador(l.funcao);
         const scopeDocument = l.scopeFile ? await uploadScopeDocument(l.scopeFile) : null;
