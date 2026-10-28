@@ -2461,6 +2461,7 @@ function NominationCard({
           </p>
         )}
         {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
+        <NecessidadeBadge items={items} isTerminal={isTerminal} />
         {first.period_start && first.period_end && (
           <p className="mt-0.5 text-xs text-muted-foreground">
             {fmtDate(first.period_start)} – {fmtDate(first.period_end)}
@@ -3564,6 +3565,42 @@ function normalizeFuncaoSemNivel(funcao: string): string {
     .replace(/\s+N\s*\d+$/i, "")
     .trim()
     .toLocaleUpperCase("pt-BR");
+}
+
+// Etiqueta chamativa da Data de Necessidade (period_start — "Data início" da solicitação) no
+// cartão do kanban (pedido dela, 2026-10-28). Em grupo vale a data mais cedo. A cor sobe com a
+// urgência: vencida/até 3 dias vermelho, até 7 dias laranja, depois azul; cinza quando concluída.
+function NecessidadeBadge({ items, isTerminal }: { items: Nomination[]; isTerminal: boolean }) {
+  const datas = items.map((n) => n.period_start).filter((d): d is string => !!d).sort();
+  if (datas.length === 0) return null;
+  const data = datas[0];
+  const dias = diasAteData(data, todayStr());
+  // Mesmo estilo dos títulos das etapas do kanban (fundo pastel + texto escuro da mesma cor,
+  // caixa alta) — pedido dela, 2026-10-28.
+  const cor = isTerminal
+    ? { bg: "#F1F5F9", text: "#475569" }
+    : dias <= 3
+      ? { bg: "#FEE2E2", text: "#991B1B" }
+      : dias <= 7
+        ? { bg: "#FFEDD5", text: "#9A3412" }
+        : { bg: "#DBEAFE", text: "#1E40AF" };
+  const sufixo = isTerminal
+    ? ""
+    : dias < 0
+      ? ` · vencida há ${-dias}d`
+      : dias === 0
+        ? " · hoje"
+        : ` · em ${dias}d`;
+  return (
+    <span
+      className="mt-1.5 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[13px] font-semibold uppercase tracking-wide"
+      style={{ backgroundColor: cor.bg, color: cor.text }}
+    >
+      <CalendarDays className="h-3.5 w-3.5" />
+      Necessidade: {fmtDate(data)}
+      <span className="font-normal normal-case opacity-70">{sufixo}</span>
+    </span>
+  );
 }
 
 // Dias entre duas datas YYYY-MM-DD (positivo = "data" ainda não chegou; negativo = já passou).
