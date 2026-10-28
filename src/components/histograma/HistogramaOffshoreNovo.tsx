@@ -5016,8 +5016,10 @@ function DashboardTab({
       );
     };
     // Mesma ideia do "POB por Unidade × Dia" acima: se pobReferenceDate já tem foto tirada, usa
-    // ela (retrato real daquele dia); senão cai pro cálculo ao vivo.
-    if (diasComFotoPlanejamento.has(pobReferenceDate)) {
+    // ela (retrato real daquele dia); senão cai pro cálculo ao vivo. Hoje é sempre ao vivo — a
+    // foto de hoje é tirada cedo e não acompanha os ajustes do dia; assim bate com o card
+    // "Embarcados", que também usa o Planejamento ao vivo.
+    if (pobReferenceDate !== today && diasComFotoPlanejamento.has(pobReferenceDate)) {
       planejamentoSnapshots
         .filter(
           (s) => s.snapshot_date === pobReferenceDate && isStatusEmbarcado(s.status) && s.unidade,
@@ -5027,18 +5029,25 @@ function DashboardTab({
           if (ehUnidadeNaoOperacional(unidadeTexto)) return;
           const bspTexto = s.bsp?.trim() || "";
           if (unidadeTexto === "QUALITECH" && !bspTexto) return;
-          const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : s.unidade!;
+          const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : (normalizeUnidadeOperacional(s.unidade) ?? s.unidade!);
           addPessoa(u, s.funcao, s.colaborador_nome);
         });
     } else {
       planejamentoEmbarque.forEach((row) => {
-        if (!row.unidade || !row.embarque || !row.desembarque) return;
+        if (!row.unidade) return;
         const unidadeTexto = row.unidade.trim().toUpperCase();
         if (ehUnidadeNaoOperacional(unidadeTexto)) return;
         if (unidadeTexto === "QUALITECH" && !row.bsp?.trim()) return;
-        if (pobReferenceDate < row.embarque || pobReferenceDate >= row.desembarque) return;
-        if (pobReferenceDate >= today && !isStatusEmbarcado(row.status)) return;
-        const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : row.unidade;
+        // Hoje vale o Status do Planejamento, sem olhar as datas (pedido dela, 2026-10-28): quem
+        // desembarca hoje ainda está "Embarcado" lá e ficava de fora pela janela exclusiva do fim.
+        if (pobReferenceDate === today) {
+          if (!isStatusEmbarcado(row.status)) return;
+        } else {
+          if (!row.embarque || !row.desembarque) return;
+          if (pobReferenceDate < row.embarque || pobReferenceDate >= row.desembarque) return;
+          if (pobReferenceDate > today && !isStatusEmbarcado(row.status)) return;
+        }
+        const u = unidadeTexto === "QUALITECH" ? "Safe Zephyrus" : (normalizeUnidadeOperacional(row.unidade) ?? row.unidade);
         addPessoa(u, row.funcao, row.nome);
       });
     }
@@ -5364,15 +5373,57 @@ function DashboardTab({
             </PopoverContent>
           </Popover>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">
-          Status atual do Planejamento de Embarque
-        </p>
-        <div className="grid gap-6 lg:grid-cols-4">
+        <div className="mt-3 grid gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+          {/* Resumo "Quantidade de Pessoas Embarcadas" (pedido dela, 2026-10-28) — formato do
+              e-mail diário (Unidade | Quantidade | TOTAL), lado a lado com as rosquinhas e em
+              destaque; mesmos números do "POB x Unidade", em ordem alfabética. */}
           <div className="flex flex-col items-center gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Pessoas Embarcadas{" "}
+              <span className="normal-case">
+                ({pobReferenceDate === today ? "hoje" : fmtDiaCurto(pobReferenceDate)})
+              </span>
+            </h4>
+            {byUnitStatus.length === 0 ? (
+              <p className="py-10 text-xs text-muted-foreground">Ninguém embarcado</p>
+            ) : (
+              <div className="w-full max-w-[300px] overflow-hidden rounded-lg border-2 border-[#1e3a5f] shadow-md">
+                <table className="w-full border-collapse text-[13px]">
+                  <thead>
+                    <tr className="bg-gradient-to-b from-[#2c5282] via-[#1e3a5f] to-[#0f2744] text-white">
+                      <th className="px-2 py-1 text-left font-bold">Unidade</th>
+                      <th className="w-12 px-2 py-1 text-center font-bold">Qtd</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...byUnitStatus]
+                      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+                      .map((u) => (
+                        <tr key={u.name} className="border-t border-border even:bg-muted/40">
+                          <td className="max-w-0 truncate px-2 py-[3px] font-medium" title={u.name}>
+                            {u.name}
+                          </td>
+                          <td className="px-2 py-[3px] text-center font-semibold tabular-nums">
+                            {u.Embarcado}
+                          </td>
+                        </tr>
+                      ))}
+                    <tr className="bg-gradient-to-b from-[#2c5282] via-[#1e3a5f] to-[#0f2744] text-sm font-bold text-white">
+                      <td className="px-2 py-1">TOTAL</td>
+                      <td className="px-2 py-1 text-center tabular-nums">
+                        {byUnitStatus.reduce((s, u) => s + u.Embarcado, 0)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col items-center gap-2 lg:border-l lg:pl-6">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Ocupação
             </h4>
-            <div className="flex flex-wrap items-center justify-center gap-4">
+            <div className="flex flex-1 flex-wrap items-center justify-center gap-4">
               <div className="relative h-[180px] w-[180px] shrink-0">
                 <ChartContainer
                   config={donutChartConfig}
@@ -5426,7 +5477,7 @@ function DashboardTab({
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Fora da Ocupação
             </h4>
-            <div className="flex flex-wrap items-center justify-center gap-4">
+            <div className="flex flex-1 flex-wrap items-center justify-center gap-4">
               <div className="relative h-[180px] w-[180px] shrink-0">
                 <ChartContainer
                   config={donutChartConfig}
@@ -5480,7 +5531,7 @@ function DashboardTab({
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Bloqueados
             </h4>
-            <div className="flex flex-wrap items-center justify-center gap-4">
+            <div className="flex flex-1 flex-wrap items-center justify-center gap-4">
               <div className="relative h-[180px] w-[180px] shrink-0">
                 <ChartContainer
                   config={donutChartConfig}
@@ -5534,39 +5585,44 @@ function DashboardTab({
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Taxa de Ocupação por mês
             </h4>
+            {/* Altura fixa centralizada (em vez de esticar até o fim do card) e largura total da
+                coluna — esticado, as barras ficavam finas/compridas e os % se encostavam. */}
+            <div className="flex w-full flex-1 items-center justify-center">
             <ChartContainer
               config={donutChartConfig}
-              className="h-[200px] w-full max-w-[260px] [&_.recharts-wrapper]:drop-shadow-md"
+              className="aspect-auto h-[230px] w-full [&_.recharts-wrapper]:drop-shadow-md"
             >
               <BarChart
                 data={ocupacaoMensalData}
-                margin={{ top: 20, right: 4, left: 4, bottom: 2 }}
+                margin={{ top: 22, right: 2, left: 2, bottom: 2 }}
+                barCategoryGap="18%"
               >
                 <XAxis
                   dataKey="name"
-                  tick={{ fontSize: 11, fontWeight: 600 }}
+                  tick={{ fontSize: 12, fontWeight: 600 }}
                   interval={0}
                   angle={-35}
                   textAnchor="end"
-                  height={36}
+                  height={40}
                 />
                 <YAxis hide domain={[0, 100]} />
                 <ChartTooltip content={renderMonthlyPctTooltip} />
                 <Bar
                   dataKey="value"
                   radius={[5, 5, 0, 0]}
-                  maxBarSize={22}
+                  maxBarSize={30}
                   fill={`url(#${embossGradientId(DASH_COLORS.navy)})`}
                 >
                   <LabelList
                     dataKey="value"
                     position="top"
                     formatter={(v: number) => `${v}%`}
-                    className="fill-foreground text-xs font-bold"
+                    className="fill-foreground text-[13px] font-bold"
                   />
                 </Bar>
               </BarChart>
             </ChartContainer>
+            </div>
           </div>
         </div>
       </Card>
@@ -5729,46 +5785,6 @@ function DashboardTab({
           </div>
         )}
       </Card>
-
-      {/* ── Resumo "Quantidade de Pessoas Embarcadas" (pedido dela, 2026-10-28) — tabela pequena
-          no formato do e-mail diário (Unidade | Quantidade | TOTAL), mesmos números do
-          "POB x Unidade" logo abaixo, em ordem alfabética. ── */}
-      {byUnitStatus.length > 0 && (
-        <Card className="w-full max-w-sm p-3">
-          <h3 className="text-sm font-semibold">Quantidade de Pessoas Embarcadas</h3>
-          <p className="mb-2 text-xs text-muted-foreground">
-            {pobReferenceDate === today ? "Hoje" : fmtDiaCurto(pobReferenceDate)}, por unidade
-          </p>
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr className="bg-sky-100 text-slate-900 dark:bg-sky-950 dark:text-sky-100">
-                <th className="border border-border px-2 py-1 text-left font-semibold">Unidade</th>
-                <th className="w-24 border border-border px-2 py-1 text-center font-semibold">
-                  Quantidade
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...byUnitStatus]
-                .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
-                .map((u) => (
-                  <tr key={u.name}>
-                    <td className="border border-border px-2 py-0.5">{u.name}</td>
-                    <td className="border border-border px-2 py-0.5 text-center tabular-nums">
-                      {u.Embarcado}
-                    </td>
-                  </tr>
-                ))}
-              <tr className="bg-sky-100 font-bold text-slate-900 dark:bg-sky-950 dark:text-sky-100">
-                <td className="border border-border px-2 py-1">TOTAL</td>
-                <td className="border border-border px-2 py-1 text-center tabular-nums">
-                  {byUnitStatus.reduce((s, u) => s + u.Embarcado, 0)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </Card>
-      )}
 
       {/* ── POB x Unidade ── */}
       <Card className="p-4">

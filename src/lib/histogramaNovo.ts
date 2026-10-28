@@ -288,6 +288,14 @@ const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
   "GUSMAO": "ALEXANDRE GUSMÃO",
   "GUSMÃO": "ALEXANDRE GUSMÃO",
   "ILHA BELA": "CDI - CIDADE ILHA BELA",
+  // Pedido dela, 2026-10-28: grafias do Planejamento de Embarque → nome oficial do Drake (o
+  // mesmo do e-mail diário "Quantidade de Pessoas Embarcadas").
+  "PARATY": "FPPA - CIDADE DE PARATY",
+  "CIDADE DE PARATY": "FPPA - CIDADE DE PARATY",
+  "ESPIRITO SANTO": "FPSO ESPIRITO SANTO",
+  "ESPÍRITO SANTO": "FPSO ESPIRITO SANTO",
+  "SAIPEM P-79": "P-79",
+  "PPG-1": "PPG1",
   "MARICA": "FPMR - CIDADE DE MARICA",
   "MARICÁ": "FPMR - CIDADE DE MARICA",
   // Pedido dela, 2026-10-23: CVIT (BW) e MSI Vitória (MSI) são unidades/clientes diferentes —
@@ -303,6 +311,8 @@ const UNIDADE_OPERACIONAL_ALIASES: Record<string, string> = {
   "MSI VITORIA": "MSI - CIDADE DE VITORIA",
   "MSI VITÓRIA": "MSI - CIDADE DE VITORIA",
   "MSI - CIDADE DE VITÓRIA": "MSI - CIDADE DE VITORIA",
+  "MSI - CIDADE VITORIA": "MSI - CIDADE DE VITORIA",
+  "MSI - CIDADE VITÓRIA": "MSI - CIDADE DE VITORIA",
 };
 
 export function normalizeUnidadeOperacional(raw: string | null | undefined): string | null {
