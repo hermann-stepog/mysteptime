@@ -2720,9 +2720,12 @@ function KanbanBoard({
         }
         byKey.get(key)!.push(n);
       });
+      // Ordena por data de necessidade (início do período), mais próxima primeiro; sem data por último.
+      const need = (g: Nomination[]) =>
+        g.reduce((min, n) => (n.period_start && n.period_start < min ? n.period_start : min), "9999-12-31");
       m.set(
         col,
-        order.map((k) => byKey.get(k)!),
+        order.map((k) => byKey.get(k)!).sort((a, b) => need(a).localeCompare(need(b))),
       );
     });
     return m;
