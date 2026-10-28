@@ -34,7 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HistogramaOffshoreNovo } from "@/components/histograma/HistogramaOffshoreNovo";
-import { NominationsPage } from "@/components/nominations/NominationsPage";
+import { NominationsPage, EditarSolicitacaoContext } from "@/components/nominations/NominationsPage";
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import {
   CreateNominationDialog, useNominationFormData, uploadScopeDocument, currentAuthUserId,
@@ -394,7 +394,7 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
       const scopeDocument = scopeFile ? await uploadScopeDocument(scopeFile) : null;
-      const { error } = await supabase.from("nominations").update({
+      const { data: atualizadas, error } = await supabase.from("nominations").update({
         funcao: funcao.trim(),
         quantidade: Math.max(1, Number(quantidade) || 1),
         unidade,
@@ -405,8 +405,12 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
         notes: notes.trim() || null,
         requires_quality_validation: isWelder,
         ...(scopeDocument ? { scope_document_path: scopeDocument.path, scope_document_name: scopeDocument.name } : {}),
-      }).eq("id", nom.id);
+      }).eq("id", nom.id).select("id");
       if (error) throw error;
+      // RLS bloqueando UPDATE não dá erro, só volta 0 linhas (ver EditGroupDialog).
+      if (!atualizadas?.length) {
+        throw new Error("Não foi possível salvar: a solicitação já saiu da etapa Solicitação ou você não tem permissão para editá-la.");
+      }
       await supabase.from("nomination_status_history").insert({
         nomination_id: nom.id, status: "solicitacao",
         changed_by_name: profile?.full_name ?? profile?.email ?? "Solicitante", notes: "Solicitação editada pelo solicitante",
@@ -870,6 +874,12 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
   );
 }
 
+// Card do kanban (aba Nomeações da Área do Solicitante) → mesmo formulário de "Editar
+// solicitação" de Minhas Solicitações (ver EditarSolicitacaoContext em NominationsPage.tsx).
+function renderEditarSolicitacao(items: Nomination[], close: () => void) {
+  return <EditGroupDialog items={items} onClose={close} onSaved={close} />;
+}
+
 // ── Editar a solicitação inteira (todas as funções de uma vez) ─────────────────
 // Mesma forma do CreateDialog (linhas de função + campos compartilhados), pré-preenchida com
 // as funções já existentes do grupo. Permite editar campos compartilhados, editar/remover
@@ -951,15 +961,20 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
         };
 
         if (l.id) {
-          const { error } = await supabase.from("nominations").update({
+          const { data: atualizadas, error } = await supabase.from("nominations").update({
             ...camposComuns,
             request_group_id: groupId,
             funcao: l.funcao.trim(),
             quantidade: Math.max(1, Number(l.quantidade) || 1),
             requires_quality_validation: isWelder,
             ...(scopeDocument ? { scope_document_path: scopeDocument.path, scope_document_name: scopeDocument.name } : {}),
-          }).eq("id", l.id);
+          }).eq("id", l.id).select("id");
           if (error) throw error;
+          // RLS bloqueando UPDATE não dá erro, só volta 0 linhas — sem isso a tela dizia
+          // "Solicitação atualizada" sem ter salvo nada (mesmo caso de excluirSolicitacoes).
+          if (!atualizadas?.length) {
+            throw new Error("Não foi possível salvar: a solicitação já saiu da etapa Solicitação ou você não tem permissão para editá-la.");
+          }
           await supabase.from("nomination_status_history").insert({
             nomination_id: l.id, status: "solicitacao", changed_by_name: pmName, notes: "Solicitação editada pelo solicitante",
           });
@@ -991,6 +1006,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
     onSuccess: () => {
       notify.success("Solicitação atualizada.");
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      qc.invalidateQueries({ queryKey: ["nominations"] });
       onSaved();
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao atualizar solicitação."),
@@ -1138,7 +1154,9 @@ function PmHome() {
         <HistogramaOffshoreNovo />
       </TabsContent>
       <TabsContent value="nomeacoes" className="pt-4">
-        <NominationsPage solicitanteArea />
+        <EditarSolicitacaoContext.Provider value={renderEditarSolicitacao}>
+          <NominationsPage solicitanteArea />
+        </EditarSolicitacaoContext.Provider>
       </TabsContent>
       <TabsContent value="bms" className="pt-4">
         <PmBmsTab />
