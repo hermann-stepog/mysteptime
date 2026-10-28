@@ -9,7 +9,7 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 }));
 import { createManagedUser } from "./managed-user.server";
 
-const input = { email: "bruna.roque@step-og.com", password: "test-only-password", fullName: "Test", role: "pm" };
+const input = { email: "bruna.roque@step-og.com", password: "test-only-password", fullName: "Test", role: "pm" as const };
 
 describe("managed user provisioning", () => {
   beforeEach(() => {

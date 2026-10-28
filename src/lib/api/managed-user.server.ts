@@ -1,11 +1,12 @@
 import "@tanstack/react-start/server-only";
+import type { Database } from "@/integrations/supabase/types";
 
 /** Only call after verifying the caller's operator role with their own client. */
 export async function createManagedUser(data: {
   email: string;
   password: string;
   fullName: string;
-  role: string;
+  role: Database["public"]["Enums"]["app_role"];
   perfil?: string;
 }): Promise<string> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
