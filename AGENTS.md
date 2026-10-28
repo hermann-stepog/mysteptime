@@ -1,5 +1,7 @@
 # Architecture rules
 
+- Nomination observations use a shared editor and a notes-only authenticated database RPC with ownership/admin checks and atomic history; never widen stage update policies to edit notes.
+
 - Centralize system-admin and operator capabilities in access-roles.ts, mirrored by database is_operator; keep actual stored roles unchanged so access expansion never alters email routing or identity.
 
 - Dashboard planning-source selection lives in a browser-safe pure module with regression tests; KPI cards and status donuts always share live planning data regardless of date range, while monthly averages and historical day-by-day charts keep their separate calculations.

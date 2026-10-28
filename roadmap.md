@@ -1,3 +1,4 @@
+- [x] Permitir ao solicitante e à administração editar observações em qualquer etapa; 13 testes passaram e salvamento autenticado na Qualidade retornou sucesso, preservando conteúdo existente e confirmado após reabrir.
 - [x] Corrigir retirada de candidatos não aprovados antes da troca de etapa; cinco testes passaram e Nomeações abriu com sessão autenticada sem erros.
 - [x] Corrigir vínculos ativos indevidos nas solicitações já avançadas, preservando histórico; dois corrigidos e nenhum indevido restante.
 - [x] Corrigir pontos verificáveis: resultado com ID de aceitação, registro no servidor, fallback de template e chave estável para evitar duplicidade; 11 testes e envio autenticado com repetição validaram o mesmo ID.
