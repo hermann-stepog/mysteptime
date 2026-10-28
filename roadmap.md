@@ -1,0 +1,8 @@
+- [x] Permitir ao solicitante e à administração editar observações em qualquer etapa; 13 testes passaram e salvamento autenticado na Qualidade retornou sucesso, preservando conteúdo existente e confirmado após reabrir.
+- [x] Corrigir retirada de candidatos não aprovados antes da troca de etapa; cinco testes passaram e Nomeações abriu com sessão autenticada sem erros.
+- [x] Corrigir vínculos ativos indevidos nas solicitações já avançadas, preservando histórico; dois corrigidos e nenhum indevido restante.
+- [x] Corrigir pontos verificáveis: resultado com ID de aceitação, registro no servidor, fallback de template e chave estável para evitar duplicidade; 11 testes e envio autenticado com repetição validaram o mesmo ID.
+- [ ] Confirmar causa do aviso original DELINEADOR 3D; bloqueado porque as chaves disponíveis permitem envio, mas recusam leitura do histórico (401 restricted_api_key), e não há registro da tentativa original.
+- [ ] Reenviar aviso DELINEADOR 3D somente se confirmada a não entrega; bloqueado pela falta de acesso ao histórico de entrega.
+- [x] Liberar acesso completo da Diretoria nas telas e nas permissões, preservando os demais perfis; 31 testes passaram, conta real da Diretoria visualizou os 15 módulos no menu, abriu Configurações, salvou perfil sem alterar seu valor e consultou Flow Track.
+- [x] Remover segunda validação remota no cadastro; cinco testes passaram e o formulário autenticado chegou ao registro de contas, retornando e-mail já cadastrado em vez de token inválido, sem alterar contas ou enviar e-mails; criação integral de nova conta não exercitada.

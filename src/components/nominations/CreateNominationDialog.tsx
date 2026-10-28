@@ -6,7 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import { type Nomination, isSoldador, isInspetor } from "@/lib/nominations";
-import { notifyStageAdvance } from "@/lib/nominationEmails";
+import { notifyRequestCreated } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { ehUnidadeNaoOperacional } from "@/lib/histogramaNovo";
@@ -105,11 +105,14 @@ export function useNominationFormData() {
   const funcaoOptions = useMemo(() => {
     const porChave = new Map<string, { funcao: string; atual: boolean }>();
     funcoesPlanejamento.forEach((f) => {
+      // Inspetores do Planejamento ficam fora; a solicitação oferece só "INSPETOR" fixo
+      // (pedido dele, 2026-10-26), mesmo sem ninguém no Planejamento.
       if (isInspetor(f.funcao)) return;
       const chave = f.funcao.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ");
       const atual = porChave.get(chave);
       if (!atual || (f.atual && !atual.atual)) porChave.set(chave, f);
     });
+    porChave.set("INSPETOR", { funcao: "INSPETOR", atual: true });
     return Array.from(porChave.values(), (f) => f.funcao).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [funcoesPlanejamento]);
 
@@ -203,6 +206,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       // ele de volta num único cartão, mesmo cada função seguindo seu próprio fluxo aqui.
       const groupId = crypto.randomUUID();
       const criadas: string[] = [];
+      const paraAvisar: Nomination[] = [];
 
       // Uma nomeação por função — cada uma segue seu próprio fluxo de aprovação/nomeação, por
       // isso não dá pra combinar num só registro. Soldador sempre passa pela Qualidade — ela
@@ -265,10 +269,11 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
           });
           if (fixoError) throw fixoError;
         } else {
-          await notifyStageAdvance(data as Nomination, "solicitacao");
+          paraAvisar.push(data as Nomination);
         }
         criadas.push(`${l.funcao.trim()} (${unidade}/${bsp.trim()})`);
       }
+      await notifyRequestCreated(paraAvisar);
       return criadas;
     },
     onSuccess: (criadas) => {

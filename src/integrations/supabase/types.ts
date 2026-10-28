@@ -3296,54 +3296,60 @@ export type Database = {
         Row: {
           aprovado_em: string | null
           aprovado_por: string | null
-          bsp: string
+          bsp: string | null
           codigo: string
           colaborador_beneficiario: string[]
           comentario_aprovacao: string | null
           created_at: string
           data_pagamento: string | null
           id: string
+          numero_nota_debito: string | null
           observacoes: string | null
           periodo_fim: string
           periodo_inicio: string
           solicitante: string
           status_fluxo: string
+          tipo: string
           unidade: string
           valor_total: number
         }
         Insert: {
           aprovado_em?: string | null
           aprovado_por?: string | null
-          bsp: string
+          bsp?: string | null
           codigo: string
           colaborador_beneficiario?: string[]
           comentario_aprovacao?: string | null
           created_at?: string
           data_pagamento?: string | null
           id?: string
+          numero_nota_debito?: string | null
           observacoes?: string | null
           periodo_fim: string
           periodo_inicio: string
           solicitante: string
           status_fluxo?: string
+          tipo?: string
           unidade: string
           valor_total?: number
         }
         Update: {
           aprovado_em?: string | null
           aprovado_por?: string | null
-          bsp?: string
+          bsp?: string | null
           codigo?: string
           colaborador_beneficiario?: string[]
           comentario_aprovacao?: string | null
           created_at?: string
           data_pagamento?: string | null
           id?: string
+          numero_nota_debito?: string | null
           observacoes?: string | null
           periodo_fim?: string
           periodo_inicio?: string
           solicitante?: string
           status_fluxo?: string
+          tipo?: string
           unidade?: string
           valor_total?: number
         }
@@ -4121,6 +4127,17 @@ export type Database = {
         Returns: Json
       }
       mysteptime_histogram_weeks: { Args: { p_cutoff: string }; Returns: Json }
+      nomination_funcoes_planejamento: {
+        Args: never
+        Returns: {
+          atual: boolean
+          funcao: string
+        }[]
+      }
+      nomination_save_observations: {
+        Args: { p_nomination_id: string; p_notes: string }
+        Returns: string
+      }
       planejamento_normalizar_nome: {
         Args: { p_nome: string }
         Returns: string

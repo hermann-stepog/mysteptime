@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { hasOperatorAccess } from "@/lib/access-roles";
 import { consumeDrakeNdjsonStream } from "@/lib/drake/ndjson-stream";
 import { getDrakeUpdateAccessToken, safeDrakeClientErrorMessage } from "@/lib/drake/update-client";
 import { notify } from "@/lib/notify";
@@ -45,7 +46,7 @@ function errorMessage(event: QualificationProgressEvent): string {
 export function QualificationUpdateCard() {
   const { role } = useAuth();
   const queryClient = useQueryClient();
-  const canUpdate = role === "logistics_operator" || role === "administrador";
+  const canUpdate = hasOperatorAccess(role);
   const [isRunning, setIsRunning] = useState(false);
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState(0);

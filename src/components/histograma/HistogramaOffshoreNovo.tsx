@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
 import { planilhaComCabecalho } from "@/lib/reportHeader";
 import { useAuth } from "@/hooks/useAuth";
+import { hasOperatorAccess } from "@/lib/access-roles";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -352,7 +353,7 @@ function HistogramaOffshoreNovoContent({
   initialTab?: string;
 }) {
   const { role } = useAuth();
-  const isOperator = role === "logistics_operator" || role === "administrador";
+  const isOperator = hasOperatorAccess(role);
   // Todo mundo que chega nessa página (operador, visitante, solicitante e os papéis de etapa
   // de Nomeações) vê Dashboard + Histograma — só a aba Lançamentos (lança/edita de verdade)
   // continua exclusiva do operador de logística.

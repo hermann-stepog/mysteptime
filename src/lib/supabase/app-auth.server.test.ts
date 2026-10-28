@@ -224,13 +224,13 @@ describe("authenticateAppRequest", () => {
     expect(fromMock).not.toHaveBeenCalled();
   });
 
-  it("valida usuário e permissão com uma única chamada a getUser", async () => {
+  it.each(["logistics_operator", "administrador", "diretoria"])("valida usuário e permissão de %s com uma única chamada a getUser", async (role) => {
     const getUserMock = vi
       .fn()
       .mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
     const maybeSingle = vi
       .fn()
-      .mockResolvedValue({ data: { role: "logistics_operator" }, error: null });
+      .mockResolvedValue({ data: { role }, error: null });
     const eq = vi.fn().mockReturnValue({ maybeSingle });
     const select = vi.fn().mockReturnValue({ eq });
     createClientMock.mockReturnValue({

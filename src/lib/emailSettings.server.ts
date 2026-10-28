@@ -63,7 +63,11 @@ export async function checkResendDomain(apiKey: string, domain: string): Promise
   return { status: "verified", message: `Domínio ${domain} verificado no Resend.` };
 }
 
+// PAUSA TEMPORÁRIA pedida pelo usuário: mude para false para voltar a enviar e-mails.
+export const EMAILS_PAUSED = false;
+
 export async function sendResendHtml(cfg: ResendConfig, to: string, subject: string, html: string, text: string) {
+  if (EMAILS_PAUSED) return { id: null, paused: true } as any;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json" },

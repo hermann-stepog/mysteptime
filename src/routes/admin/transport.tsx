@@ -1,4 +1,5 @@
 import { createFileRoute, useSearch, useNavigate } from "@tanstack/react-router";
+import { hasOperatorAccess } from "@/lib/access-roles";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -2818,7 +2819,7 @@ function SolicitacoesTab() {
   const [showCreate, setShowCreate] = useState(false);
   const { role } = useAuth();
   // Só operador logístico (ou Administrador) aprova/programa — o visitante só acompanha o status.
-  const canManage = role === "logistics_operator" || role === "administrador";
+  const canManage = hasOperatorAccess(role);
 
   const { data: solicitations = [], isLoading } = useQuery<Solicitacao[]>({
     queryKey: ["transport-solicitations"],

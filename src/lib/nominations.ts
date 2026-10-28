@@ -123,6 +123,9 @@ export interface NominationNominee {
   sms_aso_checked: boolean;
   sms_aso_checked_at: string | null;
   sms_aso_checked_by: string | null;
+  sms_bloqueio_saude?: boolean | null;
+  sms_aso_em_dia?: boolean | null;
+  quality_apto_solda?: boolean | null;
   created_at: string;
 }
 
@@ -301,6 +304,27 @@ export function saiDaAprovacaoTecnica(from: NominationStatus, to: NominationStat
   return fromIdx !== -1 && toIdx !== -1 && fromIdx <= tecnicaIdx && toIdx > tecnicaIdx;
 }
 
+// Aplicado antes de mudar a etapa: as permissões de escrita dos candidatos dependem
+// da etapa atual. As condições só entram depois da respectiva avaliação.
+export function nomineeExclusionFilters(target: NominationStatus): string[] {
+  const targetIdx = COLUMN_ORDER.indexOf(target);
+  if (targetIdx === -1) return [];
+  const filters: string[] = [];
+  if (targetIdx > COLUMN_ORDER.indexOf("aprovacao_tecnica")) {
+    filters.push("technical_selected_at.is.null");
+  }
+  if (targetIdx > COLUMN_ORDER.indexOf("validacao_sms_aso")) {
+    filters.push("sms_bloqueio_saude.eq.true", "sms_aso_em_dia.eq.false");
+  }
+  if (targetIdx > COLUMN_ORDER.indexOf("validacao_qualidade")) {
+    filters.push("quality_apto_solda.eq.false");
+  }
+  if (targetIdx >= COLUMN_ORDER.indexOf("briefing_sms")) {
+    filters.push("pm_decision.eq.reprovado");
+  }
+  return filters;
+}
+
 // O que fica "marcado" em cada etapa, enquanto o card fica parado nela, antes de avançar pra
 // próxima — usado só por computeRevertClearing pra saber o que desfazer quando o card
 // retrocede. Simulação não tem campo próprio: o "marcado" dela é a própria existência dos
@@ -454,9 +478,12 @@ export const STAGE_ROLE: Partial<Record<NominationStatus, string | string[]>> = 
 
 export const QUALIDADE_ROLE = "qualidade";
 
-// Inspetores não entram no fluxo de Nomeações (pedido dela, 2026-10-07): nem na solicitação
-// nem no painel de simulação.
+// Identifica funções de inspetor para a opção fixa no formulário de solicitação.
 export function isInspetor(fn: string | null | undefined) {
   const f = (fn ?? "").toUpperCase();
   return f.includes("INSPETOR") || f.includes("INSPECTOR");
+}
+
+export function matchesSimulationFunction(funcao: string, filtro: string) {
+  return filtro === "all" || funcao.trim().toUpperCase() === filtro.trim().toUpperCase();
 }

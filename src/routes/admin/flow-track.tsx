@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, Clock, Download, Eye, Radio, Route as RouteIcon, Users } from "lucide-react";
 import { supabase as typed } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { hasSystemAdminAccess } from "@/lib/access-roles";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,7 @@ const acaoTone = (a: string) => a === "exclusao" || a === "acesso_negado" ? "des
 function FlowTrackPage() {
   const { role, loading, user, profile } = useAuth();
   if (loading) return <AppLoader />;
-  if (role !== "administrador") {
+  if (!hasSystemAdminAccess(role)) {
     if (user) trackFlowEvent({ id: user.id, name: profile?.full_name ?? null, role }, "acesso_negado", { detalhe: "Tentou abrir o Flow Track" });
     return <Navigate to="/" />;
   }

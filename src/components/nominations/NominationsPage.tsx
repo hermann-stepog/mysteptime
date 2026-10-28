@@ -14,6 +14,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // cast local para não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
+import { FULL_NOMINATIONS_ACCESS_ROLES as fullNominationRoles, hasSystemAdminAccess } from "@/lib/access-roles";
 import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import {
   type Nomination,
@@ -30,13 +31,13 @@ import {
   columnIdForStatus,
   canMoveToColumn,
   computeRevertClearing,
-  saiDaAprovacaoTecnica,
+  nomineeExclusionFilters,
   fmtDate,
   fmtDatetime,
   isSoldador,
+  matchesSimulationFunction,
   requestTitle,
 } from "@/lib/nominations";
-import { isInspetor } from "@/lib/nominations";
 import {
   notifyStageAdvance,
   notifyAptitudeDivergence,
@@ -47,6 +48,7 @@ import {
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
+import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -211,7 +213,7 @@ function HistoryTimeline({ items }: { items: NominationStatusHistory[] }) {
 // Pessoal, fallback/admin), `administrador` (acesso total ao sistema todo, pedido dela em
 // 2026-09-30) e `adm_master` (acesso equivalente, mas só dentro de Nomeações — usado para dar
 // autonomia de teste a alguém sem torná-lo operador logístico de verdade).
-const FULL_NOMINATIONS_ACCESS_ROLES = ["logistics_operator", "administrador", "adm_master"];
+const FULL_NOMINATIONS_ACCESS_ROLES: readonly string[] = fullNominationRoles;
 
 // Papel logado pode agir na etapa atual da solicitação? Quem está em FULL_NOMINATIONS_ACCESS_ROLES
 // sempre pode; os demais papéis só na própria etapa (ver STAGE_ROLE em lib/nominations.ts,
@@ -253,8 +255,6 @@ function useAdvanceStage() {
         ...clearing?.nominationPatch,
         ...extraPatch,
       };
-      const { error } = await supabase.from("nominations").update(patch).eq("id", nomination.id);
-      if (error) throw error;
       if (clearing?.deleteNominees) {
         const { error: delErr } = await supabase
           .from("nomination_nominees")
@@ -268,19 +268,20 @@ function useAdvanceStage() {
           .eq("nomination_id", nomination.id);
         if (nomErr) throw nomErr;
       }
-      // Pedido dela, 2026-10-27: quem a Aprovação Técnica não aprovou sai do fluxo no momento
-      // em que a solicitação avança — senão continuava "ativo" e era arrastado pras etapas
-      // seguintes (Equipe, mapa, bloqueio em outras nomeações). Fica is_active=false (não apaga),
-      // e volta a ativo se o card retroceder pra Aprovação Técnica (ver nomineeFieldsMarkedAt).
-      if (saiDaAprovacaoTecnica(nomination.current_status, target)) {
+      const exclusionFilters = clearing ? [] : nomineeExclusionFilters(target);
+      if (exclusionFilters.length > 0) {
         const { error: inativarErr } = await supabase
           .from("nomination_nominees")
           .update({ is_active: false })
           .eq("nomination_id", nomination.id)
           .eq("is_active", true)
-          .is("technical_selected_at", null);
+          .or(exclusionFilters.join(","));
         if (inativarErr) throw inativarErr;
       }
+      // A etapa só muda depois da retirada: mudar antes faz a policy da etapa
+      // anterior deixar de permitir o UPDATE e retornar zero candidatos alterados.
+      const { error } = await supabase.from("nominations").update(patch).eq("id", nomination.id);
+      if (error) throw error;
       await supabase.from("nomination_status_history").insert({
         nomination_id: nomination.id,
         status: target,
@@ -777,7 +778,7 @@ function ValidacaoQualidadeSection({
           >
             Nenhum escopo do serviço anexado pelo solicitante.
             {faltaDescricaoObra &&
-              " Só dá pra avançar se as Observações descreverem o tipo de obra/serviço a bordo."}
+              " Só dá pra avançar se o Tipo de serviço descrever a obra/serviço a bordo."}
           </p>
         )}
         <div className="space-y-1.5 pt-1">
@@ -931,6 +932,7 @@ function AprovacaoPmSection({
             .from("nomination_nominees")
             .update({
               pm_decision: decision,
+              is_active: decision === "aprovado",
               pm_decided_at: new Date().toISOString(),
               pm_decided_by: profile?.full_name ?? profile?.email ?? null,
             })
@@ -1217,7 +1219,7 @@ function AdminExcluirCandidatoSection({
     onError: (err: Error) => notify.error(err.message || "Erro ao excluir candidato."),
   });
 
-  if (role !== "administrador" || ativos.length === 0) return null;
+  if (!hasSystemAdminAccess(role) || ativos.length === 0) return null;
 
   return (
     <div className="space-y-2 rounded-md border border-dashed border-red-200 p-3">
@@ -2041,11 +2043,6 @@ function ManageDialog({
                   <span className="font-medium">{nomination.client}</span>
                 </div>
               )}
-              {nomination.notes && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground">Notas:</span> {nomination.notes}
-                </div>
-              )}
               {nomination.outcome === "cancelada" && nomination.cancel_reason && (
                 <div className="col-span-2">
                   <span className="text-muted-foreground">Motivo do cancelamento:</span>{" "}
@@ -2285,6 +2282,7 @@ function ManageDialog({
 
           {/* ── Etapa atual ── */}
           <TabsContent value="etapa" className="space-y-4 pt-2">
+            <NominationObservations nomination={nomination} label="Tipo de serviço" />
             {nomination.requires_quality_validation &&
               ALL_STATUSES.indexOf(nomination.current_status) >
                 ALL_STATUSES.indexOf("validacao_qualidade") && (
@@ -2364,6 +2362,7 @@ function ManageDialog({
             )}
           </TabsContent>
         </Tabs>
+        {tab !== "etapa" && <NominationObservations nomination={nomination} />}
       </DialogContent>
     </Dialog>
   );
@@ -2460,7 +2459,6 @@ function NominationCard({
             <span className="font-medium">{first.pm_responsavel}</span>
           </p>
         )}
-        {first.bsp && <p className="mt-1 text-xs text-muted-foreground">{first.unidade}</p>}
         <NecessidadeBadge items={items} isTerminal={isTerminal} />
         {first.period_start && first.period_end && (
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -2723,15 +2721,12 @@ function KanbanBoard({
         }
         byKey.get(key)!.push(n);
       });
-      // Ordem por Data de Necessidade (pedido dela, 2026-10-28): a mais urgente no topo; sem
-      // data vai pro fim, e o empate mantém a ordem de criação.
-      const necessidade = (g: Nomination[]) =>
-        g.map((n) => n.period_start).filter((d): d is string => !!d).sort()[0] ?? "9999-12-31";
+      // Ordena por data de necessidade (início do período), mais próxima primeiro; sem data por último.
+      const need = (g: Nomination[]) =>
+        g.reduce((min, n) => (n.period_start && n.period_start < min ? n.period_start : min), "9999-12-31");
       m.set(
         col,
-        order
-          .map((k) => byKey.get(k)!)
-          .sort((a, b) => necessidade(a).localeCompare(necessidade(b))),
+        order.map((k) => byKey.get(k)!).sort((a, b) => need(a).localeCompare(need(b))),
       );
     });
     return m;
@@ -3092,11 +3087,7 @@ function SimulacaoTab({
   // nominees.colaborador_id é uma FK obrigatória pra hist_novo_colaboradores — sem esse
   // vínculo não tem como gravar o nomeado no banco); quem não tem correspondência no Drake
   // ainda aparece na lista, só não pode ser adicionado ainda (ver "Adicionar" desabilitado).
-  const { data: planejamentoSimTodos = [] } = usePlanejamentoEmbarqueQuery();
-  const planejamentoSim = useMemo(
-    () => planejamentoSimTodos.filter((r) => !isInspetor(r.funcao)),
-    [planejamentoSimTodos],
-  );
+  const { data: planejamentoSim = [] } = usePlanejamentoEmbarqueQuery();
   const { data: colaboradoresDrake = [] } = useQuery<{ id: string; nome: string }[]>({
     queryKey: ["sim-colaboradores-drake-ids"],
     queryFn: () =>
@@ -3146,11 +3137,7 @@ function SimulacaoTab({
         })
         // Função exatamente igual à do Planejamento de Embarque (sem agrupar "SOLDADOR" com
         // "SOLDADOR IRATA N1" etc.) — pedido dela, 2026-10-07.
-        .filter(
-          (l) =>
-            filterFuncao === "all" ||
-            l.funcao.trim().toUpperCase() === filterFuncao.trim().toUpperCase(),
-        )
+        .filter((l) => matchesSimulationFunction(l.funcao, filterFuncao))
         .filter((l) => matchesNameSearch(l.nome, searchNome))
         .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
     );
