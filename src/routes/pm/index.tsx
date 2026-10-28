@@ -34,7 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HistogramaOffshoreNovo } from "@/components/histograma/HistogramaOffshoreNovo";
-import { NominationsPage, EditarSolicitacaoContext } from "@/components/nominations/NominationsPage";
+import { NominationsPage, EditarSolicitacaoContext, EnviarParaLogisticaButton } from "@/components/nominations/NominationsPage";
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import {
   CreateNominationDialog, useNominationFormData, uploadScopeDocument, currentAuthUserId,
@@ -276,6 +276,7 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
             <DialogTitle>{requestTitle(nom)} — {nom.funcao}</DialogTitle>
             {podeEditar && (
               <div className="flex shrink-0 gap-1.5">
+                <EnviarParaLogisticaButton items={[nom]} onDone={onClose} />
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Editar</Button>
                 {confirmandoExclusao ? (
                   <>
@@ -834,6 +835,7 @@ function GroupDetailDialog({ items, onClose }: { items: Nomination[]; onClose: (
                   </>
                 ) : (
                   <>
+                    <EnviarParaLogisticaButton items={items} onDone={onClose} />
                     <Button size="sm" variant="outline" onClick={() => setEditingGroup(true)}>Editar solicitação</Button>
                     <Button size="sm" variant="outline" className="text-red-700 hover:text-red-700" onClick={() => setConfirmandoExclusaoTudo(true)}>
                       Excluir solicitação
