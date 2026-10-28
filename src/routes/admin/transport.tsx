@@ -3142,12 +3142,15 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                   <h3 className="text-sm font-semibold">{car}</h3>
                   <span className="text-xs text-muted-foreground">{list.length} viagem(ns)</span>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Colunas em vez de grid (pedido dela, 2026-10-28): a ordem corre de cima pra
+                    baixo — Future 1, 2, 3, 4 um embaixo do outro na 1ª coluna, depois a 2ª —
+                    como era quando cada carro tinha seu próprio grupo. */}
+                <div className="gap-3 sm:columns-2 lg:columns-3">
                   {list.map((t) => (
                     <Card
                       key={t.id}
                       className={cn(
-                        "p-3 cursor-pointer hover:border-primary/40 border-l-4",
+                        "mb-3 break-inside-avoid p-3 cursor-pointer hover:border-primary/40 border-l-4",
                         STATUS_BORDER[t.status],
                       )}
                       onClick={() => onEdit(t)}
