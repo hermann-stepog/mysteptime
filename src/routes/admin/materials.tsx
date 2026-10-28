@@ -17,6 +17,7 @@ import { NewMaterialDialog, VOLUMES } from "@/components/MaterialMultiSelect";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 export const Route = createFileRoute("/admin/materials")({ head: () => pageTitle("Materiais"), component: MaterialsPage });
 
@@ -36,6 +37,7 @@ function MaterialsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Row | null>(null);
   const [importing, setImporting] = useState(false);
+  const rascunho = useRascunho(editing ? `material:${editing.id}` : null, editing, setEditing);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["materials-all"],
@@ -70,7 +72,7 @@ function MaterialsPage() {
       }).eq("id", r.id);
       if (error) throw error;
     },
-    onSuccess: () => { invalidate(); setEditing(null); notify.success("Atualizado"); },
+    onSuccess: () => { invalidate(); void rascunho.limpar(); setEditing(null); notify.success("Atualizado"); },
     onError: (e: any) => notify.error(e.message),
   });
 
@@ -202,6 +204,7 @@ function MaterialsPage() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar material</DialogTitle></DialogHeader>
+          <RascunhoAviso rascunho={rascunho} />
           {editing && (
             <div className="grid gap-3">
               <div className="grid grid-cols-[1fr_120px] gap-3">

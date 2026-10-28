@@ -5,6 +5,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // tipos gerados; cast local pra não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { type Nomination, isSoldador, isInspetor } from "@/lib/nominations";
 import { notifyRequestCreated } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -168,6 +169,21 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
   const [notes, setNotes] = useState("");
   const [fixo, setFixo] = useState(false);
   const [proximaTroca, setProximaTroca] = useState("");
+  // Rascunho automático (ver useRascunho) — o anexo de escopo não entra, o navegador não deixa
+  // guardar arquivo; ao restaurar, cada linha volta sem anexo.
+  const rascunho = useRascunho(
+    "nomeacao:nova",
+    {
+      linhas: linhas.map((l) => ({ funcao: l.funcao, quantidade: l.quantidade })),
+      pmResponsavel, unidade, bsp, bspNova, start, end, client, notes, fixo, proximaTroca,
+    },
+    (v) => {
+      setLinhas(v.linhas.length ? v.linhas.map((l) => ({ ...l, scopeFile: null })) : [novaLinhaFuncao()]);
+      setPmResponsavel(v.pmResponsavel); setUnidade(v.unidade); setBsp(v.bsp); setBspNova(v.bspNova);
+      setStart(v.start); setEnd(v.end); setClient(v.client); setNotes(v.notes);
+      setFixo(v.fixo); setProximaTroca(v.proximaTroca);
+    },
+  );
 
   const updateLinha = (i: number, patch: Partial<FuncaoLinha>) => {
     setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -284,6 +300,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       // invalidar uma query que não existe na tela atual.
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });
       qc.invalidateQueries({ queryKey: ["nominations"] });
+      void rascunho.limpar();
       onClose();
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao criar solicitação."),
@@ -295,6 +312,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>Nova Solicitação de Nomeação</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
 
         <div className="space-y-3 py-2">
           <div className="space-y-3">

@@ -33,6 +33,7 @@ import { Plus, Pencil, Trash2, Upload, Coins, ChevronDown, ChevronRight, Chevron
 import { CLIENTES } from "@/lib/clientes";
 import { pageTitle } from "@/lib/pageTitle";
 import { cn } from "@/lib/utils";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 export const Route = createFileRoute("/admin/rates")({ head: () => pageTitle("Rates"), component: RatesPage });
 
@@ -169,6 +170,12 @@ function RatesPage() {
   const [filterVessel, setFilterVessel] = useState("all");
   const [filterBsp, setFilterBsp] = useState("all");
   const [editing, setEditing] = useState<RateForm | null>(null);
+  // Rascunho automático (ver useRascunho): rate novo e edição (por id) separados.
+  const rascunho = useRascunho(
+    editing ? (editing.id ? `rate:${editing.id}` : "rate:novo") : null,
+    editing,
+    setEditing,
+  );
   const [importPreview, setImportPreview] = useState<ParsedRateRow[] | null>(null);
 
   const { data: rows = [], isLoading } = useQuery({
@@ -198,7 +205,7 @@ function RatesPage() {
         if (error) throw error;
       }
     },
-    onSuccess: () => { invalidate(); setEditing(null); notify.success("Rate salvo"); },
+    onSuccess: () => { invalidate(); void rascunho.limpar(); setEditing(null); notify.success("Rate salvo"); },
     onError: (e: any) => notify.error(e.message),
   });
 
@@ -571,6 +578,7 @@ function RatesPage() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>{editing?.id ? "Editar rate" : "Novo rate"}</DialogTitle></DialogHeader>
+          <RascunhoAviso rascunho={rascunho} />
           {editing && (
             <div className="grid gap-3">
               <div><Label>BSP (opcional, informativo)</Label><Input value={editing.bsp ?? ""} onChange={(e) => setEditing({ ...editing, bsp: e.target.value })} placeholder="Ex: 26-174" /></div>

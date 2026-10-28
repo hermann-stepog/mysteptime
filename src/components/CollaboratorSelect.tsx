@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Check, ChevronsUpDown, Plus, X, UserPlus, MapPin, Pencil } from "lucide-react";
 import { cn, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import { notify } from "@/lib/notify";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 export type Collaborator = { id: string; full_name: string; role: string | null; city: string | null; unit: string | null; active: boolean };
 
@@ -29,6 +30,7 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ full_name: "", role: "", city: "", unit: "" });
+  const rascunho = useRascunho(open ? "colaborador:novo" : null, f, setF);
   const create = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.from("collaborators").insert({
@@ -44,6 +46,7 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
       notify.success("Colaborador adicionado");
       qc.invalidateQueries({ queryKey: ["collaborators"] });
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
+      void rascunho.limpar();
       setF({ full_name: "", role: "", city: "", unit: "" });
       setOpen(false);
       onCreated?.(c);
@@ -58,6 +61,7 @@ export function NewCollaboratorDialog({ children, onCreated }: { children?: Reac
       </DialogTrigger>
       <DialogContent>
         <DialogHeader><DialogTitle>Novo colaborador</DialogTitle></DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid gap-3">
           <div><Label>Nome</Label><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></div>
           <div><Label>Função</Label><Input value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} /></div>
@@ -81,6 +85,11 @@ export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { c
     setBound(collaborator.id);
   }
   if (!open && bound !== null) setBound(null);
+  const rascunho = useRascunho(
+    open && collaborator && bound === collaborator.id ? `colaborador:${collaborator.id}` : null,
+    f,
+    setF,
+  );
 
   const update = useMutation({
     mutationFn: async () => {
@@ -97,6 +106,7 @@ export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { c
       notify.success("Atualizado");
       qc.invalidateQueries({ queryKey: ["collaborators"] });
       qc.invalidateQueries({ queryKey: ["collaborators-all"] });
+      void rascunho.limpar();
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -106,6 +116,7 @@ export function EditCollaboratorDialog({ collaborator, open, onOpenChange }: { c
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Editar colaborador</DialogTitle></DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid gap-3">
           <div><Label>Nome</Label><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></div>
           <div><Label>Função</Label><Input value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} /></div>

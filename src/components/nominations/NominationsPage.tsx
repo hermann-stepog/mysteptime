@@ -15,6 +15,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // cast local para não bloquear o build.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { FULL_NOMINATIONS_ACCESS_ROLES as fullNominationRoles, hasSystemAdminAccess } from "@/lib/access-roles";
 import { useViewAs, VIEW_AS_ROLES } from "@/hooks/useViewAs";
 import {
@@ -644,6 +645,11 @@ function ValidacaoQualidadeSection({
   const advance = useAdvanceStage();
   const [showReject, setShowReject] = useState(false);
   const [reasonDraft, setReasonDraft] = useState("");
+  const rascunhoMotivo = useRascunho(
+    `nomeacao:${nomination.id}:qualidade-motivo`,
+    reasonDraft,
+    setReasonDraft,
+  );
   const QUALITY_STATUS_LABEL: Record<QualityStatus, string> = {
     pendente: "Pendente",
     aprovado: "Aprovada",
@@ -830,6 +836,7 @@ function ValidacaoQualidadeSection({
         )}
         {showReject && (
           <div className="space-y-1.5">
+            <RascunhoAviso rascunho={rascunhoMotivo} />
             <Textarea
               rows={2}
               className="text-xs"
@@ -1179,6 +1186,11 @@ function AdminExcluirCandidatoSection({
   const registrarLog = useRegistrarLog("nomeacoes");
   const [alvo, setAlvo] = useState<NominationNominee | null>(null);
   const [justificativa, setJustificativa] = useState("");
+  const rascunhoJustificativa = useRascunho(
+    alvo ? `nomeacao:${nomination.id}:exclusao:${alvo.id}` : null,
+    justificativa,
+    setJustificativa,
+  );
   const ativos = nominees.filter((n) => n.is_active);
 
   const excluir = useMutation({
@@ -1256,6 +1268,7 @@ function AdminExcluirCandidatoSection({
               {nomination.funcao} volta para Simulação para simular um substituto. A justificativa
               fica registrada no Histórico.
             </p>
+            <RascunhoAviso rascunho={rascunhoJustificativa} />
             <Textarea
               placeholder="Justificativa da exclusão (obrigatória)"
               value={justificativa}
@@ -1619,6 +1632,47 @@ export function EnviarParaLogisticaButton({
   );
 }
 
+// Card agrupado (várias funções da mesma solicitação) em "Solicitação": envia TODAS as funções
+// pra "Logística de Pessoal" de uma vez, direto da lista de funções do card (pedido dela,
+// 2026-10-28), em vez de abrir função por função. Solicitante (PM) dono usa a RPC
+// (EnviarParaLogisticaButton); a Logística move pelo fluxo normal (useAdvanceStage).
+function EnviarGrupoParaLogistica({ items, onDone }: { items: Nomination[]; onDone: () => void }) {
+  const { profile, role, user } = useAuth();
+  const advance = useAdvanceStage();
+  const pendentes = items.filter((n) => n.current_status === "solicitacao");
+  if (pendentes.length === 0) return null;
+  if (FULL_NOMINATIONS_ACCESS_ROLES.includes(role ?? "")) {
+    return (
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          loading={advance.isPending}
+          onClick={() => {
+            const extraPatch = {
+              logistics_received_at: new Date().toISOString(),
+              logistics_received_by: profile?.full_name ?? profile?.email ?? null,
+            };
+            pendentes.forEach((n) =>
+              advance.mutate({ nomination: n, target: "recebido_logistica", extraPatch }),
+            );
+            onDone();
+          }}
+        >
+          <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar todas para Logística de Pessoal
+        </Button>
+      </div>
+    );
+  }
+  if (role === "pm" && pendentes.every((n) => !n.pm_user_id || n.pm_user_id === user?.id)) {
+    return (
+      <div className="flex justify-end">
+        <EnviarParaLogisticaButton items={pendentes} onDone={onDone} />
+      </div>
+    );
+  }
+  return null;
+}
+
 // Edição da solicitação pelo próprio Solicitante (PM) direto do card do kanban, enquanto ainda
 // está em "Solicitação" (pedido dela, 2026-10-28). O formulário de edição mora na Área do
 // Solicitante (src/routes/pm/index.tsx, que importa esta página) — ela fornece o renderizador
@@ -1734,6 +1788,11 @@ function ManageDialog({
 
   const [showCancel, setShowCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const rascunhoCancelamento = useRascunho(
+    `nomeacao:${nomination.id}:cancelamento`,
+    cancelReason,
+    setCancelReason,
+  );
   const cancel = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
@@ -1761,6 +1820,7 @@ function ManageDialog({
         `Cancelou ${nomination.funcao} (${nomination.unidade ?? "—"})${cancelReason.trim() ? `: ${cancelReason.trim()}` : ""}`,
       );
       qc.invalidateQueries({ queryKey: ["nominations"] });
+      void rascunhoCancelamento.limpar();
       setShowCancel(false);
       onClose();
     },
@@ -1787,6 +1847,11 @@ function ManageDialog({
 
   const [showRefuse, setShowRefuse] = useState(false);
   const [refuseReason, setRefuseReason] = useState("");
+  const rascunhoRecusa = useRascunho(
+    `nomeacao:${nomination.id}:recusa`,
+    refuseReason,
+    setRefuseReason,
+  );
   const refuse = useMutation({
     mutationFn: async () => {
       const motivo = refuseReason.trim() || null;
@@ -1814,6 +1879,7 @@ function ManageDialog({
       notify.success("Solicitação recusada e descartada. PM e Logística avisados.");
       registrarLog(`Recusou ${nomination.funcao} (${nomination.unidade ?? "—"})`);
       qc.invalidateQueries({ queryKey: ["nominations"] });
+      void rascunhoRecusa.limpar();
       setShowRefuse(false);
       onClose();
     },
@@ -2132,7 +2198,9 @@ function ManageDialog({
                     <Button size="sm" variant="outline" onClick={() => setEditandoSolicitacao(true)}>
                       Editar solicitação
                     </Button>
-                    <EnviarParaLogisticaButton items={grupoCompleto} onDone={onClose} />
+                    {groupSiblings.length === 0 && (
+                      <EnviarParaLogisticaButton items={grupoCompleto} onDone={onClose} />
+                    )}
                   </div>
                 )}
               {editandoSolicitacao &&
@@ -2141,7 +2209,11 @@ function ManageDialog({
                   grupoCompleto.filter((n) => n.current_status === "solicitacao"),
                   () => setEditandoSolicitacao(false),
                 )}
-              {nomination.current_status === "solicitacao" && canOperate && (
+              {/* Com várias funções na mesma solicitação, o envio é pela lista de funções do card
+                  (EnviarGrupoParaLogistica), todas de uma vez. */}
+              {nomination.current_status === "solicitacao" &&
+                canOperate &&
+                groupSiblings.length === 0 && (
                 <Button size="sm" onClick={marcarRecebido} loading={advance.isPending}>
                   <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Logística de Pessoal
                 </Button>
@@ -2301,6 +2373,7 @@ function ManageDialog({
                     ) : (
                       <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
                         <Label className="text-xs">Motivo da recusa</Label>
+                        <RascunhoAviso rascunho={rascunhoRecusa} />
                         <Textarea
                           rows={2}
                           value={refuseReason}
@@ -2342,6 +2415,7 @@ function ManageDialog({
                   ) : (
                     <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
                       <Label className="text-xs">Motivo do cancelamento (opcional)</Label>
+                      <RascunhoAviso rascunho={rascunhoCancelamento} />
                       <Textarea
                         rows={2}
                         value={cancelReason}
@@ -2606,6 +2680,7 @@ function NominationCard({
                 </button>
               ))}
             </div>
+            <EnviarGrupoParaLogistica items={items} onDone={() => setPickerOpen(false)} />
           </DialogContent>
         </Dialog>
       )}

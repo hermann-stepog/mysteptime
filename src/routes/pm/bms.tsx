@@ -6,6 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // em admin/bm.tsx, admin/rates.tsx e admin/nominations.tsx.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { notify } from "@/lib/notify";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ export function PmBmsTab() {
   const [selected, setSelected] = useState<Bm | null>(null);
   const [comment, setComment] = useState("");
   const [historicoSelected, setHistoricoSelected] = useState<Bm | null>(null);
+  const rascunho = useRascunho(selected ? `bm:pm:comentario:${selected.id}` : null, comment, setComment);
 
   const { data: bms = [], isLoading } = useQuery({
     queryKey: ["pm-bms-pendentes"],
@@ -103,6 +105,7 @@ export function PmBmsTab() {
       qc.invalidateQueries({ queryKey: ["pm-bms-pendentes"] });
       qc.invalidateQueries({ queryKey: ["pm-bms-historico"] });
       notify.success(decision === "approve" ? "BM aprovado." : "BM rejeitado.");
+      void rascunho.limpar();
       setSelected(null);
       setComment("");
     },
@@ -254,7 +257,8 @@ export function PmBmsTab() {
                 </div>
               )}
 
-              <div>
+              <div className="space-y-2">
+                <RascunhoAviso rascunho={rascunho} />
                 <Textarea placeholder="Comentário (obrigatório apenas para rejeitar)" value={comment} onChange={(e) => setComment(e.target.value)} />
               </div>
             </div>

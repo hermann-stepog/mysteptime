@@ -116,6 +116,7 @@ import {
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { SortableHead, useTableSort } from "@/components/SortableTableHead";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { fmtDate, fmtDateTime, fmtMoney, toDisplayCase, parseValorForm } from "@/lib/format";
 import { cn, matchesNameSearch, useOrdemComSelecionadosFixados } from "@/lib/utils";
 import {
@@ -1284,6 +1285,19 @@ function TripDialog({
     };
   };
   const [f, setF] = useState<FormState>(() => init(trip, columns));
+  // Rascunho automático (ver useRascunho): nova viagem, edição (por id) e duplicação (pela
+  // viagem de origem) têm rascunhos separados.
+  const rascunho = useRascunho(
+    !open
+      ? null
+      : !trip
+        ? "transporte:viagem:nova"
+        : trip.id
+          ? `transporte:viagem:${trip.id}`
+          : `transporte:viagem:duplicada:${trip.car_number}:${trip.scheduled_at}:${trip.origin}`,
+    f,
+    setF,
+  );
   const [openedFor, setOpenedFor] = useState<string | null>(null);
   const rateio = useRateioPercentual(3);
   // Pedido dela (2026-10-19): a lista de Motivo também deve incluir todas as etiquetas
@@ -1462,6 +1476,7 @@ function TripDialog({
       qc.invalidateQueries({ queryKey: ["transport_trips"] });
       registrarLog(`${isNew ? "Criou" : "Editou"} viagem ${descricaoViagem}`);
       notify.success("Salvo");
+      void rascunho.limpar();
       onOpenChange(false);
     },
     onError: (e: any) => notify.error(e.message),
@@ -1497,6 +1512,7 @@ function TripDialog({
         `Excluiu viagem ${toDisplayCase(nomeTransporte(f.car_number))} (${f.origin} → ${f.destination})`,
       );
       notify.success("Removido");
+      void rascunho.limpar();
       onOpenChange(false);
     },
   });
@@ -1507,6 +1523,7 @@ function TripDialog({
         <DialogHeader>
           <DialogTitle>{f.id ? "Editar viagem" : "Nova viagem"}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         {/* Pedido dela (2026-10-19): some a barra de rolagem visível do formulário (aparecia ao
             interagir com os campos perto do fim, como o Status) — o scroll continua funcionando
             normalmente (overflow-y-auto se mantém), só o "trilho" cinza deixa de aparecer. */}
@@ -2325,6 +2342,7 @@ function NewColumnDialog() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const rascunho = useRascunho(open ? "transporte:coluna:nova" : null, name, setName);
   const create = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
@@ -2350,6 +2368,7 @@ function NewColumnDialog() {
         <DialogHeader>
           <DialogTitle>Nova coluna</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -2676,6 +2695,20 @@ function CriarSolicitacaoDialog({
   const [destino, setDestino] = useState("");
   const [tipos, setTipos] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
+  const rascunho = useRascunho(
+    open ? "transporte:solicitacao:nova" : null,
+    { solicitante, setor, centroCusto, dataHora, origem, destino, tipos, notes },
+    (v) => {
+      setSolicitante(v.solicitante);
+      setSetor(v.setor);
+      setCentroCusto(v.centroCusto);
+      setDataHora(v.dataHora);
+      setOrigem(v.origem);
+      setDestino(v.destino);
+      setTipos(v.tipos);
+      setNotes(v.notes);
+    },
+  );
 
   const toggle = (id: string) =>
     setTipos((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
@@ -2701,6 +2734,7 @@ function CriarSolicitacaoDialog({
     onSuccess: () => {
       notify.success("Solicitação criada.");
       qc.invalidateQueries({ queryKey: ["transport-solicitations"] });
+      void rascunho.limpar();
       setSolicitante("");
       setSetor("");
       setCentroCusto("");
@@ -2720,6 +2754,7 @@ function CriarSolicitacaoDialog({
         <DialogHeader>
           <DialogTitle>Nova Solicitação de Transporte</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="space-y-3 py-1">
           <div className="space-y-1">
             <Label className="text-xs">Solicitante *</Label>

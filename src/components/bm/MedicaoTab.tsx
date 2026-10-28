@@ -27,6 +27,7 @@ import {
 import { EmptyStateRow } from "@/components/EmptyState";
 import { Plus, Trash2, ClipboardList, Send, RefreshCw } from "lucide-react";
 import { listSmartsheetBms, applyMedicaoToBm } from "@/lib/api/smartsheetBm.functions";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 export type MedicaoTipo = "habitat" | "locacao" | "consumiveis" | "mob_desmob_materiais";
 
@@ -115,6 +116,15 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
   const qc = useQueryClient();
   const [form, setForm] = useState<Form>(FORM_VAZIO);
   const [edits, setEdits] = useState<Record<string, Partial<MedicaoRow>>>({});
+  // Rascunho automático (ver useRascunho) do registro novo e das linhas editadas e não salvas.
+  const rascunho = useRascunho(
+    `bm:medicao:${tipo}`,
+    { form, edits },
+    (v) => {
+      setForm(v.form);
+      setEdits(v.edits);
+    },
+  );
   const [aplicarOpen, setAplicarOpen] = useState(false);
   const [busca, setBusca] = useState("");
   const [bmSelecionado, setBmSelecionado] = useState<SmartsheetBm | null>(null);
@@ -270,6 +280,7 @@ export function MedicaoTab({ tipo, titulo, smartsheetColumn, bmColumn, descricao
     <div className="space-y-4">
       <Card className="p-4 space-y-3">
         <h3 className="text-sm font-semibold">{titulo}</h3>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="md:col-span-2">
             <Label className="text-xs">{descricaoLabel}</Label>

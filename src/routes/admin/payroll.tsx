@@ -17,6 +17,7 @@ import { EmptyStateRow } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 
 export const Route = createFileRoute("/admin/payroll")({ head: () => pageTitle("Folha de Pagamento"), component: PayrollPage });
 
@@ -129,6 +130,7 @@ function PayrollPage() {
 function NewDialog({ collaborators, onDone }: { collaborators: any[]; onDone: () => void }) {
   const [f, setF] = useState({ collaborator_id: "", cycle_start: "", cycle_end: "", days_onboard: "0", total_hours: "0", overtime_hours: "0", sobreaviso_days: "0" });
   const [submitting, setSubmitting] = useState(false);
+  const rascunho = useRascunho("folha:resumo:novo", f, setF);
   const submit = async () => {
     if (!f.collaborator_id || !f.cycle_start || !f.cycle_end) { notify.error("Preencha os campos"); return; }
     setSubmitting(true);
@@ -138,11 +140,12 @@ function NewDialog({ collaborators, onDone }: { collaborators: any[]; onDone: ()
       overtime_hours: Number(f.overtime_hours), sobreaviso_days: Number(f.sobreaviso_days),
     });
     setSubmitting(false);
-    if (error) notify.error(error.message); else { notify.success("Resumo criado"); onDone(); }
+    if (error) notify.error(error.message); else { notify.success("Resumo criado"); void rascunho.limpar(); onDone(); }
   };
   return (
     <DialogContent>
       <DialogHeader><DialogTitle>Novo resumo de folha</DialogTitle></DialogHeader>
+      <RascunhoAviso rascunho={rascunho} />
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><Label>Colaborador</Label>
           <Select value={f.collaborator_id} onValueChange={(v) => setF({ ...f, collaborator_id: v })}><SelectTrigger><SelectValue /></SelectTrigger>

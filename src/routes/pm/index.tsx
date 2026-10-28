@@ -6,6 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 // weld_type_config/weld_material_config); cast local.
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import {
   type Nomination, type NominationNominee, type NominationStatusHistory, type PmDecision,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES,
@@ -376,6 +377,15 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
   const [client, setClient]         = useState(nom.client ?? "");
   const [notes, setNotes]           = useState(nom.notes ?? "");
   const [scopeFile, setScopeFile]   = useState<File | null>(null);
+  // Rascunho automático da edição (ver useRascunho) — anexo novo não entra.
+  const rascunho = useRascunho(
+    `nomeacao:editar:${nom.id}`,
+    { funcao, quantidade, unidade, bsp, start, end, client, notes },
+    (v) => {
+      setFuncao(v.funcao); setQuantidade(v.quantidade); setUnidade(v.unidade); setBsp(v.bsp);
+      setStart(v.start); setEnd(v.end); setClient(v.client); setNotes(v.notes);
+    },
+  );
 
   const { funcaoOptions, unidadeGroups, unidadeOptions } = useNominationFormData();
   const bspOptions = useMemo(() => {
@@ -421,6 +431,7 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
       notify.success("Solicitação atualizada.");
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });
       qc.invalidateQueries({ queryKey: ["pm-nomination-history", nom.id] });
+      void rascunho.limpar();
       onSaved();
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao atualizar solicitação."),
@@ -432,6 +443,7 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
         <DialogHeader>
           <DialogTitle>Editar solicitação {requestTitle(nom)}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
 
         <div className="space-y-3 py-2">
           <div className="grid grid-cols-[1fr_90px] gap-3">
@@ -913,6 +925,19 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
   const [end, setEnd]         = useState(primeiro.period_end ?? "");
   const [client, setClient]   = useState(primeiro.client ?? "");
   const [notes, setNotes]     = useState(primeiro.notes ?? "");
+  // Rascunho automático da edição do grupo (ver useRascunho) — anexo novo não entra.
+  const rascunho = useRascunho(
+    `nomeacao:editar-grupo:${primeiro.request_group_id ?? primeiro.id}`,
+    {
+      linhas: linhas.map(({ scopeFile: _f, ...l }) => l),
+      unidade, bsp, start, end, client, notes,
+    },
+    (v) => {
+      setLinhas(v.linhas.map((l) => ({ ...l, scopeFile: null })));
+      setUnidade(v.unidade); setBsp(v.bsp); setStart(v.start); setEnd(v.end);
+      setClient(v.client); setNotes(v.notes);
+    },
+  );
 
   const updateLinha = (i: number, patch: Partial<GroupLinha>) => {
     setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -1009,6 +1034,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
       notify.success("Solicitação atualizada.");
       qc.invalidateQueries({ queryKey: ["pm-nominations"] });
       qc.invalidateQueries({ queryKey: ["nominations"] });
+      void rascunho.limpar();
       onSaved();
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao atualizar solicitação."),
@@ -1020,6 +1046,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
         <DialogHeader>
           <DialogTitle>Editar solicitação {requestTitle(primeiro)}</DialogTitle>
         </DialogHeader>
+        <RascunhoAviso rascunho={rascunho} />
 
         <div className="space-y-3 py-2">
           <div className="space-y-3">

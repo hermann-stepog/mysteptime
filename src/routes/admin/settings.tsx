@@ -21,6 +21,7 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { pageTitle } from "@/lib/pageTitle";
 import { adminCreateUser, adminResetPassword, adminDeleteUser } from "@/lib/api/adminUserManagement.functions";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { EmailSettingsCard } from "@/components/EmailSettingsCard";
 
 // Papéis organizados por setor (pedido dela) — cada setor mapeia pra um papel técnico que já
@@ -68,6 +69,7 @@ function Approvers() {
   const [f, setF] = useState({ full_name: "", role_title: "", email: "", department: "" });
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const rascunho = useRascunho("configuracoes:aprovador:novo", f, setF);
 
   if (isLoading) {
     return (
@@ -88,7 +90,7 @@ function Approvers() {
     setAdding(true);
     const { error } = await supabase.from("approvers").insert(f);
     setAdding(false);
-    if (error) notify.error(error.message); else { notify.success("Aprovador adicionado"); setF({ full_name: "", role_title: "", email: "", department: "" }); qc.invalidateQueries({ queryKey: ["approvers"] }); }
+    if (error) notify.error(error.message); else { notify.success("Aprovador adicionado"); void rascunho.limpar(); setF({ full_name: "", role_title: "", email: "", department: "" }); qc.invalidateQueries({ queryKey: ["approvers"] }); }
   };
   const toggle = async (id: string, active: boolean) => { await supabase.from("approvers").update({ active }).eq("id", id); qc.invalidateQueries({ queryKey: ["approvers"] }); };
   const remove = async (id: string) => {
@@ -101,6 +103,7 @@ function Approvers() {
   return (
     <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
       <h3 className="font-semibold">Adicionar aprovador</h3>
+      <div className="mt-2"><RascunhoAviso rascunho={rascunho} /></div>
       <div className="mt-3 grid gap-3 md:grid-cols-5">
         <div><Label>Nome</Label><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></div>
         <div><Label>Cargo</Label><Input value={f.role_title} onChange={(e) => setF({ ...f, role_title: e.target.value })} /></div>
@@ -147,6 +150,7 @@ function Vendors() {
   const { data, isLoading } = useQuery({ queryKey: ["vendors-all"], queryFn: async () => (await supabase.from("vendors").select("*").order("name")).data ?? [] });
   const [f, setF] = useState({ name: "", vendor_type: "", contact: "", email: "" });
   const [adding, setAdding] = useState(false);
+  const rascunho = useRascunho("configuracoes:fornecedor:novo", f, setF);
 
   if (isLoading) {
     return (
@@ -166,12 +170,13 @@ function Vendors() {
     setAdding(true);
     const { error } = await supabase.from("vendors").insert(f);
     setAdding(false);
-    if (error) notify.error(error.message); else { notify.success("Fornecedor adicionado"); setF({ name: "", vendor_type: "", contact: "", email: "" }); qc.invalidateQueries({ queryKey: ["vendors-all"] }); }
+    if (error) notify.error(error.message); else { notify.success("Fornecedor adicionado"); void rascunho.limpar(); setF({ name: "", vendor_type: "", contact: "", email: "" }); qc.invalidateQueries({ queryKey: ["vendors-all"] }); }
   };
   const toggle = async (id: string, active: boolean) => { await supabase.from("vendors").update({ active }).eq("id", id); qc.invalidateQueries({ queryKey: ["vendors-all"] }); };
 
   return (
     <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
+      <div className="mb-3"><RascunhoAviso rascunho={rascunho} /></div>
       <div className="grid gap-3 md:grid-cols-5">
         <div><Label>Nome</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
         <div><Label>Tipo</Label><Input value={f.vendor_type} onChange={(e) => setF({ ...f, vendor_type: e.target.value })} /></div>
@@ -197,12 +202,13 @@ function Clients() {
   const { data, isLoading } = useQuery({ queryKey: ["clients-all"], queryFn: async () => (await supabase.from("clients").select("*").order("name")).data ?? [] });
   const [name, setName] = useState("");
   const [adding, setAdding] = useState(false);
+  const rascunho = useRascunho("configuracoes:cliente:novo", name, setName);
   const add = async () => {
     if (!name) return;
     setAdding(true);
     const { error } = await supabase.from("clients").insert({ name });
     setAdding(false);
-    if (error) notify.error(error.message); else { setName(""); qc.invalidateQueries({ queryKey: ["clients-all"] }); }
+    if (error) notify.error(error.message); else { void rascunho.limpar(); setName(""); qc.invalidateQueries({ queryKey: ["clients-all"] }); }
   };
 
   if (isLoading) {
@@ -219,6 +225,7 @@ function Clients() {
 
   return (
     <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500 p-5">
+      <div className="mb-3"><RascunhoAviso rascunho={rascunho} /></div>
       <div className="flex gap-2"><Input placeholder="Novo cliente" value={name} onChange={(e) => setName(e.target.value)} /><Button onClick={add} loading={adding}><Plus className="mr-2 h-4 w-4" />Adicionar</Button></div>
       <Table className="mt-6">
         <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Ativo</TableHead></TableRow></TableHeader>
@@ -236,13 +243,15 @@ function Projects() {
   const [editing, setEditing] = useState<any>(null);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const rascunho = useRascunho("configuracoes:pm:novo", f, setF);
+  const rascunhoEdicao = useRascunho(editing ? `configuracoes:pm:${editing.id}` : null, editing, setEditing);
 
   const add = async () => {
     if (!f.client_id || !f.name) { notify.error("Preencha cliente e PM/Responsável"); return; }
     setAdding(true);
     const { error } = await supabase.from("projects").insert({ ...f, code: f.code || null, email: f.email || null });
     setAdding(false);
-    if (error) notify.error(error.message); else { setF({ client_id: "", code: "", name: "", email: "" }); qc.invalidateQueries({ queryKey: ["projects-all"] }); }
+    if (error) notify.error(error.message); else { void rascunho.limpar(); setF({ client_id: "", code: "", name: "", email: "" }); qc.invalidateQueries({ queryKey: ["projects-all"] }); }
   };
 
   const saveEdit = async () => {
@@ -259,7 +268,7 @@ function Projects() {
       .eq("id", editing.id);
     setSaving(false);
     if (error) notify.error(error.message);
-    else { setEditing(null); qc.invalidateQueries({ queryKey: ["projects-all"] }); notify.success("Atualizado"); }
+    else { void rascunhoEdicao.limpar(); setEditing(null); qc.invalidateQueries({ queryKey: ["projects-all"] }); notify.success("Atualizado"); }
   };
 
   if (l1 || l2) {
@@ -282,6 +291,7 @@ function Projects() {
       <p className="mb-3 text-sm text-muted-foreground">
         Este cadastro também alimenta o campo "PM solicitante" no formulário de Nomeações e o e-mail usado para avisar o PM sobre a fase da solicitação.
       </p>
+      <div className="mb-3"><RascunhoAviso rascunho={rascunho} /></div>
       <div className="grid gap-3 md:grid-cols-5">
         <div><Label>Cliente</Label>
           <Select value={f.client_id} onValueChange={(v) => setF({ ...f, client_id: v })}><SelectTrigger><SelectValue /></SelectTrigger>
@@ -315,6 +325,7 @@ function Projects() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar PM / Responsável</DialogTitle></DialogHeader>
+          <RascunhoAviso rascunho={rascunhoEdicao} />
           {editing && (
             <div className="grid gap-3">
               <div><Label>Cliente</Label>
@@ -344,6 +355,17 @@ function NewUserForm() {
   const [fullName, setFullName] = useState("");
   const [perfil, setPerfil] = useState("");
   const [role, setRole] = useState("pending");
+  // Rascunho automático (ver useRascunho) — a senha NUNCA entra no rascunho.
+  const rascunho = useRascunho(
+    "configuracoes:usuario:novo",
+    { email, fullName, perfil, role },
+    (v) => {
+      setEmail(v.email);
+      setFullName(v.fullName);
+      setPerfil(v.perfil);
+      setRole(v.role);
+    },
+  );
 
   const create = useMutation({
     mutationFn: async () => {
@@ -365,6 +387,7 @@ function NewUserForm() {
     onSuccess: (result) => {
       notify.success(result?.emailSent ? "Usuário criado. E-mail de boas-vindas enviado." : "Usuário criado. Não foi possível enviar o e-mail de boas-vindas.");
       qc.invalidateQueries({ queryKey: ["users-with-roles"] });
+      void rascunho.limpar();
       setEmail(""); setPassword(""); setConfirmPassword(""); setFullName(""); setPerfil(""); setRole("pending");
     },
     onError: (err: Error) => notify.error(err.message || "Erro ao criar usuário."),
@@ -373,6 +396,7 @@ function NewUserForm() {
   return (
     <Card className="p-5 space-y-3 h-fit">
       <h3 className="font-semibold">Novo usuário</h3>
+      <RascunhoAviso rascunho={rascunho} />
       <div>
         <Label>Nome</Label>
         <Input placeholder="Nome completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />

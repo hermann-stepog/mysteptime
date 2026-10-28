@@ -15,6 +15,7 @@ import { notify } from "@/lib/notify";
 import { Plus, Check, X, Inbox } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { EmptyStateRow } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/TableSkeleton";
@@ -125,6 +126,7 @@ function NewDialog({ approvers, collaborators, onDone }: { approvers: any[]; col
   const { user } = useAuth();
   const [f, setF] = useState({ request_type: "Hora extra", approver_id: "", collaborator_id: "", notes: "" });
   const [submitting, setSubmitting] = useState(false);
+  const rascunho = useRascunho("aprovacao:nova", f, setF);
   const submit = async () => {
     if (!f.approver_id) { notify.error("Selecione um aprovador"); return; }
     setSubmitting(true);
@@ -133,11 +135,12 @@ function NewDialog({ approvers, collaborators, onDone }: { approvers: any[]; col
       collaborator_id: f.collaborator_id || null, payload: { notes: f.notes },
     });
     setSubmitting(false);
-    if (error) notify.error(error.message); else { notify.success("Solicitação criada"); onDone(); }
+    if (error) notify.error(error.message); else { notify.success("Solicitação criada"); void rascunho.limpar(); onDone(); }
   };
   return (
     <DialogContent>
       <DialogHeader><DialogTitle>Nova solicitação de aprovação</DialogTitle></DialogHeader>
+      <RascunhoAviso rascunho={rascunho} />
       <div className="grid gap-3">
         <div><Label>Tipo</Label>
           <Select value={f.request_type} onValueChange={(v) => setF({ ...f, request_type: v })}><SelectTrigger><SelectValue /></SelectTrigger>

@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { notify } from "@/lib/notify";
 import { planilhaComCabecalho } from "@/lib/reportHeader";
 import { useAuth } from "@/hooks/useAuth";
+import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { hasOperatorAccess } from "@/lib/access-roles";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { supabase } from "@/integrations/supabase/client";
@@ -467,6 +468,7 @@ function ColaboradorCombobox({
     funcao: "",
     funcao_operacao: "",
   });
+  const rascunhoColab = useRascunho(newOpen ? "histograma:colaborador:novo" : null, nf, setNf);
   const selected = colaboradores.find((c) => c.id === value);
   const ordenados = useOrdemComSelecionadosFixados(colaboradores, open, (c) => c.id === value);
 
@@ -489,6 +491,7 @@ function ColaboradorCombobox({
     onSuccess: (c) => {
       qc.invalidateQueries({ queryKey: ["hist-novo-colaboradores"] });
       notify.success("Colaborador cadastrado");
+      void rascunhoColab.limpar();
       setNf({ matricula: "", nome: "", empresa: "", funcao: "", funcao_operacao: "" });
       setNewOpen(false);
       onChange(c.id);
@@ -554,6 +557,7 @@ function ColaboradorCombobox({
           <DialogHeader>
             <DialogTitle>Novo colaborador</DialogTitle>
           </DialogHeader>
+          <RascunhoAviso rascunho={rascunhoColab} />
           <div className="grid gap-3">
             <div>
               <Label>Matrícula</Label>
@@ -1445,6 +1449,15 @@ function LancarPeriodoProgramadoCard({
     () => bspOptionsForUnidade(periodos, form.unidade_operacional || "all"),
     [periodos, form.unidade_operacional],
   );
+  // Rascunho automático (ver useRascunho) do "Lançar período manualmente".
+  const rascunho = useRascunho(
+    "histograma:periodo:novo",
+    { form, formBspManual },
+    (v) => {
+      setForm(v.form);
+      setFormBspManual(v.formBspManual);
+    },
+  );
 
   const createPeriodo = useMutation({
     mutationFn: async (colaboradorIds: string[]) => {
@@ -1495,6 +1508,7 @@ function LancarPeriodoProgramadoCard({
         old ? [...novos, ...old] : novos,
       );
       notify.success(novos.length > 1 ? "Períodos lançados" : "Período lançado");
+      void rascunho.limpar();
       setForm({
         colaboradorIds: [],
         tipo: "P",
@@ -1558,6 +1572,7 @@ function LancarPeriodoProgramadoCard({
     <>
       <Card className="flex flex-col p-4 space-y-3">
         <h3 className="text-sm font-semibold">Lançar período manualmente</h3>
+        <RascunhoAviso rascunho={rascunho} />
         <div className="flex flex-1 flex-col justify-between gap-4">
           <div>
             <Label className="text-xs">Colaborador(es)</Label>
@@ -1951,6 +1966,11 @@ function LancamentosTab({
     setFilterAte("");
   };
   const [editing, setEditing] = useState<HistNovoPeriodo | null>(null);
+  const rascunhoEdicao = useRascunho(
+    editing ? `histograma:periodo:${editing.id}` : null,
+    editing,
+    setEditing,
+  );
   // Ordenação clicável no cabeçalho — aplicada só nos períodos já filtrados na tela; sem
   // coluna escolhida, mantém a ordem padrão (data de início, mais antiga primeiro).
   const { sortColumn, sortDirection, toggleSort } = useTableSort<LancamentosSortColumn>();
@@ -1987,6 +2007,7 @@ function LancamentosTab({
         (old) => old?.map((p) => (p.id === atualizado.id ? atualizado : p)) ?? old,
       );
       notify.success("Período atualizado");
+      void rascunhoEdicao.limpar();
       setEditing(null);
       void autoLancarDesembarque(atualizado, qc);
     },
@@ -2670,6 +2691,7 @@ function LancamentosTab({
           <DialogHeader>
             <DialogTitle>Editar período</DialogTitle>
           </DialogHeader>
+          <RascunhoAviso rascunho={rascunhoEdicao} />
           {editing && (
             <div className="grid gap-3">
               <div>
