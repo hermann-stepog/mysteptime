@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { hasSystemAdminAccess } from "./access-roles";
+import { hasOperatorAccess } from "./access-roles";
 
 export const nominationObservationsSchema = z.object({
   nominationId: z.string().uuid(),
@@ -11,5 +11,5 @@ export function canEditNominationObservations(
   requesterId: string | null | undefined,
   role: string | null | undefined,
 ): boolean {
-  return Boolean(userId && (userId === requesterId || hasSystemAdminAccess(role)));
+  return Boolean(userId && (userId === requesterId || hasOperatorAccess(role)));
 }

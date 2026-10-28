@@ -11,6 +11,7 @@ describe("Observações das Nomeações", () => {
   it("permite à administração editar solicitações de outras pessoas", () => {
     expect(canEditNominationObservations("admin", "solicitante", "administrador")).toBe(true);
     expect(canEditNominationObservations("diretor", "solicitante", "diretoria")).toBe(true);
+    expect(canEditNominationObservations("logistica", "solicitante", "logistics_operator")).toBe(true);
   });
   it("não permite edição a outros solicitantes, papéis de etapa ou visitantes", () => {
     for (const role of ["pm", "sms", "rh", "qualidade", "visitante", "pending"]) {

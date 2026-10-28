@@ -4134,6 +4134,10 @@ export type Database = {
           funcao: string
         }[]
       }
+      nomination_save_observations: {
+        Args: { p_nomination_id: string; p_notes: string }
+        Returns: string
+      }
       planejamento_normalizar_nome: {
         Args: { p_nome: string }
         Returns: string
