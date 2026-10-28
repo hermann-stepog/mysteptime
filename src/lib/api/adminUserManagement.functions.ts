@@ -52,16 +52,11 @@ export const adminCreateUser = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertOperator(context.supabase, context.userId);
 
-    // A criação de usuário exige a service_role key, que o Lovable Cloud nunca expõe pro app
-    // (nem no .env, nem no painel) — só as Edge Functions recebem essa chave automaticamente.
-    // Por isso a ação em si roda lá (ver supabase/functions/admin-user-management), e aqui só
-    // encaminha a chamada com o token de quem está logado (o cliente já vem com ele no header,
-    // graças ao requireSupabaseAuth).
-    const { data: result, error } = await context.supabase.functions.invoke("admin-user-management", {
-      body: { action: "createUser", email: data.email, password: data.password, fullName: data.fullName, role: data.role, perfil: data.perfil || null },
-    });
-    if (error) throw new Error("Falha ao comunicar com o servidor de autenticação.");
-    if (!result?.ok) throw new Error(result?.error ?? "Falha ao criar usuário.");
+    // A sessão e a permissão já foram verificadas acima. Não validar novamente em
+    // outro serviço: getUser pode rejeitar uma sessão aceita pelo verificador de JWT.
+    // O cliente privilegiado permanece exclusivamente no servidor, após autorização.
+    const { createManagedUser } = await import("./managed-user.server");
+    const userId = await createManagedUser(data);
 
     // Aviso por e-mail é best-effort — o usuário já foi criado com sucesso, então uma falha de
     // SMTP aqui (mesma tolerância de notifyStageAdvance) não pode desfazer nem travar o
@@ -84,7 +79,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       const { loadResendConfig, sendResendHtml } = await import("@/lib/emailSettings.server");
       const cfg = await loadResendConfig(context.supabase);
       if (cfg) {
-        const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+        const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
         const html = lines.map((l) => (l ? `<p>${esc(l)}</p>` : "")).join("");
         await sendResendHtml(cfg, data.email, subject, html, lines.join("\n"));
       } else {
@@ -95,7 +90,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       console.warn("Falha ao enviar e-mail de boas-vindas ao novo usuário (aviso, não bloqueia o cadastro):", err);
     }
 
-    return { userId: result.userId as string, emailSent };
+    return { userId, emailSent };
   });
 
 export const adminDeleteUser = createServerFn({ method: "POST" })
