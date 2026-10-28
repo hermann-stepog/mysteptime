@@ -5731,6 +5731,46 @@ function DashboardTab({
         )}
       </Card>
 
+      {/* ── Resumo "Quantidade de Pessoas Embarcadas" (pedido dela, 2026-10-28) — tabela pequena
+          no formato do e-mail diário (Unidade | Quantidade | TOTAL), mesmos números do
+          "POB x Unidade" logo abaixo, em ordem alfabética. ── */}
+      {byUnitStatus.length > 0 && (
+        <Card className="w-full max-w-sm p-3">
+          <h3 className="text-sm font-semibold">Quantidade de Pessoas Embarcadas</h3>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {pobReferenceDate === today ? "Hoje" : fmtDiaCurto(pobReferenceDate)}, por unidade
+          </p>
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="bg-sky-100 text-slate-900 dark:bg-sky-950 dark:text-sky-100">
+                <th className="border border-border px-2 py-1 text-left font-semibold">Unidade</th>
+                <th className="w-24 border border-border px-2 py-1 text-center font-semibold">
+                  Quantidade
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...byUnitStatus]
+                .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+                .map((u) => (
+                  <tr key={u.name}>
+                    <td className="border border-border px-2 py-0.5">{u.name}</td>
+                    <td className="border border-border px-2 py-0.5 text-center tabular-nums">
+                      {u.Embarcado}
+                    </td>
+                  </tr>
+                ))}
+              <tr className="bg-sky-100 font-bold text-slate-900 dark:bg-sky-950 dark:text-sky-100">
+                <td className="border border-border px-2 py-1">TOTAL</td>
+                <td className="border border-border px-2 py-1 text-center tabular-nums">
+                  {byUnitStatus.reduce((s, u) => s + u.Embarcado, 0)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </Card>
+      )}
+
       {/* ── POB x Unidade ── */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold">POB x Unidade</h3>
