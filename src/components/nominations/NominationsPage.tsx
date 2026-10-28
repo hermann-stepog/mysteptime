@@ -2723,9 +2723,15 @@ function KanbanBoard({
         }
         byKey.get(key)!.push(n);
       });
+      // Ordem por Data de Necessidade (pedido dela, 2026-10-28): a mais urgente no topo; sem
+      // data vai pro fim, e o empate mantém a ordem de criação.
+      const necessidade = (g: Nomination[]) =>
+        g.map((n) => n.period_start).filter((d): d is string => !!d).sort()[0] ?? "9999-12-31";
       m.set(
         col,
-        order.map((k) => byKey.get(k)!),
+        order
+          .map((k) => byKey.get(k)!)
+          .sort((a, b) => necessidade(a).localeCompare(necessidade(b))),
       );
     });
     return m;
