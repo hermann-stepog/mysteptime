@@ -336,3 +336,30 @@ export async function notifyAptitudePendency(
     console.warn("Falha ao enviar alerta de pendência de aptidão (aviso, não bloqueia):", err);
   }
 }
+
+// Um único aviso de criação por solicitação do PM (pedido do usuário): lista todas as funções
+// criadas juntas, em vez de um e-mail por cartão. Chave estável = primeiro cartão do lote.
+export async function notifyRequestCreated(nominations: Nomination[]): Promise<void> {
+  try {
+    if (nominations.length === 0) return;
+    if (nominations.length === 1) return notifyStageAdvance(nominations[0], "solicitacao");
+    const first = nominations[0];
+    const funcoes = nominations.map((n) => `${n.funcao} (${n.quantidade ?? 1})`).join(", ");
+    const periodo = first.period_start && first.period_end
+      ? `${fmtBr(first.period_start)} a ${fmtBr(first.period_end)}`
+      : "—";
+    await sendAlert({
+      to: STAGE_RECIPIENTS.solicitacao!.fixed!,
+      cc: [],
+      tituloAlerta: `Nova solicitação — ${nominations.length} funções`,
+      idempotencyKey: nominationCreationEmailKey(first.id),
+      colaboradorNome: "A definir",
+      nomination: { ...first, funcao: funcoes },
+      detalhesLabel: "Funções solicitadas",
+      detalhes: [`Funções: ${funcoes}`, `Período: ${periodo}`].join(" • "),
+      rodapeTexto: "Este é um alerta automático do My Step Time referente a uma nova solicitação de nomeação.",
+    });
+  } catch (err) {
+    console.warn("Falha ao enviar e-mail de nova solicitação (aviso, não bloqueia):", err);
+  }
+}

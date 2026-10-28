@@ -11,7 +11,7 @@ import {
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES,
   fmtDate, fmtDatetime, isSoldador, canMoveToColumn, requestTitle, computeRevertClearing,
 } from "@/lib/nominations";
-import { notifyStageAdvance } from "@/lib/nominationEmails";
+import { notifyStageAdvance, notifyRequestCreated } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
@@ -938,6 +938,7 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
         if (error) throw error;
       }
 
+      const novas: Nomination[] = [];
       for (const l of validas) {
         const isWelder = isSoldador(l.funcao);
         const scopeDocument = l.scopeFile ? await uploadScopeDocument(l.scopeFile) : null;
@@ -982,9 +983,10 @@ function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onC
           await supabase.from("nomination_status_history").insert({
             nomination_id: data.id, status: "solicitacao", changed_by_name: pmName, notes: "Função adicionada à solicitação",
           });
-          await notifyStageAdvance(data as Nomination, "solicitacao");
+          novas.push(data as Nomination);
         }
       }
+      await notifyRequestCreated(novas);
     },
     onSuccess: () => {
       notify.success("Solicitação atualizada.");
