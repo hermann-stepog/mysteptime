@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment, createContext, useContext } from "react";
+import type { ReactNode } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from "recharts";
@@ -1559,6 +1560,14 @@ function BriefingSection({ nomination }: { nomination: Nomination }) {
   );
 }
 
+// Edição da solicitação pelo próprio Solicitante (PM) direto do card do kanban, enquanto ainda
+// está em "Solicitação" (pedido dela, 2026-10-28). O formulário de edição mora na Área do
+// Solicitante (src/routes/pm/index.tsx, que importa esta página) — ela fornece o renderizador
+// por contexto, pra não criar import circular.
+export const EditarSolicitacaoContext = createContext<
+  ((items: Nomination[], close: () => void) => ReactNode) | null
+>(null);
+
 function ManageDialog({
   nomination: initialNomination,
   onClose,
@@ -1568,10 +1577,12 @@ function ManageDialog({
   onClose: () => void;
   onGoToSimulacao: (group: Nomination[]) => void;
 }) {
-  const { profile, role } = useAuth();
+  const { profile, role, user } = useAuth();
   const qc = useQueryClient();
   const registrarLog = useRegistrarLog("nomeacoes");
   const [tab, setTab] = useState("detalhes");
+  const renderEditarSolicitacao = useContext(EditarSolicitacaoContext);
+  const [editandoSolicitacao, setEditandoSolicitacao] = useState(false);
   const advance = useAdvanceStage();
   // Nunca usar initialNomination além do fallback/id — ela é só o retrato de quando o card
   // foi clicado. Reler da mesma query cacheada garante que o dialog acompanha em tempo real
@@ -2054,6 +2065,20 @@ function ManageDialog({
             <Separator />
 
             <div className="space-y-3">
+              {nomination.current_status === "solicitacao" &&
+                role === "pm" &&
+                renderEditarSolicitacao &&
+                (!nomination.pm_user_id || nomination.pm_user_id === user?.id) && (
+                  <Button size="sm" variant="outline" onClick={() => setEditandoSolicitacao(true)}>
+                    Editar solicitação
+                  </Button>
+                )}
+              {editandoSolicitacao &&
+                renderEditarSolicitacao &&
+                renderEditarSolicitacao(
+                  grupoCompleto.filter((n) => n.current_status === "solicitacao"),
+                  () => setEditandoSolicitacao(false),
+                )}
               {nomination.current_status === "solicitacao" && canOperate && (
                 <Button size="sm" onClick={marcarRecebido} loading={advance.isPending}>
                   <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Marcar recebido pela Logística
