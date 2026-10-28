@@ -168,7 +168,7 @@ export interface WeldMaterialConfig {
 // quem decide quem segue é a Aprovação Técnica.
 export const KANBAN_COLUMNS: { id: NominationStatus; label: string; bg: string; text: string }[] = [
   { id: "solicitacao", label: "Solicitação", bg: "#F1EFE8", text: "#2C2C2A" },
-  { id: "recebido_logistica", label: "Recebido pela Logística", bg: "#EFEDE3", text: "#4A4636" },
+  { id: "recebido_logistica", label: "Logística de Pessoal", bg: "#EFEDE3", text: "#4A4636" },
   { id: "simulacao", label: "Nomeação (Simulação)", bg: "#E6F1FB", text: "#0C447C" },
   { id: "aprovacao_tecnica", label: "Aprovação Técnica", bg: "#EEEDFE", text: "#3C3489" },
   { id: "validacao_sms_aso", label: "Validação SMS (ASO)", bg: "#D6F3EF", text: "#0B4A46" },
@@ -461,7 +461,7 @@ export function isSoldador(fn: string) {
 // 2026-10-05: além de Projetos ADM, Produção/Aprovação Técnica também pode simular).
 //
 // "solicitacao" e "recebido_logistica" ficam de fora deste mapa DE PROPÓSITO, não por
-// esquecimento: é assim que NominationsPage.tsx restringe quem marca "Recebido pela Logística"
+// esquecimento: é assim que NominationsPage.tsx restringe quem marca "Logística de Pessoal" (antigo "Recebido pela Logística")
 // e quem inicia a Simulação a só FULL_NOMINATIONS_ACCESS_ROLES (logistics_operator,
 // administrador, adm_master) — tanto nos botões do dialog quanto no drag-and-drop do kanban
 // (useCanActOnStage/handleDragEnd caem no "sem permissão" quando STAGE_ROLE[status] é

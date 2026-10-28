@@ -1560,6 +1560,65 @@ function BriefingSection({ nomination }: { nomination: Nomination }) {
   );
 }
 
+// "Enviar para a Logística" (pedido dela, 2026-10-28): o Solicitante (PM), com a solicitação
+// pronta, tira o card de "Solicitação" e manda pra "Logística de Pessoal" (recebido_logistica)
+// — todas as funções do grupo juntas. Passa pela RPC nomination_pm_enviar_logistica porque a
+// policy do PM só permite gravar enquanto o card continua em "solicitacao". Usado no card do
+// kanban (ManageDialog) e em Minhas Solicitações (src/routes/pm/index.tsx).
+export function EnviarParaLogisticaButton({
+  items,
+  onDone,
+}: {
+  items: Nomination[];
+  onDone?: () => void;
+}) {
+  const qc = useQueryClient();
+  const { profile } = useAuth();
+  const registrarLog = useRegistrarLog("nomeacoes");
+  const pendentes = items.filter((n) => n.current_status === "solicitacao");
+  const enviar = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("nomination_pm_enviar_logistica", {
+        p_ids: pendentes.map((n) => n.id),
+      });
+      if (error) throw error;
+      if (!data) {
+        throw new Error(
+          "Não foi possível enviar: a solicitação já saiu da etapa Solicitação ou não é sua.",
+        );
+      }
+      const nome = profile?.full_name ?? profile?.email ?? "Solicitante";
+      await supabase.from("nomination_status_history").insert(
+        pendentes.map((n) => ({
+          nomination_id: n.id,
+          status: "recebido_logistica" as NominationStatus,
+          changed_by_name: nome,
+          notes: "Enviada para a Logística pelo solicitante",
+        })),
+      );
+      registrarLog(`Enviou ${requestTitle(pendentes[0])} para a Logística de Pessoal`);
+      pendentes.forEach((n) =>
+        notifyStageAdvance({ ...n, current_status: "recebido_logistica" }, "recebido_logistica").catch(
+          () => {},
+        ),
+      );
+    },
+    onSuccess: () => {
+      notify.success("Solicitação enviada para a Logística.");
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      qc.invalidateQueries({ queryKey: ["pm-nominations"] });
+      onDone?.();
+    },
+    onError: (err: Error) => notify.error(err.message || "Erro ao enviar para a Logística."),
+  });
+  if (pendentes.length === 0) return null;
+  return (
+    <Button size="sm" onClick={() => enviar.mutate()} loading={enviar.isPending}>
+      <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para a Logística
+    </Button>
+  );
+}
+
 // Edição da solicitação pelo próprio Solicitante (PM) direto do card do kanban, enquanto ainda
 // está em "Solicitação" (pedido dela, 2026-10-28). O formulário de edição mora na Área do
 // Solicitante (src/routes/pm/index.tsx, que importa esta página) — ela fornece o renderizador
@@ -2069,9 +2128,12 @@ function ManageDialog({
                 role === "pm" &&
                 renderEditarSolicitacao &&
                 (!nomination.pm_user_id || nomination.pm_user_id === user?.id) && (
-                  <Button size="sm" variant="outline" onClick={() => setEditandoSolicitacao(true)}>
-                    Editar solicitação
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setEditandoSolicitacao(true)}>
+                      Editar solicitação
+                    </Button>
+                    <EnviarParaLogisticaButton items={grupoCompleto} onDone={onClose} />
+                  </div>
                 )}
               {editandoSolicitacao &&
                 renderEditarSolicitacao &&
@@ -2081,7 +2143,7 @@ function ManageDialog({
                 )}
               {nomination.current_status === "solicitacao" && canOperate && (
                 <Button size="sm" onClick={marcarRecebido} loading={advance.isPending}>
-                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Marcar recebido pela Logística
+                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Logística de Pessoal
                 </Button>
               )}
               {nomination.current_status === "recebido_logistica" && canOperate && (
@@ -2505,7 +2567,7 @@ function NominationCard({
             <DialogHeader>
               <DialogTitle>{requestTitle(first)} — Funções desta solicitação</DialogTitle>
             </DialogHeader>
-            <div className="divide-y rounded-md border">
+            <div className="max-h-[60vh] divide-y overflow-y-auto rounded-md border">
               {items.map((n) => (
                 <button
                   key={n.id}
