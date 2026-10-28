@@ -29,13 +29,12 @@ export function NominationObservations({ nomination }: { nomination: Nomination 
       if (!canEdit) throw new Error("Você não pode editar estas observações.");
       const parsed = nominationObservationsSchema.safeParse({ nominationId: nomination.id, notes });
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Observações inválidas.");
-      // Function-specific cast until the managed database types include this RPC.
-      const { data, error } = await (supabase.rpc as any)("nomination_save_observations", {
+      const { data, error } = await supabase.rpc("nomination_save_observations", {
         p_nomination_id: parsed.data.nominationId,
         p_notes: parsed.data.notes,
       });
       if (error) throw new Error("Não foi possível salvar as observações. Confira sua permissão e tente novamente.");
-      return (data as string | null) ?? "";
+      return data ?? "";
     },
     onSuccess: (value) => {
       setSavedNotes(value);
