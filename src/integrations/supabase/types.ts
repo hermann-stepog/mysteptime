@@ -1665,6 +1665,30 @@ export type Database = {
         }
         Relationships: []
       }
+      form_drafts: {
+        Row: {
+          data: Json
+          form_key: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          data: Json
+          form_key: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          data?: Json
+          form_key?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       hist_novo_colaboradores: {
         Row: {
           ativo: boolean
@@ -4133,6 +4157,10 @@ export type Database = {
           atual: boolean
           funcao: string
         }[]
+      }
+      nomination_pm_enviar_logistica: {
+        Args: { p_ids: string[] }
+        Returns: number
       }
       nomination_save_observations: {
         Args: { p_nomination_id: string; p_notes: string }
