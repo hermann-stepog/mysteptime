@@ -3775,7 +3775,45 @@ const pobChartConfig = {
 // de cada fatia (payload.color) direto, via formatter customizado abaixo.
 const donutChartConfig = {} satisfies ChartConfig;
 
-type DonutStatusDatum = { name: string; value: number; color: string; nomes: string[] };
+type DonutStatusGrupo = { name: string; value: number; nomes: string[] };
+type DonutStatusDatum = {
+  name: string;
+  value: number;
+  color: string;
+  nomes: string[];
+  // Só no "Outros": quebra por Status real (Indisponível, Terceirizado, Casa...).
+  grupos?: DonutStatusGrupo[];
+};
+
+// Lista do hover — agrupada por Status quando a fatia junta vários (o "Outros"), senão só nomes.
+function DonutDatumNomes({ dado }: { dado: DonutStatusDatum }) {
+  if (dado.grupos?.length) {
+    return (
+      <div className="mt-1.5 max-h-56 space-y-2 overflow-y-auto pr-1 text-[11px] leading-4">
+        {dado.grupos.map((g) => (
+          <div key={g.name}>
+            <div className="flex items-center gap-2 font-semibold text-foreground">
+              <span className="truncate">{g.name}</span>
+              <span className="ml-auto shrink-0 text-muted-foreground">{g.value}</span>
+            </div>
+            <ul className="mt-0.5 space-y-0.5 border-l border-border/60 pl-2 text-foreground/80">
+              {g.nomes.map((nome, index) => (
+                <li key={`${nome}-${index}`}>{nome}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
+      {dado.nomes.map((nome, index) => (
+        <li key={`${nome}-${index}`}>{nome}</li>
+      ))}
+    </ul>
+  );
+}
 
 function renderDonutNamesTooltip(props: unknown) {
   const { active, payload } = props as {
@@ -3794,11 +3832,7 @@ function renderDonutNamesTooltip(props: unknown) {
         <span className="font-semibold">{dado.name}</span>
         <span className="ml-auto text-muted-foreground">{dado.value}</span>
       </div>
-      <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
-        {dado.nomes.map((nome, index) => (
-          <li key={`${nome}-${index}`}>{nome}</li>
-        ))}
-      </ul>
+      <DonutDatumNomes dado={dado} />
     </div>
   );
 }
@@ -3869,19 +3903,31 @@ function StatusLegendRow({ data }: { data: DonutStatusDatum[] }) {
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
                 style={{ backgroundColor: d.color }}
               />
-              <span className="text-muted-foreground">{d.name}</span>
+              <span
+                className={cn(
+                  "text-muted-foreground",
+                  d.grupos?.length &&
+                    "underline decoration-dotted decoration-muted-foreground/60 underline-offset-2",
+                )}
+              >
+                {d.name}
+              </span>
               <span className="font-semibold">({d.value})</span>
+              {d.grupos?.length ? (
+                <Info className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+              ) : null}
             </div>
           </HoverCardTrigger>
           <HoverCardContent className="w-64 p-2.5" side="top" align="center">
             <p className="text-xs font-semibold">
               {d.name} ({d.value})
             </p>
-            <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto pr-1 text-[11px] leading-4 text-foreground/80">
-              {d.nomes.map((nome, index) => (
-                <li key={`${nome}-${index}`}>{nome}</li>
-              ))}
-            </ul>
+            {d.grupos?.length ? (
+              <p className="text-[10px] text-muted-foreground">
+                {d.grupos.map((g) => `${g.name}: ${g.value}`).join(" · ")}
+              </p>
+            ) : null}
+            <DonutDatumNomes dado={d} />
           </HoverCardContent>
         </HoverCard>
       ))}
@@ -4519,18 +4565,26 @@ function DashboardTab({
     // um, igual era antes.
     let somaOutrosTotal = 0;
     const outrosNomesComStatus: string[] = [];
+    // Discriminação do "Outros" por Status real (pedido dela) — caixinha no hover da legenda,
+    // rosquinha e barra, com quantos de cada Status e quem são.
+    const outrosGrupos: { name: string; value: number; nomes: string[] }[] = [];
     Array.from(outrosSomaPorLabel.entries())
       .sort((a, b) => b[1] - a[1])
       .forEach(([label, somaLabel]) => {
         somaOutrosTotal += somaLabel;
-        (outrosNomesPorLabel.get(label) ?? new Set()).forEach((nome) =>
-          outrosNomesComStatus.push(`${nome} — ${label}`),
-        );
+        const nomesLabel = outrosNomesPorLabel.get(label) ?? new Set<string>();
+        nomesLabel.forEach((nome) => outrosNomesComStatus.push(`${nome} — ${label}`));
+        outrosGrupos.push({
+          name: label,
+          value: mediaComPiso1(somaLabel),
+          nomes: porNome(nomesLabel),
+        });
       });
     const outros = {
       name: "Outros",
       value: mediaComPiso1(somaOutrosTotal),
       nomes: outrosNomesComStatus,
+      grupos: outrosGrupos,
     };
     let somaEspeciaisTotal = 0;
     const naoDispComStatus: string[] = [...outrosNomesComStatus];
