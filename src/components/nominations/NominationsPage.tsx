@@ -53,6 +53,10 @@ import { CreateNominationDialog } from "@/components/nominations/CreateNominatio
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
+import {
+  NotificacoesNomeacoesTab,
+  useNotificacoesNomeacoes,
+} from "@/components/nominations/NotificacoesNomeacoes";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -110,6 +114,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Stethoscope,
+  Bell,
   X,
   UserPlus,
   Check,
@@ -6471,16 +6476,22 @@ function LinhaDoTempoNomeacoesTab() {
 // `hideCreate` tira só o botão "Nova Solicitação", sem mexer nas abas — usado por Produção
 // (aprovacao_tecnica) em /admin/nominations (pedido dela, 2026-10-05: todas as abas, mas criar
 // solicitação não é papel dela).
+// `abaInicial` vem da URL (?aba=notificacoes, usado pelo sininho do topo) — a página troca pra
+// essa aba e avisa por `onAbaConsumida`, pra rota limpar a URL e o sino funcionar de novo.
 export function NominationsPage({
   onlyKanban = false,
   solicitanteArea = false,
   hideAptidao = false,
   hideCreate = false,
+  abaInicial,
+  onAbaConsumida,
 }: {
   onlyKanban?: boolean;
   solicitanteArea?: boolean;
   hideAptidao?: boolean;
   hideCreate?: boolean;
+  abaInicial?: string;
+  onAbaConsumida?: () => void;
 } = {}) {
   const [selected, setSelected] = useState<Nomination | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -6493,6 +6504,30 @@ export function NominationsPage({
   const [simulacaoFocusIds, setSimulacaoFocusIds] = useState<string[] | null>(null);
   const [tab, setTab] = useState("nomeacoes");
   const { canViewAs, viewAsRole, setViewAsRole } = useViewAs();
+  // Aba Notificações: só pra Logística de Pessoal (ver NotificacoesNomeacoes.tsx).
+  const notificacoes = useNotificacoesNomeacoes();
+  const mostrarNotificacoes = notificacoes.ativo && !onlyKanban && !solicitanteArea;
+
+  useEffect(() => {
+    if (!abaInicial) return;
+    setTab(abaInicial);
+    onAbaConsumida?.();
+  }, [abaInicial, onAbaConsumida]);
+
+  const verNoKanban = (funcoes: Nomination[]) => {
+    setTab("nomeacoes");
+    setSearch("");
+    setFilterStatus("todos");
+    setHighlightedId(funcoes[0].id);
+    // Espera o kanban voltar pra tela antes de rolar até o card.
+    setTimeout(() => {
+      const el = funcoes
+        .map((f) => document.getElementById(`kanban-card-${f.id}`))
+        .find(Boolean);
+      el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    }, 150);
+    setTimeout(() => setHighlightedId(null), 4000);
+  };
 
   const goToSimulacao = (group: Nomination[]) => {
     setSimulacaoFocusIds(group.map((n) => n.id));
@@ -6630,7 +6665,27 @@ export function NominationsPage({
                 <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
               </TabsTrigger>
             )}
+            {mostrarNotificacoes && (
+              <TabsTrigger value="notificacoes">
+                <Bell className="mr-1.5 h-3.5 w-3.5" /> Notificações
+                {notificacoes.naoLidas > 0 && (
+                  <span className="ml-1.5 rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-4 text-white">
+                    {notificacoes.naoLidas}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
           </TabsList>
+        )}
+
+        {mostrarNotificacoes && (
+          <TabsContent value="notificacoes" className="pt-4">
+            <NotificacoesNomeacoesTab
+              nominations={nominations}
+              onOpen={setSelected}
+              onVerNoKanban={verNoKanban}
+            />
+          </TabsContent>
         )}
 
         {/* ── Simulação de disponibilidade ── */}
