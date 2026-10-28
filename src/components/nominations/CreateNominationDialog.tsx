@@ -206,6 +206,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       // ele de volta num único cartão, mesmo cada função seguindo seu próprio fluxo aqui.
       const groupId = crypto.randomUUID();
       const criadas: string[] = [];
+      const paraAvisar: Nomination[] = [];
 
       // Uma nomeação por função — cada uma segue seu próprio fluxo de aprovação/nomeação, por
       // isso não dá pra combinar num só registro. Soldador sempre passa pela Qualidade — ela
