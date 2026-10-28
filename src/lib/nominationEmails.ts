@@ -48,6 +48,12 @@ async function sendAlert(
     idempotencyKey?: string;
   },
 ): Promise<void> {
+  // Trava final (pedido 2026-10-28): Logística de Pessoal nunca recebe alertas, por nenhum caminho.
+  const bloqueado = (e: string) => e.trim().toLowerCase() === "logisticapessoal@step-og.com";
+  const destinos = [to, ...cc].filter((e) => e && !bloqueado(e));
+  if (destinos.length === 0) return;
+  to = destinos[0];
+  cc = Array.from(new Set(destinos.slice(1))).filter((e) => e !== to);
   const templateId = alertTemplateId();
   if (!templateId) {
     console.warn("VITE_RESEND_ALERT_TEMPLATE_ID não configurado — alerta não enviado:", tituloAlerta);
