@@ -35,6 +35,7 @@ import { pageTitle } from "@/lib/pageTitle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HistogramaOffshoreNovo } from "@/components/histograma/HistogramaOffshoreNovo";
 import { NominationsPage } from "@/components/nominations/NominationsPage";
+import { NominationObservations } from "@/components/nominations/NominationObservations";
 import {
   CreateNominationDialog, useNominationFormData, uploadScopeDocument, currentAuthUserId,
   SCOPE_DOCUMENT_TYPES, SCOPE_BUCKET,
@@ -312,8 +313,8 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
                 </button>
               </div>
             )}
-            {nom.notes && <div className="col-span-2 text-muted-foreground italic">{nom.notes}</div>}
           </div>
+          <NominationObservations nomination={nom} />
 
           {nom.requires_quality_validation
             && ALL_STATUSES.indexOf(nom.current_status) > ALL_STATUSES.indexOf("validacao_qualidade") && (

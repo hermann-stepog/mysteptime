@@ -48,6 +48,7 @@ import {
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
+import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -2042,11 +2043,6 @@ function ManageDialog({
                   <span className="font-medium">{nomination.client}</span>
                 </div>
               )}
-              {nomination.notes && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground">Notas:</span> {nomination.notes}
-                </div>
-              )}
               {nomination.outcome === "cancelada" && nomination.cancel_reason && (
                 <div className="col-span-2">
                   <span className="text-muted-foreground">Motivo do cancelamento:</span>{" "}
@@ -2365,6 +2361,7 @@ function ManageDialog({
             )}
           </TabsContent>
         </Tabs>
+        <NominationObservations nomination={nomination} />
       </DialogContent>
     </Dialog>
   );
