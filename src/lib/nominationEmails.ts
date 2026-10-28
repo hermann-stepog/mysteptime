@@ -158,7 +158,7 @@ async function stageAnswers(nomination: Nomination): Promise<string[]> {
 // Fluxo definido pelo usuário (2026-10-27) para reduzir volume: um único destino por etapa.
 // Endereços fixos = caixas de cada área; null = papel (Aprovação Técnica); "pm" = PM solicitante.
 const STAGE_RECIPIENTS: Partial<Record<NominationStatus, { fixed?: string; role?: string; pm?: boolean }>> = {
-  solicitacao: { fixed: "logisticapessoal@step-og.com" },
+  // solicitacao: removido — Logística de Pessoal não recebe mais alertas (pedido 2026-10-28).
   aprovacao_tecnica: { role: "aprovacao_tecnica" },
   validacao_sms_aso: { fixed: "sms@step-og.com" },
   validacao_rh: { fixed: "dp@step-og.com" },
@@ -262,8 +262,9 @@ export async function notifyCancellation(nomination: Nomination, reason: string 
 // Recusa por Projetos ADM (Paulo Nunes): avisa o solicitante (PM) e a Logística.
 export async function notifyRefusal(nomination: Nomination, reason: string | null): Promise<void> {
   try {
-    const [pm, logistica] = await Promise.all([pmEmail(nomination), emailsForRole("logistics_operator")]);
-    const todos = Array.from(new Set([...(pm ? [pm] : []), ...logistica]))
+    // Logística de Pessoal não recebe mais alertas (pedido 2026-10-28): só o PM.
+    const pm = await pmEmail(nomination);
+    const todos = Array.from(new Set([...(pm ? [pm] : [])]))
       .filter((e) => !NUNCA_RECEBEM.includes(e.toLowerCase()));
     if (todos.length === 0) return;
     await sendAlert({
@@ -341,6 +342,8 @@ export async function notifyAptitudePendency(
 // criadas juntas, em vez de um e-mail por cartão. Chave estável = primeiro cartão do lote.
 export async function notifyRequestCreated(nominations: Nomination[]): Promise<void> {
   try {
+    // Pedido da usuária (2026-10-28): Logística de Pessoal não recebe mais alertas.
+    if (!STAGE_RECIPIENTS.solicitacao) return;
     if (nominations.length === 0) return;
     if (nominations.length === 1) return notifyStageAdvance(nominations[0], "solicitacao");
     const first = nominations[0];
