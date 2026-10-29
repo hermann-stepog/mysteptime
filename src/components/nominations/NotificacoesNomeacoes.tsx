@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Bell, CheckCheck, XCircle } from "lucide-react";
@@ -39,6 +39,11 @@ export function useNotificacoesNomeacoes() {
   const userId = user?.id ?? null;
   const ativo = !!userId && NOTIFICACOES_NOMEACOES_ROLES.includes(role ?? "");
   const qc = useQueryClient();
+  // Canal com nome único por uso do hook: o sino do topo, a página e a aba usam isto ao mesmo
+  // tempo, e o supabase.channel() devolve o canal JÁ inscrito quando o nome se repete — aí o
+  // .on() seguinte lança erro ("cannot add postgres_changes callbacks after subscribe()") e
+  // derrubava a página de Nomeações.
+  const instancia = useId();
 
   const query = useQuery<NotificacaoNomeacao[]>({
     queryKey: ["notificacoes-nomeacoes", userId],
@@ -62,7 +67,7 @@ export function useNotificacoesNomeacoes() {
   useEffect(() => {
     if (!ativo) return;
     const canal = supabase
-      .channel(`notificacoes-nomeacoes-${userId}`)
+      .channel(`notificacoes-nomeacoes-${userId}-${instancia}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
@@ -72,7 +77,7 @@ export function useNotificacoesNomeacoes() {
     return () => {
       void supabase.removeChannel(canal);
     };
-  }, [ativo, userId, qc]);
+  }, [ativo, userId, qc, instancia]);
 
   const marcarLidas = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -103,9 +108,9 @@ export function SinoNotificacoesNomeacoes({ className }: { className?: string })
       }
       className={cn("relative shrink-0 transition-colors", className)}
     >
-      <Bell className="h-5 w-5" />
+      <Bell className="h-6 w-6" />
       {naoLidas > 0 && (
-        <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[#0f2744]">
+        <span className="absolute -right-2.5 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold leading-none text-white ring-2 ring-[#0f2744]">
           {naoLidas > 99 ? "99+" : naoLidas}
         </span>
       )}
