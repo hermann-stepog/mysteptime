@@ -1,5 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Fragment, createContext, useContext } from "react";
-import type { ReactNode } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from "recharts";
@@ -50,6 +49,7 @@ import {
 import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
+import { EditGroupDialog } from "@/components/nominations/EditarSolicitacaoDialog";
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
@@ -115,6 +115,7 @@ import {
   ArrowLeft,
   Stethoscope,
   Bell,
+  Pencil,
   X,
   UserPlus,
   Check,
@@ -1678,14 +1679,6 @@ function EnviarGrupoParaLogistica({ items, onDone }: { items: Nomination[]; onDo
   return null;
 }
 
-// Edição da solicitação pelo próprio Solicitante (PM) direto do card do kanban, enquanto ainda
-// está em "Solicitação" (pedido dela, 2026-10-28). O formulário de edição mora na Área do
-// Solicitante (src/routes/pm/index.tsx, que importa esta página) — ela fornece o renderizador
-// por contexto, pra não criar import circular.
-export const EditarSolicitacaoContext = createContext<
-  ((items: Nomination[], close: () => void) => ReactNode) | null
->(null);
-
 function ManageDialog({
   nomination: initialNomination,
   onClose,
@@ -1699,7 +1692,6 @@ function ManageDialog({
   const qc = useQueryClient();
   const registrarLog = useRegistrarLog("nomeacoes");
   const [tab, setTab] = useState("detalhes");
-  const renderEditarSolicitacao = useContext(EditarSolicitacaoContext);
   const [editandoSolicitacao, setEditandoSolicitacao] = useState(false);
   const advance = useAdvanceStage();
   // Nunca usar initialNomination além do fallback/id — ela é só o retrato de quando o card
@@ -1730,6 +1722,14 @@ function ManageDialog({
   // Grupo completo (esta função + irmãs) — a Simulação precisa de todas de uma vez, pra
   // selecionar candidatos de cada função sem sair e voltar ao modo recrutamento por função.
   const grupoCompleto = [nomination, ...groupSiblings];
+  const podeEditarComoPm =
+    nomination.current_status === "solicitacao" &&
+    role === "pm" &&
+    (!nomination.pm_user_id || nomination.pm_user_id === user?.id);
+  const podeEditarComoLogistica =
+    canOperate &&
+    (nomination.current_status === "solicitacao" ||
+      nomination.current_status === "recebido_logistica");
 
   const { data: history = [] } = useQuery<NominationStatusHistory[]>({
     queryKey: ["nominations", nomination.id, "history"],
@@ -2195,25 +2195,28 @@ function ManageDialog({
             <Separator />
 
             <div className="space-y-3">
-              {nomination.current_status === "solicitacao" &&
-                role === "pm" &&
-                renderEditarSolicitacao &&
-                (!nomination.pm_user_id || nomination.pm_user_id === user?.id) && (
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setEditandoSolicitacao(true)}>
-                      Editar solicitação
-                    </Button>
-                    {groupSiblings.length === 0 && (
-                      <EnviarParaLogisticaButton items={grupoCompleto} onDone={onClose} />
-                    )}
-                  </div>
-                )}
-              {editandoSolicitacao &&
-                renderEditarSolicitacao &&
-                renderEditarSolicitacao(
-                  grupoCompleto.filter((n) => n.current_status === "solicitacao"),
-                  () => setEditandoSolicitacao(false),
-                )}
+              {/* Editar solicitação: o Solicitante (PM) edita a própria enquanto está em
+                  "Solicitação" (pedido dela, 2026-10-28); a Logística de Pessoal edita em
+                  "Solicitação" e "Logística de Pessoal" (pedido dela, 2026-10-29). */}
+              {(podeEditarComoPm || podeEditarComoLogistica) && (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setEditandoSolicitacao(true)}>
+                    <Pencil className="mr-1.5 h-3.5 w-3.5" /> Editar solicitação
+                  </Button>
+                  {podeEditarComoPm && groupSiblings.length === 0 && (
+                    <EnviarParaLogisticaButton items={grupoCompleto} onDone={onClose} />
+                  )}
+                </div>
+              )}
+              {editandoSolicitacao && (
+                <EditGroupDialog
+                  items={grupoCompleto.filter(
+                    (n) => n.current_status === nomination.current_status,
+                  )}
+                  onClose={() => setEditandoSolicitacao(false)}
+                  onSaved={() => setEditandoSolicitacao(false)}
+                />
+              )}
               {/* Com várias funções na mesma solicitação, o envio é pela lista de funções do card
                   (EnviarGrupoParaLogistica), todas de uma vez. */}
               {nomination.current_status === "solicitacao" &&
