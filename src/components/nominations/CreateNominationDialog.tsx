@@ -126,6 +126,20 @@ export function useNominationFormData() {
   // POB (ehUnidadeNaoOperacional exclui os status; toDisplayCase agrupa grafias diferentes da
   // mesma unidade numa só entrada) antes de virar lista.
   const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  const { data: bspsFixas = {} } = useQuery<Record<string, string[]>>({
+    queryKey: ["nomination-bsps-unidades-fixas"],
+    queryFn: async () => {
+      const pares = await Promise.all(
+        UNIDADES_FIXAS.map(async (u) => {
+          const { data, error } = await supabase.rpc("nomination_bsps_unidade", { p_unidade: u });
+          // Sem a função no banco ainda, a unidade só fica sem BSPs sugeridas.
+          if (error) return [u, []] as const;
+          return [u, (data ?? []).map((r: { bsp: string }) => r.bsp)] as const;
+        }),
+      );
+      return Object.fromEntries(pares);
+    },
+  });
   const unidadeGroups = useMemo(() => {
     const m = new Map<string, { display: string; bsps: Set<string> }>();
     planejamentoEmbarque.forEach((row) => {
@@ -140,13 +154,16 @@ export function useNominationFormData() {
       if (bsp) m.get(key)!.bsps.add(bsp);
     });
     // Unidades que entram na lista mesmo sem ninguém no Planejamento ainda (pedido dela,
-    // 2026-10-29: "Bravo"). A BSP dela vai por "+ Inserir nova BSP".
+    // 2026-10-29: "Bravo"), com as BSPs que já existem no sistema pra elas (histórico do
+    // Planejamento, Histograma, Timesheet, nomeações — RPC nomination_bsps_unidade). Se faltar
+    // alguma, segue valendo o "+ Inserir nova BSP".
     UNIDADES_FIXAS.forEach((display) => {
       const key = display.toUpperCase();
       if (!m.has(key)) m.set(key, { display, bsps: new Set() });
+      (bspsFixas[display] ?? []).forEach((b) => m.get(key)!.bsps.add(b));
     });
     return m;
-  }, [planejamentoEmbarque]);
+  }, [planejamentoEmbarque, bspsFixas]);
 
   const unidadeOptions = useMemo(
     () =>

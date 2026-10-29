@@ -206,6 +206,22 @@
   animation: var(--animate-shimmer);
 }
 
+/* Card de Nomeações devolvido pra correção (pedido dela, 2026-10-29): pisca em vermelho até ser
+   corrigido e avançado de novo. Só a borda/sombra pisca — o texto do card continua legível. */
+@keyframes card-retrocedido {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgb(220 38 38 / 0.95), 0 0 14px 2px rgb(220 38 38 / 0.45);
+    background-color: rgb(254 242 242);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgb(220 38 38 / 0.15), 0 0 0 0 rgb(220 38 38 / 0);
+    background-color: var(--background);
+  }
+}
+.card-retrocedido {
+  animation: card-retrocedido 1.2s ease-in-out infinite;
+}
+
 /* Usuário pediu pra reduzir/desligar animação (SO ou navegador) — zera durações em vez de
    remover as classes, pra qualquer lógica que espere um evento transitionend/animationend
    (ex.: Radix fechando um modal) continuar dependente do estado, só sem o movimento visual. */

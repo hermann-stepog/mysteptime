@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment, createContext, useContext } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from "recharts";
@@ -50,6 +50,11 @@ import { cn, matchesNameSearch } from "@/lib/utils";
 import { QualificationEligibilityTab } from "@/components/nominations/QualificationEligibilityTab";
 import { CreateNominationDialog } from "@/components/nominations/CreateNominationDialog";
 import { EditGroupDialog } from "@/components/nominations/EditarSolicitacaoDialog";
+import {
+  DashboardNomeacoes,
+  useHistoricoNomeacoes,
+} from "@/components/nominations/DashboardNomeacoes";
+import { nomeacoesRetrocedidas } from "@/lib/nominationIndicadores";
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
@@ -115,6 +120,7 @@ import {
   ArrowLeft,
   Stethoscope,
   Bell,
+  BarChart3,
   Pencil,
   X,
   UserPlus,
@@ -504,6 +510,38 @@ function AprovacaoTecnicaSection({
   const limite = Math.max(1, nomination.quantidade || 1);
   const limiteAtingido = selecionados.length >= limite;
 
+  // Aprovação parcial por quantidade (pedido dela, 2026-10-29): aprovou menos que o pedido →
+  // pergunta se o saldo vira uma nova pendência da mesma solicitação, de volta na Simulação
+  // (RPC nomination_aprovacao_parcial), ou se segue só com quem foi aprovado.
+  const [perguntarSaldo, setPerguntarSaldo] = useState(false);
+  const saldo = limite - selecionados.length;
+
+  const avancar = () =>
+    advance.mutate({
+      nomination,
+      target: "validacao_sms_aso",
+      note: `${selecionados.length} nomeado(s) selecionado(s)`,
+    });
+
+  const aprovarParcial = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("nomination_aprovacao_parcial", {
+        p_id: nomination.id,
+        p_aprovados: selecionados.length,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      notify.success(
+        `${selecionados.length} aprovado(s) seguem; saldo de ${saldo} voltou para a Simulação.`,
+      );
+      setPerguntarSaldo(false);
+      qc.invalidateQueries({ queryKey: ["nominations"] });
+      avancar();
+    },
+    onError: (err: Error) => notify.error(err.message),
+  });
+
   const confirmar = () => {
     if (selecionados.length === 0) {
       notify.error("Selecione ao menos um candidato antes de avançar.");
@@ -513,11 +551,11 @@ function AprovacaoTecnicaSection({
       notify.error(`A solicitação pede ${limite} — desmarque ${selecionados.length - limite} antes de avançar.`);
       return;
     }
-    advance.mutate({
-      nomination,
-      target: "validacao_sms_aso",
-      note: `${selecionados.length} nomeado(s) selecionado(s)`,
-    });
+    if (selecionados.length < limite) {
+      setPerguntarSaldo(true);
+      return;
+    }
+    avancar();
   };
 
   return (
@@ -589,10 +627,45 @@ function AprovacaoTecnicaSection({
           );
         })}
       </div>
-      {canAct && nomination.current_status === "aprovacao_tecnica" && (
+      {canAct && nomination.current_status === "aprovacao_tecnica" && !perguntarSaldo && (
         <Button size="sm" onClick={confirmar} loading={advance.isPending}>
           <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Confirmar seleção e avançar para Validação SMS (ASO)
         </Button>
+      )}
+      {canAct && nomination.current_status === "aprovacao_tecnica" && perguntarSaldo && (
+        <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">
+            Aprovação parcial: {selecionados.length} de {limite} {nomination.funcao}.
+          </p>
+          <p className="text-xs">
+            Os {selecionados.length} aprovado(s) seguem para a Validação SMS (ASO). O que fazer com
+            o saldo de {saldo}?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={() => aprovarParcial.mutate()}
+              loading={aprovarParcial.isPending || advance.isPending}
+            >
+              Aprovar {selecionados.length} e devolver {saldo} para a Simulação
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={aprovarParcial.isPending}
+              loading={advance.isPending && !aprovarParcial.isPending}
+              onClick={() => {
+                setPerguntarSaldo(false);
+                avancar();
+              }}
+            >
+              Seguir só com {selecionados.length} (sem saldo)
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPerguntarSaldo(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2246,18 +2319,22 @@ function ManageDialog({
                   <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Iniciar Simulação
                 </Button>
               )}
-              {nomination.current_status === "simulacao" && canOperate && (
+              {nomination.current_status === "simulacao" &&
+                canOperate &&
+                groupSiblings.length === 0 && (
                 <Button
                   size="sm"
-                  onClick={() => {
-                    advance.mutate({ nomination, target: "aprovacao_tecnica" });
-                    advanceGroupTo("aprovacao_tecnica");
-                  }}
+                  onClick={() => advance.mutate({ nomination, target: "aprovacao_tecnica" })}
                   loading={advance.isPending}
                 >
                   <ArrowRight className="mr-1.5 h-3.5 w-3.5" /> Enviar para Aprovação Técnica
                 </Button>
               )}
+              {nomination.current_status === "simulacao" &&
+                canOperate &&
+                groupSiblings.length > 0 && (
+                  <EnviarParaTecnicaParcial items={grupoCompleto} onDone={onClose} />
+                )}
               {canOperate && showRevert && earlierStages.length > 0 && (
                 <>
                   <Separator />
@@ -2548,6 +2625,134 @@ function ManageDialog({
 // da solicitação avança antes das outras, ela sai desse card e forma um novo card sozinha na
 // coluna seguinte — o agrupamento é sempre por coluna, nunca cruza status diferentes.
 
+// Aprovação parcial por função (pedido dela, 2026-10-29): num card com várias funções, a
+// Logística escolhe quais já seguem da Simulação pra Aprovação Técnica — as que ainda não têm
+// gente disponível ficam na Simulação, no mesmo card, até serem enviadas depois. Funções sem
+// nenhum candidato no efetivo vêm desmarcadas.
+function EnviarParaTecnicaParcial({
+  items,
+  onDone,
+}: {
+  items: Nomination[];
+  onDone: () => void;
+}) {
+  const advance = useAdvanceStage();
+  const ids = items.map((n) => n.id);
+  const { data: candidatos } = useQuery<Map<string, number>>({
+    queryKey: ["nominations", "candidatos-por-funcao", ids.join(",")],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("nomination_nominees")
+        .select("nomination_id")
+        .in("nomination_id", ids)
+        .eq("is_active", true);
+      if (error) throw error;
+      const m = new Map<string, number>();
+      (data ?? []).forEach((r: { nomination_id: string }) =>
+        m.set(r.nomination_id, (m.get(r.nomination_id) ?? 0) + 1),
+      );
+      return m;
+    },
+  });
+  const [marcadas, setMarcadas] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (candidatos && marcadas === null) {
+      setMarcadas(new Set(ids.filter((id) => (candidatos.get(id) ?? 0) > 0)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidatos]);
+  const selecao = marcadas ?? new Set<string>();
+  const [enviando, setEnviando] = useState(false);
+
+  const enviar = async () => {
+    const escolhidas = items.filter((n) => selecao.has(n.id));
+    if (escolhidas.length === 0) return;
+    setEnviando(true);
+    try {
+      for (const n of escolhidas) {
+        await advance.mutateAsync({
+          nomination: n,
+          target: "aprovacao_tecnica",
+          note:
+            escolhidas.length < items.length
+              ? `Enviada para Aprovação Técnica (parcial: ${escolhidas.length} de ${items.length} funções)`
+              : undefined,
+        });
+      }
+      notify.success(
+        escolhidas.length < items.length
+          ? `${escolhidas.length} de ${items.length} funções enviadas; as demais seguem na Simulação.`
+          : "Todas as funções enviadas para Aprovação Técnica.",
+      );
+      onDone();
+    } catch {
+      // useAdvanceStage já mostra o erro.
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="text-sm font-medium">Enviar para Aprovação Técnica</p>
+      <p className="text-xs text-muted-foreground">
+        Marque as funções que já podem seguir. As desmarcadas ficam na Simulação, neste mesmo card.
+      </p>
+      <div className="max-h-48 space-y-1 overflow-y-auto">
+        {items.map((n) => {
+          const qtd = candidatos?.get(n.id) ?? 0;
+          return (
+            <label
+              key={n.id}
+              className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/60"
+            >
+              <span className="flex items-center gap-2">
+                <Checkbox
+                  checked={selecao.has(n.id)}
+                  onCheckedChange={(v) =>
+                    setMarcadas((atual) => {
+                      const nova = new Set(atual ?? []);
+                      if (v) nova.add(n.id);
+                      else nova.delete(n.id);
+                      return nova;
+                    })
+                  }
+                />
+                {n.funcao}
+                {n.quantidade > 1 && (
+                  <span className="text-muted-foreground">×{n.quantidade}</span>
+                )}
+              </span>
+              <span
+                className={cn(
+                  "shrink-0 text-xs",
+                  qtd === 0 ? "font-medium text-amber-700" : "text-muted-foreground",
+                )}
+              >
+                {candidatos === undefined
+                  ? "…"
+                  : qtd === 0
+                    ? "sem candidatos ainda"
+                    : `${qtd} candidato(s)`}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <Button size="sm" onClick={enviar} loading={enviando} disabled={selecao.size === 0}>
+        <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
+        {selecao.size === items.length
+          ? "Enviar todas para Aprovação Técnica"
+          : `Enviar ${selecao.size} de ${items.length} para Aprovação Técnica`}
+      </Button>
+    </div>
+  );
+}
+
+// Funções devolvidas pra correção (id → etapa de onde voltaram) — o card pisca até avançar de
+// novo (pedido dela, 2026-10-29). Calculado uma vez no KanbanBoard a partir do histórico.
+const RetrocedidasContext = createContext<Map<string, string>>(new Map());
+
 function NominationCard({
   items,
   highlighted,
@@ -2559,6 +2764,10 @@ function NominationCard({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const first = items[0];
+  const retrocedidas = useContext(RetrocedidasContext);
+  const voltouDe = items.map((n) => retrocedidas.get(n.id)).find(Boolean) as
+    | NominationStatus
+    | undefined;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: first.id,
   });
@@ -2598,8 +2807,16 @@ function NominationCard({
         onClick={() => (isGroup ? setPickerOpen(true) : onOpen(first))}
         className={`cursor-grab animate-in fade-in zoom-in-95 rounded-lg border bg-background p-3.5 shadow-sm duration-300 transition-shadow active:cursor-grabbing hover:shadow-md ${
           isDragging ? "opacity-40" : ""
-        } ${highlighted ? "ring-2 ring-primary" : ""}`}
+        } ${highlighted ? "ring-2 ring-primary" : ""} ${voltouDe ? "card-retrocedido" : ""}`}
       >
+        {voltouDe && (
+          <span
+            className="mb-1.5 inline-flex items-center gap-1 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+            title={`Devolvido de ${STATUS_LABELS[voltouDe] ?? voltouDe} — pisca até ser corrigido e avançado de novo`}
+          >
+            <ArrowLeft className="h-3 w-3" /> Devolvido para correção
+          </span>
+        )}
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold leading-tight">{requestTitle(first)}</p>
           <div className="flex shrink-0 items-start gap-1">
@@ -2856,6 +3073,11 @@ function KanbanBoard({
   const { role } = useAuth();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const advance = useAdvanceStage();
+  const { data: historico = [] } = useHistoricoNomeacoes(nominations);
+  const retrocedidas = useMemo(
+    () => nomeacoesRetrocedidas(nominations, historico),
+    [nominations, historico],
+  );
 
   // Barra de rolagem horizontal espelhada no topo do board — sem isso, pra rolar os lados era
   // preciso descer até o fim das colunas (que são bem altas) pra achar a barra nativa lá
@@ -2975,6 +3197,7 @@ function KanbanBoard({
   };
 
   return (
+    <RetrocedidasContext.Provider value={retrocedidas}>
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       {/* Board com N colunas de min-w-[300px]+ facilmente passa de 1500px — sem isso a página
           estourava horizontalmente em telas mais estreitas. Kanban com rolagem horizontal é
@@ -3011,6 +3234,7 @@ function KanbanBoard({
         )}
       </div>
     </DndContext>
+    </RetrocedidasContext.Provider>
   );
 }
 
@@ -6684,6 +6908,9 @@ export function NominationsPage({
         {!onlyKanban && (
           <TabsList>
             <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+            <TabsTrigger value="dashboard">
+              <BarChart3 className="mr-1.5 h-3.5 w-3.5" /> Dashboard
+            </TabsTrigger>
             <TabsTrigger value="clientes">
               <Building2 className="mr-1.5 h-3.5 w-3.5" /> Equipes Embarcadas
             </TabsTrigger>
@@ -6716,6 +6943,13 @@ export function NominationsPage({
               onOpen={setSelected}
               onVerNoKanban={verNoKanban}
             />
+          </TabsContent>
+        )}
+
+        {/* ── Dashboard: tempos médios e nomeações por unidade (pedido dela, 2026-10-29) ── */}
+        {!onlyKanban && (
+          <TabsContent value="dashboard" className="pt-4">
+            <DashboardNomeacoes nominations={nominations} />
           </TabsContent>
         )}
 
