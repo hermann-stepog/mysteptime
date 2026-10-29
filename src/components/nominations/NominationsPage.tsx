@@ -2614,12 +2614,7 @@ function NominationCard({
             </p>
           ))}
         </div>
-        {first.pm_name && (
-          <p className="mt-1 text-xs">
-            <span className="text-muted-foreground">Solicitante:</span>{" "}
-            <span className="font-medium">{first.pm_name}</span>
-          </p>
-        )}
+        {/* Só o PM no card (pedido dela, 2026-10-29) — o Solicitante continua no detalhe. */}
         {first.pm_responsavel && (
           <p className="mt-1 text-xs">
             <span className="text-muted-foreground">PM:</span>{" "}
