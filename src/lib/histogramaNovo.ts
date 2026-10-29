@@ -381,6 +381,66 @@ export function bspOptionsForUnidade(periodos: HistNovoPeriodo[], unidade: strin
   return Array.from(new Set(bsps)).sort();
 }
 
+// Filtro de Unidade/BSP da aba Histograma (pedido dela, 2026-10-29: o filtro estava misturando
+// gente). A mesma BSP aparece gravada como "BSP 25-1032" e "25-1032" conforme a origem —
+// chaveBsp junta as duas grafias só pra comparar/listar no filtro, sem alterar nada gravado.
+export function chaveBsp(b: string | null | undefined): string | null {
+  const limpo = (b ?? "").replace(/^\s*BSP\s*/i, "").trim().toUpperCase();
+  return limpo || null;
+}
+
+export function bspOptionsHistograma(periodos: HistNovoPeriodo[], unidades: string[]): string[] {
+  const chaves = bspOptionsForUnidade(periodos, unidades)
+    .map(chaveBsp)
+    .filter((b): b is string => !!b);
+  return Array.from(new Set(chaves)).sort();
+}
+
+// O período está na unidade (canônica) e/ou BSP (chaveBsp) escolhidas — lista vazia = qualquer.
+export function periodoNoFiltroUnidadeBsp(
+  p: Pick<HistNovoPeriodo, "unidade_operacional" | "bsp" | "centro_de_custo">,
+  unidades: string[],
+  bsps: string[],
+  canonMap: Map<string, string>,
+): boolean {
+  if (unidades.length && !unidades.includes(canonUnidade(p.unidade_operacional, canonMap) ?? "")) return false;
+  if (bsps.length && !bsps.includes(chaveBsp(bspDoPeriodo(p as HistNovoPeriodo)) ?? "")) return false;
+  return true;
+}
+
+// Só embarque de verdade (Embarcado ou Dobra) coloca a pessoa na unidade/BSP filtrada — Folga,
+// Standby, Hotel etc. às vezes vêm do Drake marcados com a unidade/centro de custo do último
+// embarque e puxavam gente que não estava lá.
+export function embarcouNoFiltroUnidadeBsp(
+  periodos: HistNovoPeriodo[],
+  unidades: string[],
+  bsps: string[],
+  canonMap: Map<string, string>,
+  de: string,
+  ate: string,
+): boolean {
+  return periodos.some(
+    (p) =>
+      (p.tipo === "E" || p.tipo === "DB") &&
+      p.data_fim >= de &&
+      p.data_inicio <= ate &&
+      periodoNoFiltroUnidadeBsp(p, unidades, bsps, canonMap),
+  );
+}
+
+// Célula da grade em OUTRA unidade/BSP (com o filtro ativo) — fica esmaecida. Período sem
+// unidade nem BSP (ex.: folga sem centro de custo) não é "outro lugar" e fica normal.
+export function periodoForaDoFiltroUnidadeBsp(
+  p: HistNovoPeriodo | null | undefined,
+  unidades: string[],
+  bsps: string[],
+  canonMap: Map<string, string>,
+): boolean {
+  if (!p || (unidades.length === 0 && bsps.length === 0)) return false;
+  if (!p.unidade_operacional && !bspDoPeriodo(p)) return false;
+  return !periodoNoFiltroUnidadeBsp(p, unidades, bsps, canonMap);
+}
+
 // Escolhe texto branco ou escuro conforme a luminância da cor de fundo, para manter contraste
 // legível. Caso especial: o fundo do STB usa cinza médio em vez do escuro padrão.
 export function getContrastText(hex: string): string {
