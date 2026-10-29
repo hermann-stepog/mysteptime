@@ -4151,12 +4151,22 @@ export type Database = {
         Returns: Json
       }
       mysteptime_histogram_weeks: { Args: { p_cutoff: string }; Returns: Json }
+      nomination_etapa_nome: { Args: { p_status: string }; Returns: string }
+      nomination_etapa_ordem: { Args: { p_status: string }; Returns: number }
       nomination_funcoes_planejamento: {
         Args: never
         Returns: {
           atual: boolean
           funcao: string
         }[]
+      }
+      nomination_notificar_logistica_inserir: {
+        Args: {
+          p_detalhe?: string
+          p_nom: Database["public"]["Tables"]["nominations"]["Row"]
+          p_titulo: string
+        }
+        Returns: undefined
       }
       nomination_pm_enviar_logistica: {
         Args: { p_ids: string[] }

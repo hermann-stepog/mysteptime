@@ -79,6 +79,10 @@ export async function synchronizeCurrentDrakeAnnualPositions(
 
   // A carga não cria pessoas: espelha somente quem já pertence ao Histograma.
   // A lista é congelada antes de qualquer gravação e cruzada com os ATIVOS do Drake.
+  // Cadastros desativados por uma carga anterior (o Drake não listou a pessoa como ATIVA naquele
+  // momento) voltam a ser espelhados quando o Drake os lista como ATIVOS de novo. Só esta
+  // sincronização desativa cadastros, então reativar aqui só desfaz o que ela mesma fez.
+  await reactivateDrakeActiveWorkers(db, activeWorkers);
   const histogramWorkerKeys = await loadActiveHistogramWorkerKeys(db);
 
   // Cadastra em hist_novo_colaboradores quem ainda não existe — só o cadastro (aparece na busca
@@ -530,6 +534,33 @@ async function synchronizeDrakeWorkerActiveFlags(
       .update({ ativo: false })
       .in("id", batch);
 
+    if (error) throw error;
+  }
+}
+
+async function reactivateDrakeActiveWorkers(
+  db: SupabaseClient,
+  activeWorkers: Awaited<ReturnType<typeof fetchDrakeWorkers>>,
+): Promise<void> {
+  const activeKeys = new Set(
+    activeWorkers
+      .filter((w) => w.companyName?.trim() && w.registration?.trim())
+      .map((w) => buildWorkerKey(w.companyName, w.registration)),
+  );
+  const inactive = await selectAllPages<{ id: string; empresa: string | null; matricula: string }>(
+    (from, to) =>
+      db
+        .from("hist_novo_colaboradores")
+        .select("id, empresa, matricula")
+        .eq("ativo", false)
+        .order("id", { ascending: true })
+        .range(from, to),
+  );
+  const ids = inactive
+    .filter((row) => row.empresa?.trim() && activeKeys.has(buildWorkerKey(row.empresa, row.matricula)))
+    .map((row) => row.id);
+  for (const batch of chunkEligibilityIds(ids, 200)) {
+    const { error } = await db.from("hist_novo_colaboradores").update({ ativo: true }).in("id", batch);
     if (error) throw error;
   }
 }
