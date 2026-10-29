@@ -3040,6 +3040,18 @@ function KanbanView({
   );
 }
 
+// Junta numa mesma linha as viagens do mesmo car_number (já vêm ordenadas por número) — cada
+// número vira uma linha do Programado.
+function linhasPorCarro(list: Trip[]): Trip[][] {
+  const linhas: Trip[][] = [];
+  for (const t of list) {
+    const ultima = linhas[linhas.length - 1];
+    if (ultima && ultima[0].car_number === t.car_number) ultima.push(t);
+    else linhas.push([t]);
+  }
+  return linhas;
+}
+
 function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplicate }: any) {
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
@@ -3178,132 +3190,139 @@ function DayView({ trips, tagsById, collabsById, materialsById, onEdit, onDuplic
                   <h3 className="text-sm font-semibold">{car}</h3>
                   <span className="text-xs text-muted-foreground">{list.length} viagem(ns)</span>
                 </div>
-                {/* Colunas em vez de grid (pedido dela, 2026-10-28): a ordem corre de cima pra
-                    baixo — Future 1, 2, 3, 4 um embaixo do outro na 1ª coluna, depois a 2ª —
-                    como era quando cada carro tinha seu próprio grupo. */}
-                <div className="gap-3 sm:columns-2 lg:columns-3">
-                  {list.map((t) => (
-                    <Card
-                      key={t.id}
-                      className={cn(
-                        "mb-3 break-inside-avoid p-3 cursor-pointer hover:border-primary/40 border-l-4",
-                        STATUS_BORDER[t.status],
-                      )}
-                      onClick={() => onEdit(t)}
+                {/* Um carro por linha, um embaixo do outro (pedido dela, 2026-10-28 — voltou a
+                    ser como era): Future 1, Future 2, Future 3... Só fica lado a lado quando o
+                    mesmo número se repete no dia (ex.: Embarque e Desembarque do Future 2). */}
+                <div className="space-y-3">
+                  {linhasPorCarro(list).map((linha) => (
+                    <div
+                      key={linha[0].id}
+                      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <div className="font-semibold">{t.car_number}</div>
-                        </div>
-                        <StatusBadge status={t.status} />
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Intl.DateTimeFormat("pt-BR", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                        }).format(new Date(t.scheduled_at))}{" "}
-                        · {t.tipo === "material" ? "Material" : "Pessoas"}
-                        {t.cliente ? ` · ${t.cliente}` : ""}
-                      </div>
-                      {t.tipo_transporte && (
-                        <div className="mt-1">
-                          <span className="inline-block rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                            {t.tipo_transporte}
-                          </span>
-                        </div>
-                      )}
-                      {(t.departure_time || t.arrival_time) && (
-                        <div className="text-[11px] text-muted-foreground">
-                          {t.departure_time && <span>Partida: {t.departure_time}</span>}
-                          {t.departure_time && t.arrival_time && <span> · </span>}
-                          {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
-                        </div>
-                      )}
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {t.tags.length > 0
-                          ? t.tags.map((x) => {
-                              const tag = tagsById.get(x.tag_id);
-                              return (
-                                tag && (
-                                  <span
-                                    key={x.tag_id}
-                                    className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
-                                    style={{ backgroundColor: tag.color }}
-                                  >
-                                    {tag.name}
-                                  </span>
-                                )
-                              );
-                            })
-                          : t.motivo && (
-                              <span
-                                className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
-                                style={{ backgroundColor: corDoMotivo(t.motivo) }}
-                              >
-                                {t.motivo}
+                      {linha.map((t) => (
+                        <Card
+                          key={t.id}
+                          className={cn(
+                            "p-3 cursor-pointer hover:border-primary/40 border-l-4",
+                            STATUS_BORDER[t.status],
+                          )}
+                          onClick={() => onEdit(t)}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="font-semibold">{t.car_number}</div>
+                            </div>
+                            <StatusBadge status={t.status} />
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {new Intl.DateTimeFormat("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            }).format(new Date(t.scheduled_at))}{" "}
+                            · {t.tipo === "material" ? "Material" : "Pessoas"}
+                            {t.cliente ? ` · ${t.cliente}` : ""}
+                          </div>
+                          {t.tipo_transporte && (
+                            <div className="mt-1">
+                              <span className="inline-block rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                {t.tipo_transporte}
                               </span>
-                            )}
-                      </div>
-                      {[t.bsp, t.bsp_2, t.bsp_3].some(Boolean) && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).map((b, i) => (
-                            <span
-                              key={`bsp-${i}`}
-                              className="inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground"
-                            >
-                              BSP: {b}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {custoTotal(t) != null && (
-                        <div className="mt-1">
-                          <span className="inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
-                            Valor: {fmtMoney(custoTotal(t)!)}
-                          </span>
-                        </div>
-                      )}
-                      <div className="mt-2 text-sm">
-                        {[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")}{" "}
-                        <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" />{" "}
-                        {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}
-                      </div>
-                      {t.tipo === "pessoas" && t.collabs.length > 0 && (
-                        <div className="mt-1 text-xs text-muted-foreground truncate">
-                          {t.collabs
-                            .map((c: any) => collabsById.get(c.collaborator_id)?.full_name)
-                            .filter(Boolean)
-                            .join(", ")}
-                        </div>
-                      )}
-                      {t.tipo === "material" && t.materials.length > 0 && (
-                        <div className="mt-1 text-xs text-muted-foreground truncate">
-                          {t.materials
-                            .map((m: any) => {
-                              const mat = materialsById.get(m.material_id);
-                              return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null;
-                            })
-                            .filter(Boolean)
-                            .join(", ")}
-                        </div>
-                      )}
-                      {onDuplicate && (
-                        <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => onDuplicate(t)}
-                            title="Duplicar viagem"
-                          >
-                            <Copy className="mr-1 h-3 w-3" />
-                            Duplicar
-                          </Button>
-                        </div>
-                      )}
-                    </Card>
+                            </div>
+                          )}
+                          {(t.departure_time || t.arrival_time) && (
+                            <div className="text-[11px] text-muted-foreground">
+                              {t.departure_time && <span>Partida: {t.departure_time}</span>}
+                              {t.departure_time && t.arrival_time && <span> · </span>}
+                              {t.arrival_time && <span>Destino: {t.arrival_time}</span>}
+                            </div>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {t.tags.length > 0
+                              ? t.tags.map((x) => {
+                                  const tag = tagsById.get(x.tag_id);
+                                  return (
+                                    tag && (
+                                      <span
+                                        key={x.tag_id}
+                                        className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                                        style={{ backgroundColor: tag.color }}
+                                      >
+                                        {tag.name}
+                                      </span>
+                                    )
+                                  );
+                                })
+                              : t.motivo && (
+                                  <span
+                                    className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                                    style={{ backgroundColor: corDoMotivo(t.motivo) }}
+                                  >
+                                    {t.motivo}
+                                  </span>
+                                )}
+                          </div>
+                          {[t.bsp, t.bsp_2, t.bsp_3].some(Boolean) && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {[t.bsp, t.bsp_2, t.bsp_3].filter(Boolean).map((b, i) => (
+                                <span
+                                  key={`bsp-${i}`}
+                                  className="inline-block rounded border border-warning/40 bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground"
+                                >
+                                  BSP: {b}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {custoTotal(t) != null && (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
+                                Valor: {fmtMoney(custoTotal(t)!)}
+                              </span>
+                            </div>
+                          )}
+                          <div className="mt-2 text-sm">
+                            {[t.origin, ...(t.origens_extras ?? [])].filter(Boolean).join(" / ")}{" "}
+                            <ArrowRight className="inline h-3 w-3 mx-1 text-muted-foreground" />{" "}
+                            {[t.destination, ...(t.destinos_extras ?? [])].filter(Boolean).join(" / ")}
+                          </div>
+                          {t.tipo === "pessoas" && t.collabs.length > 0 && (
+                            <div className="mt-1 text-xs text-muted-foreground truncate">
+                              {t.collabs
+                                .map((c: any) => collabsById.get(c.collaborator_id)?.full_name)
+                                .filter(Boolean)
+                                .join(", ")}
+                            </div>
+                          )}
+                          {t.tipo === "material" && t.materials.length > 0 && (
+                            <div className="mt-1 text-xs text-muted-foreground truncate">
+                              {t.materials
+                                .map((m: any) => {
+                                  const mat = materialsById.get(m.material_id);
+                                  return mat ? `${materialLabel(mat)} ×${m.quantidade ?? 1}` : null;
+                                })
+                                .filter(Boolean)
+                                .join(", ")}
+                            </div>
+                          )}
+                          {onDuplicate && (
+                            <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => onDuplicate(t)}
+                                title="Duplicar viagem"
+                              >
+                                <Copy className="mr-1 h-3 w-3" />
+                                Duplicar
+                              </Button>
+                            </div>
+                          )}
+                        </Card>
+                      ))}
+                    </div>
                   ))}
                 </div>
               </div>
