@@ -140,6 +140,9 @@ import {
   latestPeriodo,
   DRAKE_DATA_CUTOFF,
   bspOptionsForUnidade,
+  bspOptionsHistograma,
+  embarcouNoFiltroUnidadeBsp,
+  periodoForaDoFiltroUnidadeBsp,
   bspDoPeriodo,
   normalizeUnidadeOperacional,
   buildUnidadeCanonMap,
@@ -2873,8 +2876,9 @@ function HistogramaTab({
         .map((p) => p.unidade_operacional!),
     [periodos, unidadeFilter, unidadeCanonMap],
   );
+  // "BSP 25-1032" e "25-1032" viram uma opção só (ver chaveBsp).
   const bspOptions = useMemo(
-    () => bspOptionsForUnidade(periodos, unidadeFilter.length ? unidadesCruasFiltro : []),
+    () => bspOptionsHistograma(periodos, unidadeFilter.length ? unidadesCruasFiltro : []),
     [periodos, unidadeFilter, unidadesCruasFiltro],
   );
 
@@ -3019,17 +3023,14 @@ function HistogramaTab({
       )
         return false;
       if (unidadeFilter.length === 0 && bspFilter.length === 0) return true;
-      return (periodosByColaborador.get(c.id) ?? []).some(
-        (p) =>
-          (unidadeFilter.length === 0 ||
-            unidadeFilter.includes(canonUnidade(p.unidade_operacional, unidadeCanonMap) ?? "")) &&
-          (bspFilter.length === 0 ||
-            (() => {
-              const b = bspDoPeriodo(p);
-              return b != null && bspFilter.includes(b);
-            })()) &&
-          p.data_fim >= gridDe &&
-          p.data_inicio <= gridAte,
+      // Só quem embarcou (E/DB) na unidade/BSP dentro do De/Até — ver embarcouNoFiltroUnidadeBsp.
+      return embarcouNoFiltroUnidadeBsp(
+        periodosByColaborador.get(c.id) ?? [],
+        unidadeFilter,
+        bspFilter,
+        unidadeCanonMap,
+        gridDe,
+        gridAte,
       );
     });
   }, [
@@ -3258,6 +3259,9 @@ function HistogramaTab({
           embarqueByPeriodoId={embarqueByPeriodoId}
           semanasByEmbarqueId={semanasByEmbarqueId}
           embarquesByColaboradorId={embarquesByColaboradorId}
+          unidadeFilter={unidadeFilter}
+          bspFilter={bspFilter}
+          unidadeCanonMap={unidadeCanonMap}
         />
       ) : selectedColaborador ? (
         <div className="grid gap-4 items-start lg:grid-cols-[280px_1fr]">
@@ -3355,6 +3359,9 @@ function GeralGrid({
   embarqueByPeriodoId,
   semanasByEmbarqueId,
   embarquesByColaboradorId,
+  unidadeFilter = [],
+  bspFilter = [],
+  unidadeCanonMap,
 }: {
   colaboradores: HistNovoColaborador[];
   periodosByColaborador: Map<string, HistNovoPeriodo[]>;
@@ -3363,7 +3370,17 @@ function GeralGrid({
   embarqueByPeriodoId: Map<string, TimesheetEmbarque>;
   semanasByEmbarqueId: Map<string, TimesheetSemana[]>;
   embarquesByColaboradorId: Map<string, TimesheetEmbarque[]>;
+  unidadeFilter?: string[];
+  bspFilter?: string[];
+  unidadeCanonMap?: Map<string, string>;
 }) {
+  const filtroLugarAtivo = !!unidadeCanonMap && (unidadeFilter.length > 0 || bspFilter.length > 0);
+  // Com filtro de Unidade/BSP, a coluna Unidade mostra o filtro (não onde a pessoa está hoje).
+  const rotuloFiltroLugar = filtroLugarAtivo
+    ? [unidadeFilter.join(", "), bspFilter.map((b) => `BSP ${b}`).join(", ")]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
   // Unidade "atual" de um colaborador: prioriza o período que realmente está valendo hoje
   // (computeDayStatus, mesma prioridade usada na grade) — não simplesmente o período com a
   // data_inicio mais recente (latestPeriodo). Um período de Folga vindo do relatório de
@@ -3492,22 +3509,34 @@ function GeralGrid({
                   <td className="sticky left-0 z-10 bg-background border border-border px-2 py-0.5 font-medium truncate max-w-[160px]">
                     {c.nome}
                   </td>
-                  <td className="sticky left-[160px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate max-w-[90px]">
-                    {unidadeAtual ?? "—"}
+                  <td
+                    className="sticky left-[160px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate max-w-[90px]"
+                    title={rotuloFiltroLugar ?? unidadeAtual ?? undefined}
+                  >
+                    {rotuloFiltroLugar ?? unidadeAtual ?? "—"}
                   </td>
                   {visibleDates.map((d) => {
                     const result = computeDayStatus(cPeriodos, d);
+                    // Dia em outra unidade/BSP com o filtro ativo: esmaecido.
+                    const foraDoFiltro =
+                      filtroLugarAtivo &&
+                      periodoForaDoFiltroUnidadeBsp(
+                        result.periodo,
+                        unidadeFilter,
+                        bspFilter,
+                        unidadeCanonMap!,
+                      );
                     const color = resolveEColor(
                       result,
                       d,
                       embarqueByPeriodoId,
                       semanasByEmbarqueId,
                     );
-                    const title = `${c.nome} · ${d} · ${getComputedLabel(result)}${detalheEmbarqueTooltip(result, d, embarquesByColaboradorId)}`;
+                    const title = `${c.nome} · ${d} · ${getComputedLabel(result)}${detalheEmbarqueTooltip(result, d, embarquesByColaboradorId)}${foraDoFiltro ? ` · Outra unidade/BSP: ${result.periodo?.unidade_operacional ?? "—"} · ${bspDoPeriodo(result.periodo!) ?? "—"}` : ""}`;
                     return (
                       <td key={d} className="border border-border p-0 text-center" title={title}>
                         <div
-                          className="h-6 w-[26px] flex items-center justify-center text-[9px] font-bold"
+                          className={`h-6 w-[26px] flex items-center justify-center text-[9px] font-bold${foraDoFiltro ? " opacity-25" : ""}`}
                           style={{ backgroundColor: color, color: getContrastText(color) }}
                         >
                           {displayAbbr(result.status)}
