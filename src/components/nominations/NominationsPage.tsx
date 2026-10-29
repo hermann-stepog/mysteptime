@@ -53,6 +53,10 @@ import { CreateNominationDialog } from "@/components/nominations/CreateNominatio
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
+import {
+  NotificacoesNomeacoesTab,
+  useNotificacoesNomeacoes,
+} from "@/components/nominations/NotificacoesNomeacoes";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -110,6 +114,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Stethoscope,
+  Bell,
   X,
   UserPlus,
   Check,
@@ -2594,7 +2599,8 @@ function NominationCard({
       >
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold leading-tight">{requestTitle(first)}</p>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-start gap-1">
+            <UnidadeCliente n={first} />
             {isTerminal && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />}
           </div>
         </div>
@@ -2692,6 +2698,26 @@ function NominationCard({
 // (concluída pelo fluxo normal ou cancelada a qualquer momento) entra aqui e fica pra sempre,
 // numerada sequencialmente (sequence_number, atribuído por trigger no banco), mais recente no
 // topo — é o histórico/arquivo de tudo que já foi processado, não um estágio de trabalho ativo.
+// Unidade em cima, cliente embaixo, no canto superior direito dos cards do kanban e da Equipe
+// Formada (pedido dela, 2026-10-29).
+function UnidadeCliente({ n }: { n: Nomination }) {
+  if (!n.unidade && !n.client) return null;
+  return (
+    <div className="max-w-[9rem] shrink-0 text-right leading-tight">
+      {n.unidade && (
+        <p className="truncate text-[11px] font-bold uppercase text-[#1e3a5f]" title={n.unidade}>
+          {n.unidade}
+        </p>
+      )}
+      {n.client && (
+        <p className="truncate text-[11px] font-medium text-muted-foreground" title={n.client}>
+          {n.client}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function EquipeFormadaColumn({
   nominations,
   onOpen,
@@ -2726,10 +2752,25 @@ function EquipeFormadaColumn({
             onClick={() => onOpen(n)}
             className="cursor-pointer animate-in fade-in zoom-in-95 rounded-md border bg-background p-2.5 text-xs shadow-sm duration-300 hover:shadow-md"
           >
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono font-semibold">
-                {String(n.sequence_number ?? 0).padStart(3, "0")}-{n.bsp || "—"}
-              </span>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <span className="font-mono font-semibold">
+                  {String(n.sequence_number ?? 0).padStart(3, "0")}-{n.bsp || "—"}
+                </span>
+                <p className="mt-0.5 truncate text-muted-foreground">{n.funcao}</p>
+              </div>
+              <UnidadeCliente n={n} />
+            </div>
+            {/* Data do embarque = data de necessidade da solicitação (pedido dela, 2026-10-29). */}
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              {n.period_start ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                  <CalendarDays className="h-3 w-3" />
+                  Embarque: {fmtDate(n.period_start)}
+                </span>
+              ) : (
+                <span />
+              )}
               <span
                 className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                   n.outcome === "cancelada"
@@ -2740,9 +2781,6 @@ function EquipeFormadaColumn({
                 {n.outcome === "cancelada" ? "Cancelada" : "Concluída"}
               </span>
             </div>
-            <p className="mt-0.5 truncate text-muted-foreground">
-              {n.funcao} · {n.unidade}
-            </p>
           </div>
         ))}
         {ordenadas.length === 0 && (
@@ -6471,16 +6509,22 @@ function LinhaDoTempoNomeacoesTab() {
 // `hideCreate` tira só o botão "Nova Solicitação", sem mexer nas abas — usado por Produção
 // (aprovacao_tecnica) em /admin/nominations (pedido dela, 2026-10-05: todas as abas, mas criar
 // solicitação não é papel dela).
+// `abaInicial` vem da URL (?aba=notificacoes, usado pelo sininho do topo) — a página troca pra
+// essa aba e avisa por `onAbaConsumida`, pra rota limpar a URL e o sino funcionar de novo.
 export function NominationsPage({
   onlyKanban = false,
   solicitanteArea = false,
   hideAptidao = false,
   hideCreate = false,
+  abaInicial,
+  onAbaConsumida,
 }: {
   onlyKanban?: boolean;
   solicitanteArea?: boolean;
   hideAptidao?: boolean;
   hideCreate?: boolean;
+  abaInicial?: string;
+  onAbaConsumida?: () => void;
 } = {}) {
   const [selected, setSelected] = useState<Nomination | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -6493,6 +6537,30 @@ export function NominationsPage({
   const [simulacaoFocusIds, setSimulacaoFocusIds] = useState<string[] | null>(null);
   const [tab, setTab] = useState("nomeacoes");
   const { canViewAs, viewAsRole, setViewAsRole } = useViewAs();
+  // Aba Notificações: só pra Logística de Pessoal (ver NotificacoesNomeacoes.tsx).
+  const notificacoes = useNotificacoesNomeacoes();
+  const mostrarNotificacoes = notificacoes.ativo && !onlyKanban && !solicitanteArea;
+
+  useEffect(() => {
+    if (!abaInicial) return;
+    setTab(abaInicial);
+    onAbaConsumida?.();
+  }, [abaInicial, onAbaConsumida]);
+
+  const verNoKanban = (funcoes: Nomination[]) => {
+    setTab("nomeacoes");
+    setSearch("");
+    setFilterStatus("todos");
+    setHighlightedId(funcoes[0].id);
+    // Espera o kanban voltar pra tela antes de rolar até o card.
+    setTimeout(() => {
+      const el = funcoes
+        .map((f) => document.getElementById(`kanban-card-${f.id}`))
+        .find(Boolean);
+      el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    }, 150);
+    setTimeout(() => setHighlightedId(null), 4000);
+  };
 
   const goToSimulacao = (group: Nomination[]) => {
     setSimulacaoFocusIds(group.map((n) => n.id));
@@ -6630,7 +6698,27 @@ export function NominationsPage({
                 <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Aptidão
               </TabsTrigger>
             )}
+            {mostrarNotificacoes && (
+              <TabsTrigger value="notificacoes">
+                <Bell className="mr-1.5 h-3.5 w-3.5" /> Notificações
+                {notificacoes.naoLidas > 0 && (
+                  <span className="ml-1.5 rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-4 text-white">
+                    {notificacoes.naoLidas}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
           </TabsList>
+        )}
+
+        {mostrarNotificacoes && (
+          <TabsContent value="notificacoes" className="pt-4">
+            <NotificacoesNomeacoesTab
+              nominations={nominations}
+              onOpen={setSelected}
+              onVerNoKanban={verNoKanban}
+            />
+          </TabsContent>
         )}
 
         {/* ── Simulação de disponibilidade ── */}

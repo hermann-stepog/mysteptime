@@ -9,6 +9,7 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { AppLoader } from "@/components/AppLoader";
 import { AnimatedOutlet } from "@/components/AnimatedOutlet";
 import { ChangePasswordButton } from "@/components/ChangePassword";
+import { SinoNotificacoesNomeacoes } from "@/components/nominations/NotificacoesNomeacoes";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin")({ component: AdminLayout });
@@ -174,6 +175,10 @@ function AdminLayout() {
               Vendo como: {viewAsLabel}<X className="h-3.5 w-3.5" />
             </button>
           )}
+
+          {/* Sininho das solicitações de nomeação — só pra Logística de Pessoal (o componente
+              some sozinho pros outros papéis); leva pra aba Notificações de Nomeações. */}
+          <SinoNotificacoesNomeacoes className="text-white/60 hover:text-white" />
 
           <ChangePasswordButton className="h-auto w-auto shrink-0 p-0 text-white/50 hover:bg-transparent hover:text-white/85" />
 
