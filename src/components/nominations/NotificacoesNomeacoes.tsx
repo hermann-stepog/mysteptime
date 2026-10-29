@@ -62,7 +62,9 @@ export function useNotificacoesNomeacoes() {
   useEffect(() => {
     if (!ativo) return;
     const canal = supabase
-      .channel(`notificacoes-nomeacoes-${userId}`)
+      // Nome único por instância: o hook é usado em mais de um lugar ao mesmo tempo
+      // e reaproveitar o mesmo canal já inscrito derruba a página.
+      .channel(`notificacoes-nomeacoes-${userId}-${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
