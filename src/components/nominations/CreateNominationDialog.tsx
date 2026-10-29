@@ -87,6 +87,8 @@ export async function uploadScopeDocument(file: File): Promise<{ path: string; n
   return { path, name: file.name };
 }
 
+const UNIDADES_FIXAS = ["Bravo"];
+
 // Dados de referência do formulário — um só lugar pra não duplicar as mesmas consultas entre
 // quem usa este diálogo (Solicitante e Logística).
 export function useNominationFormData() {
@@ -136,6 +138,12 @@ export function useNominationFormData() {
       if (!m.has(key)) m.set(key, { display, bsps: new Set() });
       const bsp = row.bsp?.trim();
       if (bsp) m.get(key)!.bsps.add(bsp);
+    });
+    // Unidades que entram na lista mesmo sem ninguém no Planejamento ainda (pedido dela,
+    // 2026-10-29: "Bravo"). A BSP dela vai por "+ Inserir nova BSP".
+    UNIDADES_FIXAS.forEach((display) => {
+      const key = display.toUpperCase();
+      if (!m.has(key)) m.set(key, { display, bsps: new Set() });
     });
     return m;
   }, [planejamentoEmbarque]);

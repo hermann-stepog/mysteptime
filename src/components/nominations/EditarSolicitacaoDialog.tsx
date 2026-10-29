@@ -97,8 +97,12 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
       unidadeGroups.forEach((g) => g.bsps.forEach((b) => todos.add(b)));
       return Array.from(todos).sort();
     }
-    return Array.from(unidadeGroups.get(unidade.toUpperCase())?.bsps ?? []).sort();
-  }, [unidade, unidadeGroups]);
+    // A BSP já gravada continua na lista mesmo que não venha do Planejamento (ex.: unidade fixa
+    // "Bravo", cuja BSP foi digitada em "+ Inserir nova BSP" na criação).
+    const lista = new Set(unidadeGroups.get(unidade.toUpperCase())?.bsps ?? []);
+    if (bsp && unidade === primeiro.unidade) lista.add(bsp);
+    return Array.from(lista).sort();
+  }, [unidade, unidadeGroups, bsp, primeiro.unidade]);
 
   const save = useMutation({
     mutationFn: async () => {
