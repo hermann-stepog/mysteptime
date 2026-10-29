@@ -1597,8 +1597,25 @@ function ValidacaoRhSection({
   );
 }
 
-function BriefingSection({ nomination }: { nomination: Nomination }) {
+// Pedido do SMS (via Bruna, 2026-10-29): os nomes da equipe aparecem já na etapa de Briefing,
+// antes de marcar "briefing realizado" — o SMS precisa deles pra enviar o material a cada um.
+function BriefingSection({
+  nomination,
+  nominees,
+}: {
+  nomination: Nomination;
+  nominees: NominationNominee[];
+}) {
   const { profile } = useAuth();
+  const equipe = nominees.filter((n) => n.is_active && n.technical_selected_at);
+  const copiarNomes = async () => {
+    try {
+      await navigator.clipboard.writeText(equipe.map((n) => n.colaborador_nome).join("\n"));
+      notify.success("Nomes copiados.");
+    } catch {
+      notify.error("Não foi possível copiar os nomes.");
+    }
+  };
   const canAct = useCanActOnStage(nomination.current_status);
   const advance = useAdvanceStage();
   const [avisando, setAvisando] = useState(false);
@@ -1616,7 +1633,28 @@ function BriefingSection({ nomination }: { nomination: Nomination }) {
     }
   };
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">Equipe ({equipe.length})</p>
+          {equipe.length > 0 && (
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={copiarNomes}>
+              Copiar nomes
+            </Button>
+          )}
+        </div>
+        {equipe.length > 0 ? (
+          <ul className="space-y-1 text-sm">
+            {equipe.map((n) => (
+              <li key={n.id} className="rounded bg-purple-50 px-2 py-1 text-purple-900">
+                {n.colaborador_nome}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">Nenhum colaborador nomeado nesta função.</p>
+        )}
+      </div>
       <p className="text-sm font-medium">O briefing com esta equipe já foi feito?</p>
       <div className="flex gap-2">
         <Button
@@ -2585,7 +2623,7 @@ function ManageDialog({
               <ValidacaoRhSection nomination={nomination} nominees={nominees} />
             )}
             {nomination.current_status === "briefing_sms" && (
-              <BriefingSection nomination={nomination} />
+              <BriefingSection nomination={nomination} nominees={nominees} />
             )}
             {nomination.current_status === "equipe_formada" && (
               <NomeadosSection nomination={nomination} nominees={nominees} />
