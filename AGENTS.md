@@ -8,3 +8,4 @@
 - Nomination transitions update nominee eligibility before changing the parent stage, using the tested stage-aware filters in nominations.ts; existing RLS restricts nominee writes to the current stage.
 - Nomination email sends return and log the provider acceptance ID (not delivery); creation retries share a stable provider idempotency key to avoid duplicate alerts within the provider retention window.
 - User creation runs in a server-only provisioning helper after the server function validates the bearer and operator role; avoid a second remote session lookup and roll back accounts when provisioning fails.
+- New nomination requests save all function cards, creation history, and optional fixed teams through one SECURITY INVOKER database RPC; transactional writes prevent partial requests while preserving RLS.

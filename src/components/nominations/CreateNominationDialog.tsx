@@ -9,6 +9,7 @@ import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
 import { type Nomination, isSoldador, isInspetor, camposEscopo } from "@/lib/nominations";
 import { SCOPE_BUCKET, SCOPE_DOCUMENT_TYPES, SeletorIes } from "@/components/nominations/DocumentosIes";
 import { notifyRequestCreated } from "@/lib/nominationEmails";
+import { saveNominationRequest } from "@/lib/nomination-creation";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
 import { ehUnidadeNaoOperacional } from "@/lib/histogramaNovo";
@@ -246,8 +247,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       // Um id só pra todas as funções desta solicitação — "Minhas Solicitações" agrupa por
       // ele de volta num único cartão, mesmo cada função seguindo seu próprio fluxo aqui.
       const groupId = crypto.randomUUID();
-      const criadas: string[] = [];
-      const paraAvisar: Nomination[] = [];
+      const rows: Record<string, unknown>[] = [];
 
       // Uma nomeação por função — cada uma segue seu próprio fluxo de aprovação/nomeação, por
       // isso não dá pra combinar num só registro. Soldador sempre passa pela Qualidade — ela
@@ -257,9 +257,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
         const isWelder = isSoldador(l.funcao);
         const ies = isWelder ? await Promise.all(l.scopeFiles.map(uploadScopeDocument)) : [];
 
-        const { data, error } = await supabase
-          .from("nominations")
-          .insert({
+        rows.push({
             pm_user_id: pmUserId,
             pm_name: pmName,
             pm_responsavel: pmResponsavel.trim(),
@@ -278,43 +276,13 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
             notes: notes.trim() || null,
             requires_quality_validation: isWelder,
             current_status: "solicitacao",
-          })
-          .select()
-          .single();
-        if (error) throw error;
-
-        await supabase.from("nomination_status_history").insert({
-          nomination_id: data.id,
-          status: "solicitacao",
-          changed_by_name: pmName,
-          notes: "Solicitação criada pelo solicitante",
         });
-        if (fixo) {
-          const periodoDias =
-            start && end
-              ? Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000)
-              : null;
-          const { error: fixoError } = await supabase.from("nomination_fixed_teams").insert({
-            funcao: l.funcao.trim(),
-            quantidade: Math.max(1, Number(l.quantidade) || 1),
-            unidade,
-            bsp: bsp.trim(),
-            client: client || null,
-            notes: notes.trim() || null,
-            periodo_dias: periodoDias,
-            pm_user_id: pmUserId,
-            pm_name: pmName,
-            proxima_troca: proximaTroca,
-            ultima_nomeacao_id: data.id,
-          });
-          if (fixoError) throw fixoError;
-        } else {
-          paraAvisar.push(data as Nomination);
-        }
-        criadas.push(`${l.funcao.trim()} (${unidade}/${bsp.trim()})`);
       }
-      await notifyRequestCreated(paraAvisar);
-      return criadas;
+      const saved = await saveNominationRequest(
+        (name, args) => supabase.rpc(name, args), rows, fixo ? proximaTroca : null,
+      );
+      if (!fixo) await notifyRequestCreated(saved);
+      return saved.map((n) => `${n.funcao} (${n.unidade}/${n.bsp})`);
     },
     onSuccess: (criadas) => {
       const n = linhas.filter((l) => l.funcao.trim()).length;
