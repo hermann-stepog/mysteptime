@@ -38,6 +38,7 @@ import {
   isSoldador,
   matchesSimulationFunction,
   requestTitle,
+  documentosEscopo,
 } from "@/lib/nominations";
 import {
   notifyStageAdvance,
@@ -159,6 +160,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { notify } from "@/lib/notify";
+import { ListaIes } from "@/components/nominations/DocumentosIes";
 import { EmptyState, EmptyStateRow } from "@/components/EmptyState";
 import {
   generateDateRange,
@@ -452,25 +454,6 @@ function EfetivoDisponivelSection({
   );
 }
 
-// Mesmo bucket/caminho usado no upload feito pelo Solicitante (ver uploadScopeDocument em
-// src/routes/pm/index.tsx) — aqui só baixa, nunca envia.
-const SCOPE_BUCKET = "nomeacoes-anexos";
-async function baixarEscopoDocumento(path: string, nomeOriginal: string): Promise<void> {
-  const { data, error } = await supabase.storage.from(SCOPE_BUCKET).download(path);
-  if (error) {
-    notify.error(error.message);
-    return;
-  }
-  const url = URL.createObjectURL(data);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nomeOriginal;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 function AprovacaoTecnicaSection({
   nomination,
   nominees,
@@ -561,20 +544,8 @@ function AprovacaoTecnicaSection({
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">Aprovação técnica — {nomination.funcao}</p>
-      {nomination.scope_document_path ? (
-        <button
-          type="button"
-          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-          onClick={() =>
-            baixarEscopoDocumento(
-              nomination.scope_document_path!,
-              nomination.scope_document_name ?? "escopo-do-servico",
-            )
-          }
-        >
-          <FileText className="h-3.5 w-3.5" />{" "}
-          {nomination.scope_document_name ?? "Baixar documento anexado"}
-        </button>
+      {documentosEscopo(nomination).length > 0 ? (
+        <ListaIes documentos={documentosEscopo(nomination)} />
       ) : (
         <p className="text-xs text-muted-foreground">Nenhum documento anexado pelo solicitante.</p>
       )}
@@ -844,20 +815,8 @@ function ValidacaoQualidadeSection({
             </span>
           )}
         </div>
-        {nomination.scope_document_path ? (
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-xs text-purple-900 hover:underline"
-            onClick={() =>
-              baixarEscopoDocumento(
-                nomination.scope_document_path!,
-                nomination.scope_document_name ?? "escopo-do-servico",
-              )
-            }
-          >
-            <FileText className="h-3.5 w-3.5" />{" "}
-            {nomination.scope_document_name ?? "Baixar escopo do serviço"}
-          </button>
+        {documentosEscopo(nomination).length > 0 ? (
+          <ListaIes documentos={documentosEscopo(nomination)} className="text-purple-900" />
         ) : (
           <p
             className={`text-xs ${faltaDescricaoObra ? "font-medium text-amber-700" : "text-purple-900/70"}`}

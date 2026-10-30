@@ -66,6 +66,9 @@ export interface Nomination {
   // solda a partir dele antes de aprovar, em vez de um tipo/material escolhido em lista.
   scope_document_path: string | null;
   scope_document_name: string | null;
+  // Soldador pode ter várias IES (pedido dela, 2026-10-30) — lista completa aqui; as duas
+  // colunas acima guardam a primeira. Leia sempre via documentosEscopo().
+  scope_documents?: DocumentoEscopo[] | null;
   period_start: string | null;
   period_end: string | null;
   notes: string | null;
@@ -486,4 +489,33 @@ export function isInspetor(fn: string | null | undefined) {
 
 export function matchesSimulationFunction(funcao: string, filtro: string) {
   return filtro === "all" || funcao.trim().toUpperCase() === filtro.trim().toUpperCase();
+}
+
+export interface DocumentoEscopo {
+  path: string;
+  name: string;
+}
+
+// IES / escopo do serviço de uma nomeação: a lista nova (scope_documents) ou, em registros
+// antigos/sem a coluna, o documento único de scope_document_path.
+export function documentosEscopo(
+  n: Pick<Nomination, "scope_document_path" | "scope_document_name" | "scope_documents">,
+): DocumentoEscopo[] {
+  const lista = Array.isArray(n.scope_documents)
+    ? n.scope_documents.filter((d): d is DocumentoEscopo => !!d?.path)
+    : [];
+  if (lista.length) return lista;
+  return n.scope_document_path
+    ? [{ path: n.scope_document_path, name: n.scope_document_name ?? "escopo-do-servico" }]
+    : [];
+}
+
+// Campos a gravar em nominations pra uma lista de IES — a primeira também vai nas colunas
+// antigas (regra da Qualidade e e-mails continuam lendo scope_document_path).
+export function camposEscopo(docs: DocumentoEscopo[]) {
+  return {
+    scope_documents: docs.map((d) => ({ path: d.path, name: d.name })),
+    scope_document_path: docs[0]?.path ?? null,
+    scope_document_name: docs[0]?.name ?? null,
+  };
 }

@@ -11,6 +11,7 @@ import {
   type Nomination, type NominationNominee, type NominationStatusHistory, type PmDecision,
   STATUS_LABELS, STATUS_BADGE, ALL_STATUSES,
   fmtDate, fmtDatetime, isSoldador, canMoveToColumn, requestTitle, computeRevertClearing,
+  documentosEscopo, camposEscopo,
 } from "@/lib/nominations";
 import { notifyStageAdvance, notifyRequestCreated } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -38,6 +39,7 @@ import { HistogramaOffshoreNovo } from "@/components/histograma/HistogramaOffsho
 import { NominationsPage, EnviarParaLogisticaButton } from "@/components/nominations/NominationsPage";
 import { EditGroupDialog, baixarEscopoDocumento } from "@/components/nominations/EditarSolicitacaoDialog";
 import { NominationObservations } from "@/components/nominations/NominationObservations";
+import { ListaIes, SeletorIes } from "@/components/nominations/DocumentosIes";
 import {
   CreateNominationDialog, useNominationFormData, uploadScopeDocument, currentAuthUserId,
   SCOPE_DOCUMENT_TYPES, SCOPE_BUCKET,
@@ -306,14 +308,9 @@ function NominationDetail({ nom, onClose }: { nom: Nomination; onClose: () => vo
             {nom.project && <div><span className="text-muted-foreground">Projeto:</span> {nom.project}</div>}
             {nom.weld_type && <div><span className="text-muted-foreground">Tipo de solda:</span> {nom.weld_type}</div>}
             {nom.weld_material && <div><span className="text-muted-foreground">Material:</span> {nom.weld_material}</div>}
-            {nom.scope_document_path && (
+            {documentosEscopo(nom).length > 0 && (
               <div className="col-span-2">
-                <button
-                  type="button" className="inline-flex items-center gap-1.5 text-primary hover:underline"
-                  onClick={() => baixarEscopoDocumento(nom.scope_document_path!, nom.scope_document_name ?? "escopo-do-servico")}
-                >
-                  <FileText className="h-3.5 w-3.5" /> {nom.scope_document_name ?? "Baixar escopo do serviço"}
-                </button>
+                <ListaIes documentos={documentosEscopo(nom)} />
               </div>
             )}
           </div>
@@ -377,7 +374,9 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
   const [end, setEnd]               = useState(nom.period_end ?? "");
   const [client, setClient]         = useState(nom.client ?? "");
   const [notes, setNotes]           = useState(nom.notes ?? "");
-  const [scopeFile, setScopeFile]   = useState<File | null>(null);
+  // IES: já gravadas (dá pra remover) + novas (pedido dela, 2026-10-30: várias por Soldador).
+  const [iesExistentes, setIesExistentes] = useState(() => documentosEscopo(nom));
+  const [iesNovas, setIesNovas] = useState<File[]>([]);
   // Rascunho automático da edição (ver useRascunho) — anexo novo não entra.
   const rascunho = useRascunho(
     `nomeacao:editar:${nom.id}`,
@@ -405,7 +404,9 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
       if (!funcao.trim()) throw new Error("Selecione a função.");
       if (!unidade) throw new Error("Selecione a unidade.");
       if (!bsp) throw new Error("Selecione a BSP.");
-      const scopeDocument = scopeFile ? await uploadScopeDocument(scopeFile) : null;
+      const ies = isWelder
+        ? [...iesExistentes, ...(await Promise.all(iesNovas.map(uploadScopeDocument)))]
+        : [];
       const { data: atualizadas, error } = await supabase.from("nominations").update({
         funcao: funcao.trim(),
         quantidade: Math.max(1, Number(quantidade) || 1),
@@ -416,7 +417,7 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
         client: client || null,
         notes: notes.trim() || null,
         requires_quality_validation: isWelder,
-        ...(scopeDocument ? { scope_document_path: scopeDocument.path, scope_document_name: scopeDocument.name } : {}),
+        ...(isWelder ? camposEscopo(ies) : {}),
       }).eq("id", nom.id).select("id");
       if (error) throw error;
       // RLS bloqueando UPDATE não dá erro, só volta 0 linhas (ver EditGroupDialog).
@@ -459,27 +460,13 @@ function EditDialog({ nom, onClose, onSaved }: { nom: Nomination; onClose: () =>
           </div>
 
           {isWelder && (
-            <div className="space-y-1">
-              <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
-              {nom.scope_document_path && !scopeFile && (
-                <button
-                  type="button" className="mb-1 flex items-center gap-1.5 text-xs text-primary hover:underline"
-                  onClick={() => baixarEscopoDocumento(nom.scope_document_path!, nom.scope_document_name ?? "escopo-do-servico")}
-                >
-                  <FileText className="h-3.5 w-3.5" /> {nom.scope_document_name ?? "Ver documento atual"}
-                </button>
-              )}
-              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
-                <Upload className="h-3.5 w-3.5 shrink-0" />
-                {scopeFile ? scopeFile.name : nom.scope_document_path ? "Substituir arquivo..." : "Selecionar arquivo..."}
-                <input type="file" accept={SCOPE_DOCUMENT_TYPES} className="hidden" onChange={(e) => setScopeFile(e.target.files?.[0] ?? null)} />
-              </label>
-              <p className="text-[11px] text-muted-foreground">
-                {scopeFile || nom.scope_document_path
-                  ? "A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar."
-                  : `Sem documento? Descreva o tipo de serviço no campo Observações abaixo (indicando a função "${funcao}").`}
-              </p>
-            </div>
+            <SeletorIes
+              funcao={funcao}
+              existentes={iesExistentes}
+              onExistentesChange={setIesExistentes}
+              novos={iesNovas}
+              onNovosChange={setIesNovas}
+            />
           )}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
