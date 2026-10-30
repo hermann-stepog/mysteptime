@@ -733,11 +733,16 @@ function ValidacaoQualidadeSection({
   const setQualityStatus = useMutation({
     mutationFn: async ({ status, reason }: { status: QualityStatus; reason?: string }) => {
       const aprovado = status === "aprovado";
+      if (status === "reprovado") {
+        const erro = validateRejectionReason(reason);
+        if (erro) throw new Error(erro);
+      }
       const { error } = await supabase
         .from("nominations")
         .update({
           quality_status: status,
-          quality_rejection_reason: status === "reprovado" ? reason?.trim() || null : null,
+          quality_rejection_reason:
+            status === "reprovado" ? normalizeRejectionReason(reason ?? "") : null,
           quality_validated: aprovado,
           quality_validated_at: status !== "pendente" ? new Date().toISOString() : null,
           quality_validated_by:
@@ -875,18 +880,22 @@ function ValidacaoQualidadeSection({
         {showReject && (
           <div className="space-y-1.5">
             <RascunhoAviso rascunho={rascunhoMotivo} />
-            <Textarea
-              rows={2}
-              className="text-xs"
-              placeholder="Motivo da reprovação (opcional)"
+            <Input
+              className="h-8 text-xs"
+              maxLength={REJECTION_REASON_MAX_CHARS}
+              placeholder="Motivo da reprovação (obrigatório, até 4 palavras)"
               value={reasonDraft}
               onChange={(e) => setReasonDraft(e.target.value)}
             />
+            {reasonDraft.trim() && validateRejectionReason(reasonDraft) && (
+              <p className="text-[11px] text-destructive">{validateRejectionReason(reasonDraft)}</p>
+            )}
             <div className="flex gap-2">
               <Button
                 type="button"
                 size="sm"
                 variant="destructive"
+                disabled={!!validateRejectionReason(reasonDraft)}
                 loading={
                   setQualityStatus.isPending && setQualityStatus.variables?.status === "reprovado"
                 }
