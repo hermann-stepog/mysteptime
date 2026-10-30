@@ -43,6 +43,13 @@
       "when": 1793381432118,
       "tag": "0005_nominee_rejection_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793381757200,
+      "tag": "0006_normalize_welder_funcao",
+      "breakpoints": true
     }
   ]
 }
