@@ -58,6 +58,12 @@ import {
 import { nomeacoesRetrocedidas } from "@/lib/nominationIndicadores";
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
+import { RejectionReasonPrompt } from "@/components/nominations/RejectionReasonPrompt";
+import {
+  REJECTION_REASON_MAX_CHARS,
+  normalizeRejectionReason,
+  validateRejectionReason,
+} from "@/lib/rejection-reason";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import {
   NotificacoesNomeacoesTab,
@@ -468,24 +474,38 @@ function AprovacaoTecnicaSection({
   const ativos = nominees.filter((n) => n.is_active);
   const selecionados = ativos.filter((n) => n.technical_selected_at);
 
+  const [motivoTecId, setMotivoTecId] = useState<string | null>(null);
   const toggleSelect = useMutation({
     mutationFn: async ({
       nominee,
       selected,
+      reason,
     }: {
       nominee: NominationNominee;
       selected: boolean;
+      reason?: string;
     }) => {
+      if (!selected && validateRejectionReason(reason))
+        throw new Error(validateRejectionReason(reason)!);
       const { error } = await supabase
         .from("nomination_nominees")
         .update({
           technical_selected_at: selected ? new Date().toISOString() : null,
           technical_selected_by: selected ? (profile?.full_name ?? profile?.email ?? null) : null,
+          ...(!selected
+            ? { rejection_reason: reason, rejection_stage: "aprovacao_tecnica" }
+            : nominee.rejection_stage === "aprovacao_tecnica"
+              ? { rejection_reason: null, rejection_stage: null }
+              : {}),
         })
         .eq("id", nominee.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onSuccess: () => {
+      setMotivoTecId(null);
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+    },
+    onError: (err: Error) => notify.error(err.message),
   });
 
   // Pedido dela, 2026-10-27: a Técnica marcava "Aprovado" em todo apto (22 aprovados pra 2
@@ -589,11 +609,22 @@ function AprovacaoTecnicaSection({
                   variant={!aprovado ? "destructive" : "outline"}
                   className="h-7 px-2 text-xs"
                   disabled={!canAct}
-                  onClick={() => toggleSelect.mutate({ nominee: n, selected: false })}
+                  onClick={() => setMotivoTecId(n.id)}
                 >
                   <X className="mr-1 h-3 w-3" /> Não aprovado
                 </Button>
               </div>
+              {motivoTecId === n.id && (
+                <div className="basis-full">
+                  <RejectionReasonPrompt
+                    loading={toggleSelect.isPending}
+                    onCancel={() => setMotivoTecId(null)}
+                    onConfirm={(reason) =>
+                      toggleSelect.mutate({ nominee: n, selected: false, reason })
+                    }
+                  />
+                </div>
+              )}
             </div>
           );
         })}
