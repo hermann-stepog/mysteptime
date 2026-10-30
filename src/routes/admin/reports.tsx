@@ -48,6 +48,7 @@ function normalizarTransporte({ row: r, nf }: { row: LinhaTransporte; nf: string
     "Forma de pagamento": r["Forma de pagamento"],
     "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
     NF: nf,
+    Fornecedor: r.Fornecedor === "—" ? "" : r.Fornecedor,
     Observações: r.Observações,
   };
 }
@@ -63,6 +64,7 @@ function normalizarHospedagem(r: LinhaHospedagem) {
     "Forma de pagamento": r["Forma de pagamento"],
     "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
     NF: r.NF === "—" ? "" : r.NF,
+    Fornecedor: r.Hotel === "—" ? "" : r.Hotel,
     Observações: r.Observações,
   };
 }
@@ -78,6 +80,7 @@ function normalizarPassagens(r: LinhaPassagens) {
     "Forma de pagamento": r["Forma de pagamento"],
     "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
     NF: r.NF === "—" ? "" : r.NF,
+    Fornecedor: r["Companhia aérea"] === "—" ? "" : r["Companhia aérea"],
     Observações: r.Observações,
   };
 }
@@ -128,6 +131,7 @@ const COLUNAS_CONSOLIDADO = [
   "Forma de pagamento",
   "Mês de Referência / Data Faturamento",
   "NF",
+  "Fornecedor",
   "Observações",
 ];
 
