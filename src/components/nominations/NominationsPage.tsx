@@ -714,19 +714,37 @@ function ValidacaoQualidadeSection({
   // obra/serviço a bordo — mesma regra de canMoveToColumn (lib/nominations.ts), reforçada aqui
   // pra avisar antes de aprovar, não só quando a tentativa de mover o card falhar depois.
   const faltaDescricaoObra = !nomination.scope_document_path && !nomination.notes?.trim();
+  const [motivoAptoId, setMotivoAptoId] = useState<string | null>(null);
   const setApto = useMutation({
-    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
+    mutationFn: async ({
+      nominee,
+      val,
+      reason,
+    }: {
+      nominee: NominationNominee;
+      val: boolean;
+      reason?: string;
+    }) => {
+      if (!val && validateRejectionReason(reason)) throw new Error(validateRejectionReason(reason)!);
       const { error } = await (supabase as any)
         .from("nomination_nominees")
         .update({
           quality_apto_solda: val,
           quality_checked_at: new Date().toISOString(),
           quality_checked_by: profile?.full_name ?? profile?.email ?? null,
+          ...(!val
+            ? { rejection_reason: reason, rejection_stage: "validacao_qualidade" }
+            : nominee.rejection_stage === "validacao_qualidade"
+              ? { rejection_reason: null, rejection_stage: null }
+              : {}),
         })
         .eq("id", nominee.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onSuccess: () => {
+      setMotivoAptoId(null);
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+    },
     onError: (err: Error) => notify.error(err.message),
   });
 
