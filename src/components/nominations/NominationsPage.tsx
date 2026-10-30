@@ -1929,7 +1929,9 @@ function ManageDialog({
   );
   const refuse = useMutation({
     mutationFn: async () => {
-      const motivo = refuseReason.trim() || null;
+      const erroMotivo = validateRejectionReason(refuseReason);
+      if (erroMotivo) throw new Error(erroMotivo);
+      const motivo = normalizeRejectionReason(refuseReason);
       const quem = profile?.full_name ?? profile?.email ?? "Projetos ADM";
       const { error } = await supabase
         .from("nominations")
@@ -2456,11 +2458,17 @@ function ManageDialog({
                       <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
                         <Label className="text-xs">Motivo da recusa</Label>
                         <RascunhoAviso rascunho={rascunhoRecusa} />
-                        <Textarea
-                          rows={2}
+                        <Input
+                          maxLength={REJECTION_REASON_MAX_CHARS}
+                          placeholder="Obrigatório, até 4 palavras"
                           value={refuseReason}
                           onChange={(e) => setRefuseReason(e.target.value)}
                         />
+                        {refuseReason.trim() && validateRejectionReason(refuseReason) && (
+                          <p className="text-[11px] text-destructive">
+                            {validateRejectionReason(refuseReason)}
+                          </p>
+                        )}
                         <p className="text-[11px] text-muted-foreground">
                           O PM e a Logística serão avisados por e-mail e a solicitação será
                           descartada.
@@ -2470,6 +2478,7 @@ function ManageDialog({
                             size="sm"
                             variant="destructive"
                             loading={refuse.isPending}
+                            disabled={!!validateRejectionReason(refuseReason)}
                             onClick={() => refuse.mutate()}
                           >
                             Confirmar recusa
@@ -2749,6 +2758,8 @@ function EnviarParaTecnicaParcial({
 // Funções devolvidas pra correção (id → etapa de onde voltaram) — o card pisca até avançar de
 // novo (pedido dela, 2026-10-29). Calculado uma vez no KanbanBoard a partir do histórico.
 const RetrocedidasContext = createContext<Map<string, string>>(new Map());
+// Candidatos por função — o card mostra piscando o motivo de cada reprovação.
+const ReprovacoesContext = createContext<Map<string, NominationNominee[]>>(new Map());
 
 function NominationCard({
   items,
@@ -2762,6 +2773,15 @@ function NominationCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const first = items[0];
   const retrocedidas = useContext(RetrocedidasContext);
+  const nomineesMap = useContext(ReprovacoesContext);
+  const reprovacoes: { quem: string | null; motivo: string }[] = [];
+  for (const n of items) {
+    if (n.quality_status === "reprovado" && n.quality_rejection_reason)
+      reprovacoes.push({ quem: "Qualidade", motivo: n.quality_rejection_reason });
+    for (const nn of nomineesMap.get(n.id) ?? []) {
+      if (nn.rejection_reason) reprovacoes.push({ quem: nn.colaborador_nome, motivo: nn.rejection_reason });
+    }
+  }
   const voltouDe = items.map((n) => retrocedidas.get(n.id)).find(Boolean) as
     | NominationStatus
     | undefined;
@@ -2850,6 +2870,18 @@ function NominationCard({
           >
             {qualityBadge.label}
           </span>
+        )}
+        {reprovacoes.length > 0 && (
+          <div className="mt-1.5 space-y-0.5">
+            {reprovacoes.map((r, i) => (
+              <p
+                key={i}
+                className="animate-pulse rounded-md border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive"
+              >
+                Reprovado{r.quem ? ` (${r.quem})` : ""}: {r.motivo}
+              </p>
+            ))}
+          </div>
         )}
       </div>
 
@@ -3194,6 +3226,7 @@ function KanbanBoard({
   };
 
   return (
+    <ReprovacoesContext.Provider value={nomineesByNomination}>
     <RetrocedidasContext.Provider value={retrocedidas}>
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       {/* Board com N colunas de min-w-[300px]+ facilmente passa de 1500px — sem isso a página
@@ -3232,6 +3265,7 @@ function KanbanBoard({
       </div>
     </DndContext>
     </RetrocedidasContext.Provider>
+    </ReprovacoesContext.Provider>
   );
 }
 
