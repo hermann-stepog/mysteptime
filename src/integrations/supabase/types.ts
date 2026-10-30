@@ -2172,6 +2172,8 @@ export type Database = {
           quality_apto_solda_obs: string | null
           quality_checked_at: string | null
           quality_checked_by: string | null
+          rejection_reason: string | null
+          rejection_stage: string | null
           rh_documentacao_ok: boolean | null
           rh_validated: boolean
           rh_validated_at: string | null
@@ -2204,6 +2206,8 @@ export type Database = {
           quality_apto_solda_obs?: string | null
           quality_checked_at?: string | null
           quality_checked_by?: string | null
+          rejection_reason?: string | null
+          rejection_stage?: string | null
           rh_documentacao_ok?: boolean | null
           rh_validated?: boolean
           rh_validated_at?: string | null
@@ -2236,6 +2240,8 @@ export type Database = {
           quality_apto_solda_obs?: string | null
           quality_checked_at?: string | null
           quality_checked_by?: string | null
+          rejection_reason?: string | null
+          rejection_stage?: string | null
           rh_documentacao_ok?: boolean | null
           rh_validated?: boolean
           rh_validated_at?: string | null
