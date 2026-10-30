@@ -7176,6 +7176,15 @@ export function NominationsPage({
           </TabsContent>
         )}
 
+        {!onlyKanban && (
+          <TabsContent value="linha-solicitacoes" className="pt-4">
+            <LinhaDoTempoSolicitacoesTab
+              nominations={nominations}
+              nomineesByNomination={nomineesByNomination}
+            />
+          </TabsContent>
+        )}
+
         {/* ── Dashboard: tempos médios e nomeações por unidade (pedido dela, 2026-10-29) ── */}
         {!onlyKanban && (
           <TabsContent value="dashboard" className="pt-4">
