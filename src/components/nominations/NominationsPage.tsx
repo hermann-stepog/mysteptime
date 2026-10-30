@@ -976,13 +976,21 @@ function AprovacaoPmSection({
   const [draft, setDraft] = useState<Record<string, PmDecision>>({});
   const decisionFor = (n: NominationNominee): PmDecision => draft[n.id] ?? n.pm_decision;
   const todosDecididos = ativos.length > 0 && ativos.every((n) => decisionFor(n) !== "pendente");
+  const [motivos, setMotivos] = useState<Record<string, string>>({});
+  const motivoFor = (n: NominationNominee) => motivos[n.id] ?? n.rejection_reason ?? "";
+  const motivosOk = ativos.every(
+    (n) => decisionFor(n) !== "reprovado" || !validateRejectionReason(motivoFor(n)),
+  );
 
   const confirmar = useMutation({
     mutationFn: async () => {
+      if (!motivosOk) throw new Error("Informe o motivo de cada reprovação (até 4 palavras).");
       await Promise.all(
         ativos.map(async (n) => {
           const decision = decisionFor(n);
-          if (decision === n.pm_decision) return;
+          const motivo =
+            decision === "reprovado" ? normalizeRejectionReason(motivoFor(n)) : null;
+          if (decision === n.pm_decision && (motivo ?? null) === (n.rejection_reason ?? null)) return;
           const { error } = await supabase
             .from("nomination_nominees")
             .update({
@@ -990,6 +998,11 @@ function AprovacaoPmSection({
               is_active: decision === "aprovado",
               pm_decided_at: new Date().toISOString(),
               pm_decided_by: profile?.full_name ?? profile?.email ?? null,
+              ...(decision === "reprovado"
+                ? { rejection_reason: motivo, rejection_stage: "aprovacao_pm" }
+                : n.rejection_stage === "aprovacao_pm"
+                  ? { rejection_reason: null, rejection_stage: null }
+                  : {}),
             })
             .eq("id", n.id);
           if (error) throw error;
@@ -1059,10 +1072,8 @@ function AprovacaoPmSection({
         {ativos.map((n) => {
           const d = decisionFor(n);
           return (
-            <div
-              key={n.id}
-              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-            >
+            <div key={n.id} className="space-y-1 rounded-md border px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2">
               <span>{n.colaborador_nome}</span>
               <div className="flex gap-1.5">
                 <Button
@@ -1083,12 +1094,29 @@ function AprovacaoPmSection({
                 </Button>
               </div>
             </div>
+            {d === "reprovado" && (
+              <>
+                <Input
+                  className="h-7 text-xs"
+                  maxLength={REJECTION_REASON_MAX_CHARS}
+                  placeholder="Motivo (obrigatório, até 4 palavras)"
+                  value={motivoFor(n)}
+                  onChange={(e) => setMotivos((p) => ({ ...p, [n.id]: e.target.value }))}
+                />
+                {validateRejectionReason(motivoFor(n)) && (
+                  <p className="text-[11px] text-destructive">
+                    {validateRejectionReason(motivoFor(n))}
+                  </p>
+                )}
+              </>
+            )}
+            </div>
           );
         })}
       </div>
       <Button
         size="sm"
-        disabled={!todosDecididos}
+        disabled={!todosDecididos || !motivosOk}
         loading={confirmar.isPending}
         onClick={() => confirmar.mutate()}
       >
