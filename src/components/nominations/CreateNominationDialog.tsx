@@ -6,7 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
-import { type Nomination, isSoldador, isInspetor, camposEscopo } from "@/lib/nominations";
+import { type Nomination, isSoldador, camposEscopo } from "@/lib/nominations";
 import { SCOPE_BUCKET, SCOPE_DOCUMENT_TYPES, SeletorIes } from "@/components/nominations/DocumentosIes";
 import { notifyRequestCreated } from "@/lib/nominationEmails";
 import { saveNominationRequest } from "@/lib/nomination-creation";
@@ -110,15 +110,13 @@ export function useNominationFormData() {
   });
   const funcaoOptions = useMemo(() => {
     const porChave = new Map<string, { funcao: string; atual: boolean }>();
+    // Todas as funções vêm do Planejamento de Embarque atual (pedido dela, 2026-10-30),
+    // inclusive as de inspetor; funções antigas só de snapshots ficam fora.
     funcoesPlanejamento.forEach((f) => {
-      // Inspetores do Planejamento ficam fora; a solicitação oferece só "INSPETOR" fixo
-      // (pedido dele, 2026-10-26), mesmo sem ninguém no Planejamento.
-      if (isInspetor(f.funcao)) return;
+      if (!f.atual) return;
       const chave = f.funcao.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ");
-      const atual = porChave.get(chave);
-      if (!atual || (f.atual && !atual.atual)) porChave.set(chave, f);
+      if (!porChave.has(chave)) porChave.set(chave, f);
     });
-    porChave.set("INSPETOR", { funcao: "INSPETOR", atual: true });
     return Array.from(porChave.values(), (f) => f.funcao).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [funcoesPlanejamento]);
 
