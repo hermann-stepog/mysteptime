@@ -877,12 +877,23 @@ function ValidacaoQualidadeSection({
                       disabled={!canAct}
                       variant={v === opt ? (opt ? "default" : "destructive") : "outline"}
                       className="h-6 px-2 text-xs"
-                      onClick={() => setApto.mutate({ nominee: n, val: opt })}
+                      onClick={() =>
+                        opt ? setApto.mutate({ nominee: n, val: opt }) : setMotivoAptoId(n.id)
+                      }
                     >
                       {opt ? "Apto" : "Não apto"}
                     </Button>
                   ))}
                 </div>
+                {motivoAptoId === n.id && (
+                  <div className="basis-full">
+                    <RejectionReasonPrompt
+                      loading={setApto.isPending}
+                      onCancel={() => setMotivoAptoId(null)}
+                      onConfirm={(reason) => setApto.mutate({ nominee: n, val: false, reason })}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
