@@ -1,6 +1,6 @@
 export const CLIENTES = [
   "SBM", "Altera", "PRIO", "Perenco", "Seadrill", "Yinson", "BW", "Trident",
-  "BW Energy", "Karoon", "MSI", "Poseidon", "Qualitech", "Saipem",
+  "BW Energy", "Karoon", "MSI", "Poseidon", "Qualitech", "Saipem", "SEMCO",
 ] as const;
 export type Cliente = (typeof CLIENTES)[number];
 
@@ -53,6 +53,8 @@ export const CLIENTE_POR_UNIDADE: Readonly<Record<string, Cliente>> = {
   // diferentes entre os lançamentos ("SAIPEM P-79" e "ATLAS P-55").
   "SAIPEM P-79": "Saipem",
   "ATLAS P-55": "Saipem",
+  // BSP 26-894-02 (confirmado por ela, 2026-10-30).
+  "DEEP BLUE": "SEMCO",
 };
 
 // Al\u00e9m de mai\u00fascula/acento, ignora conectivos ("DE"/"DO"/"DA") pra casar grafias que s\u00f3

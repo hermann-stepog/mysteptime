@@ -88,7 +88,9 @@ export async function uploadScopeDocument(file: File): Promise<{ path: string; n
   return { path, name: file.name };
 }
 
-const UNIDADES_FIXAS = ["Bravo"];
+const UNIDADES_FIXAS = ["Bravo", "Deep Blue"];
+// BSPs cadastradas manualmente por unidade (pedido dela, 2026-10-30: SEMCO / Deep Blue).
+const BSPS_FIXAS_POR_UNIDADE: Record<string, string[]> = { "Deep Blue": ["26-894-02"] };
 
 // Dados de referência do formulário — um só lugar pra não duplicar as mesmas consultas entre
 // quem usa este diálogo (Solicitante e Logística).
@@ -162,6 +164,7 @@ export function useNominationFormData() {
       const key = display.toUpperCase();
       if (!m.has(key)) m.set(key, { display, bsps: new Set() });
       (bspsFixas[display] ?? []).forEach((b) => m.get(key)!.bsps.add(b));
+      (BSPS_FIXAS_POR_UNIDADE[display] ?? []).forEach((b) => m.get(key)!.bsps.add(b));
     });
     return m;
   }, [planejamentoEmbarque, bspsFixas]);
