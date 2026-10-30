@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, CalendarDays, ChevronRight, Check, X, Upload, FileText, Pencil, Trash2 } from "lucide-react";
 import { notify } from "@/lib/notify";
+import { REJECTION_REASON_MAX_CHARS, normalizeRejectionReason, validateRejectionReason } from "@/lib/rejection-reason";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
