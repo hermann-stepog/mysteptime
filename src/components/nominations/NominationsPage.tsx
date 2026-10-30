@@ -5132,6 +5132,7 @@ function MapaNomeacoesTab({
         <TabsList>
           <TabsTrigger value="calor">Mapa de Calor</TabsTrigger>
           <TabsTrigger value="linha-tempo">Linha do Tempo</TabsTrigger>
+          <TabsTrigger value="linha-solicitacoes">Linha do Tempo — Solicitações</TabsTrigger>
         </TabsList>
 
         <TabsContent value="calor" className="space-y-3 pt-3">
@@ -5404,6 +5405,13 @@ function MapaNomeacoesTab({
 
         <TabsContent value="linha-tempo" className="pt-3">
           <LinhaDoTempoNomeacoesTab />
+        </TabsContent>
+
+        <TabsContent value="linha-solicitacoes" className="pt-3">
+          <LinhaDoTempoSolicitacoesTab
+            nominations={nominations}
+            nomineesByNomination={nomineesByNomination}
+          />
         </TabsContent>
       </Tabs>
 
@@ -6173,6 +6181,237 @@ function traduzirFuncaoProvisao(funcaoNormalizada: string): string {
     if (funcaoNormalizada.startsWith(de + " ")) return para + funcaoNormalizada.slice(de.length);
   }
   return funcaoNormalizada;
+}
+
+// Linha do tempo baseada só em Nomeações (pedido dela, 2026-10-30): por Função e período,
+// Solicitado (azul, soma das quantidades pedidas), Total da função no Planejamento de
+// Embarque (cinza, no meio) e Atendido (verde, candidatos ativos em cartões com Equipe Formada).
+function LinhaDoTempoSolicitacoesTab({
+  nominations,
+  nomineesByNomination,
+}: {
+  nominations: Nomination[];
+  nomineesByNomination: Map<string, NominationNominee[]>;
+}) {
+  const [gran, setGran] = useState<LinhaDoTempoGranularidade>("semana");
+  const hoje = todayStr();
+  const { data: planejamentoEmbarque = [] } = usePlanejamentoEmbarqueQuery();
+  const normF = (f: string) => agruparFamiliaFuncaoLinhaTempo(normalizeFuncaoSemNivel(f));
+
+  const linhas = useMemo(
+    () =>
+      nominations
+        .filter((n) => n.period_start && n.outcome !== "cancelada" && n.funcao?.trim())
+        .map((n) => {
+          const formada = n.current_status === "equipe_formada" || n.outcome === "concluida";
+          const ativos = (nomineesByNomination.get(n.id) ?? []).filter((x) => x.is_active).length;
+          return {
+            funcao: normF(n.funcao),
+            start: n.period_start!,
+            end: n.period_end && n.period_end >= n.period_start! ? n.period_end : n.period_start!,
+            qtd: Math.max(1, n.quantidade || 1),
+            atendido: formada ? ativos : 0,
+          };
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nominations, nomineesByNomination],
+  );
+
+  const totalPlanejamento = useMemo(() => {
+    const m = new Map<string, number>();
+    planejamentoEmbarque.forEach((r) => {
+      if (!r.funcao?.trim()) return;
+      const f = normF(r.funcao);
+      m.set(f, (m.get(f) ?? 0) + 1);
+    });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planejamentoEmbarque]);
+
+  const dias = useMemo(() => {
+    if (linhas.length === 0) return [] as string[];
+    let ini = linhas[0].start,
+      fim = linhas[0].end;
+    linhas.forEach((l) => {
+      if (l.start < ini) ini = l.start;
+      if (l.end > fim) fim = l.end;
+    });
+    return generateDateRange(ini, fim);
+  }, [linhas]);
+
+  const fmtDiaComAno = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
+  const periodos = useMemo(() => {
+    if (gran === "dia")
+      return dias.filter((d) => d >= hoje).map((d) => ({ label: fmtDiaComAno(d), dias: [d] }));
+    if (gran === "mes") {
+      const m = new Map<string, string[]>();
+      dias.forEach((d) => {
+        const k = d.slice(0, 7);
+        if (!m.has(k)) m.set(k, []);
+        m.get(k)!.push(d);
+      });
+      return Array.from(m.entries()).map(([k, ds]) => ({
+        label: new Date(`${k}-01T12:00:00`).toLocaleDateString("pt-BR", {
+          month: "short",
+          year: "2-digit",
+        }),
+        dias: ds,
+      }));
+    }
+    const blocos: { label: string; dias: string[] }[] = [];
+    for (let i = 0; i < dias.length; i += 7) {
+      const b = dias.slice(i, i + 7);
+      blocos.push({ label: fmtDiaComAno(b[0]), dias: b });
+    }
+    return blocos;
+  }, [dias, gran, hoje]);
+
+  const porFuncao = useMemo(() => {
+    const m = new Map<string, { sol: number[]; ate: number[] }>();
+    linhas.forEach((l) => {
+      if (!m.has(l.funcao))
+        m.set(l.funcao, { sol: periodos.map(() => 0), ate: periodos.map(() => 0) });
+      const r = m.get(l.funcao)!;
+      periodos.forEach((p, i) => {
+        if (p.dias.some((d) => d >= l.start && d <= l.end)) {
+          r.sol[i] += l.qtd;
+          r.ate[i] += l.atendido;
+        }
+      });
+    });
+    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
+  }, [linhas, periodos]);
+
+  const HEADER_BG = "#1C5A96";
+  const HOJE_ACCENT = "#D85A30";
+  const ZEBRA_BG = "#F3F8FD";
+  const headerCellStyle = (isHoje: boolean) => ({
+    backgroundColor: HEADER_BG,
+    color: "#fff",
+    ...(isHoje ? { boxShadow: `inset 0 -3px 0 ${HOJE_ACCENT}` } : {}),
+  });
+  const legenda = [
+    ["#2E75C7", "Solicitado"],
+    ["#6B7280", "Total da função (Planejamento)"],
+    ["#12A277", "Atendido"],
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-md border bg-muted p-0.5">
+          {(["dia", "semana", "mes"] as const).map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setGran(g)}
+              className={cn(
+                "px-3 py-1 text-xs rounded transition capitalize font-medium",
+                gran !== g && "text-muted-foreground",
+              )}
+              style={gran === g ? { backgroundColor: HEADER_BG, color: "#fff" } : undefined}
+            >
+              {g === "mes" ? "Mês" : g}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          {legenda.map(([cor, label]) => (
+            <span key={label} className="flex items-center gap-1.5">
+              <i className="inline-block h-2.5 w-3.5 rounded-sm" style={{ backgroundColor: cor }} />
+              {label}
+            </span>
+          ))}
+          <span className="flex items-center gap-1.5">
+            <i className="inline-block h-3 w-0.5" style={{ backgroundColor: HOJE_ACCENT }} />
+            Hoje
+          </span>
+          <span>número = pessoas</span>
+        </div>
+      </div>
+
+      {porFuncao.length === 0 ? (
+        <EmptyState icon={ClipboardList} title="Nenhuma nomeação com período programado encontrada" />
+      ) : (
+        <Card className="overflow-auto p-0" style={{ maxHeight: 620 }}>
+          <div className="sticky top-0 z-20 border-b bg-background p-3">
+            <h3 className="text-sm font-semibold">Solicitado × Total da função × Atendido</h3>
+            <p className="text-xs text-muted-foreground">
+              Por Função e período: quantas pessoas foram solicitadas nas Nomeações, quantas
+              pessoas dessa função existem no Planejamento de Embarque e quantas já foram atendidas
+              (cartões com Equipe Formada).
+            </p>
+          </div>
+          <table className="border-collapse text-xs" style={{ minWidth: "100%" }}>
+            <thead className="sticky top-[57px] z-10">
+              <tr>
+                <th
+                  className="sticky left-0 z-20 min-w-[160px] border border-border px-2 py-1.5 text-left font-semibold uppercase tracking-wide"
+                  style={headerCellStyle(false)}
+                >
+                  Função
+                </th>
+                {periodos.map((p, i) => (
+                  <th
+                    key={i}
+                    className="min-w-[108px] border border-border px-1 py-1 text-center font-semibold uppercase tracking-wide"
+                    style={headerCellStyle(p.dias.includes(hoje))}
+                  >
+                    {p.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {porFuncao.map(([funcao, r], idx) => {
+                const zebraBg = idx % 2 === 1 ? ZEBRA_BG : "#fff";
+                const total = totalPlanejamento.get(funcao) ?? 0;
+                return (
+                  <tr key={funcao}>
+                    <td
+                      className="sticky left-0 z-10 border border-border px-2 py-1"
+                      style={{ backgroundColor: zebraBg }}
+                    >
+                      {funcao}
+                    </td>
+                    {periodos.map((p, i) => {
+                      const sol = r.sol[i] ?? 0;
+                      const ate = r.ate[i] ?? 0;
+                      const cell = (v: number, cor: string, title: string) => (
+                        <div
+                          className="flex-1 py-1 text-center"
+                          title={title}
+                          style={v > 0 ? { backgroundColor: cor, color: "white", fontWeight: 700 } : undefined}
+                        >
+                          {v > 0 ? v : ""}
+                        </div>
+                      );
+                      return (
+                        <td
+                          key={i}
+                          className="border border-border p-0"
+                          style={p.dias.includes(hoje) ? { boxShadow: `inset 2px 0 0 ${HOJE_ACCENT}` } : {}}
+                        >
+                          <div
+                            className="flex items-stretch divide-x divide-border/70"
+                            style={{ backgroundColor: zebraBg }}
+                          >
+                            {cell(sol, "#2E75C7", "Solicitado")}
+                            {cell(sol > 0 ? total : 0, "#6B7280", "Total da função (Planejamento)")}
+                            {cell(ate, "#12A277", "Atendido")}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </div>
+  );
 }
 
 function LinhaDoTempoNomeacoesTab() {
