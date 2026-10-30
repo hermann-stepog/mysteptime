@@ -14,7 +14,7 @@ import { useState, type ElementType } from "react";
 import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2, Hotel, Plane, Layers, Wallet, Receipt } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
 import { tituloRelatorio } from "@/lib/reportHeader";
-import { generateRelatorioTransporte, buscarLinhasRelatorioTransporte } from "./transport";
+import { generateRelatorioTransporte, buscarLinhasRelatorioTransporte, buscarLinhasRelatorioTransporteComNf } from "./transport";
 import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH, generateRelatorioTimesheetsLancados } from "./timesheet-offshore";
 import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo, generateRelatorioPobUnidadeDia } from "@/components/histograma/HistogramaOffshoreNovo";
 import { generateRelatorioCustos } from "./costs";
@@ -37,7 +37,7 @@ type LinhaTransporte = Awaited<ReturnType<typeof buscarLinhasRelatorioTransporte
 type LinhaHospedagem = Awaited<ReturnType<typeof buscarLinhasRelatorioHospedagem>>[number];
 type LinhaPassagens = Awaited<ReturnType<typeof buscarLinhasRelatorioPassagensAereas>>[number];
 
-function normalizarTransporte(r: LinhaTransporte) {
+function normalizarTransporte({ row: r, nf }: { row: LinhaTransporte; nf: string }) {
   return {
     Módulo: "Transporte",
     "Data de Lançamento": r.Data,
@@ -47,6 +47,7 @@ function normalizarTransporte(r: LinhaTransporte) {
     Motivo: r.Motivo,
     "Forma de pagamento": r["Forma de pagamento"],
     "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
+    NF: nf,
     Observações: r.Observações,
   };
 }
@@ -61,6 +62,7 @@ function normalizarHospedagem(r: LinhaHospedagem) {
     Motivo: r.Motivo,
     "Forma de pagamento": r["Forma de pagamento"],
     "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
+    NF: r.NF === "—" ? "" : r.NF,
     Observações: r.Observações,
   };
 }
@@ -75,6 +77,7 @@ function normalizarPassagens(r: LinhaPassagens) {
     Motivo: r.Motivo,
     "Forma de pagamento": r["Forma de pagamento"],
     "Mês de Referência / Data Faturamento": r["Mês de Referência / Data Faturamento"],
+    NF: r.NF === "—" ? "" : r.NF,
     Observações: r.Observações,
   };
 }
@@ -124,6 +127,7 @@ const COLUNAS_CONSOLIDADO = [
   "Motivo",
   "Forma de pagamento",
   "Mês de Referência / Data Faturamento",
+  "NF",
   "Observações",
 ];
 
@@ -267,7 +271,8 @@ function construirAbaResumoGerencial(
   const ultimaLinha = Math.max(3, 2 + totalLinhasConsolidado);
   const faixaA = `Consolidado!$A$3:$A$${ultimaLinha}`;
   const faixaE = `Consolidado!$E$3:$E$${ultimaLinha}`;
-  const faixaJ = `Consolidado!$J$3:$J$${ultimaLinha}`;
+  const colAux = XLSX.utils.encode_col(COLUNAS_CONSOLIDADO.length);
+  const faixaJ = `Consolidado!$${colAux}$3:$${colAux}$${ultimaLinha}`;
 
   if (ws["A4"]) Object.assign(ws["A4"], { f: `SUBTOTAL(109,${faixaE})`, v: totalValor });
   if (ws["C4"]) Object.assign(ws["C4"], { f: `SUBTOTAL(103,${faixaA})`, v: totalRegistros });
@@ -310,7 +315,7 @@ function construirAbaResumoGerencial(
 
 async function generateRelatorioConsolidado(dataInicio: string, dataFim: string): Promise<void> {
   const [transporte, hospedagem, passagens] = await Promise.all([
-    buscarLinhasRelatorioTransporte(dataInicio, dataFim),
+    buscarLinhasRelatorioTransporteComNf(dataInicio, dataFim),
     buscarLinhasRelatorioHospedagem(dataInicio, dataFim),
     buscarLinhasRelatorioPassagensAereas(dataInicio, dataFim),
   ]);
@@ -326,7 +331,7 @@ async function generateRelatorioConsolidado(dataInicio: string, dataFim: string)
       nome: "Transporte",
       nRegistros: linhasTransporte.length,
       valorTotal: somaValor(linhasTransporte),
-      status: modaDeStatus(transporte.map((r) => r.Status)),
+      status: modaDeStatus(transporte.map((r) => r.row.Status)),
     },
     {
       nome: "Hospedagem",
