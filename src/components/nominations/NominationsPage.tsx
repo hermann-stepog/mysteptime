@@ -1108,20 +1108,31 @@ function ValidacaoSmsAsoSection({
 
   // "Bloqueio de saúde" e "ASO em dia" (Sim/Não). O nomeado conta como checado (sms_aso_checked)
   // quando os dois foram respondidos — é isso que libera o avanço (gate em canMoveToColumn).
+  const [pedindoMotivo, setPedindoMotivo] = useState<{
+    id: string;
+    campo: "sms_bloqueio_saude" | "sms_aso_em_dia";
+    val: boolean;
+  } | null>(null);
   const setCampo = useMutation({
     mutationFn: async ({
       nominee,
       campo,
       val,
+      reason,
     }: {
       nominee: NominationNominee;
       campo: "sms_bloqueio_saude" | "sms_aso_em_dia";
       val: boolean;
+      reason?: string;
     }) => {
       const atual: any = nominee;
       const bloqueio = campo === "sms_bloqueio_saude" ? val : atual.sms_bloqueio_saude;
       const aso = campo === "sms_aso_em_dia" ? val : atual.sms_aso_em_dia;
       const completo = bloqueio != null && aso != null;
+      const reprova = bloqueio === true || aso === false;
+      if (reprova && !reason && !nominee.rejection_reason) {
+        throw new Error("Informe o motivo da reprovação.");
+      }
       const { error } = await (supabase as any)
         .from("nomination_nominees")
         .update({
@@ -1129,11 +1140,21 @@ function ValidacaoSmsAsoSection({
           sms_aso_checked: completo,
           sms_aso_checked_at: completo ? new Date().toISOString() : null,
           sms_aso_checked_by: completo ? (profile?.full_name ?? profile?.email ?? null) : null,
+          ...(reprova
+            ? reason
+              ? { rejection_reason: reason, rejection_stage: "validacao_sms" }
+              : {}
+            : nominee.rejection_stage === "validacao_sms"
+              ? { rejection_reason: null, rejection_stage: null }
+              : {}),
         })
         .eq("id", nominee.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onSuccess: () => {
+      setPedindoMotivo(null);
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+    },
     onError: (err: Error) => notify.error(err.message),
   });
 
@@ -1149,7 +1170,11 @@ function ValidacaoSmsAsoSection({
     label: string;
   }) => {
     const v = (n as any)[campo] as boolean | null;
+    // Resposta que reprova: bloqueio de saúde = Sim, ASO em dia = Não.
+    const reprovaCom = campo === "sms_bloqueio_saude" ? true : false;
+    const pedindo = pedindoMotivo?.id === n.id && pedindoMotivo.campo === campo;
     return (
+      <div className="space-y-1">
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="text-muted-foreground">{label}</span>
         <div className="flex gap-1">
@@ -1161,15 +1186,28 @@ function ValidacaoSmsAsoSection({
               disabled={!canAct}
               variant={v === opt ? "default" : "outline"}
               className="h-6 px-2 text-xs"
-              onClick={() => setCampo.mutate({ nominee: n, campo, val: opt })}
+              onClick={() =>
+                opt === reprovaCom
+                  ? setPedindoMotivo({ id: n.id, campo, val: opt })
+                  : setCampo.mutate({ nominee: n, campo, val: opt })
+              }
             >
               {opt ? "Sim" : "Não"}
             </Button>
           ))}
         </div>
       </div>
+      {pedindo && (
+        <RejectionReasonPrompt
+          loading={setCampo.isPending}
+          onCancel={() => setPedindoMotivo(null)}
+          onConfirm={(reason) => setCampo.mutate({ nominee: n, campo, val: opt(pedindoMotivo), reason })}
+        />
+      )}
+      </div>
     );
   };
+  const opt = (p: { val: boolean } | null) => !!p?.val;
 
   return (
     <div className="space-y-2">
