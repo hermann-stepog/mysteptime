@@ -58,6 +58,12 @@ import {
 import { nomeacoesRetrocedidas } from "@/lib/nominationIndicadores";
 import { NominationObservations } from "@/components/nominations/NominationObservations";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
+import { RejectionReasonPrompt } from "@/components/nominations/RejectionReasonPrompt";
+import {
+  REJECTION_REASON_MAX_CHARS,
+  normalizeRejectionReason,
+  validateRejectionReason,
+} from "@/lib/rejection-reason";
 import { HistoricoAlteracoesButton } from "@/components/HistoricoAlteracoes";
 import {
   NotificacoesNomeacoesTab,
@@ -468,24 +474,38 @@ function AprovacaoTecnicaSection({
   const ativos = nominees.filter((n) => n.is_active);
   const selecionados = ativos.filter((n) => n.technical_selected_at);
 
+  const [motivoTecId, setMotivoTecId] = useState<string | null>(null);
   const toggleSelect = useMutation({
     mutationFn: async ({
       nominee,
       selected,
+      reason,
     }: {
       nominee: NominationNominee;
       selected: boolean;
+      reason?: string;
     }) => {
+      if (!selected && validateRejectionReason(reason))
+        throw new Error(validateRejectionReason(reason)!);
       const { error } = await supabase
         .from("nomination_nominees")
         .update({
           technical_selected_at: selected ? new Date().toISOString() : null,
           technical_selected_by: selected ? (profile?.full_name ?? profile?.email ?? null) : null,
+          ...(!selected
+            ? { rejection_reason: reason, rejection_stage: "aprovacao_tecnica" }
+            : nominee.rejection_stage === "aprovacao_tecnica"
+              ? { rejection_reason: null, rejection_stage: null }
+              : {}),
         })
         .eq("id", nominee.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onSuccess: () => {
+      setMotivoTecId(null);
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+    },
+    onError: (err: Error) => notify.error(err.message),
   });
 
   // Pedido dela, 2026-10-27: a Técnica marcava "Aprovado" em todo apto (22 aprovados pra 2
@@ -589,11 +609,22 @@ function AprovacaoTecnicaSection({
                   variant={!aprovado ? "destructive" : "outline"}
                   className="h-7 px-2 text-xs"
                   disabled={!canAct}
-                  onClick={() => toggleSelect.mutate({ nominee: n, selected: false })}
+                  onClick={() => setMotivoTecId(n.id)}
                 >
                   <X className="mr-1 h-3 w-3" /> Não aprovado
                 </Button>
               </div>
+              {motivoTecId === n.id && (
+                <div className="basis-full">
+                  <RejectionReasonPrompt
+                    loading={toggleSelect.isPending}
+                    onCancel={() => setMotivoTecId(null)}
+                    onConfirm={(reason) =>
+                      toggleSelect.mutate({ nominee: n, selected: false, reason })
+                    }
+                  />
+                </div>
+              )}
             </div>
           );
         })}
@@ -714,30 +745,53 @@ function ValidacaoQualidadeSection({
   // obra/serviço a bordo — mesma regra de canMoveToColumn (lib/nominations.ts), reforçada aqui
   // pra avisar antes de aprovar, não só quando a tentativa de mover o card falhar depois.
   const faltaDescricaoObra = !nomination.scope_document_path && !nomination.notes?.trim();
+  const [motivoAptoId, setMotivoAptoId] = useState<string | null>(null);
   const setApto = useMutation({
-    mutationFn: async ({ nominee, val }: { nominee: NominationNominee; val: boolean }) => {
+    mutationFn: async ({
+      nominee,
+      val,
+      reason,
+    }: {
+      nominee: NominationNominee;
+      val: boolean;
+      reason?: string;
+    }) => {
+      if (!val && validateRejectionReason(reason)) throw new Error(validateRejectionReason(reason)!);
       const { error } = await (supabase as any)
         .from("nomination_nominees")
         .update({
           quality_apto_solda: val,
           quality_checked_at: new Date().toISOString(),
           quality_checked_by: profile?.full_name ?? profile?.email ?? null,
+          ...(!val
+            ? { rejection_reason: reason, rejection_stage: "validacao_qualidade" }
+            : nominee.rejection_stage === "validacao_qualidade"
+              ? { rejection_reason: null, rejection_stage: null }
+              : {}),
         })
         .eq("id", nominee.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onSuccess: () => {
+      setMotivoAptoId(null);
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+    },
     onError: (err: Error) => notify.error(err.message),
   });
 
   const setQualityStatus = useMutation({
     mutationFn: async ({ status, reason }: { status: QualityStatus; reason?: string }) => {
       const aprovado = status === "aprovado";
+      if (status === "reprovado") {
+        const erro = validateRejectionReason(reason);
+        if (erro) throw new Error(erro);
+      }
       const { error } = await supabase
         .from("nominations")
         .update({
           quality_status: status,
-          quality_rejection_reason: status === "reprovado" ? reason?.trim() || null : null,
+          quality_rejection_reason:
+            status === "reprovado" ? normalizeRejectionReason(reason ?? "") : null,
           quality_validated: aprovado,
           quality_validated_at: status !== "pendente" ? new Date().toISOString() : null,
           quality_validated_by:
@@ -842,7 +896,7 @@ function ValidacaoQualidadeSection({
             return (
               <div
                 key={n.id}
-                className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs"
+                className="flex flex-wrap items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs"
               >
                 <span className="font-medium">{n.colaborador_nome}</span>
                 <div className="flex gap-1">
@@ -854,12 +908,23 @@ function ValidacaoQualidadeSection({
                       disabled={!canAct}
                       variant={v === opt ? (opt ? "default" : "destructive") : "outline"}
                       className="h-6 px-2 text-xs"
-                      onClick={() => setApto.mutate({ nominee: n, val: opt })}
+                      onClick={() =>
+                        opt ? setApto.mutate({ nominee: n, val: opt }) : setMotivoAptoId(n.id)
+                      }
                     >
                       {opt ? "Apto" : "Não apto"}
                     </Button>
                   ))}
                 </div>
+                {motivoAptoId === n.id && (
+                  <div className="basis-full">
+                    <RejectionReasonPrompt
+                      loading={setApto.isPending}
+                      onCancel={() => setMotivoAptoId(null)}
+                      onConfirm={(reason) => setApto.mutate({ nominee: n, val: false, reason })}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -875,18 +940,22 @@ function ValidacaoQualidadeSection({
         {showReject && (
           <div className="space-y-1.5">
             <RascunhoAviso rascunho={rascunhoMotivo} />
-            <Textarea
-              rows={2}
-              className="text-xs"
-              placeholder="Motivo da reprovação (opcional)"
+            <Input
+              className="h-8 text-xs"
+              maxLength={REJECTION_REASON_MAX_CHARS}
+              placeholder="Motivo da reprovação (obrigatório, até 4 palavras)"
               value={reasonDraft}
               onChange={(e) => setReasonDraft(e.target.value)}
             />
+            {reasonDraft.trim() && validateRejectionReason(reasonDraft) && (
+              <p className="text-[11px] text-destructive">{validateRejectionReason(reasonDraft)}</p>
+            )}
             <div className="flex gap-2">
               <Button
                 type="button"
                 size="sm"
                 variant="destructive"
+                disabled={!!validateRejectionReason(reasonDraft)}
                 loading={
                   setQualityStatus.isPending && setQualityStatus.variables?.status === "reprovado"
                 }
@@ -967,13 +1036,21 @@ function AprovacaoPmSection({
   const [draft, setDraft] = useState<Record<string, PmDecision>>({});
   const decisionFor = (n: NominationNominee): PmDecision => draft[n.id] ?? n.pm_decision;
   const todosDecididos = ativos.length > 0 && ativos.every((n) => decisionFor(n) !== "pendente");
+  const [motivos, setMotivos] = useState<Record<string, string>>({});
+  const motivoFor = (n: NominationNominee) => motivos[n.id] ?? n.rejection_reason ?? "";
+  const motivosOk = ativos.every(
+    (n) => decisionFor(n) !== "reprovado" || !validateRejectionReason(motivoFor(n)),
+  );
 
   const confirmar = useMutation({
     mutationFn: async () => {
+      if (!motivosOk) throw new Error("Informe o motivo de cada reprovação (até 4 palavras).");
       await Promise.all(
         ativos.map(async (n) => {
           const decision = decisionFor(n);
-          if (decision === n.pm_decision) return;
+          const motivo =
+            decision === "reprovado" ? normalizeRejectionReason(motivoFor(n)) : null;
+          if (decision === n.pm_decision && (motivo ?? null) === (n.rejection_reason ?? null)) return;
           const { error } = await supabase
             .from("nomination_nominees")
             .update({
@@ -981,6 +1058,11 @@ function AprovacaoPmSection({
               is_active: decision === "aprovado",
               pm_decided_at: new Date().toISOString(),
               pm_decided_by: profile?.full_name ?? profile?.email ?? null,
+              ...(decision === "reprovado"
+                ? { rejection_reason: motivo, rejection_stage: "aprovacao_pm" }
+                : n.rejection_stage === "aprovacao_pm"
+                  ? { rejection_reason: null, rejection_stage: null }
+                  : {}),
             })
             .eq("id", n.id);
           if (error) throw error;
@@ -1050,10 +1132,8 @@ function AprovacaoPmSection({
         {ativos.map((n) => {
           const d = decisionFor(n);
           return (
-            <div
-              key={n.id}
-              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-            >
+            <div key={n.id} className="space-y-1 rounded-md border px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2">
               <span>{n.colaborador_nome}</span>
               <div className="flex gap-1.5">
                 <Button
@@ -1074,12 +1154,29 @@ function AprovacaoPmSection({
                 </Button>
               </div>
             </div>
+            {d === "reprovado" && (
+              <>
+                <Input
+                  className="h-7 text-xs"
+                  maxLength={REJECTION_REASON_MAX_CHARS}
+                  placeholder="Motivo (obrigatório, até 4 palavras)"
+                  value={motivoFor(n)}
+                  onChange={(e) => setMotivos((p) => ({ ...p, [n.id]: e.target.value }))}
+                />
+                {validateRejectionReason(motivoFor(n)) && (
+                  <p className="text-[11px] text-destructive">
+                    {validateRejectionReason(motivoFor(n))}
+                  </p>
+                )}
+              </>
+            )}
+            </div>
           );
         })}
       </div>
       <Button
         size="sm"
-        disabled={!todosDecididos}
+        disabled={!todosDecididos || !motivosOk}
         loading={confirmar.isPending}
         onClick={() => confirmar.mutate()}
       >
@@ -1108,20 +1205,31 @@ function ValidacaoSmsAsoSection({
 
   // "Bloqueio de saúde" e "ASO em dia" (Sim/Não). O nomeado conta como checado (sms_aso_checked)
   // quando os dois foram respondidos — é isso que libera o avanço (gate em canMoveToColumn).
+  const [pedindoMotivo, setPedindoMotivo] = useState<{
+    id: string;
+    campo: "sms_bloqueio_saude" | "sms_aso_em_dia";
+    val: boolean;
+  } | null>(null);
   const setCampo = useMutation({
     mutationFn: async ({
       nominee,
       campo,
       val,
+      reason,
     }: {
       nominee: NominationNominee;
       campo: "sms_bloqueio_saude" | "sms_aso_em_dia";
       val: boolean;
+      reason?: string;
     }) => {
       const atual: any = nominee;
       const bloqueio = campo === "sms_bloqueio_saude" ? val : atual.sms_bloqueio_saude;
       const aso = campo === "sms_aso_em_dia" ? val : atual.sms_aso_em_dia;
       const completo = bloqueio != null && aso != null;
+      const reprova = bloqueio === true || aso === false;
+      if (reprova && !reason && !nominee.rejection_reason) {
+        throw new Error("Informe o motivo da reprovação.");
+      }
       const { error } = await (supabase as any)
         .from("nomination_nominees")
         .update({
@@ -1129,11 +1237,21 @@ function ValidacaoSmsAsoSection({
           sms_aso_checked: completo,
           sms_aso_checked_at: completo ? new Date().toISOString() : null,
           sms_aso_checked_by: completo ? (profile?.full_name ?? profile?.email ?? null) : null,
+          ...(reprova
+            ? reason
+              ? { rejection_reason: reason, rejection_stage: "validacao_sms" }
+              : {}
+            : nominee.rejection_stage === "validacao_sms"
+              ? { rejection_reason: null, rejection_stage: null }
+              : {}),
         })
         .eq("id", nominee.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] }),
+    onSuccess: () => {
+      setPedindoMotivo(null);
+      qc.invalidateQueries({ queryKey: ["nominations", nomination.id, "nominees"] });
+    },
     onError: (err: Error) => notify.error(err.message),
   });
 
@@ -1149,7 +1267,11 @@ function ValidacaoSmsAsoSection({
     label: string;
   }) => {
     const v = (n as any)[campo] as boolean | null;
+    // Resposta que reprova: bloqueio de saúde = Sim, ASO em dia = Não.
+    const reprovaCom = campo === "sms_bloqueio_saude" ? true : false;
+    const pedindo = pedindoMotivo?.id === n.id && pedindoMotivo.campo === campo;
     return (
+      <div className="space-y-1">
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="text-muted-foreground">{label}</span>
         <div className="flex gap-1">
@@ -1161,15 +1283,28 @@ function ValidacaoSmsAsoSection({
               disabled={!canAct}
               variant={v === opt ? "default" : "outline"}
               className="h-6 px-2 text-xs"
-              onClick={() => setCampo.mutate({ nominee: n, campo, val: opt })}
+              onClick={() =>
+                opt === reprovaCom
+                  ? setPedindoMotivo({ id: n.id, campo, val: opt })
+                  : setCampo.mutate({ nominee: n, campo, val: opt })
+              }
             >
               {opt ? "Sim" : "Não"}
             </Button>
           ))}
         </div>
       </div>
+      {pedindo && (
+        <RejectionReasonPrompt
+          loading={setCampo.isPending}
+          onCancel={() => setPedindoMotivo(null)}
+          onConfirm={(reason) => setCampo.mutate({ nominee: n, campo, val: opt(pedindoMotivo), reason })}
+        />
+      )}
+      </div>
     );
   };
+  const opt = (p: { val: boolean } | null) => !!p?.val;
 
   return (
     <div className="space-y-2">
@@ -1929,7 +2064,9 @@ function ManageDialog({
   );
   const refuse = useMutation({
     mutationFn: async () => {
-      const motivo = refuseReason.trim() || null;
+      const erroMotivo = validateRejectionReason(refuseReason);
+      if (erroMotivo) throw new Error(erroMotivo);
+      const motivo = normalizeRejectionReason(refuseReason);
       const quem = profile?.full_name ?? profile?.email ?? "Projetos ADM";
       const { error } = await supabase
         .from("nominations")
@@ -2456,11 +2593,17 @@ function ManageDialog({
                       <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
                         <Label className="text-xs">Motivo da recusa</Label>
                         <RascunhoAviso rascunho={rascunhoRecusa} />
-                        <Textarea
-                          rows={2}
+                        <Input
+                          maxLength={REJECTION_REASON_MAX_CHARS}
+                          placeholder="Obrigatório, até 4 palavras"
                           value={refuseReason}
                           onChange={(e) => setRefuseReason(e.target.value)}
                         />
+                        {refuseReason.trim() && validateRejectionReason(refuseReason) && (
+                          <p className="text-[11px] text-destructive">
+                            {validateRejectionReason(refuseReason)}
+                          </p>
+                        )}
                         <p className="text-[11px] text-muted-foreground">
                           O PM e a Logística serão avisados por e-mail e a solicitação será
                           descartada.
@@ -2470,6 +2613,7 @@ function ManageDialog({
                             size="sm"
                             variant="destructive"
                             loading={refuse.isPending}
+                            disabled={!!validateRejectionReason(refuseReason)}
                             onClick={() => refuse.mutate()}
                           >
                             Confirmar recusa
@@ -2749,6 +2893,8 @@ function EnviarParaTecnicaParcial({
 // Funções devolvidas pra correção (id → etapa de onde voltaram) — o card pisca até avançar de
 // novo (pedido dela, 2026-10-29). Calculado uma vez no KanbanBoard a partir do histórico.
 const RetrocedidasContext = createContext<Map<string, string>>(new Map());
+// Candidatos por função — o card mostra piscando o motivo de cada reprovação.
+const ReprovacoesContext = createContext<Map<string, NominationNominee[]>>(new Map());
 
 function NominationCard({
   items,
@@ -2762,6 +2908,15 @@ function NominationCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const first = items[0];
   const retrocedidas = useContext(RetrocedidasContext);
+  const nomineesMap = useContext(ReprovacoesContext);
+  const reprovacoes: { quem: string | null; motivo: string }[] = [];
+  for (const n of items) {
+    if (n.quality_status === "reprovado" && n.quality_rejection_reason)
+      reprovacoes.push({ quem: "Qualidade", motivo: n.quality_rejection_reason });
+    for (const nn of nomineesMap.get(n.id) ?? []) {
+      if (nn.rejection_reason) reprovacoes.push({ quem: nn.colaborador_nome, motivo: nn.rejection_reason });
+    }
+  }
   const voltouDe = items.map((n) => retrocedidas.get(n.id)).find(Boolean) as
     | NominationStatus
     | undefined;
@@ -2850,6 +3005,18 @@ function NominationCard({
           >
             {qualityBadge.label}
           </span>
+        )}
+        {reprovacoes.length > 0 && (
+          <div className="mt-1.5 space-y-0.5">
+            {reprovacoes.map((r, i) => (
+              <p
+                key={i}
+                className="animate-pulse rounded-md border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive"
+              >
+                Reprovado{r.quem ? ` (${r.quem})` : ""}: {r.motivo}
+              </p>
+            ))}
+          </div>
         )}
       </div>
 
@@ -3194,6 +3361,7 @@ function KanbanBoard({
   };
 
   return (
+    <ReprovacoesContext.Provider value={nomineesByNomination}>
     <RetrocedidasContext.Provider value={retrocedidas}>
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       {/* Board com N colunas de min-w-[300px]+ facilmente passa de 1500px — sem isso a página
@@ -3232,6 +3400,7 @@ function KanbanBoard({
       </div>
     </DndContext>
     </RetrocedidasContext.Provider>
+    </ReprovacoesContext.Provider>
   );
 }
 

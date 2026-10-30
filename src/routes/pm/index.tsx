@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, CalendarDays, ChevronRight, Check, X, Upload, FileText, Pencil, Trash2 } from "lucide-react";
 import { notify } from "@/lib/notify";
+import { REJECTION_REASON_MAX_CHARS, normalizeRejectionReason, validateRejectionReason } from "@/lib/rejection-reason";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/pageTitle";
@@ -104,24 +105,33 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
 
   const decisionFor = (n: NominationNominee): PmDecision => draft[n.id] ?? n.pm_decision;
   const todosDecididos = ativos.length > 0 && ativos.every((n) => decisionFor(n) !== "pendente");
+  const [motivos, setMotivos] = useState<Record<string, string>>({});
+  const motivoFor = (n: NominationNominee) => motivos[n.id] ?? n.rejection_reason ?? "";
+  const motivosOk = ativos.every(
+    (n) => decisionFor(n) !== "reprovado" || !validateRejectionReason(motivoFor(n)),
+  );
 
   const confirmar = useMutation({
     mutationFn: async () => {
+      if (!motivosOk) throw new Error("Informe o motivo de cada reprovação (até 4 palavras).");
       // Reprovação parcial (só alguns dos nomeados) não trava o avanço — a solicitação segue
-      // com quem foi aprovado. O reprovado precisa sair de "ativo" aqui, senão continua
-      // arrastado pelas etapas seguintes (SMS/RH validariam alguém que já foi reprovado). Só a
-      // reprovação de TODOS os nomeados ativos trava de verdade (ver gate em canMoveToColumn) e
-      // aí o botão "Retroceder para Nomeação (Simulação)" abaixo assume.
+      // com quem foi aprovado. O reprovado precisa sair de "ativo" aqui.
       await Promise.all(
         ativos.map(async (n) => {
           const decision = decisionFor(n);
           const deveFicarAtivo = decision !== "reprovado";
-          if (decision === n.pm_decision && deveFicarAtivo === n.is_active) return;
+          const motivo = decision === "reprovado" ? normalizeRejectionReason(motivoFor(n)) : null;
+          if (decision === n.pm_decision && deveFicarAtivo === n.is_active && motivo === (n.rejection_reason ?? null)) return;
           const { error } = await supabase.from("nomination_nominees").update({
             pm_decision: decision,
             pm_decided_at: new Date().toISOString(),
             pm_decided_by: profile?.full_name ?? profile?.email ?? null,
             is_active: deveFicarAtivo,
+            ...(decision === "reprovado"
+              ? { rejection_reason: motivo, rejection_stage: "aprovacao_pm" }
+              : n.rejection_stage === "aprovacao_pm"
+                ? { rejection_reason: null, rejection_stage: null }
+                : {}),
           }).eq("id", n.id);
           if (error) throw error;
         }),
@@ -193,7 +203,8 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
         {ativos.map((n) => {
           const d = decisionFor(n);
           return (
-            <div key={n.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+            <div key={n.id} className="space-y-1 rounded-md border px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2">
               <span>{n.colaborador_nome}</span>
               <div className="flex gap-1.5">
                 <Button
@@ -210,12 +221,27 @@ function AprovacaoPmChecklist({ nomination, onDone }: { nomination: Nomination; 
                 </Button>
               </div>
             </div>
+            {d === "reprovado" && (
+              <>
+                <Input
+                  className="h-7 text-xs"
+                  maxLength={REJECTION_REASON_MAX_CHARS}
+                  placeholder="Motivo (obrigatório, até 4 palavras)"
+                  value={motivoFor(n)}
+                  onChange={(e) => setMotivos((p) => ({ ...p, [n.id]: e.target.value }))}
+                />
+                {validateRejectionReason(motivoFor(n)) && (
+                  <p className="text-[11px] text-destructive">{validateRejectionReason(motivoFor(n))}</p>
+                )}
+              </>
+            )}
+            </div>
           );
         })}
       </div>
       <div className="flex flex-wrap gap-2">
         <Button
-          size="sm" disabled={!todosDecididos || todosReprovados} loading={confirmar.isPending}
+          size="sm" disabled={!todosDecididos || todosReprovados || !motivosOk} loading={confirmar.isPending}
           onClick={() => confirmar.mutate()}
         >
           Confirmar decisões

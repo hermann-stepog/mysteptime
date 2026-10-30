@@ -36,6 +36,13 @@
       "when": 1793366752627,
       "tag": "0004_fix_atomic_nomination_fixed_creation",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793381432118,
+      "tag": "0005_nominee_rejection_reason",
+      "breakpoints": true
     }
   ]
 }

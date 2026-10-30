@@ -1,0 +1,1 @@
+ALTER TABLE public.nomination_nominees ADD COLUMN IF NOT EXISTS rejection_reason text, ADD COLUMN IF NOT EXISTS rejection_stage text;

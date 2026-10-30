@@ -101,6 +101,8 @@ export type QualityStatus = "pendente" | "aprovado" | "reprovado";
 export type PmDecision = "pendente" | "aprovado" | "reprovado";
 
 export interface NominationNominee {
+  rejection_reason?: string | null;
+  rejection_stage?: string | null;
   id: string;
   nomination_id: string;
   // Opcional desde 2026-10-02 (ver migration 20261002110000): dá pra nomear alguém que está
