@@ -29,6 +29,13 @@
       "when": 1793191585772,
       "tag": "0003_nomination_observations_any_stage",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793366752627,
+      "tag": "0004_fix_atomic_nomination_fixed_creation",
+      "breakpoints": true
     }
   ]
 }

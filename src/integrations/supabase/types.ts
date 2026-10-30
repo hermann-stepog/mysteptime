@@ -2068,6 +2068,74 @@ export type Database = {
           },
         ]
       }
+      nomination_fixed_teams: {
+        Row: {
+          antecedencia_dias_uteis: number
+          ativo: boolean
+          bsp: string
+          ciclo_dias: number
+          client: string | null
+          created_at: string
+          funcao: string
+          id: string
+          notes: string | null
+          periodo_dias: number | null
+          pm_name: string | null
+          pm_user_id: string | null
+          proxima_troca: string
+          quantidade: number
+          ultima_nomeacao_id: string | null
+          unidade: string
+          updated_at: string
+        }
+        Insert: {
+          antecedencia_dias_uteis?: number
+          ativo?: boolean
+          bsp: string
+          ciclo_dias?: number
+          client?: string | null
+          created_at?: string
+          funcao: string
+          id?: string
+          notes?: string | null
+          periodo_dias?: number | null
+          pm_name?: string | null
+          pm_user_id?: string | null
+          proxima_troca: string
+          quantidade?: number
+          ultima_nomeacao_id?: string | null
+          unidade: string
+          updated_at?: string
+        }
+        Update: {
+          antecedencia_dias_uteis?: number
+          ativo?: boolean
+          bsp?: string
+          ciclo_dias?: number
+          client?: string | null
+          created_at?: string
+          funcao?: string
+          id?: string
+          notes?: string | null
+          periodo_dias?: number | null
+          pm_name?: string | null
+          pm_user_id?: string | null
+          proxima_troca?: string
+          quantidade?: number
+          ultima_nomeacao_id?: string | null
+          unidade?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nomination_fixed_teams_ultima_nomeacao_id_fkey"
+            columns: ["ultima_nomeacao_id"]
+            isOneToOne: false
+            referencedRelation: "nominations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nomination_funcao_catalog: {
         Row: {
           created_at: string
@@ -2279,6 +2347,7 @@ export type Database = {
           requires_quality_validation: boolean
           scope_document_name: string | null
           scope_document_path: string | null
+          scope_documents: Json | null
           sequence_number: number | null
           unidade: string | null
           updated_at: string
@@ -2321,6 +2390,7 @@ export type Database = {
           requires_quality_validation?: boolean
           scope_document_name?: string | null
           scope_document_path?: string | null
+          scope_documents?: Json | null
           sequence_number?: number | null
           unidade?: string | null
           updated_at?: string
@@ -2363,6 +2433,7 @@ export type Database = {
           requires_quality_validation?: boolean
           scope_document_name?: string | null
           scope_document_path?: string | null
+          scope_documents?: Json | null
           sequence_number?: number | null
           unidade?: string | null
           updated_at?: string
@@ -4151,6 +4222,58 @@ export type Database = {
         Returns: Json
       }
       mysteptime_histogram_weeks: { Args: { p_cutoff: string }; Returns: Json }
+      nomination_create_request: {
+        Args: { p_proxima_troca?: string; p_rows: Json }
+        Returns: {
+          briefing_sms_realizado: boolean
+          briefing_sms_realizado_at: string | null
+          briefing_sms_realizado_by: string | null
+          bsp: string | null
+          bsp_request_number: number | null
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          client: string | null
+          colaborador_id: string | null
+          colaborador_nome: string | null
+          created_at: string
+          current_status: string
+          funcao: string
+          id: string
+          logistics_received_at: string | null
+          logistics_received_by: string | null
+          notes: string | null
+          outcome: string | null
+          period_end: string | null
+          period_start: string | null
+          pm_name: string | null
+          pm_responsavel: string | null
+          pm_user_id: string | null
+          project: string | null
+          quality_rejection_reason: string | null
+          quality_status: string
+          quality_validated: boolean
+          quality_validated_at: string | null
+          quality_validated_by: string | null
+          quantidade: number
+          request_group_id: string | null
+          requires_quality_validation: boolean
+          scope_document_name: string | null
+          scope_document_path: string | null
+          scope_documents: Json | null
+          sequence_number: number | null
+          unidade: string | null
+          updated_at: string
+          weld_material: string | null
+          weld_type: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "nominations"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       nomination_etapa_nome: { Args: { p_status: string }; Returns: string }
       nomination_etapa_ordem: { Args: { p_status: string }; Returns: number }
       nomination_funcoes_planejamento: {
