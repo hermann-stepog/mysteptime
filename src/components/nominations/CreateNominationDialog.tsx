@@ -6,7 +6,7 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
-import { type Nomination, isSoldador, isInspetor, camposEscopo } from "@/lib/nominations";
+import { type Nomination, isSoldador, camposEscopo } from "@/lib/nominations";
 import { SCOPE_BUCKET, SCOPE_DOCUMENT_TYPES, SeletorIes } from "@/components/nominations/DocumentosIes";
 import { notifyRequestCreated } from "@/lib/nominationEmails";
 import { saveNominationRequest } from "@/lib/nomination-creation";
