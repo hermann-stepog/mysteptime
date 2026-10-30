@@ -865,7 +865,7 @@ function ValidacaoQualidadeSection({
             return (
               <div
                 key={n.id}
-                className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs"
+                className="flex flex-wrap items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs"
               >
                 <span className="font-medium">{n.colaborador_nome}</span>
                 <div className="flex gap-1">
