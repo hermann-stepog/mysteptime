@@ -303,7 +303,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-x-hidden overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nova Solicitação de Nomeação</DialogTitle>
         </DialogHeader>
@@ -315,8 +315,8 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
               const isWelder = isSoldador(l.funcao);
               return (
                 <div key={i} className="space-y-2 rounded-md border p-3">
-                  <div className="grid grid-cols-[1fr_90px_auto] items-end gap-3">
-                    <div className="space-y-1">
+                  <div className="grid grid-cols-[minmax(0,1fr)_90px_auto] items-end gap-3">
+                    <div className="min-w-0 space-y-1">
                       <Label>Função *</Label>
                       <SearchableSelect
                         value={l.funcao}
