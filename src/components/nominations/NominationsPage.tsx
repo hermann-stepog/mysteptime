@@ -5132,7 +5132,6 @@ function MapaNomeacoesTab({
         <TabsList>
           <TabsTrigger value="calor">Mapa de Calor</TabsTrigger>
           <TabsTrigger value="linha-tempo">Linha do Tempo</TabsTrigger>
-          <TabsTrigger value="linha-solicitacoes">Linha do Tempo — Solicitações</TabsTrigger>
         </TabsList>
 
         <TabsContent value="calor" className="space-y-3 pt-3">
@@ -5407,12 +5406,6 @@ function MapaNomeacoesTab({
           <LinhaDoTempoNomeacoesTab />
         </TabsContent>
 
-        <TabsContent value="linha-solicitacoes" className="pt-3">
-          <LinhaDoTempoSolicitacoesTab
-            nominations={nominations}
-            nomineesByNomination={nomineesByNomination}
-          />
-        </TabsContent>
       </Tabs>
 
       <Dialog open={!!drill} onOpenChange={(o) => !o && setDrill(null)}>
@@ -7144,6 +7137,7 @@ export function NominationsPage({
         {!onlyKanban && (
           <TabsList>
             <TabsTrigger value="nomeacoes">Nomeações</TabsTrigger>
+            <TabsTrigger value="linha-solicitacoes">Linha do Tempo</TabsTrigger>
             <TabsTrigger value="dashboard">
               <BarChart3 className="mr-1.5 h-3.5 w-3.5" /> Dashboard
             </TabsTrigger>
