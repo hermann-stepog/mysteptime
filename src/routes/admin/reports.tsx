@@ -14,7 +14,7 @@ import { useState, type ElementType } from "react";
 import { Truck, Users, Ruler, DollarSign, Loader2, Ship, UserCheck, ClipboardList, BarChart3, Plus, Trash2, Hotel, Plane, Layers, Wallet, Receipt } from "lucide-react";
 import { pageTitle } from "@/lib/pageTitle";
 import { tituloRelatorio } from "@/lib/reportHeader";
-import { generateRelatorioTransporte, buscarLinhasRelatorioTransporte } from "./transport";
+import { generateRelatorioTransporte, buscarLinhasRelatorioTransporte, buscarLinhasRelatorioTransporteComNf } from "./transport";
 import { generateRelatorioRH, generateRelatorioMedicao, generateRelatorioFolhaRH, generateRelatorioTimesheetsLancados } from "./timesheet-offshore";
 import { generateRelatorioEmbarques, generateRelatorioDisponibilidade, generateRelatorioHeadcount, generateRelatorioHeadcountMultiplo, generateRelatorioPobUnidadeDia } from "@/components/histograma/HistogramaOffshoreNovo";
 import { generateRelatorioCustos } from "./costs";
