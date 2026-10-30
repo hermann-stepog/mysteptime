@@ -2278,7 +2278,6 @@ export type Database = {
           request_group_id: string | null
           requires_quality_validation: boolean
           scope_document_name: string | null
-          scope_documents: Json
           scope_document_path: string | null
           sequence_number: number | null
           unidade: string | null
@@ -2321,7 +2320,6 @@ export type Database = {
           request_group_id?: string | null
           requires_quality_validation?: boolean
           scope_document_name?: string | null
-          scope_documents?: Json
           scope_document_path?: string | null
           sequence_number?: number | null
           unidade?: string | null
@@ -2364,7 +2362,6 @@ export type Database = {
           request_group_id?: string | null
           requires_quality_validation?: boolean
           scope_document_name?: string | null
-          scope_documents?: Json
           scope_document_path?: string | null
           sequence_number?: number | null
           unidade?: string | null
