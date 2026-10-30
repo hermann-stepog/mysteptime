@@ -1,10 +1,13 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, X, Upload, FileText } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
-import { type Nomination, isSoldador, requestTitle } from "@/lib/nominations";
+import {
+  type Nomination, type DocumentoEscopo, isSoldador, requestTitle, documentosEscopo, camposEscopo,
+} from "@/lib/nominations";
+import { SeletorIes } from "@/components/nominations/DocumentosIes";
 import { notifyRequestCreated } from "@/lib/nominationEmails";
 import { CLIENTES, clienteDaUnidade } from "@/lib/clientes";
 import { notify } from "@/lib/notify";
@@ -16,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  useNominationFormData, uploadScopeDocument, currentAuthUserId, SCOPE_DOCUMENT_TYPES, SCOPE_BUCKET,
+  useNominationFormData, uploadScopeDocument, currentAuthUserId, SCOPE_BUCKET,
 } from "@/components/nominations/CreateNominationDialog";
 
 // Formulário "Editar solicitação" — saiu de src/routes/pm/index.tsx pra ser usado também pela
@@ -47,9 +50,9 @@ interface GroupLinha {
   id: string | null;
   funcao: string;
   quantidade: string;
-  scopeFile: File | null;
-  existingScopePath: string | null;
-  existingScopeName: string | null;
+  // IES: já gravadas (dá pra remover) + novas escolhidas agora (pedido dela, 2026-10-30).
+  scopeFiles: File[];
+  existentes: DocumentoEscopo[];
 }
 
 export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination[]; onClose: () => void; onSaved: () => void }) {
@@ -60,8 +63,8 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
 
   const [linhas, setLinhas] = useState<GroupLinha[]>(
     items.map((n) => ({
-      id: n.id, funcao: n.funcao, quantidade: String(n.quantidade), scopeFile: null,
-      existingScopePath: n.scope_document_path, existingScopeName: n.scope_document_name,
+      id: n.id, funcao: n.funcao, quantidade: String(n.quantidade), scopeFiles: [],
+      existentes: documentosEscopo(n),
     })),
   );
   const [unidade, setUnidade] = useState(primeiro.unidade ?? "");
@@ -74,11 +77,11 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
   const rascunho = useRascunho(
     `nomeacao:editar-grupo:${primeiro.request_group_id ?? primeiro.id}`,
     {
-      linhas: linhas.map(({ scopeFile: _f, ...l }) => l),
+      linhas: linhas.map(({ scopeFiles: _f, ...l }) => l),
       unidade, bsp, start, end, client, notes,
     },
     (v) => {
-      setLinhas(v.linhas.map((l) => ({ ...l, scopeFile: null })));
+      setLinhas(v.linhas.map((l) => ({ ...l, scopeFiles: [], existentes: l.existentes ?? [] })));
       setUnidade(v.unidade); setBsp(v.bsp); setStart(v.start); setEnd(v.end);
       setClient(v.client); setNotes(v.notes);
     },
@@ -87,7 +90,7 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
   const updateLinha = (i: number, patch: Partial<GroupLinha>) => {
     setLinhas((atual) => atual.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   };
-  const addLinha = () => setLinhas((atual) => [...atual, { id: null, funcao: "", quantidade: "1", scopeFile: null, existingScopePath: null, existingScopeName: null }]);
+  const addLinha = () => setLinhas((atual) => [...atual, { id: null, funcao: "", quantidade: "1", scopeFiles: [], existentes: [] }]);
   const removeLinha = (i: number) => setLinhas((atual) => (atual.length > 1 ? atual.filter((_, idx) => idx !== i) : atual));
 
   const { funcaoOptions, unidadeGroups, unidadeOptions } = useNominationFormData();
@@ -137,7 +140,9 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
       const novas: Nomination[] = [];
       for (const l of validas) {
         const isWelder = isSoldador(l.funcao);
-        const scopeDocument = l.scopeFile ? await uploadScopeDocument(l.scopeFile) : null;
+        const ies = isWelder
+          ? [...l.existentes, ...(await Promise.all(l.scopeFiles.map(uploadScopeDocument)))]
+          : [];
         const camposComuns = {
           unidade, bsp,
           period_start: start || null,
@@ -153,7 +158,7 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
             funcao: l.funcao.trim(),
             quantidade: Math.max(1, Number(l.quantidade) || 1),
             requires_quality_validation: isWelder,
-            ...(scopeDocument ? { scope_document_path: scopeDocument.path, scope_document_name: scopeDocument.name } : {}),
+            ...(isWelder ? camposEscopo(ies) : {}),
           }).eq("id", l.id).select("id");
           if (error) throw error;
           // RLS bloqueando UPDATE não dá erro, só volta 0 linhas — sem isso a tela dizia
@@ -176,8 +181,7 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
             quantidade: Math.max(1, Number(l.quantidade) || 1),
             weld_type: null,
             weld_material: null,
-            scope_document_path: scopeDocument?.path ?? null,
-            scope_document_name: scopeDocument?.name ?? null,
+            ...camposEscopo(ies),
             project: null,
             requires_quality_validation: isWelder,
           }).select().single();
@@ -219,7 +223,7 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
                       <Label>Função *</Label>
                       <SearchableSelect
                         value={l.funcao}
-                        onValueChange={(v) => updateLinha(i, { funcao: v, scopeFile: null })}
+                        onValueChange={(v) => updateLinha(i, { funcao: v, scopeFiles: [] })}
                         options={funcaoOptions}
                         placeholder="Buscar função..."
                       />
@@ -236,30 +240,13 @@ export function EditGroupDialog({ items, onClose, onSaved }: { items: Nomination
                   </div>
 
                   {isWelder && (
-                    <div className="space-y-1">
-                      <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
-                      {l.existingScopePath && !l.scopeFile && (
-                        <button
-                          type="button" className="mb-1 flex items-center gap-1.5 text-xs text-primary hover:underline"
-                          onClick={() => baixarEscopoDocumento(l.existingScopePath!, l.existingScopeName ?? "escopo-do-servico")}
-                        >
-                          <FileText className="h-3.5 w-3.5" /> {l.existingScopeName ?? "Ver documento atual"}
-                        </button>
-                      )}
-                      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
-                        <Upload className="h-3.5 w-3.5 shrink-0" />
-                        {l.scopeFile ? l.scopeFile.name : l.existingScopePath ? "Substituir arquivo..." : "Selecionar arquivo..."}
-                        <input
-                          type="file" accept={SCOPE_DOCUMENT_TYPES} className="hidden"
-                          onChange={(e) => updateLinha(i, { scopeFile: e.target.files?.[0] ?? null })}
-                        />
-                      </label>
-                      <p className="text-[11px] text-muted-foreground">
-                        {l.scopeFile || l.existingScopePath
-                          ? "A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar."
-                          : `Sem documento? Descreva o tipo de serviço no campo Observações abaixo (indicando a função "${l.funcao}").`}
-                      </p>
-                    </div>
+                    <SeletorIes
+                      funcao={l.funcao}
+                      existentes={l.existentes}
+                      onExistentesChange={(docs) => updateLinha(i, { existentes: docs })}
+                      novos={l.scopeFiles}
+                      onNovosChange={(files) => updateLinha(i, { scopeFiles: files })}
+                    />
                   )}
                 </div>
               );

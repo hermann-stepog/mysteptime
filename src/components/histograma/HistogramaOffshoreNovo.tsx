@@ -143,6 +143,7 @@ import {
   bspOptionsHistograma,
   embarcouNoFiltroUnidadeBsp,
   periodoForaDoFiltroUnidadeBsp,
+  chaveBsp,
   bspDoPeriodo,
   normalizeUnidadeOperacional,
   buildUnidadeCanonMap,
@@ -3349,7 +3350,7 @@ function detalheEmbarqueTooltip(
   return ` · Função: ${funcao} · Unidade: ${unidade} · BSP: ${bsp}`;
 }
 
-type GeralGridSortColumn = "colaborador" | "unidade";
+type GeralGridSortColumn = "colaborador" | "funcao" | "bsp";
 
 function GeralGrid({
   colaboradores,
@@ -3375,39 +3376,54 @@ function GeralGrid({
   unidadeCanonMap?: Map<string, string>;
 }) {
   const filtroLugarAtivo = !!unidadeCanonMap && (unidadeFilter.length > 0 || bspFilter.length > 0);
-  // Com filtro de Unidade/BSP, a coluna Unidade mostra o filtro (não onde a pessoa está hoje).
-  const rotuloFiltroLugar = filtroLugarAtivo
-    ? [unidadeFilter.join(", "), bspFilter.map((b) => `BSP ${b}`).join(", ")]
-        .filter(Boolean)
-        .join(" · ")
-    : null;
-  // Unidade "atual" de um colaborador: prioriza o período que realmente está valendo hoje
-  // (computeDayStatus, mesma prioridade usada na grade) — não simplesmente o período com a
-  // data_inicio mais recente (latestPeriodo). Um período de Folga vindo do relatório de
-  // Disponibilidade costuma ser importado com data_inicio = hoje, então "mais recente por
-  // data_inicio" pode ser justamente esse (sem unidade_operacional), mesmo quando existe um
-  // Embarque confirmado, começado antes, mas ainda em andamento e vencendo hoje na
-  // prioridade — resultando num colaborador embarcado aparecendo sem unidade. Só cai pra
-  // latestPeriodo quando não há período nenhum cobrindo hoje.
-  const unidadeAtualDoColaborador = (cPeriodos: HistNovoPeriodo[]) =>
-    computeDayStatus(cPeriodos, today).periodo?.unidade_operacional ??
-    latestPeriodo(cPeriodos)?.unidade_operacional ??
-    null;
-
-  // Ordenação clicável no cabeçalho (Colaborador/Unidade), no mesmo padrão já aplicado nas
+  // Ordenação clicável no cabeçalho (Colaborador/Função/Última BSP), no mesmo padrão já aplicado nas
   // tabelas de Lançamentos e Histórico de BMs — sem coluna escolhida, mantém a ordem recebida
   // (já vem ordenada por status/última atividade de fora deste componente).
+  // Função de embarque (pedido dela, 2026-10-29: coluna ao lado do nome) — mesma regra do
+  // filtro de Função: embarque que cobre hoje, senão a função cadastral (resolverFuncaoEmbarque).
+  const funcaoDoColaborador = (c: HistNovoColaborador) =>
+    resolverFuncaoEmbarque(c.id, today, embarquesByColaboradorId, c.funcao || c.funcao_operacao);
+  // BSP do embarque atual ou, se não está embarcado, do último embarque já iniciado (E/DB com
+  // BSP) — pedido dela, 2026-10-29, coluna depois da Função.
+  const ultimaBspDoColaborador = (cPeriodos: HistNovoPeriodo[]): string | null => {
+    const ultimo = cPeriodos
+      .filter(
+        (p) => (p.tipo === "E" || p.tipo === "DB") && p.data_inicio <= today && bspDoPeriodo(p),
+      )
+      .reduce<HistNovoPeriodo | null>(
+        (melhor, p) =>
+          !melhor ||
+          p.data_inicio > melhor.data_inicio ||
+          (p.data_inicio === melhor.data_inicio && p.data_fim > melhor.data_fim)
+            ? p
+            : melhor,
+        null,
+      );
+    return ultimo ? chaveBsp(bspDoPeriodo(ultimo)) : null;
+  };
   const { sortColumn, sortDirection, toggleSort } = useTableSort<GeralGridSortColumn>();
   const sortedColaboradores = useMemo(() => {
     if (!sortColumn) return colaboradores;
     const dir = sortDirection === "asc" ? 1 : -1;
     return [...colaboradores].sort((a, b) => {
       if (sortColumn === "colaborador") return dir * a.nome.localeCompare(b.nome);
-      const ua = unidadeAtualDoColaborador(periodosByColaborador.get(a.id) ?? []) ?? "";
-      const ub = unidadeAtualDoColaborador(periodosByColaborador.get(b.id) ?? []) ?? "";
-      return dir * ua.localeCompare(ub);
+      if (sortColumn === "funcao")
+        return dir * funcaoDoColaborador(a).localeCompare(funcaoDoColaborador(b));
+      return (
+        dir *
+        (ultimaBspDoColaborador(periodosByColaborador.get(a.id) ?? []) ?? "").localeCompare(
+          ultimaBspDoColaborador(periodosByColaborador.get(b.id) ?? []) ?? "",
+        )
+      );
     });
-  }, [colaboradores, periodosByColaborador, sortColumn, sortDirection, today]);
+  }, [
+    colaboradores,
+    periodosByColaborador,
+    sortColumn,
+    sortDirection,
+    today,
+    embarquesByColaboradorId,
+  ]);
 
   // Abaixo de 1280px um mês inteiro de colunas (~30 × 26px) não cabe sem rolar. Nesse caso,
   // pagina a janela de dias visíveis (setas anterior/próximo) em vez de mostrar tudo — o
@@ -3481,10 +3497,19 @@ function GeralGrid({
                 </span>
               </th>
               <th
-                className="sticky left-[160px] z-30 bg-muted border border-border px-1.5 py-1.5 text-left font-medium min-w-[90px] cursor-pointer select-none hover:text-foreground"
-                onClick={() => toggleSort("unidade")}
+                className="sticky left-[160px] z-30 bg-muted border border-border px-1.5 py-1.5 text-left font-medium min-w-[120px] max-w-[120px] cursor-pointer select-none hover:text-foreground"
+                onClick={() => toggleSort("funcao")}
               >
-                <span className="inline-flex items-center gap-1">Unidade{sortIcon("unidade")}</span>
+                <span className="inline-flex items-center gap-1">Função{sortIcon("funcao")}</span>
+              </th>
+              <th
+                className="sticky left-[280px] z-30 bg-muted border border-border px-1.5 py-1.5 text-left font-medium min-w-[90px] max-w-[90px] cursor-pointer select-none hover:text-foreground"
+                onClick={() => toggleSort("bsp")}
+                title="BSP do embarque atual ou do último embarque"
+              >
+                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                  Última BSP{sortIcon("bsp")}
+                </span>
               </th>
               {visibleDates.map((d) => (
                 <th
@@ -3503,17 +3528,24 @@ function GeralGrid({
           <tbody>
             {sortedColaboradores.map((c) => {
               const cPeriodos = periodosByColaborador.get(c.id) ?? [];
-              const unidadeAtual = unidadeAtualDoColaborador(cPeriodos);
+              const funcao = funcaoDoColaborador(c);
+              const ultimaBsp = ultimaBspDoColaborador(cPeriodos);
               return (
                 <tr key={c.id} className="hover:bg-muted/40">
                   <td className="sticky left-0 z-10 bg-background border border-border px-2 py-0.5 font-medium truncate max-w-[160px]">
                     {c.nome}
                   </td>
                   <td
-                    className="sticky left-[160px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate max-w-[90px]"
-                    title={rotuloFiltroLugar ?? unidadeAtual ?? undefined}
+                    className="sticky left-[160px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate min-w-[120px] max-w-[120px]"
+                    title={funcao}
                   >
-                    {rotuloFiltroLugar ?? unidadeAtual ?? "—"}
+                    {funcao || "—"}
+                  </td>
+                  <td
+                    className="sticky left-[280px] z-10 bg-background border border-border px-1.5 py-0.5 text-muted-foreground truncate min-w-[90px] max-w-[90px]"
+                    title={ultimaBsp ?? undefined}
+                  >
+                    {ultimaBsp ?? "—"}
                   </td>
                   {visibleDates.map((d) => {
                     const result = computeDayStatus(cPeriodos, d);
@@ -3549,7 +3581,7 @@ function GeralGrid({
             })}
             {colaboradores.length === 0 && (
               <tr>
-                <td colSpan={2 + visibleDates.length}>
+                <td colSpan={3 + visibleDates.length}>
                   <EmptyState icon={Users} title="Nenhum colaborador com período neste intervalo" />
                 </td>
               </tr>

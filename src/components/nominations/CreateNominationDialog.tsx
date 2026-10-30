@@ -6,7 +6,8 @@ import { supabase as supabaseTyped } from "@/integrations/supabase/client";
 const supabase: any = supabaseTyped;
 import { useAuth } from "@/hooks/useAuth";
 import { useRascunho, RascunhoAviso } from "@/hooks/useRascunho";
-import { type Nomination, isSoldador, isInspetor } from "@/lib/nominations";
+import { type Nomination, isSoldador, isInspetor, camposEscopo } from "@/lib/nominations";
+import { SCOPE_BUCKET, SCOPE_DOCUMENT_TYPES, SeletorIes } from "@/components/nominations/DocumentosIes";
 import { notifyRequestCreated } from "@/lib/nominationEmails";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { selectAllPages } from "@/lib/supabasePaginate";
@@ -32,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Upload, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { useRegistrarLog } from "@/hooks/useActivityLog";
 
@@ -62,16 +63,15 @@ export async function currentAuthUserId(): Promise<string> {
 export interface FuncaoLinha {
   funcao: string;
   quantidade: string;
-  scopeFile: File | null;
+  // Soldador pode anexar várias IES (pedido dela, 2026-10-30).
+  scopeFiles: File[];
 }
 export function novaLinhaFuncao(): FuncaoLinha {
-  return { funcao: "", quantidade: "1", scopeFile: null };
+  return { funcao: "", quantidade: "1", scopeFiles: [] };
 }
 
-export const SCOPE_DOCUMENT_TYPES =
-  "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png";
+export { SCOPE_DOCUMENT_TYPES, SCOPE_BUCKET };
 const SCOPE_DOCUMENT_MAX_SIZE = 20 * 1024 * 1024;
-export const SCOPE_BUCKET = "nomeacoes-anexos";
 
 export async function uploadScopeDocument(file: File): Promise<{ path: string; name: string }> {
   if (!SCOPE_DOCUMENT_TYPES.split(",").includes(file.type)) {
@@ -203,7 +203,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       pmResponsavel, unidade, bsp, bspNova, start, end, client, notes, fixo, proximaTroca,
     },
     (v) => {
-      setLinhas(v.linhas.length ? v.linhas.map((l) => ({ ...l, scopeFile: null })) : [novaLinhaFuncao()]);
+      setLinhas(v.linhas.length ? v.linhas.map((l) => ({ ...l, scopeFiles: [] })) : [novaLinhaFuncao()]);
       setPmResponsavel(v.pmResponsavel); setUnidade(v.unidade); setBsp(v.bsp); setBspNova(v.bspNova);
       setStart(v.start); setEnd(v.end); setClient(v.client); setNotes(v.notes);
       setFixo(v.fixo); setProximaTroca(v.proximaTroca);
@@ -255,7 +255,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
       // escolhido em lista.
       for (const l of validas) {
         const isWelder = isSoldador(l.funcao);
-        const scopeDocument = l.scopeFile ? await uploadScopeDocument(l.scopeFile) : null;
+        const ies = isWelder ? await Promise.all(l.scopeFiles.map(uploadScopeDocument)) : [];
 
         const { data, error } = await supabase
           .from("nominations")
@@ -270,8 +270,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
             bsp: bsp.trim(),
             weld_type: null,
             weld_material: null,
-            scope_document_path: scopeDocument?.path ?? null,
-            scope_document_name: scopeDocument?.name ?? null,
+            ...camposEscopo(ies),
             period_start: start || null,
             period_end: end || null,
             project: null,
@@ -350,7 +349,7 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
                       <Label>Função *</Label>
                       <SearchableSelect
                         value={l.funcao}
-                        onValueChange={(v) => updateLinha(i, { funcao: v, scopeFile: null })}
+                        onValueChange={(v) => updateLinha(i, { funcao: v, scopeFiles: [] })}
                         options={funcaoOptions}
                         placeholder="Buscar função..."
                       />
@@ -378,26 +377,11 @@ export function CreateNominationDialog({ onClose }: { onClose: () => void }) {
                   </div>
 
                   {isWelder && (
-                    <div className="space-y-1">
-                      <Label className="text-xs">Escopo do serviço (PDF, Word, JPEG ou PNG)</Label>
-                      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
-                        <Upload className="h-3.5 w-3.5 shrink-0" />
-                        {l.scopeFile ? l.scopeFile.name : "Selecionar arquivo..."}
-                        <input
-                          type="file"
-                          accept={SCOPE_DOCUMENT_TYPES}
-                          className="hidden"
-                          onChange={(e) =>
-                            updateLinha(i, { scopeFile: e.target.files?.[0] ?? null })
-                          }
-                        />
-                      </label>
-                      <p className="text-[11px] text-muted-foreground">
-                        {l.scopeFile
-                          ? "A Qualidade avalia o tipo de solda a partir deste documento antes de aprovar."
-                          : `Sem documento? Descreva o tipo de serviço no campo Observações abaixo (indicando a função "${l.funcao}").`}
-                      </p>
-                    </div>
+                    <SeletorIes
+                      funcao={l.funcao}
+                      novos={l.scopeFiles}
+                      onNovosChange={(files) => updateLinha(i, { scopeFiles: files })}
+                    />
                   )}
                 </div>
               );
