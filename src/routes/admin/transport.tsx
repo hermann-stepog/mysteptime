@@ -363,6 +363,12 @@ function tripToRelatorioRow(
 // (generateRelatorioTransporte) e pelo relatório Consolidado (reports.tsx), que reúne Transporte
 // + Hospedagem + Passagens Aéreas num único arquivo sem repetir a consulta em outro lugar.
 export async function buscarLinhasRelatorioTransporte(dataInicio?: string, dataFim?: string) {
+  return (await buscarLinhasRelatorioTransporteComNf(dataInicio, dataFim)).map((l) => l.row);
+}
+
+// Mesma busca, devolvendo também a NF de cada viagem — usada só pelo relatório Consolidado,
+// para não acrescentar a coluna NF no relatório de Transporte sozinho.
+export async function buscarLinhasRelatorioTransporteComNf(dataInicio?: string, dataFim?: string) {
   // Sem paginação aqui, o PostgREST corta em 1000 linhas e some com o resto silenciosamente
   // (mesmo motivo de selectAllPages em useTransportData) — um período maior de Transporte
   // sozinho já passa disso, e o relatório Consolidado (3 módulos juntos) passa ainda mais fácil.
@@ -389,7 +395,10 @@ export async function buscarLinhasRelatorioTransporte(dataInicio?: string, dataF
   const collabsById = new Map(((collabs ?? []) as Collaborator[]).map((c) => [c.id, c]));
   const materialsById = new Map(((materials ?? []) as Material[]).map((m) => [m.id, m]));
 
-  return trips.map((t) => tripToRelatorioRow(t, tagsById, collabsById, materialsById));
+  return trips.map((t) => ({
+    row: tripToRelatorioRow(t, tagsById, collabsById, materialsById),
+    nf: t.nf?.trim() || "",
+  }));
 }
 
 // Exportação de todas as viagens — usada pelo módulo de Relatórios (card "Transporte").
